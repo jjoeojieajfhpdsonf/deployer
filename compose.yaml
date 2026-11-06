@@ -1,0 +1,154 @@
+name: deployer
+
+x-logging: &logging
+  # Feste Rotation, siehe SPEC: ohne Groessenlimit fuellen Container-Logs
+  # unbemerkt die Platte.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: deployer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt (siehe .env.example)}
+      POSTGRES_DB: deployer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deployer -d deployer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  socket-proxy:
+    # Einzige Tuer zur Docker-API. ACHTUNG: Der Proxy filtert Endpunkte,
+    # nicht Nutzlasten - er verhindert keinen Root-Zugriff. Die eigentliche
+    # Schranke ist die Erlaubnisliste in packages/api/src/drivers/docker.ts.
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      INFO: 1
+      VERSION: 1
+      POST: 1
+      # Ausdruecklich aus:
+      EXEC: 0
+      BUILD: 0
+      SWARM: 0
+      SECRETS: 0
+      SYSTEM: 0
+      AUTH: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      TASKS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    container_name: deployer-caddy
+    # --resume: nach einem Neustart von Caddy allein die zuletzt vom deployer
+    # geladene Konfiguration (autosave.json) wiederherstellen. Ohne das laedt
+    # Caddy nur das Bootstrap-Caddyfile, und alle Projekt-Routen fehlen, bis
+    # der deployer selbst neu startet. Beim allerersten Start gibt es noch
+    # keine Sicherung; dann gilt das Caddyfile.
+    command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      # Admin-Socket. Kein TCP :2019 - siehe docs/MILESTONE-1.md.
+      - caddy_admin:/run/caddy
+      - sites:/srv/sites:ro
+    networks:
+      edge:
+        # Caddy wird zur Laufzeit in Projekt-Netze (dep_*) gehaengt. Bei
+        # gleicher Prioritaet waehlt Docker das alphabetisch erste Netz als
+        # Gateway - "dep_" sortiert vor "deployer_edge". Dann laeuft Caddys
+        # Standardroute durch das Projekt-Netz, und beim Trennen reisst die
+        # Port-Veroeffentlichung von :80 ab. Die hohe Prioritaet haelt das
+        # Gateway fest auf edge.
+        gw_priority: 100
+
+  deployer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    container_name: deployer-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      caddy:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgres://deployer:${POSTGRES_PASSWORD}@postgres:5432/deployer
+      DOCKER_HOST: tcp://socket-proxy:2375
+      CADDY_ADMIN_SOCKET: /run/caddy/admin.sock
+      DATA_DIR: /data
+      SITES_DIR: /srv/sites
+      DEPLOYER_CONTAINER: deployer-app
+      CADDY_CONTAINER: deployer-caddy
+      DEPLOYER_UPSTREAM: deployer-app:3000
+      INTERNAL_BASE_DOMAIN: ${INTERNAL_BASE_DOMAIN:-}
+      SERVER_LAN_IP: ${SERVER_LAN_IP:-}
+      NIPIO_FALLBACK: ${NIPIO_FALLBACK:-on}
+      CADDY_IP_FILTER: ${CADDY_IP_FILTER:-on}
+      LAN_CIDR: ${LAN_CIDR:-192.168.1.0/24}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD fehlt (siehe .env.example)}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      DEFAULT_CPU_LIMIT: ${DEFAULT_CPU_LIMIT:-1}
+      DEFAULT_MEMORY_LIMIT_MB: ${DEFAULT_MEMORY_LIMIT_MB:-512}
+    volumes:
+      - caddy_admin:/run/caddy
+      - sites:/srv/sites
+      - deployer_data:/data
+    networks:
+      internal: {}
+      edge:
+        # Wie bei Caddy: der deployer haengt sich fuer den Healthcheck kurz in
+        # Projekt-Netze. Sein Gateway soll dabei nicht dorthin wandern.
+        gw_priority: 100
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+networks:
+  internal:
+    name: deployer_internal
+    internal: true
+  edge:
+    name: deployer_edge
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  caddy_admin:
+  sites:
+  deployer_data:

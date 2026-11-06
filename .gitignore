@@ -1,0 +1,19 @@
+node_modules/
+dist/
+data/
+*.log
+.DS_Store
+
+# Lokale Umgebung: enthält Passwörter, nie einchecken.
+.env
+
+# Arbeitsdateien von Tests und Skripten (innerhalb des Projektordners).
+.tmp/
+
+# Installierte Skills lassen sich aus skills-lock.json wiederherstellen,
+# wie node_modules aus dem Lockfile. Eingecheckt wird nur das Lockfile.
+.agents/
+.claude/skills/
+
+# Lokale Werkzeug-Einstellungen.
+*.local.json

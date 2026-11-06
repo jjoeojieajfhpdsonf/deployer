@@ -1,0 +1,11 @@
+packages:
+  - 'packages/*'
+
+# esbuild wird von tsx gebraucht. Die uebrigen sind optionale native Teile von
+# dockerode/ssh2, die deployer nicht nutzt (kein SSH-Transport zur Docker-API,
+# der Weg geht ueber den Socket-Proxy).
+allowBuilds:
+  esbuild: true
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

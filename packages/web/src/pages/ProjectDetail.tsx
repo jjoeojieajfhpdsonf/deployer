@@ -1,0 +1,307 @@
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useParams } from 'react-router-dom'
+import { api, ApiError, subscribeLogs } from '../api.js'
+import { StatusBadge, relativeTime, duration } from '../components/Status.js'
+import { DeployProgress } from '../components/DeployProgress.js'
+import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
+
+type Tab = 'uebersicht' | 'deployments' | 'logs' | 'einstellungen'
+
+export function ProjectDetail() {
+  const { id = '' } = useParams()
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<Tab>('uebersicht')
+  const [watching, setWatching] = useState<string | null>(null)
+
+  const q = useQuery({
+    queryKey: ['project', id],
+    queryFn: () => api.getProject(id),
+    refetchInterval: watching ? false : 5_000,
+  })
+
+  const act = useMutation({
+    mutationFn: async (what: 'deploy' | 'start' | 'stop') => {
+      if (what === 'deploy') return api.deploy(id)
+      if (what === 'start') return api.start(id)
+      return api.stop(id)
+    },
+    onSuccess: (res) => {
+      const dep = (res as { deployment?: { id: string } } | undefined)?.deployment
+      if (dep) {
+        setWatching(dep.id)
+        setTab('uebersicht')
+      }
+      void qc.invalidateQueries({ queryKey: ['project', id] })
+    },
+  })
+
+  if (q.isLoading) return <p className="state state-loading">Projekt wird geladen…</p>
+  if (q.isError) return <p className="state state-error" role="alert">Projekt nicht gefunden.</p>
+
+  const p = q.data!.project
+  const env = q.data!.env
+
+  return (
+    <section className="page page-project">
+      <header className="page-header">
+        <div>
+          <h1>{p.name}</h1>
+          <StatusBadge status={p.status} />
+        </div>
+        <div className="project-actions">
+          <button onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
+            Neu deployen
+          </button>
+          {p.desiredState === 'running' ? (
+            <button onClick={() => act.mutate('stop')} disabled={act.isPending}>Stoppen</button>
+          ) : (
+            <button onClick={() => act.mutate('start')} disabled={act.isPending}>Starten</button>
+          )}
+        </div>
+      </header>
+
+      {act.isError && (
+        <p role="alert" className="error">
+          {act.error instanceof ApiError && act.error.status === 409
+            ? 'Für dieses Projekt läuft bereits ein Deploy.'
+            : (act.error as Error).message}
+        </p>
+      )}
+
+      <nav className="tabs" role="tablist">
+        {([
+          ['uebersicht', 'Übersicht'],
+          ['deployments', 'Deployments'],
+          ['logs', 'Logs'],
+          ['einstellungen', 'Einstellungen'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? 'tab tab-active' : 'tab'}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'uebersicht' && (
+        <div className="tab-panel">
+          {watching && (
+            <DeployProgress
+              deploymentId={watching}
+              onFinished={() => {
+                setWatching(null)
+                void qc.invalidateQueries({ queryKey: ['project', id] })
+              }}
+            />
+          )}
+
+          <dl className="facts">
+            <dt>Adressen</dt>
+            <dd>
+              {p.routes.length === 0 ? (
+                <span className="muted">keine</span>
+              ) : (
+                <ul className="url-list">
+                  {p.routes.flatMap((r) => r.urls).map((u) => (
+                    <li key={u}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+
+            <dt>Quelle</dt>
+            <dd>
+              {p.sourceType === 'image'
+                ? <code>{(p.source as { image?: string } | null)?.image ?? '–'}</code>
+                : 'statische Seite'}
+            </dd>
+
+            <dt>Aktive Fassung</dt>
+            <dd>
+              {p.activeDeployment
+                ? <><code className="version">{p.activeDeployment.version ?? '–'}</code>{' '}
+                   <span className="muted">({relativeTime(p.activeDeployment.startedAt)})</span></>
+                : <span className="muted">keine</span>}
+            </dd>
+
+            <dt>Grenzen</dt>
+            <dd>{p.cpuLimit} CPU, {p.memoryLimitMb} MB</dd>
+
+            {p.runsAsRoot && (
+              <>
+                <dt>Hinweis</dt>
+                <dd className="warn">Der Container läuft als root. Erlaubt, aber vermeidbar.</dd>
+              </>
+            )}
+          </dl>
+        </div>
+      )}
+
+      {tab === 'deployments' && <Deployments projectId={id} />}
+      {tab === 'logs' && <LiveLogs projectId={id} />}
+      {tab === 'einstellungen' && (
+        <Settings
+          projectId={id}
+          slug={p.slug}
+          env={env}
+          onDeleted={() => navigate('/projekte')}
+        />
+      )}
+    </section>
+  )
+}
+
+/* --- Deployments ----------------------------------------------------------- */
+
+function Deployments({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId) })
+  const detail = useQuery({
+    queryKey: ['deployment', open],
+    queryFn: () => api.getDeployment(open!),
+    enabled: open !== null,
+  })
+
+  if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
+  const rows = list.data?.deployments ?? []
+  if (rows.length === 0) return <p className="state state-empty">Noch kein Deployment.</p>
+
+  return (
+    <div className="tab-panel">
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr><th>Start</th><th>Version</th><th>Dauer</th><th>Ergebnis</th><th /></tr>
+          </thead>
+          <tbody>
+            {rows.map((d) => (
+              <tr key={d.id} className={d.status === 'failed' ? 'row-error' : undefined}>
+                <td>{new Date(d.startedAt).toLocaleString('de-CH')}</td>
+                <td><code className="version">{d.version ?? '–'}</code></td>
+                <td>{duration(d.durationMs)}</td>
+                <td>{d.isActive ? 'aktiv' : d.status}</td>
+                <td>
+                  <button onClick={() => setOpen(open === d.id ? null : d.id)}>
+                    {open === d.id ? 'Log schliessen' : 'Log'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {open && (
+        <pre className="log" aria-label="Deployment-Log">
+          {detail.isLoading ? 'Log wird geladen…' : detail.data?.log || 'Kein Log vorhanden.'}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+/* --- Live-Logs --------------------------------------------------------------- */
+
+function LiveLogs({ projectId }: { projectId: string }) {
+  const [lines, setLines] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const ref = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    setLines([])
+    setError(null)
+    void api
+      .getLogs(projectId, 200)
+      .then((r) => setLines(r.logs ? r.logs.split('\n') : r.hint ? [r.hint] : []))
+      .catch((e: Error) => setError(e.message))
+    return subscribeLogs(projectId, (line) => setLines((l) => [...l.slice(-1000), line]))
+  }, [projectId])
+
+  useEffect(() => {
+    ref.current?.scrollTo({ top: ref.current.scrollHeight })
+  }, [lines])
+
+  if (error) return <p className="state state-error" role="alert">{error}</p>
+
+  return (
+    <div className="tab-panel">
+      <pre className="log log-tall" ref={ref} aria-label="Container-Log">
+        {lines.join('\n') || 'Noch keine Ausgabe…'}
+      </pre>
+    </div>
+  )
+}
+
+/* --- Einstellungen ----------------------------------------------------------- */
+
+function Settings({
+  projectId, slug, env, onDeleted,
+}: {
+  projectId: string
+  slug: string
+  env: { key: string; value: string | null; isSecret: boolean }[]
+  onDeleted: () => void
+}) {
+  const qc = useQueryClient()
+  const [rows, setRows] = useState<EnvRow[]>(
+    env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true })),
+  )
+  const [confirm, setConfirm] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.putEnv(projectId, rows.filter((r) => r.key).map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))),
+    onSuccess: () => {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+      void qc.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+  })
+
+  const remove = useMutation({
+    mutationFn: () => api.deleteProject(projectId),
+    onSuccess: onDeleted,
+  })
+
+  return (
+    <div className="tab-panel">
+      <EnvEditor rows={rows} onChange={setRows} />
+      <div className="form-actions">
+        <button onClick={() => save.mutate()} disabled={save.isPending}>
+          {save.isPending ? 'Wird gespeichert…' : saved ? 'Gespeichert' : 'Variablen speichern'}
+        </button>
+        <span className="hint">Wirksam beim nächsten Deploy.</span>
+      </div>
+      {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
+
+      <section className="danger-zone">
+        <h2>Projekt löschen</h2>
+        <p>
+          Entfernt Container, Netz, Route und Dateien. Lässt sich nicht rückgängig machen.
+          Tippe zur Bestätigung <code>{slug}</code> ein.
+        </p>
+        <input
+          aria-label="Slug zur Bestätigung"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder={slug}
+        />
+        <button
+          className="button-danger"
+          disabled={confirm !== slug || remove.isPending}
+          onClick={() => remove.mutate()}
+        >
+          {remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}
+        </button>
+        {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
+      </section>
+    </div>
+  )
+}

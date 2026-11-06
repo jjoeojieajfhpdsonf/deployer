@@ -1,0 +1,20 @@
+{
+  "name": "deployer",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @deployer/api dev",
+    "dev:web": "pnpm --filter @deployer/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "up": "docker compose up -d --build",
+    "down": "docker compose down",
+    "logs": "docker compose logs -f deployer",
+    "ip": "node -e \"const n=require('os').networkInterfaces();for(const[k,v]of Object.entries(n))for(const a of v||[])if(a.family==='IPv4'&&!a.internal&&!/^172\\.(1[6-9]|2\\d|3[01])\\./.test(a.address))console.log(k,a.address)\""
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

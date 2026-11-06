@@ -1,0 +1,68 @@
+import * as docker from '../drivers/docker.js'
+import { findProject, setDesiredState, setStatus } from './projects.js'
+import { activeDeployment } from './deployments.js'
+import { reconcileCaddy } from './routes.js'
+import { audit } from './audit.js'
+import { startDeploy } from '../deploy/pipeline.js'
+import { log } from '../lib/log.js'
+import type { DeploymentDto } from '@deployer/shared'
+
+/**
+ * Start und Stopp setzen zuerst desired_state und fuehren dann aus. Nach
+ * einem Serverneustart ist damit unterscheidbar, ob ein Container gewollt
+ * gestoppt oder abgestuerzt ist (siehe jobs/reconcile.ts).
+ */
+
+export async function startProject(
+  idOrSlug: string,
+  actor: string,
+): Promise<{ started: boolean; deployment?: DeploymentDto }> {
+  const project = await findProject(idOrSlug)
+  await setDesiredState(project.id, 'running')
+
+  const active = await activeDeployment(project.id)
+
+  // Statische Seiten haben keinen Container; es reicht die Route.
+  if (project.sourceType === 'static') {
+    if (!active) {
+      const deployment = await startDeploy(project.id, actor)
+      return { started: true, deployment }
+    }
+    await setStatus(project.id, 'running')
+    await reconcileCaddy()
+    await audit({ actor, action: 'project.start', targetType: 'project', targetId: project.id, result: 'ok' })
+    return { started: true }
+  }
+
+  // Kein Container mehr da (z.B. nach einem Aufräumen): neu deployen.
+  const state = active?.containerId ? await docker.inspectContainer(active.containerId) : null
+  if (!active || !state) {
+    const deployment = await startDeploy(project.id, actor)
+    return { started: true, deployment }
+  }
+
+  if (!state.running) await docker.startContainer(active.containerId!)
+  await setStatus(project.id, 'running')
+  await reconcileCaddy()
+  await audit({ actor, action: 'project.start', targetType: 'project', targetId: project.id, result: 'ok' })
+  log.info('Projekt gestartet', { slug: project.slug })
+  return { started: true }
+}
+
+export async function stopProject(idOrSlug: string, actor: string): Promise<void> {
+  const project = await findProject(idOrSlug)
+  await setDesiredState(project.id, 'stopped')
+
+  const managed = await docker.listManagedContainers()
+  for (const c of managed) {
+    if (c.labels[docker.LABEL_PROJECT] === project.slug && c.running) {
+      await docker.stopContainer(c.id)
+    }
+  }
+
+  await setStatus(project.id, 'stopped')
+  // Route verschwindet, statt in einen toten Upstream zu zeigen.
+  await reconcileCaddy()
+  await audit({ actor, action: 'project.stop', targetType: 'project', targetId: project.id, result: 'ok' })
+  log.info('Projekt gestoppt', { slug: project.slug })
+}

@@ -1,0 +1,111 @@
+import {
+  pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
+  numeric, bigserial, bigint, uniqueIndex, index, customType,
+} from 'drizzle-orm/pg-core'
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
+})
+
+export const sourceTypeEnum = pgEnum('source_type', ['image', 'static', 'dockerfile', 'compose', 'files'])
+export const projectStatusEnum = pgEnum('project_status', ['created', 'deploying', 'running', 'stopped', 'failed'])
+export const desiredStateEnum = pgEnum('desired_state', ['running', 'stopped'])
+export const deploymentStatusEnum = pgEnum('deployment_status', [
+  'pending', 'pulling', 'starting', 'healthchecking', 'active', 'failed', 'superseded', 'rolled_back',
+])
+export const routeTargetEnum = pgEnum('route_target', ['public', 'lan', 'tailnet'])
+export const auditResultEnum = pgEnum('audit_result', ['ok', 'error'])
+
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  sourceType: sourceTypeEnum('source_type').notNull(),
+  sourceConfig: jsonb('source_config').notNull().default({}),
+  port: integer('port'),
+  healthcheckPath: text('healthcheck_path').notNull().default('/'),
+  status: projectStatusEnum('status').notNull().default('created'),
+  desiredState: desiredStateEnum('desired_state').notNull().default('stopped'),
+  keep: boolean('keep').notNull().default(false),
+  cpuLimit: numeric('cpu_limit', { precision: 4, scale: 2 }).notNull().default('1'),
+  memoryLimitMb: integer('memory_limit_mb').notNull().default(512),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const deployments = pgTable(
+  'deployments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    version: text('version'),
+    sourceRef: text('source_ref'),
+    status: deploymentStatusEnum('status').notNull().default('pending'),
+    errorMessage: text('error_message'),
+    containerId: text('container_id'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    logRef: text('log_ref'),
+    isActive: boolean('is_active').notNull().default(false),
+  },
+  (t) => [index('deployments_project_started').on(t.projectId, t.startedAt)],
+)
+
+export const routes = pgTable(
+  'routes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    target: routeTargetEnum('target').notNull(),
+    hostname: text('hostname').notNull().unique(),
+    cfDnsRecordId: text('cf_dns_record_id'),
+    accessProtected: boolean('access_protected').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('routes_project_target').on(t.projectId, t.target)],
+)
+
+export const projectEnv = pgTable(
+  'project_env',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    isSecret: boolean('is_secret').notNull().default(false),
+    value: text('value'),
+    valueEncrypted: bytea('value_encrypted'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('project_env_project_key').on(t.projectId, t.key)],
+)
+
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    actor: text('actor').notNull(),
+    action: text('action').notNull(),
+    targetType: text('target_type'),
+    targetId: text('target_id'),
+    paramsMasked: jsonb('params_masked').notNull().default({}),
+    result: auditResultEnum('result').notNull(),
+    error: text('error'),
+  },
+  (t) => [index('audit_events_at').on(t.at)],
+)
+
+export const uploads = pgTable('uploads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  filename: text('filename').notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+  sha256: text('sha256').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+})
+
+export const appSettings = pgTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})

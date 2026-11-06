@@ -1,0 +1,17 @@
+# Nur das Noetigste, damit Caddy startet und der deployer uebernehmen kann.
+# Die gesamte Routing-Konfiguration wird zur Laufzeit ueber die Admin-API
+# geladen (POST /load), gebaut aus der Datenbank. Siehe docs/MILESTONE-1.md:
+# "Die Datenbank ist die Wahrheit, Caddys Zustand ist abgeleitet."
+{
+	# Admin-API ausschliesslich ueber Unix-Socket, niemals TCP :2019.
+	# Caddy haengt dynamisch in Projekt-Netzen; ein offener TCP-Admin waere
+	# dort fuer jeden deployten Container erreichbar und ist unauthentifiziert.
+	admin unix//run/caddy/admin.sock
+
+	# Kein TLS in M1 (Entscheidung: Zertifikate ab M4).
+	auto_https off
+}
+
+:80 {
+	respond "deployer startet noch nicht konfiguriert" 503
+}
