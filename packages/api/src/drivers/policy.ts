@@ -34,6 +34,11 @@ export const ALLOWED_CREATE_FIELDS = [
   'Hostname',
   'HostConfig',
   'NetworkingConfig',
+  // M2: fuer Wegwerf-Container (statischer Build). Beruehren den Host nicht.
+  'Cmd',
+  'Entrypoint',
+  'WorkingDir',
+  'User',
 ] as const
 
 export const PROJECT_NETWORK_RE = /^dep_[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/
@@ -84,6 +89,21 @@ export function assertCreatePolicy(
     }
   }
 
+  for (const key of ['Cmd', 'Entrypoint'] as const) {
+    const v = options[key]
+    if (v !== undefined && (!Array.isArray(v) || v.some((e) => typeof e !== 'string'))) {
+      fail(`create.${key.toLowerCase()}`, `${key} muss ein Array von Strings sein`)
+    }
+  }
+  if (options.WorkingDir !== undefined) {
+    if (typeof options.WorkingDir !== 'string' || !options.WorkingDir.startsWith('/')) {
+      fail('create.workingdir', 'WorkingDir muss ein absoluter Pfad sein')
+    }
+  }
+  if (options.User !== undefined && typeof options.User !== 'string') {
+    fail('create.user', 'User muss ein String sein')
+  }
+
   const hostConfig = options.HostConfig
   if (!isPlainObject(hostConfig)) fail('hostconfig.missing', 'HostConfig fehlt')
   assertHostConfigPolicy(hostConfig, expectedNetwork)
@@ -130,9 +150,11 @@ export function assertHostConfigPolicy(
   }
 
   // --- RestartPolicy -------------------------------------------------------
+  // "no" fuer Wegwerf-Container (Build): mit unless-stopped startete ein
+  // beendeter Build endlos neu. "no" ist strikt weniger, nie mehr.
   const rp = hostConfig.RestartPolicy
-  if (!isPlainObject(rp) || rp.Name !== 'unless-stopped') {
-    fail('hostconfig.restartpolicy', 'RestartPolicy muss { Name: "unless-stopped" } sein')
+  if (!isPlainObject(rp) || (rp.Name !== 'unless-stopped' && rp.Name !== 'no')) {
+    fail('hostconfig.restartpolicy', 'RestartPolicy muss "unless-stopped" oder "no" sein')
   }
   for (const k of Object.keys(rp)) {
     if (k !== 'Name' && k !== 'MaximumRetryCount') {

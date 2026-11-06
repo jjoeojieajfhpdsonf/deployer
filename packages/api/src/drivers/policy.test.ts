@@ -42,6 +42,26 @@ describe('Richtlinienprüfung: gültige Nutzlast', () => {
     assert.doesNotThrow(() => assertCreatePolicy(goodCreate(), NET))
   })
 
+  test('erlaubt Cmd, WorkingDir und User für Wegwerf-Container (M2)', () => {
+    const o = goodCreate()
+    o.Cmd = ['sh', '-c', 'npm ci && npm run build']
+    o.WorkingDir = '/work'
+    o.User = 'node'
+    assert.doesNotThrow(() => assertCreatePolicy(o, NET))
+  })
+
+  test('Cmd muss ein String-Array sein', () => {
+    const o = goodCreate()
+    o.Cmd = 'npm run build'
+    rejects(() => assertCreatePolicy(o, NET), 'create.cmd')
+  })
+
+  test('WorkingDir muss absolut sein', () => {
+    const o = goodCreate()
+    o.WorkingDir = 'work'
+    rejects(() => assertCreatePolicy(o, NET), 'create.workingdir')
+  })
+
   test('erlaubt ein benanntes Volume des Projekts', () => {
     const o = goodCreate()
     ;(o.HostConfig as Record<string, unknown>).Mounts = [
@@ -153,6 +173,12 @@ describe('Pflichtwerte', () => {
     const hc = goodHostConfig()
     hc.Memory = 0
     rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.memory')
+  })
+
+  test('RestartPolicy "no" ist für Wegwerf-Container zulässig (M2)', () => {
+    const hc = goodHostConfig()
+    hc.RestartPolicy = { Name: 'no' }
+    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET))
   })
 
   test('RestartPolicy always ist nicht zulässig', () => {

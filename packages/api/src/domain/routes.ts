@@ -97,6 +97,8 @@ interface RouteRow {
   sourceType: string
   port: number | null
   deploymentId: string | null
+  /** compose: Name des Web-Containers aus dem Artefakt */
+  webContainer: string | null
 }
 
 async function currentRouteRows(): Promise<RouteRow[]> {
@@ -109,6 +111,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       status: schema.projects.status,
       desiredState: schema.projects.desiredState,
       deploymentId: schema.deployments.id,
+      artifact: schema.deployments.artifact,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -128,7 +131,14 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       sourceType: r.sourceType,
       port: r.port,
       deploymentId: r.deploymentId,
+      webContainer: r.artifact?.webContainer ?? null,
     }))
+}
+
+/** Container, an den Caddy den Verkehr eines Projekts gibt. */
+export function upstreamHost(r: { sourceType: string; slug: string; deploymentId: string; webContainer: string | null }): string {
+  if (r.sourceType === 'compose' && r.webContainer) return r.webContainer
+  return docker.containerName(r.slug, r.deploymentId)
 }
 
 export function siteRootFor(slug: string): string {
@@ -154,7 +164,7 @@ export async function buildRouteSpecs(): Promise<caddy.RouteSpec[]> {
       specs.push({
         hosts,
         kind: 'proxy',
-        upstream: `${docker.containerName(r.slug, r.deploymentId)}:${r.port}`,
+        upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId })}:${r.port}`,
       })
     }
   }

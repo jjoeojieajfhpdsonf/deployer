@@ -7,6 +7,13 @@ import { config } from '../../config.js'
 import { extractZipSafely } from '../../lib/unzip.js'
 import { appendLine } from '../journal.js'
 import { badRequest } from '../../lib/errors.js'
+import { createHash } from 'node:crypto'
+import { extractTarSafely } from '../../lib/untar.js'
+import { resolveInRepo } from '../../lib/repo-files.js'
+import { resolvePublicEnv } from '../../domain/env.js'
+import { runStaticBuild } from '../build-container.js'
+import { packDir } from '../workdir.js'
+import { cloneForDeployment } from './repo.js'
 
 type Project = typeof schema.projects.$inferSelect
 
@@ -31,8 +38,10 @@ export function uploadPath(uploadId: string): string {
 export async function prepareStatic(
   project: Project,
   deploymentId: string,
+  ref?: string,
 ): Promise<{ version: string }> {
-  const cfg = project.sourceConfig as { uploadId?: string }
+  const cfg = project.sourceConfig as StaticConfig
+  if (cfg.repoUrl) return prepareStaticFromRepo(project, deploymentId, cfg, ref)
   if (!cfg.uploadId) throw badRequest('Dem Projekt fehlt ein Upload')
 
   const rows = await db.select().from(schema.uploads).where(eq(schema.uploads.id, cfg.uploadId)).limit(1)
@@ -73,6 +82,83 @@ export async function prepareStatic(
 }
 
 /**
+ * Gleicher Commit, gleicher Build, gleiche Env ergibt dieselbe Fassung –
+ * dann wird der fertige Ordner wiederverwendet. Die Env gehört dazu, weil
+ * Build-Werkzeuge sie ins Bundle backen (z.B. VITE_API_URL). Ohne Build
+ * spielt sie keine Rolle.
+ */
+export function staticVersionHash(o: {
+  commit: string
+  buildCommand?: string
+  outputDir: string
+  env: Record<string, string>
+}): string {
+  const envPart = o.buildCommand
+    ? Object.keys(o.env).sort().map((k) => `${k}=${o.env[k]}`).join('\0')
+    : ''
+  return createHash('sha256')
+    .update(`${o.commit}\0${o.buildCommand ?? ''}\0${o.outputDir}\0${envPart}`)
+    .digest('hex')
+    .slice(0, 16)
+}
+
+interface StaticConfig {
+  uploadId?: string
+  repoUrl?: string
+  ref?: string
+  buildCommand?: string
+  outputDir?: string
+}
+
+/**
+ * M2: statische Seite aus einem Repo, mit oder ohne Build. Ohne Build wird
+ * der Ausgabeordner direkt übernommen – ebenfalls über die sichere
+ * Tar-Strecke, damit kein Symlink und kein .git mitkommt.
+ */
+async function prepareStaticFromRepo(
+  project: Project,
+  deploymentId: string,
+  cfg: StaticConfig,
+  ref?: string,
+): Promise<{ version: string }> {
+  const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl!, ref ?? cfg.ref)
+  const outputDir = cfg.outputDir ?? (cfg.buildCommand ? 'dist' : '.')
+  const env = cfg.buildCommand ? await resolvePublicEnv(project.id) : {}
+  const version = staticVersionHash({ commit, buildCommand: cfg.buildCommand, outputDir, env })
+  const finalDir = join(siteDir(project.slug), version)
+  if (existsSync(finalDir)) {
+    appendLine(deploymentId, `Fassung ${version} (Commit ${commit.slice(0, 12)}) liegt schon bereit`)
+    return { version }
+  }
+
+  const tmpDir = join(siteDir(project.slug), `.tmp-${deploymentId}`)
+  await rm(tmpDir, { recursive: true, force: true })
+  await mkdir(siteDir(project.slug), { recursive: true })
+  try {
+    if (cfg.buildCommand) {
+      await runStaticBuild({
+        slug: project.slug,
+        deploymentId,
+        repoDir: dir,
+        buildCommand: cfg.buildCommand,
+        outputDir,
+        env,
+        destDir: tmpDir,
+      })
+    } else {
+      const src = await resolveInRepo(dir, outputDir)
+      const res = await extractTarSafely(await packDir(src), tmpDir)
+      appendLine(deploymentId, `${res.files} Dateien übernommen`)
+    }
+    await rename(tmpDir, finalDir)
+  } catch (err) {
+    await rm(tmpDir, { recursive: true, force: true })
+    throw err
+  }
+  return { version }
+}
+
+/**
  * Haengt den Symlink "current" auf die neue Fassung um. Das ist das
  * Umschalten: ein rename ist atomar, es gibt keinen Moment ohne Seite.
  */
@@ -90,10 +176,25 @@ export async function activateStatic(
   await rename(tmpLink, link)
   appendLine(deploymentId, `current zeigt jetzt auf ${version}`)
 
-  await pruneVersionDirs(project.slug, version)
+  await pruneVersionDirs(project.id, project.slug, version)
 }
 
-async function pruneVersionDirs(slug: string, keepVersion: string): Promise<void> {
+/**
+ * Löscht Versionsordner jenseits der letzten KEEP_VERSION_DIRS – aber nie
+ * einen, auf den noch ein Deployment-Eintrag verweist: der ist ein
+ * mögliches Rollback-Ziel.
+ */
+async function pruneVersionDirs(projectId: string, slug: string, keepVersion: string): Promise<void> {
+  const referenced = new Set<string>()
+  const rows = await db
+    .select({ version: schema.deployments.version, artifact: schema.deployments.artifact })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.projectId, projectId))
+  for (const r of rows) {
+    const v = r.artifact?.siteVersion ?? r.version
+    if (v) referenced.add(v)
+  }
+
   const base = siteDir(slug)
   let entries: string[]
   try {
@@ -114,7 +215,7 @@ async function pruneVersionDirs(slug: string, keepVersion: string): Promise<void
 
   dirs.sort((a, b) => b.mtime - a.mtime)
   for (const d of dirs.slice(KEEP_VERSION_DIRS)) {
-    if (d.name === keepVersion) continue
+    if (d.name === keepVersion || referenced.has(d.name)) continue
     await rm(join(base, d.name), { recursive: true, force: true })
   }
 }

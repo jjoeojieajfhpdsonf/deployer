@@ -35,8 +35,10 @@ export function slugify(name: string): string {
 
 export const sourceTypes = ['image', 'static', 'dockerfile', 'compose', 'files'] as const
 export type SourceType = (typeof sourceTypes)[number]
-/** In M1 umgesetzt; der Rest kommt mit M2/M3. */
+/** In M1 umgesetzt. */
 export const sourceTypesM1 = ['image', 'static'] as const
+/** Seit M2 umgesetzt; `files` kommt mit M3. */
+export const sourceTypesSupported = ['image', 'static', 'dockerfile', 'compose'] as const
 
 export const projectStatuses = ['created', 'deploying', 'running', 'stopped', 'failed'] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
@@ -74,13 +76,91 @@ export const imageSourceSchema = z.object({
   image: imageRefSchema,
 })
 
+/**
+ * Repo-URL. Hier nur die Form; welche Schemata und Ziele erlaubt sind, prüft
+ * der Server (lib/git.ts), weil dafür DNS-Auflösung nötig ist.
+ */
+export const repoUrlSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .regex(/^https?:\/\/[^\s]+$/i, 'Nur https:// oder http:// Repo-URLs')
+
+/** Branch, Tag oder Commit. Nie mit "-" am Anfang (sonst eine Git-Option). */
+export const gitRefSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/, 'Ungültiger Branch, Tag oder Commit')
+  .refine((v) => !v.includes('..'), 'Ungültiger Branch, Tag oder Commit')
+
+/** Pfad innerhalb eines Repos; ob er drin bleibt, prüft der Server am aufgelösten Pfad. */
+export const repoPathSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((v) => !v.includes('\0') && !v.startsWith('/') && !v.includes('\\'), 'Nur relative Pfade im Repo')
+
 export const staticSourceSchema = z.object({
   type: z.literal('static'),
-  uploadId: z.string().uuid(),
+  /** Entweder ein hochgeladenes ZIP ... */
+  uploadId: z.string().uuid().optional(),
+  /** ... oder ein Repo, optional mit Build im Wegwerf-Container. */
+  repoUrl: repoUrlSchema.optional(),
+  ref: gitRefSchema.optional(),
+  buildCommand: z.string().min(1).max(500).optional(),
+  outputDir: repoPathSchema.optional(),
 })
 
-export const sourceSchema = z.discriminatedUnion('type', [imageSourceSchema, staticSourceSchema])
+export const dockerfileSourceSchema = z.object({
+  type: z.literal('dockerfile'),
+  repoUrl: repoUrlSchema,
+  ref: gitRefSchema.optional(),
+  dockerfile: repoPathSchema.default('Dockerfile'),
+  context: repoPathSchema.default('.'),
+})
+
+export const COMPOSE_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/
+
+export const composeSourceSchema = z.object({
+  type: z.literal('compose'),
+  /** Entweder ein Repo ... */
+  repoUrl: repoUrlSchema.optional(),
+  ref: gitRefSchema.optional(),
+  composePath: repoPathSchema.default('compose.yaml'),
+  /** ... oder eine hochgeladene compose.yaml. */
+  uploadId: z.string().uuid().optional(),
+  /** Dienst, der den Web-Verkehr bekommt. */
+  webService: z.string().regex(COMPOSE_SERVICE_RE, 'Ungültiger Dienstname'),
+})
+
+export const sourceSchema = z.discriminatedUnion('type', [
+  imageSourceSchema,
+  staticSourceSchema,
+  dockerfileSourceSchema,
+  composeSourceSchema,
+])
 export type Source = z.infer<typeof sourceSchema>
+
+/** Querbezüge, die ein einzelnes Feld nicht ausdrücken kann. */
+export function sourceIssues(s: Source): { path: string[]; message: string }[] {
+  const issues: { path: string[]; message: string }[] = []
+  if (s.type === 'static') {
+    if (!!s.uploadId === !!s.repoUrl) {
+      issues.push({ path: ['source'], message: 'Statisch braucht entweder ein ZIP oder eine Repo-URL' })
+    }
+    if (s.uploadId && (s.buildCommand || s.ref)) {
+      issues.push({ path: ['source', 'buildCommand'], message: 'Build-Befehl und Ref gibt es nur mit Repo' })
+    }
+  }
+  if (s.type === 'compose' && !!s.uploadId === !!s.repoUrl) {
+    issues.push({ path: ['source'], message: 'Compose braucht entweder eine hochgeladene compose.yaml oder eine Repo-URL' })
+  }
+  return issues
+}
+
+/** Quellen, die einen Port im Container brauchen. */
+export const sourceNeedsPort = (t: SourceType) => t === 'image' || t === 'dockerfile' || t === 'compose'
 
 /* ------------------------------------------------------------------ *
  * Env / Secrets
@@ -126,8 +206,11 @@ export const createProjectSchema = z
     deploy: z.boolean().default(true),
   })
   .superRefine((v, ctx) => {
-    if (v.source.type === 'image' && v.port === undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['port'], message: 'Port ist für ein Image nötig' })
+    if (sourceNeedsPort(v.source.type) && v.port === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['port'], message: 'Port im Container ist für diese Quelle nötig' })
+    }
+    for (const i of sourceIssues(v.source)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: i.path, message: i.message })
     }
     for (const t of v.targets) {
       if (!(routeTargetsM1 as readonly string[]).includes(t)) {
@@ -145,7 +228,14 @@ export const updateProjectSchema = z.object({
   memoryLimitMb: z.number().int().min(64).max(32768).optional(),
   keep: z.boolean().optional(),
   source: sourceSchema.optional(),
+}).superRefine((v, ctx) => {
+  if (!v.source) return
+  for (const i of sourceIssues(v.source)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: i.path, message: i.message })
+  }
 })
+
+export const rollbackSchema = z.object({ deploymentId: z.string().uuid().optional() })
 
 export const putRoutesSchema = z.object({
   targets: z.array(z.enum(routeTargets)).min(0),
@@ -173,6 +263,11 @@ export interface DeploymentDto {
   finishedAt: string | null
   isActive: boolean
   durationMs: number | null
+  /** M2 */
+  trigger: 'deploy' | 'rollback'
+  rollbackOf: string | null
+  /** Lässt sich auf diese Fassung zurückrollen (Artefakt noch vorhanden, nicht aktiv)? */
+  canRollback: boolean
 }
 
 export interface ProjectDto {

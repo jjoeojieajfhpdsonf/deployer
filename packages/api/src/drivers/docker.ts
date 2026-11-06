@@ -13,6 +13,17 @@ export const LABEL_MANAGED = 'deployer.managed'
 export const LABEL_PROJECT = 'deployer.project'
 export const LABEL_DEPLOYMENT = 'deployer.deployment'
 
+/**
+ * Soll ein Compose-Dienst beim Start und beim Abgleich wieder hochgefahren
+ * werden? Nicht, wenn er ein Einmal-Dienst ist (restart: no / on-failure),
+ * sonst liefen z.B. Migrationen bei jedem Neustart erneut. Container ohne
+ * das Label stammen aus der Zeit davor und gelten als dauerhaft.
+ */
+export function isPersistentComposeService(labels: Record<string, string>): boolean {
+  const r = labels['deployer.compose-restart']
+  return r === undefined || r === 'unless-stopped'
+}
+
 function dockerFromEnv(): Docker {
   const host = config.DOCKER_HOST
   if (host.startsWith('unix://')) return new Docker({ socketPath: host.slice('unix://'.length) })
@@ -40,6 +51,11 @@ export interface ContainerSpec {
   memoryLimitMb: number
   cpuLimit: number
   volumes?: { source: string; target: string; readOnly?: boolean }[]
+  /** M2, Wegwerf-Container: einmal laufen, nicht neu starten. */
+  oneShot?: boolean
+  cmd?: string[]
+  workingDir?: string
+  user?: string
 }
 
 /**
@@ -53,11 +69,14 @@ export function buildCreateOptions(spec: ContainerSpec): Record<string, unknown>
     Image: spec.image,
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
     Labels: spec.labels,
+    ...(spec.cmd ? { Cmd: spec.cmd } : {}),
+    ...(spec.workingDir ? { WorkingDir: spec.workingDir } : {}),
+    ...(spec.user ? { User: spec.user } : {}),
     HostConfig: {
       NetworkMode: spec.network,
       Memory: Math.round(spec.memoryLimitMb * 1024 * 1024),
       NanoCpus: Math.round(spec.cpuLimit * 1e9),
-      RestartPolicy: { Name: 'unless-stopped' },
+      RestartPolicy: { Name: spec.oneShot ? 'no' : 'unless-stopped' },
       LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '5' } },
       SecurityOpt: ['no-new-privileges:true'],
       ...(spec.volumes?.length
@@ -199,6 +218,150 @@ export async function createAndStart(spec: ContainerSpec): Promise<string> {
   const container = await docker.createContainer(options as Docker.ContainerCreateOptions)
   await container.start()
   return container.id
+}
+
+/** Nur anlegen (z.B. um vor dem Start Dateien hineinzukopieren). */
+export async function createOnly(spec: ContainerSpec): Promise<string> {
+  const options = buildCreateOptions(spec)
+  const container = await docker.createContainer(options as Docker.ContainerCreateOptions)
+  return container.id
+}
+
+/** Tar in den Container entpacken (PUT /containers/{id}/archive). */
+export async function putArchive(id: string, tar: Readable, path: string): Promise<void> {
+  await docker.getContainer(id).putArchive(tar, { path })
+}
+
+/** Pfad aus dem Container als Tar holen (GET /containers/{id}/archive). */
+export async function getArchive(id: string, path: string): Promise<Readable> {
+  return (await docker.getContainer(id).getArchive({ path })) as unknown as Readable
+}
+
+/** Wartet auf das Ende eines Containers, mit Zeitlimit. */
+export async function waitForExit(id: string, timeoutMs: number): Promise<{ exitCode: number; timedOut: boolean }> {
+  const c = docker.getContainer(id)
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<{ exitCode: number; timedOut: boolean }>((resolve) => {
+    timer = setTimeout(() => resolve({ exitCode: -1, timedOut: true }), timeoutMs)
+  })
+  const waited = c.wait().then((r: { StatusCode: number }) => ({ exitCode: r.StatusCode, timedOut: false }))
+  const result = await Promise.race([waited, timeout])
+  clearTimeout(timer)
+  if (result.timedOut) await c.kill().catch(() => {})
+  return result
+}
+
+export async function startById(id: string): Promise<void> {
+  await docker.getContainer(id).start()
+}
+
+/* --- Bauen ----------------------------------------------------------------- */
+
+export interface BuildOptions {
+  tag: string
+  /** Pfad des Dockerfiles relativ zum Kontext. */
+  dockerfile: string
+  labels: Record<string, string>
+  memoryMb: number
+  timeoutMs: number
+  onLine?: (line: string) => void
+}
+
+/**
+ * Baut ein Image aus einem Tar-Kontext ueber POST /build (klassischer
+ * Builder, version=1: dockerode kann keine BuildKit-Sitzung aufbauen).
+ */
+export async function buildImage(context: Readable, o: BuildOptions): Promise<void> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), o.timeoutMs)
+  try {
+    const stream = (await docker.buildImage(context as unknown as NodeJS.ReadableStream, {
+      t: o.tag,
+      dockerfile: o.dockerfile,
+      labels: o.labels,
+      memory: o.memoryMb * 1024 * 1024,
+      rm: true,
+      forcerm: true,
+      version: '1',
+      abortSignal: controller.signal,
+    } as Docker.ImageBuildOptions)) as Readable
+
+    await new Promise<void>((resolve, reject) => {
+      let buildError: string | null = null
+      docker.modem.followProgress(
+        stream,
+        (err: Error | null) => {
+          if (err) return reject(err)
+          if (buildError) return reject(new AppError('build_failed', `Build fehlgeschlagen: ${buildError}`, 400))
+          resolve()
+        },
+        (event: { stream?: string; error?: string; errorDetail?: { message?: string }; status?: string }) => {
+          if (event.error || event.errorDetail) buildError = event.errorDetail?.message ?? event.error ?? 'unbekannt'
+          const text = event.stream ?? event.status
+          if (text && o.onLine) for (const l of text.split('\n')) if (l.trim()) o.onLine(l.trimEnd())
+        },
+      )
+    })
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new AppError('build_timeout', `Build nach ${Math.round(o.timeoutMs / 60000)} Minuten abgebrochen`, 400)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function imageExists(ref: string): Promise<boolean> {
+  try {
+    await docker.getImage(ref).inspect()
+    return true
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return false
+    throw err
+  }
+}
+
+/** Entfernt ein Image, falls nichts es mehr benutzt; sonst still. */
+export async function removeImageIfUnused(ref: string): Promise<void> {
+  try {
+    await docker.getImage(ref).remove({ force: false })
+  } catch (err) {
+    const s = (err as { statusCode?: number }).statusCode
+    if (s === 404 || s === 409) return
+    throw err
+  }
+}
+
+/**
+ * Entfernt die benannten Volumes eines Compose-Projekts (Label
+ * com.docker.compose.project). Nur auf ausdrücklichen Wunsch aufrufen:
+ * darin liegen Daten.
+ */
+export async function removeProjectVolumes(composeProject: string): Promise<string[]> {
+  const res = (await docker.listVolumes({
+    filters: { label: [`com.docker.compose.project=${composeProject}`] },
+  })) as { Volumes?: { Name: string }[] }
+  const removed: string[] = []
+  for (const v of res.Volumes ?? []) {
+    try {
+      await docker.getVolume(v.Name).remove()
+      removed.push(v.Name)
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode !== 404) throw err
+    }
+  }
+  return removed
+}
+
+/** Subnetze eines Netzes, z.B. fuer die Sperrliste der Repo-URLs. */
+export async function networkSubnets(name: string): Promise<string[]> {
+  try {
+    const info = (await docker.getNetwork(name).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } }
+    return (info.IPAM?.Config ?? []).map((c) => c.Subnet).filter((s): s is string => !!s)
+  } catch {
+    return []
+  }
 }
 
 export async function stopContainer(id: string, timeoutSec = 10): Promise<void> {

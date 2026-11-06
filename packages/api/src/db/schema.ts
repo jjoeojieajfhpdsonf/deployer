@@ -47,9 +47,26 @@ export const deployments = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     logRef: text('log_ref'),
     isActive: boolean('is_active').notNull().default(false),
+    // M2
+    imageRef: text('image_ref'),
+    artifact: jsonb('artifact').$type<DeploymentArtifact>().notNull().default({}),
+    trigger: text('trigger').$type<'deploy' | 'rollback'>().notNull().default('deploy'),
+    rollbackOf: uuid('rollback_of'),
   },
   (t) => [index('deployments_project_started').on(t.projectId, t.startedAt)],
 )
+
+/** Was ein Rollback braucht, je nach Quelle. */
+export interface DeploymentArtifact {
+  /** compose: Pfad der normalisierten Datei dieser Fassung */
+  composeFile?: string
+  /** compose: Name des Web-Containers fuer den Upstream */
+  webContainer?: string
+  /** static: Name des Versionsordners unter /srv/sites/<slug>/ */
+  siteVersion?: string
+  /** dockerfile, compose mit build: von dieser Fassung gebaute Image-Tags */
+  builtImages?: string[]
+}
 
 export const routes = pgTable(
   'routes',
@@ -102,6 +119,7 @@ export const uploads = pgTable('uploads', {
   sha256: text('sha256').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  kind: text('kind').$type<'zip' | 'compose'>().notNull().default('zip'),
 })
 
 export const appSettings = pgTable('app_settings', {

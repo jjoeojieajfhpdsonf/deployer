@@ -53,8 +53,26 @@ async function restoreDesiredState(): Promise<void> {
     )
     .where(eq(schema.projects.desiredState, 'running'))
 
+  const managed = await docker.listManagedContainers()
+
   for (const row of rows) {
     if (row.sourceType === 'static') {
+      await setStatus(row.id, 'running')
+      continue
+    }
+    if (row.sourceType === 'compose') {
+      // Compose-Dienste haben keine einzelne Container-ID im Deployment.
+      const services = managed.filter(
+        (c) => c.labels[docker.LABEL_PROJECT] === row.slug && c.labels['deployer.compose-service'],
+      )
+      if (services.length === 0) {
+        await setStatus(row.id, 'failed')
+        log.warn('Compose-Projekt soll laufen, hat aber keine Dienste mehr', { slug: row.slug })
+        continue
+      }
+      for (const c of services) {
+        if (!c.running && docker.isPersistentComposeService(c.labels)) await docker.startContainer(c.id)
+      }
       await setStatus(row.id, 'running')
       continue
     }

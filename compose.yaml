@@ -41,9 +41,12 @@ services:
       INFO: 1
       VERSION: 1
       POST: 1
+      # M2: Dockerfile-Builds und build: in Compose. Ein Build fuehrt fremde
+      # RUN-Schritte aus, aber in einem eigenen Build-Container ohne
+      # privileged (die Entitlement setzt die API hier nicht).
+      BUILD: 1
       # Ausdruecklich aus:
       EXEC: 0
-      BUILD: 0
       SWARM: 0
       SECRETS: 0
       SYSTEM: 0

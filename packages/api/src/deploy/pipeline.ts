@@ -1,206 +1,425 @@
 import { eq, and, ne, desc } from 'drizzle-orm'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { db, schema, tryLockProject } from '../db/index.js'
+import type { DeploymentArtifact } from '../db/schema.js'
 import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
+import { composeUp, composePull } from '../drivers/compose-cli.js'
 import { findProject, setStatus, setDesiredState } from '../domain/projects.js'
 import { resolveEnv } from '../domain/env.js'
 import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
-import { toDeploymentDto } from '../domain/deployments.js'
+import { toDeploymentDto, getDeployment, canRollbackTo } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
 import { waitForHealthy } from './healthcheck.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
-import { prepareStatic, activateStatic } from './sources/static.js'
-import { conflict } from '../lib/errors.js'
+import { prepareStatic, activateStatic, siteDir } from './sources/static.js'
+import { buildFromRepo } from './sources/dockerfile.js'
+import { prepareCompose, materialize } from './sources/compose.js'
+import { dropWorkDir, dropArtifactDir, workDir, ensureArtifactDir } from './workdir.js'
+import { copyFile, rm } from 'node:fs/promises'
+import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import type { DeploymentDto } from '@deployer/shared'
 
-/** Wie viele Versionen pro Projekt fuer ein Rollback aufgehoben werden. */
+/** Wie viele erfolgreiche Fassungen pro Projekt für ein Rollback aufgehoben werden. */
 export const KEEP_VERSIONS = 5
+/** Wie viele fehlgeschlagene Versuche (wegen ihrer Logs) aufgehoben werden. */
+export const KEEP_FAILED = 10
+
+type Project = typeof schema.projects.$inferSelect
+type Deployment = typeof schema.deployments.$inferSelect
+
+type Job =
+  | { kind: 'deploy'; ref?: string }
+  | { kind: 'rollback'; target: Deployment }
 
 /**
- * Startet einen Deploy und kehrt sofort zurueck. Der Fortschritt laeuft ueber
+ * Startet einen Deploy und kehrt sofort zurück. Der Fortschritt läuft über
  * SSE (deploy/journal.ts).
  *
  * Die Sperre gegen parallele Deploys ist ein Postgres Advisory Lock:
  * sitzungsweit (ein Deploy dauert Minuten und umfasst viele Transaktionen),
  * nicht blockierend (der zweite Aufruf bekommt sofort 409) und selbstheilend
- * (stirbt der Prozess, gibt Postgres den Lock frei).
+ * (stirbt der Prozess, gibt Postgres den Lock frei). Rollbacks benutzen
+ * dieselbe Sperre.
  */
-export async function startDeploy(
-  idOrSlug: string,
-  actor: string,
-  ref?: string,
-): Promise<DeploymentDto> {
+export async function startDeploy(idOrSlug: string, actor: string, ref?: string): Promise<DeploymentDto> {
+  return startJob(await findProject(idOrSlug), actor, { kind: 'deploy', ref })
+}
+
+/** Ohne Angabe: die zuletzt aktive Fassung vor der jetzigen. */
+export async function startRollback(idOrSlug: string, actor: string, deploymentId?: string): Promise<DeploymentDto> {
   const project = await findProject(idOrSlug)
-
-  const lock = await tryLockProject(project.id)
-  if (!lock) {
-    throw conflict('Für dieses Projekt läuft bereits ein Deploy')
+  const target = deploymentId ? await getDeployment(deploymentId) : await previousGood(project.id)
+  if (!target || target.projectId !== project.id) throw badRequest('Keine frühere Fassung für ein Rollback gefunden')
+  if (target.isActive) throw badRequest('Diese Fassung ist bereits aktiv')
+  if (!canRollbackTo(target)) {
+    throw badRequest('Auf diese Fassung lässt sich nicht zurückrollen (fehlgeschlagen oder Artefakt entfernt)')
   }
+  return startJob(project, actor, { kind: 'rollback', target })
+}
 
-  let deploymentId: string
+async function previousGood(projectId: string): Promise<Deployment | null> {
+  const rows = await db
+    .select()
+    .from(schema.deployments)
+    .where(and(eq(schema.deployments.projectId, projectId), eq(schema.deployments.status, 'superseded')))
+    .orderBy(desc(schema.deployments.finishedAt))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+async function startJob(project: Project, actor: string, job: Job): Promise<DeploymentDto> {
+  const lock = await tryLockProject(project.id)
+  if (!lock) throw conflict('Für dieses Projekt läuft bereits ein Deploy')
+
   try {
     const inserted = await db
       .insert(schema.deployments)
-      .values({ projectId: project.id, sourceRef: ref ?? null, status: 'pending' })
+      .values({
+        projectId: project.id,
+        sourceRef: job.kind === 'deploy' ? (job.ref ?? null) : (job.target.sourceRef ?? null),
+        status: 'pending',
+        trigger: job.kind,
+        rollbackOf: job.kind === 'rollback' ? job.target.id : null,
+      })
       .returning()
     const row = inserted[0]!
-    deploymentId = row.id
-    await db
-      .update(schema.deployments)
-      .set({ logRef: logPathFor(deploymentId) })
-      .where(eq(schema.deployments.id, deploymentId))
+    await setDeployment(row.id, { logRef: logPathFor(row.id) })
 
-    // Bewusst nicht awaiten: die API antwortet sofort.
-    void run(project.id, deploymentId, actor, ref).finally(() => void lock.release())
-
-    return toDeploymentDto({ ...row, logRef: logPathFor(deploymentId) })
+    // Bewusst nicht awaiten: die API antwortet sofort. run() gibt den Lock
+    // selbst frei, sobald der Endstatus geschrieben ist; das finally ist nur
+    // die Absicherung (release ist idempotent).
+    void run(project.id, row.id, actor, job, lock).finally(() => void lock.release())
+    return toDeploymentDto({ ...row, logRef: logPathFor(row.id) })
   } catch (err) {
     await lock.release()
     throw err
   }
 }
 
-async function setDeployment(
-  id: string,
-  values: Partial<typeof schema.deployments.$inferInsert>,
-): Promise<void> {
+async function setDeployment(id: string, values: Partial<typeof schema.deployments.$inferInsert>): Promise<void> {
   await db.update(schema.deployments).set(values).where(eq(schema.deployments.id, id))
 }
 
-async function run(projectId: string, deploymentId: string, actor: string, ref?: string): Promise<void> {
+/**
+ * Reihenfolge am Ende, bewusst so:
+ *   umschalten (DB) -> Caddy neu laden -> alte Container weg -> aufräumen
+ *   -> Endstatus schreiben -> Lock frei -> Ereignis, Audit.
+ * Wer auf "active" wartet und sofort neu deployt, bekommt damit kein 409
+ * mehr, weil der Lock unmittelbar nach dem Endstatus frei wird.
+ */
+async function run(
+  projectId: string,
+  deploymentId: string,
+  actor: string,
+  job: Job,
+  lock: { release(): Promise<void> },
+): Promise<void> {
   const started = Date.now()
+  const action = job.kind === 'rollback' ? 'project.rollback' : 'project.deploy'
+  const params = job.kind === 'rollback'
+    ? { deployment: deploymentId, rollbackOf: job.target.id }
+    : { deployment: deploymentId, ref: job.ref }
+  // Für den Fall, dass nach dem Umschalten in der DB Caddy nicht nachzieht.
+  const previousActive = (await db
+    .select({ id: schema.deployments.id })
+    .from(schema.deployments)
+    .where(and(eq(schema.deployments.projectId, projectId), eq(schema.deployments.isActive, true)))
+    .limit(1))[0]?.id ?? null
   try {
     await setStatus(projectId, 'deploying')
     const project = await findProject(projectId)
-    appendLine(deploymentId, `Deploy von "${project.name}" (${project.sourceType}) gestartet`)
+    appendLine(
+      deploymentId,
+      job.kind === 'rollback'
+        ? `Rollback von "${project.name}" auf Fassung ${job.target.version ?? job.target.id} gestartet`
+        : `Deploy von "${project.name}" (${project.sourceType}) gestartet`,
+    )
 
-    if (project.sourceType === 'static') {
-      await runStatic(deploymentId, project)
-    } else {
-      await runImage(deploymentId, project, ref)
+    switch (project.sourceType) {
+      case 'image':
+        await runImage(deploymentId, project, job)
+        break
+      case 'dockerfile':
+        await runDockerfile(deploymentId, project, job)
+        break
+      case 'static':
+        await runStatic(deploymentId, project, job)
+        break
+      case 'compose':
+        await runCompose(deploymentId, project, job)
+        break
+      default:
+        throw badRequest(`Quelle "${project.sourceType}" kommt erst in einem späteren Meilenstein`)
     }
 
     await setDesiredState(projectId, 'running')
-    await setStatus(projectId, 'running')
-    await setDeployment(deploymentId, { status: 'active', isActive: true, finishedAt: new Date() })
 
     // Erst jetzt den Verkehr umschalten. Bis hierher lief die alte Fassung.
-    await reconcileCaddy()
-    appendLine(deploymentId, 'Route aktiv')
+    try {
+      await reconcileCaddy()
+      appendLine(deploymentId, 'Route aktiv')
+    } catch (err) {
+      if (project.sourceType === 'image' || project.sourceType === 'dockerfile') {
+        // Neuer Container, neuer Upstream: Caddy hat die alte Konfiguration
+        // behalten, der alte Container läuft noch. In der DB die vorherige
+        // Fassung wieder aktiv setzen und den Deploy scheitern lassen.
+        if (previousActive) {
+          await markActiveExclusively(projectId, previousActive)
+          await setDeployment(previousActive, { status: 'active' })
+        }
+        throw err
+      }
+      // Statisch und Compose: die neue Fassung ist bereits ausgeliefert
+      // (Symlink umgehängt bzw. Dienste an Ort und Stelle ersetzt), und der
+      // Upstream heisst gleich wie vorher. Zurückdrehen in der DB wäre
+      // falsch. Der nächste Abgleich lädt Caddy erneut.
+      appendLine(deploymentId, `Warnung: Caddy konnte nicht neu geladen werden (${(err as Error).message}); die neue Fassung ist trotzdem aktiv`)
+      log.warn('Caddy-Abgleich nach Deploy gescheitert', { projectId, deploymentId, err: String(err) })
+    }
 
     await removeSupersededContainers(project.slug, deploymentId)
     await pruneOldDeployments(projectId)
 
     appendLine(deploymentId, `Fertig in ${Math.round((Date.now() - started) / 1000)} s`)
+    await setStatus(projectId, 'running')
+    await setDeployment(deploymentId, { status: 'active', isActive: true, finishedAt: new Date() })
+    await lock.release()
     emitDone(deploymentId, true)
-    await audit({
-      actor, action: 'project.deploy', targetType: 'project', targetId: projectId,
-      params: { deployment: deploymentId, ref }, result: 'ok',
-    })
+    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'ok' })
   } catch (err) {
     const message = (err as Error).message
     appendLine(deploymentId, `FEHLGESCHLAGEN: ${message}`)
-    await setDeployment(deploymentId, {
-      status: 'failed', errorMessage: message, finishedAt: new Date(), isActive: false,
-    })
+    await cleanupFailed(projectId, deploymentId)
+    await setDeployment(deploymentId, { status: 'failed', errorMessage: message, finishedAt: new Date(), isActive: false })
 
-    // Die vorherige Fassung laeuft weiter; das Projekt ist nur dann "failed",
-    // wenn es ueberhaupt keine aktive Fassung mehr gibt.
+    // Die vorherige Fassung läuft weiter; das Projekt ist nur dann "failed",
+    // wenn es überhaupt keine aktive Fassung mehr gibt.
     const stillActive = await db
-      .select()
+      .select({ id: schema.deployments.id })
       .from(schema.deployments)
       .where(and(eq(schema.deployments.projectId, projectId), eq(schema.deployments.isActive, true)))
       .limit(1)
     await setStatus(projectId, stillActive.length ? 'running' : 'failed')
 
-    await cleanupFailed(projectId, deploymentId)
+    await lock.release()
     emitDone(deploymentId, false)
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
-    await audit({
-      actor, action: 'project.deploy', targetType: 'project', targetId: projectId,
-      params: { deployment: deploymentId, ref }, result: 'error', error: message,
-    })
+    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: message })
+  } finally {
+    await dropWorkDir(deploymentId)
   }
 }
 
-/* --- Image ---------------------------------------------------------------- */
+/* --- Image und Dockerfile: neuer Container, Healthcheck, Umschalten ---------- */
 
-async function runImage(
-  deploymentId: string,
-  project: typeof schema.projects.$inferSelect,
-  ref?: string,
-): Promise<void> {
+async function runImage(deploymentId: string, project: Project, job: Job): Promise<void> {
   emitStatus(deploymentId, 'pulling')
-  const prepared = await prepareImage(project, deploymentId, ref)
-  await setDeployment(deploymentId, { status: 'pulling', version: prepared.version })
+  let imageRef: string
+  let version: string | null
+  if (job.kind === 'rollback') {
+    imageRef = job.target.imageRef!
+    version = job.target.version
+    if (!(await docker.imageExists(imageRef))) {
+      appendLine(deploymentId, `Image ${imageRef} wird erneut geholt`)
+      await docker.pullImage(imageRef)
+    }
+  } else {
+    const prepared = await prepareImage(project, deploymentId, job.ref)
+    // Der Container läuft auf dem Digest, nicht auf dem Tag: genau diese
+    // Fassung, und ein Rollback findet sie wieder.
+    imageRef = prepared.version
+    version = prepared.version
+  }
+  await setDeployment(deploymentId, { status: 'pulling', version, imageRef })
+  await startAndCheck(deploymentId, project, imageRef)
+}
 
+async function runDockerfile(deploymentId: string, project: Project, job: Job): Promise<void> {
+  emitStatus(deploymentId, 'pulling')
+  let imageRef: string
+  let version: string | null
+  let builtImages: string[] = []
+  if (job.kind === 'rollback') {
+    imageRef = job.target.imageRef!
+    version = job.target.version
+    if (!(await docker.imageExists(imageRef))) {
+      throw new AppError('rollback_unavailable', `Das Image der Fassung (${imageRef}) gibt es nicht mehr`, 400)
+    }
+  } else {
+    const built = await buildFromRepo(project, deploymentId, job.ref)
+    imageRef = built.imageTag
+    version = built.commit
+    builtImages = [built.imageTag]
+  }
+  await setDeployment(deploymentId, { status: 'pulling', version, imageRef, artifact: { builtImages } })
+  await startAndCheck(deploymentId, project, imageRef)
+}
+
+async function startAndCheck(deploymentId: string, project: Project, imageRef: string): Promise<void> {
   emitStatus(deploymentId, 'starting')
   const env = await resolveEnv(project.id)
-  const { containerId, containerName, network } = await startImageContainer({
-    project, deploymentId, image: prepared.image, env,
-  })
+  const { containerId, containerName, network } = await startImageContainer({ project, deploymentId, image: imageRef, env })
   await setDeployment(deploymentId, { status: 'starting', containerId })
 
-  emitStatus(deploymentId, 'healthchecking')
-  const url = `http://${containerName}:${project.port}${project.healthcheckPath}`
-  appendLine(deploymentId, `Healthcheck gegen ${url}`)
-
-  // Der deployer haengt sich NUR fuer den Healthcheck ins Projekt-Netz und
-  // loest sich danach wieder. Das disconnect steht im finally, damit ein
-  // fehlgeschlagener Healthcheck die Verbindung nicht stehen laesst.
-  let result
-  try {
-    await docker.connectToNetwork(network, config.DEPLOYER_CONTAINER)
-    result = await waitForHealthy({
-      url,
-      timeoutMs: 60_000,
-      onAttempt: (n, detail) => {
-        if (n === 1 || n % 5 === 0 || detail.includes('bereit')) {
-          appendLine(deploymentId, `Healthcheck ${n}: ${detail}`)
-        }
-      },
-    })
-  } finally {
-    await docker.disconnectFromNetwork(network, config.DEPLOYER_CONTAINER)
-    appendLine(deploymentId, 'deployer aus dem Projekt-Netz getrennt')
-  }
-
-  if (!result.ok) {
+  const ok = await healthcheck(deploymentId, network, containerName, project)
+  if (!ok) {
     const tail = await docker.getLogs(containerId, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Container-Ausgabe:\n${tail}`)
     await docker.stopContainer(containerId)
     await docker.removeContainer(containerId)
-    throw new Error(
-      `Healthcheck nach ${result.attempts} Versuchen nicht bestanden ` +
-        `(${result.lastError ?? 'keine Antwort'})`,
-    )
+    throw new Error('Healthcheck nicht bestanden')
   }
-
   await markActiveExclusively(project.id, deploymentId)
 }
 
-/* --- Statisch -------------------------------------------------------------- */
+/**
+ * Der deployer hängt sich NUR für den Healthcheck ins Projekt-Netz und löst
+ * sich danach wieder. Das disconnect steht im finally, damit ein
+ * fehlgeschlagener Healthcheck die Verbindung nicht stehen lässt.
+ */
+async function healthcheck(deploymentId: string, network: string, host: string, project: Project): Promise<boolean> {
+  emitStatus(deploymentId, 'healthchecking')
+  const url = `http://${host}:${project.port}${project.healthcheckPath}`
+  appendLine(deploymentId, `Healthcheck gegen ${url}`)
+  try {
+    await docker.connectToNetwork(network, config.DEPLOYER_CONTAINER)
+    const result = await waitForHealthy({
+      url,
+      timeoutMs: 60_000,
+      onAttempt: (n, detail) => {
+        if (n === 1 || n % 5 === 0 || detail.includes('bereit')) appendLine(deploymentId, `Healthcheck ${n}: ${detail}`)
+      },
+    })
+    if (!result.ok) {
+      appendLine(deploymentId, `Healthcheck nach ${result.attempts} Versuchen nicht bestanden (${result.lastError ?? 'keine Antwort'})`)
+    }
+    return result.ok
+  } finally {
+    await docker.disconnectFromNetwork(network, config.DEPLOYER_CONTAINER)
+    appendLine(deploymentId, 'deployer aus dem Projekt-Netz getrennt')
+  }
+}
 
-async function runStatic(
-  deploymentId: string,
-  project: typeof schema.projects.$inferSelect,
-): Promise<void> {
+/* --- Statisch ------------------------------------------------------------------- */
+
+async function runStatic(deploymentId: string, project: Project, job: Job): Promise<void> {
   emitStatus(deploymentId, 'pulling')
-  const { version } = await prepareStatic(project, deploymentId)
-  await setDeployment(deploymentId, { status: 'pulling', version })
+  let version: string
+  if (job.kind === 'rollback') {
+    version = job.target.artifact?.siteVersion ?? job.target.version ?? ''
+    if (!version || !existsSync(join(siteDir(project.slug), version))) {
+      throw new AppError('rollback_unavailable', 'Der Versionsordner dieser Fassung ist nicht mehr vorhanden', 400)
+    }
+  } else {
+    version = (await prepareStatic(project, deploymentId, job.ref)).version
+  }
+  await setDeployment(deploymentId, { status: 'pulling', version, artifact: { siteVersion: version } })
 
   emitStatus(deploymentId, 'starting')
   await activateStatic(project, version, deploymentId)
   await markActiveExclusively(project.id, deploymentId)
 }
 
-/* --- Gemeinsames ----------------------------------------------------------- */
+/* --- Compose: an Ort und Stelle, mit Rückfall auf die vorherige Datei ------------ */
+
+/**
+ * Kein Umschalten ohne Ausfall: ein zweites Compose-Projekt würde die
+ * benannten Volumes gleichzeitig benutzen. `up -d` an Ort und Stelle
+ * startet nur geänderte Dienste neu. Scheitert der Healthcheck, wird die
+ * vorherige Datei wieder hochgefahren.
+ */
+async function runCompose(deploymentId: string, project: Project, job: Job): Promise<void> {
+  emitStatus(deploymentId, 'pulling')
+  const cfg = project.sourceConfig as { webService: string }
+  let artifactFile: string
+  let webContainer: string
+  let builtImages: string[] = []
+  let version: string | null
+
+  if (job.kind === 'rollback') {
+    const from = job.target.artifact?.composeFile
+    if (!from || !existsSync(from)) {
+      throw new AppError('rollback_unavailable', 'Die Compose-Datei dieser Fassung ist nicht mehr vorhanden', 400)
+    }
+    // Kopie ins eigene Artefakt: das Original verschwindet, wenn die alte
+    // Fassung aus der Aufbewahrung fällt.
+    artifactFile = join(await ensureArtifactDir(deploymentId), 'compose.yaml')
+    await copyFile(from, artifactFile)
+    webContainer = job.target.artifact!.webContainer!
+    builtImages = job.target.artifact?.builtImages ?? []
+    version = job.target.version
+  } else {
+    const prepared = await prepareCompose(project, deploymentId, job.ref)
+    artifactFile = prepared.file
+    webContainer = prepared.normalized.webContainer
+    builtImages = prepared.normalized.builtImages
+    version = prepared.version
+  }
+  await setDeployment(deploymentId, {
+    status: 'starting',
+    version,
+    artifact: { composeFile: artifactFile, webContainer, builtImages },
+  })
+
+  emitStatus(deploymentId, 'starting')
+  const network = docker.projectNetworkName(project.slug)
+  await docker.ensureNetwork(network)
+  const previous = await db
+    .select()
+    .from(schema.deployments)
+    .where(and(eq(schema.deployments.projectId, project.id), eq(schema.deployments.isActive, true)))
+    .limit(1)
+
+  await upWithEnv(deploymentId, project, artifactFile, cfg.webService, { pull: job.kind === 'deploy' })
+
+  const ok = await healthcheck(deploymentId, network, webContainer, project)
+  if (!ok) {
+    const tail = await docker.getLogs(webContainer, { tail: 30 }).catch(() => '')
+    if (tail) appendLine(deploymentId, `Letzte Ausgabe von ${cfg.webService}:\n${tail}`)
+    const prevFile = previous[0]?.artifact?.composeFile
+    if (prevFile && existsSync(prevFile)) {
+      appendLine(deploymentId, 'Vorherige Fassung wird wieder hochgefahren')
+      await upWithEnv(deploymentId, project, prevFile, cfg.webService).catch((e) =>
+        appendLine(deploymentId, `Rückfall gescheitert: ${(e as Error).message}`),
+      )
+    }
+    throw new Error('Healthcheck nicht bestanden')
+  }
+  await markActiveExclusively(project.id, deploymentId)
+}
+
+async function upWithEnv(
+  deploymentId: string,
+  project: Project,
+  artifactFile: string,
+  webService: string,
+  o: { pull?: boolean } = {},
+): Promise<void> {
+  const runFile = await materialize(project, artifactFile, webService, workDir(deploymentId))
+  try {
+    if (o.pull) {
+      // Neuer Deploy: veränderliche Tags (:latest) frisch holen. Rollback und
+      // Rückfall nicht – die sollen genau das Image von damals bekommen.
+      appendLine(deploymentId, 'docker compose pull')
+      await composePull(docker.projectNetworkName(project.slug), runFile, (l) => appendLine(deploymentId, l))
+    }
+    appendLine(deploymentId, 'docker compose up')
+    await composeUp(docker.projectNetworkName(project.slug), runFile, (l) => appendLine(deploymentId, l))
+  } finally {
+    // Die Datei enthält Secrets im Klartext; sie lebt nur für diesen Aufruf.
+    await rm(runFile, { force: true })
+  }
+}
+
+/* --- Gemeinsames ------------------------------------------------------------------ */
 
 /**
  * Setzt dieses Deployment aktiv und alle anderen auf superseded – in einer
- * Transaktion, weil der partielle Unique-Index sonst zuschlaegt.
+ * Transaktion, weil der partielle Unique-Index sonst zuschlägt.
  */
 async function markActiveExclusively(projectId: string, deploymentId: string): Promise<void> {
   await db.transaction(async (tx) => {
@@ -212,18 +431,19 @@ async function markActiveExclusively(projectId: string, deploymentId: string): P
         eq(schema.deployments.isActive, true),
         ne(schema.deployments.id, deploymentId),
       ))
-    await tx
-      .update(schema.deployments)
-      .set({ isActive: true })
-      .where(eq(schema.deployments.id, deploymentId))
+    await tx.update(schema.deployments).set({ isActive: true }).where(eq(schema.deployments.id, deploymentId))
   })
 }
 
-/** Container alter Fassungen entfernen; die Images bleiben fuer ein Rollback. */
+/**
+ * Container alter Fassungen entfernen; die Images bleiben für ein Rollback.
+ * Compose-Dienste nicht: die verwaltet Compose an Ort und Stelle.
+ */
 async function removeSupersededContainers(slug: string, keepDeploymentId: string): Promise<void> {
   const managed = await docker.listManagedContainers()
   for (const c of managed) {
     if (c.labels[docker.LABEL_PROJECT] !== slug) continue
+    if (c.labels['deployer.compose-service']) continue
     if (c.labels[docker.LABEL_DEPLOYMENT] === keepDeploymentId) continue
     await docker.stopContainer(c.id)
     await docker.removeContainer(c.id)
@@ -235,30 +455,63 @@ async function cleanupFailed(projectId: string, deploymentId: string): Promise<v
   try {
     const managed = await docker.listManagedContainers()
     for (const c of managed) {
-      if (c.labels[docker.LABEL_DEPLOYMENT] === deploymentId) {
+      if (c.labels[docker.LABEL_DEPLOYMENT] === deploymentId && !c.labels['deployer.compose-service']) {
         await docker.stopContainer(c.id)
         await docker.removeContainer(c.id)
       }
     }
     const project = await findProject(projectId)
-    await docker.disconnectFromNetwork(
-      docker.projectNetworkName(project.slug),
-      config.DEPLOYER_CONTAINER,
-    )
+    await docker.disconnectFromNetwork(docker.projectNetworkName(project.slug), config.DEPLOYER_CONTAINER)
+    // Gebaute Images eines gescheiterten Versuchs braucht niemand – aber nur,
+    // wenn er sie selbst gebaut hat. Ein Rollback trägt die Images seines
+    // Ziels im Artefakt; die gehören einer aufbewahrten Fassung und bleiben.
+    const d = await getDeployment(deploymentId).catch(() => null)
+    if (d?.trigger === 'deploy') {
+      for (const img of d.artifact?.builtImages ?? []) await docker.removeImageIfUnused(img)
+      if (project.sourceType === 'compose') await dropArtifactDir(deploymentId)
+    }
   } catch (err) {
     log.warn('Aufräumen nach Fehlschlag unvollständig', { deploymentId, err: String(err) })
   }
 }
 
+/**
+ * Aufbewahrung: die aktive Fassung, die letzten KEEP_VERSIONS erfolgreichen
+ * und die letzten KEEP_FAILED übrigen (wegen ihrer Logs). Was herausfällt,
+ * verliert Zeile, Artefakt-Ordner und gebaute Images – ausser ein
+ * aufbewahrter Eintrag verweist noch auf dasselbe Image (Rollbacks teilen es).
+ */
 export async function pruneOldDeployments(projectId: string): Promise<void> {
   const rows = await db
-    .select({ id: schema.deployments.id, isActive: schema.deployments.isActive })
+    .select()
     .from(schema.deployments)
     .where(eq(schema.deployments.projectId, projectId))
     .orderBy(desc(schema.deployments.startedAt))
 
-  const toDelete = rows.filter((r) => !r.isActive).slice(KEEP_VERSIONS)
-  for (const r of toDelete) {
+  const keep = new Set<string>()
+  let good = 0
+  let other = 0
+  for (const r of rows) {
+    if (r.isActive) keep.add(r.id)
+    else if (r.status === 'superseded') { if (good++ < KEEP_VERSIONS) keep.add(r.id) }
+    else if (r.status === 'pending' || r.status === 'pulling' || r.status === 'starting' || r.status === 'healthchecking') keep.add(r.id)
+    else if (other++ < KEEP_FAILED) keep.add(r.id)
+  }
+
+  const imagesInUse = new Set<string>()
+  for (const r of rows) {
+    if (!keep.has(r.id)) continue
+    if (r.imageRef) imagesInUse.add(r.imageRef)
+    for (const i of (r.artifact as DeploymentArtifact)?.builtImages ?? []) imagesInUse.add(i)
+  }
+
+  for (const r of rows) {
+    if (keep.has(r.id)) continue
+    const a = (r.artifact ?? {}) as DeploymentArtifact
+    for (const img of [...(a.builtImages ?? []), ...(r.imageRef?.startsWith('deployer/') ? [r.imageRef] : [])]) {
+      if (!imagesInUse.has(img)) await docker.removeImageIfUnused(img).catch(() => {})
+    }
+    await dropArtifactDir(r.id)
     await db.delete(schema.deployments).where(eq(schema.deployments.id, r.id))
   }
 }

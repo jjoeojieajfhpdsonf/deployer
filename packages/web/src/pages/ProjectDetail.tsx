@@ -143,7 +143,15 @@ export function ProjectDetail() {
         </div>
       )}
 
-      {tab === 'deployments' && <Deployments projectId={id} />}
+      {tab === 'deployments' && (
+        <Deployments
+          projectId={id}
+          onRollback={(depId) => {
+            setWatching(depId)
+            setTab('uebersicht')
+          }}
+        />
+      )}
       {tab === 'logs' && <LiveLogs projectId={id} />}
       {tab === 'einstellungen' && (
         <Settings
@@ -159,13 +167,34 @@ export function ProjectDetail() {
 
 /* --- Deployments ----------------------------------------------------------- */
 
-function Deployments({ projectId }: { projectId: string }) {
+const DEPLOY_STATUS: Record<string, string> = {
+  pending: 'wartet',
+  pulling: 'holt Quelle',
+  starting: 'startet',
+  healthchecking: 'Healthcheck',
+  active: 'aktiv',
+  superseded: 'abgelöst',
+  failed: 'fehlgeschlagen',
+  rolled_back: 'zurückgerollt',
+}
+
+function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
+  const qc = useQueryClient()
   const [open, setOpen] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
   const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId) })
   const detail = useQuery({
     queryKey: ['deployment', open],
     queryFn: () => api.getDeployment(open!),
     enabled: open !== null,
+  })
+  const rollback = useMutation({
+    mutationFn: (deploymentId: string) => api.rollback(projectId, deploymentId),
+    onSuccess: (r) => {
+      setConfirming(null)
+      void qc.invalidateQueries({ queryKey: ['deployments', projectId] })
+      onRollback(r.deployment.id)
+    },
   })
 
   if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
@@ -182,20 +211,49 @@ function Deployments({ projectId }: { projectId: string }) {
           <tbody>
             {rows.map((d) => (
               <tr key={d.id} className={d.status === 'failed' ? 'row-error' : undefined}>
-                <td>{new Date(d.startedAt).toLocaleString('de-CH')}</td>
+                <td>
+                  {new Date(d.startedAt).toLocaleString('de-CH')}
+                  {d.trigger === 'rollback' && <span className="muted"> · Rollback</span>}
+                </td>
                 <td><code className="version">{d.version ?? '–'}</code></td>
                 <td>{duration(d.durationMs)}</td>
-                <td>{d.isActive ? 'aktiv' : d.status}</td>
-                <td>
+                <td>{DEPLOY_STATUS[d.status] ?? d.status}</td>
+                <td className="row-actions">
                   <button onClick={() => setOpen(open === d.id ? null : d.id)}>
                     {open === d.id ? 'Log schliessen' : 'Log'}
                   </button>
+                  {d.canRollback && confirming !== d.id && (
+                    <button onClick={() => setConfirming(d.id)}>Zurückrollen</button>
+                  )}
+                  {confirming === d.id && (
+                    <>
+                      <button
+                        className="button-primary"
+                        disabled={rollback.isPending}
+                        onClick={() => rollback.mutate(d.id)}
+                      >
+                        {rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}
+                      </button>
+                      <button onClick={() => setConfirming(null)}>Abbrechen</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {rollback.isError && (
+        <p role="alert" className="error">
+          {rollback.error instanceof ApiError && rollback.error.status === 409
+            ? 'Für dieses Projekt läuft bereits ein Deploy.'
+            : (rollback.error as Error).message}
+        </p>
+      )}
+      <p className="hint">
+        Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
+        Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
+      </p>
 
       {open && (
         <pre className="log" aria-label="Deployment-Log">
@@ -253,6 +311,7 @@ function Settings({
     env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true })),
   )
   const [confirm, setConfirm] = useState('')
+  const [purge, setPurge] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const save = useMutation({
@@ -266,7 +325,7 @@ function Settings({
   })
 
   const remove = useMutation({
-    mutationFn: () => api.deleteProject(projectId),
+    mutationFn: () => api.deleteProject(projectId, purge),
     onSuccess: onDeleted,
   })
 
@@ -293,6 +352,13 @@ function Settings({
           onChange={(e) => setConfirm(e.target.value)}
           placeholder={slug}
         />
+        <label className="choice">
+          <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
+          <span>
+            Auch die Daten-Volumes löschen
+            <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small>
+          </span>
+        </label>
         <button
           className="button-danger"
           disabled={confirm !== slug || remove.isPending}

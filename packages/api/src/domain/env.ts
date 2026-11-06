@@ -42,6 +42,20 @@ export async function resolveEnv(projectId: string): Promise<Record<string, stri
 }
 
 /**
+ * Nur die nicht-geheimen Werte. Für statische Builds: was dort hineingeht,
+ * kann in der ausgelieferten Seite landen.
+ */
+export async function resolvePublicEnv(projectId: string): Promise<Record<string, string>> {
+  const rows = await db
+    .select()
+    .from(schema.projectEnv)
+    .where(eq(schema.projectEnv.projectId, projectId))
+  const out: Record<string, string> = {}
+  for (const r of rows) if (!r.isSecret) out[r.key] = r.value ?? ''
+  return out
+}
+
+/**
  * Ersetzt die gesamte Liste atomar.
  *
  * Ein Eintrag mit leerem Wert und isSecret bleibt erhalten, wenn es ihn schon

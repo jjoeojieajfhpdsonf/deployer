@@ -1,0 +1,12 @@
+# Build-Kontext des deployer-Images klein halten.
+**/node_modules
+**/dist
+.git
+.tmp
+data
+.env
+.agents
+.claude
+.impeccable
+.taste-skill
+docs

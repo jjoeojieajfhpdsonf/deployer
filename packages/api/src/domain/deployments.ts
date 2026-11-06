@@ -5,6 +5,17 @@ import type { DeploymentDto } from '@deployer/shared'
 
 type Row = typeof schema.deployments.$inferSelect
 
+/**
+ * Auf eine Fassung lässt sich zurückrollen, wenn sie einmal erfolgreich lief
+ * (superseded), gerade nicht aktiv ist und ihr Artefakt noch verzeichnet ist.
+ * Ob es auf der Platte noch existiert, prüft erst der Rollback selbst.
+ */
+export function canRollbackTo(d: Row): boolean {
+  if (d.isActive || d.status !== 'superseded') return false
+  const a = d.artifact ?? {}
+  return Boolean(d.imageRef || a.composeFile || a.siteVersion)
+}
+
 export function toDeploymentDto(r: Row): DeploymentDto {
   return {
     id: r.id,
@@ -17,6 +28,9 @@ export function toDeploymentDto(r: Row): DeploymentDto {
     finishedAt: r.finishedAt?.toISOString() ?? null,
     isActive: r.isActive,
     durationMs: r.finishedAt ? r.finishedAt.getTime() - r.startedAt.getTime() : null,
+    trigger: r.trigger,
+    rollbackOf: r.rollbackOf,
+    canRollback: canRollbackTo(r),
   }
 }
 

@@ -40,7 +40,13 @@ export const api = {
     call<{ project: ProjectDto; deployment: DeploymentDto | null }>('/projects', { method: 'POST', body: body(input) }),
   updateProject: (id: string, patch: unknown) =>
     call<{ project: ProjectDto }>(`/projects/${id}`, { method: 'PATCH', body: body(patch) }),
-  deleteProject: (id: string) => call<void>(`/projects/${id}`, { method: 'DELETE' }),
+  deleteProject: (id: string, purgeVolumes = false) =>
+    call<void>(`/projects/${id}${purgeVolumes ? '?purge=true' : ''}`, { method: 'DELETE' }),
+  rollback: (id: string, deploymentId?: string) =>
+    call<{ deployment: DeploymentDto }>(`/projects/${id}/rollback`, {
+      method: 'POST',
+      body: body(deploymentId ? { deploymentId } : {}),
+    }),
 
   putEnv: (id: string, entries: EnvEntryInput[]) =>
     call<{ env: EnvEntryDto[] }>(`/projects/${id}/env`, { method: 'PUT', body: body({ entries }) }),
@@ -60,7 +66,7 @@ export const api = {
   upload: async (file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    return call<{ upload: { id: string; filename: string; sizeBytes: number } }>('/uploads', { method: 'POST', body: fd })
+    return call<{ upload: { id: string; filename: string; sizeBytes: number; kind: 'zip' | 'compose' } }>('/uploads', { method: 'POST', body: fd })
   },
 
   /* System */

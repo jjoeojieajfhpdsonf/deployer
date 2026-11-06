@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import {
-  createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema,
+  createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
 } from '@deployer/shared'
+import { checkSourceEarly } from '../../domain/source-checks.js'
 import {
   listProjects, findProject, toDto, createProject, updateProject, deleteProject,
   assertSourceSupported,
@@ -11,7 +12,7 @@ import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject } from '../../domain/lifecycle.js'
-import { startDeploy } from '../../deploy/pipeline.js'
+import { startDeploy, startRollback } from '../../deploy/pipeline.js'
 import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
@@ -27,6 +28,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.post('/projects', async (request, reply) => {
     const input = createProjectSchema.parse(request.body)
     assertSourceSupported(input.source.type)
+    // Früh prüfen: gesperrte Repo-URL oder unzulässige compose.yaml kommen als
+    // 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
+    await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
     const project = await createProject(input, actorFor(request))
 
     if (input.deploy) {
@@ -60,7 +64,15 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.patch<{ Params: IdParams }>('/projects/:id', async (request) => {
     const project = await findProject(request.params.id)
     const patch = updateProjectSchema.parse(request.body)
-    if (patch.source) assertSourceSupported(patch.source.type)
+    if (patch.source) {
+      assertSourceSupported(patch.source.type)
+      // Ein Wechsel der Quellenart liesse Container der alten Art zurück
+      // (Compose-Dienste werden anders verwaltet als einzelne Container).
+      if (patch.source.type !== project.sourceType) {
+        throw badRequest('Die Art der Quelle lässt sich nicht wechseln – dafür ein neues Projekt anlegen')
+      }
+      await checkSourceEarly(patch.source, project.slug)
+    }
     const updated = await updateProject(project.id, patch)
     await audit({
       actor: actorFor(request), action: 'project.update', targetType: 'project',
@@ -125,6 +137,14 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const { ref } = deploySchema.parse(request.body ?? {})
     // Wirft 409, wenn für dieses Projekt schon ein Deploy läuft.
     const deployment = await startDeploy(project.id, actorFor(request), ref)
+    return { deployment }
+  })
+
+  /** M2: ohne deploymentId die zuletzt aktive Fassung vor der jetzigen. 409 bei laufendem Deploy. */
+  app.post<{ Params: IdParams }>('/projects/:id/rollback', async (request) => {
+    const project = await findProject(request.params.id)
+    const { deploymentId } = rollbackSchema.parse(request.body ?? {})
+    const deployment = await startRollback(project.id, actorFor(request), deploymentId)
     return { deployment }
   })
 

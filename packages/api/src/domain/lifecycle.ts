@@ -34,6 +34,25 @@ export async function startProject(
     return { started: true }
   }
 
+  // Compose: alle Dienste des Projekts wieder starten; gibt es keine mehr,
+  // neu deployen.
+  if (project.sourceType === 'compose') {
+    const services = (await docker.listManagedContainers()).filter(
+      (c) => c.labels[docker.LABEL_PROJECT] === project.slug && c.labels['deployer.compose-service'],
+    )
+    if (!active || services.length === 0) {
+      const deployment = await startDeploy(project.id, actor)
+      return { started: true, deployment }
+    }
+    for (const c of services) {
+      if (!c.running && docker.isPersistentComposeService(c.labels)) await docker.startContainer(c.id)
+    }
+    await setStatus(project.id, 'running')
+    await reconcileCaddy()
+    await audit({ actor, action: 'project.start', targetType: 'project', targetId: project.id, result: 'ok' })
+    return { started: true }
+  }
+
   // Kein Container mehr da (z.B. nach einem Aufräumen): neu deployen.
   const state = active?.containerId ? await docker.inspectContainer(active.containerId) : null
   if (!active || !state) {

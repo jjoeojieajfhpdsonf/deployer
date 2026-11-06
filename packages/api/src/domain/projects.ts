@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
+import { slugify, sourceTypesSupported, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
 import * as docker from '../drivers/docker.js'
+import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto } from './deployments.js'
 import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
 import { replaceEnv } from './env.js'
@@ -162,11 +163,26 @@ export async function deleteProject(id: string, actor: string, purgeVolumes = fa
     await docker.removeContainer(c.id)
   }
 
+  // 1b. Gebaute Images und aufbewahrte Artefakte (Compose-Dateien) weg
+  const deps = await db.select().from(schema.deployments).where(eq(schema.deployments.projectId, project.id))
+  for (const d of deps) {
+    const imgs = [...(d.artifact?.builtImages ?? []), ...(d.imageRef?.startsWith('deployer/') ? [d.imageRef] : [])]
+    for (const img of imgs) await docker.removeImageIfUnused(img).catch(() => {})
+    await dropArtifactDir(d.id)
+  }
+
   // 2. Caddy aus dem Netz, dann Netz weg
   const net = docker.projectNetworkName(project.slug)
   await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
   await docker.disconnectFromNetwork(net, config.DEPLOYER_CONTAINER)
   await docker.removeNetwork(net)
+
+  // 2b. Benannte Volumes (Compose) nur auf ausdrücklichen Wunsch: darin
+  // liegen Daten, etwa die einer Datenbank.
+  if (purgeVolumes) {
+    const removed = await docker.removeProjectVolumes(net)
+    if (removed.length) log.info('Volumes gelöscht', { slug: project.slug, volumes: removed })
+  }
 
   // 3. Statische Dateien weg
   if (project.sourceType === 'static') {
@@ -191,7 +207,7 @@ export async function deleteProject(id: string, actor: string, purgeVolumes = fa
 }
 
 export function assertSourceSupported(type: SourceType): void {
-  if (type !== 'image' && type !== 'static') {
-    throw badRequest(`Quelle "${type}" kommt erst in einem späteren Meilenstein (M1: image, static)`)
+  if (!(sourceTypesSupported as readonly string[]).includes(type)) {
+    throw badRequest(`Quelle "${type}" kommt erst in einem späteren Meilenstein`)
   }
 }
