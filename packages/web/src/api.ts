@@ -3,6 +3,14 @@ import type {
   SystemStatusDto, Source, RouteTarget,
 } from '@deployer/shared'
 
+export interface ApiTokenDto {
+  id: string
+  name: string
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
 export class ApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number, readonly details?: unknown) {
     super(message)
@@ -68,6 +76,14 @@ export const api = {
     fd.append('file', file)
     return call<{ upload: { id: string; filename: string; sizeBytes: number; kind: 'zip' | 'compose' } }>('/uploads', { method: 'POST', body: fd })
   },
+
+  /* Tokens (M3) */
+  listTokens: () => call<{ tokens: ApiTokenDto[] }>('/tokens'),
+  createToken: (name: string) => call<{ token: string; apiToken: ApiTokenDto }>('/tokens', { method: 'POST', body: body({ name }) }),
+  revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
+
+  /* Dateien eines Chat-Projekts (M3) */
+  listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
 
   /* System */
   system: () => call<SystemStatusDto>('/system/status'),

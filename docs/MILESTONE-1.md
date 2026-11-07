@@ -297,6 +297,10 @@ Die Abnahme hat vier Fehler gefunden, die die Unit-Tests nicht gefunden hätten.
 
 Dazu: Ein `host`-Matcher `"*"` trifft in Caddy nicht auf alles – die Auffangroute hat deshalb keinen Matcher.
 
+### Nachtrag: Lücke in der Anmeldung (behoben in M3)
+
+Das Code-Review von M3 hat eine Lücke gefunden, die seit diesem Meilenstein bestand: Der Auth-Wächter prüfte den rohen Pfad (`beginnt mit /api/`), der Router dekodiert Prozentkodierung aber vorher. `/%61pi/v1/projects` lieferte damit **ohne Anmeldung** die Projektliste, und ein POST darauf hätte Container gestartet. Erreichbar war das aus dem LAN. Behoben im M3-Commit: Der Wächter entscheidet am Routenmuster; ein Regressionstest steht in `e2e/m1.e2e.ts`.
+
 ### Noch nicht gesehen
 
 - **Die Ansichten nach dem Login** sind gebaut und typgeprüft, aber nicht im Browser angesehen. Das Screenshot-Skript des Taste Skills kann keine Sitzung setzen; geprüft ist nur die Anmeldeseite (dunkel, 1440 und 390).

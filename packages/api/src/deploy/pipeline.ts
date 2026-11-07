@@ -6,16 +6,17 @@ import type { DeploymentArtifact } from '../db/schema.js'
 import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { composeUp, composePull } from '../drivers/compose-cli.js'
-import { findProject, setStatus, setDesiredState } from '../domain/projects.js'
+import { findProject, setStatus, setDesiredState, touchActivity } from '../domain/projects.js'
 import { resolveEnv } from '../domain/env.js'
 import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
-import { toDeploymentDto, getDeployment, canRollbackTo } from '../domain/deployments.js'
+import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
 import { waitForHealthy } from './healthcheck.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
-import { prepareStatic, activateStatic, siteDir } from './sources/static.js'
-import { buildFromRepo } from './sources/dockerfile.js'
+import { prepareStatic, prepareStaticFromDir, activateStatic, siteDir } from './sources/static.js'
+import { buildFromRepo, buildFromDir } from './sources/dockerfile.js'
+import { checkoutFiles, KIND_LABEL, type FilesConfig } from './sources/files.js'
 import { prepareCompose, materialize } from './sources/compose.js'
 import { dropWorkDir, dropArtifactDir, workDir, ensureArtifactDir } from './workdir.js'
 import { copyFile, rm } from 'node:fs/promises'
@@ -88,6 +89,8 @@ async function startJob(project: Project, actor: string, job: Job): Promise<Depl
       .returning()
     const row = inserted[0]!
     await setDeployment(row.id, { logRef: logPathFor(row.id) })
+    // Deploy und Rollback sind Aktivität (Ablauf von Chat-Projekten).
+    await touchActivity(project.id)
 
     // Bewusst nicht awaiten: die API antwortet sofort. run() gibt den Lock
     // selbst frei, sobald der Endstatus geschrieben ist; das finally ist nur
@@ -152,6 +155,9 @@ async function run(
       case 'compose':
         await runCompose(deploymentId, project, job)
         break
+      case 'files':
+        await runFiles(deploymentId, project, job)
+        break
       default:
         throw badRequest(`Quelle "${project.sourceType}" kommt erst in einem späteren Meilenstein`)
     }
@@ -163,7 +169,8 @@ async function run(
       await reconcileCaddy()
       appendLine(deploymentId, 'Route aktiv')
     } catch (err) {
-      if (project.sourceType === 'image' || project.sourceType === 'dockerfile') {
+      const kind = effectiveKind(project.sourceType, (await getDeployment(deploymentId)).artifact)
+      if (kind === 'image' || kind === 'dockerfile') {
         // Neuer Container, neuer Upstream: Caddy hat die alte Konfiguration
         // behalten, der alte Container läuft noch. In der DB die vorherige
         // Fassung wieder aktiv setzen und den Deploy scheitern lassen.
@@ -181,7 +188,10 @@ async function run(
       log.warn('Caddy-Abgleich nach Deploy gescheitert', { projectId, deploymentId, err: String(err) })
     }
 
-    await removeSupersededContainers(project.slug, deploymentId)
+    // Läuft die neue Fassung nicht (mehr) als Compose – etwa ein Chat-Projekt,
+    // das jetzt ein Dockerfile hat –, müssen auch die Compose-Dienste weg.
+    const newKind = effectiveKind(project.sourceType, (await getDeployment(deploymentId)).artifact)
+    await removeSupersededContainers(project.slug, deploymentId, { includeCompose: newKind !== 'compose' })
     await pruneOldDeployments(projectId)
 
     appendLine(deploymentId, `Fertig in ${Math.round((Date.now() - started) / 1000)} s`)
@@ -238,7 +248,20 @@ async function runImage(deploymentId: string, project: Project, job: Job): Promi
   await startAndCheck(deploymentId, project, imageRef)
 }
 
-async function runDockerfile(deploymentId: string, project: Project, job: Job): Promise<void> {
+/**
+ * Die Runner für dockerfile, static und compose nehmen optional eine eigene
+ * Vorbereitung und Zusatzangaben fürs Artefakt. So läuft ein Chat-Projekt
+ * (Quelle files, M3) durch genau dieselben Wege wie ein Repo-Projekt.
+ */
+type Extra = Partial<DeploymentArtifact>
+
+async function runDockerfile(
+  deploymentId: string,
+  project: Project,
+  job: Job,
+  build: () => Promise<{ imageTag: string; commit: string }> = () => buildFromRepo(project, deploymentId, job.kind === 'deploy' ? job.ref : undefined),
+  extra: Extra = {},
+): Promise<void> {
   emitStatus(deploymentId, 'pulling')
   let imageRef: string
   let version: string | null
@@ -250,13 +273,56 @@ async function runDockerfile(deploymentId: string, project: Project, job: Job): 
       throw new AppError('rollback_unavailable', `Das Image der Fassung (${imageRef}) gibt es nicht mehr`, 400)
     }
   } else {
-    const built = await buildFromRepo(project, deploymentId, job.ref)
+    const built = await build()
     imageRef = built.imageTag
     version = built.commit
     builtImages = [built.imageTag]
   }
-  await setDeployment(deploymentId, { status: 'pulling', version, imageRef, artifact: { builtImages } })
+  await setDeployment(deploymentId, { status: 'pulling', version, imageRef, artifact: { builtImages, ...extra } })
   await startAndCheck(deploymentId, project, imageRef)
+}
+
+/* --- Chat-Projekte (Quelle files, M3) ------------------------------------------ */
+
+async function runFiles(deploymentId: string, project: Project, job: Job): Promise<void> {
+  const cfg = project.sourceConfig as FilesConfig
+  const webService = cfg.webService ?? 'web'
+
+  if (job.kind === 'rollback') {
+    const kind = job.target.artifact?.filesKind
+    if (!kind) throw new AppError('rollback_unavailable', 'Unbekannt, als was diese Fassung lief', 400)
+    const extra = { filesKind: kind }
+    if (kind === 'dockerfile') return runDockerfile(deploymentId, project, job, undefined, extra)
+    if (kind === 'compose') return runCompose(deploymentId, project, job, undefined, extra, webService)
+    return runStatic(deploymentId, project, job, undefined, extra)
+  }
+
+  emitStatus(deploymentId, 'pulling')
+  const co = await checkoutFiles(project, deploymentId, job.ref)
+  const extra = { filesKind: co.kind }
+  if ((co.kind === 'dockerfile' || co.kind === 'compose') && !project.port) {
+    throw badRequest(`Als ${KIND_LABEL[co.kind]} braucht das Projekt einen Port im Container (port setzen)`)
+  }
+  switch (co.kind) {
+    case 'dockerfile':
+      return runDockerfile(deploymentId, project, job, async () => ({
+        imageTag: await buildFromDir(project, deploymentId, co.dir, {}),
+        commit: co.commit,
+      }), extra)
+    case 'compose':
+      return runCompose(deploymentId, project, job, () => prepareCompose(project, deploymentId, undefined, {
+        dir: co.dir, commit: co.commit, composePath: co.composePath!, webService,
+      }), extra, webService)
+    case 'static-build':
+      return runStatic(deploymentId, project, job, () => prepareStaticFromDir(project, deploymentId, co.dir, co.commit, {
+        buildCommand: cfg.buildCommand ?? 'npm run build',
+        outputDir: cfg.outputDir,
+      }), extra)
+    case 'static':
+      return runStatic(deploymentId, project, job, () => prepareStaticFromDir(project, deploymentId, co.dir, co.commit, {
+        outputDir: cfg.outputDir,
+      }), extra)
+  }
 }
 
 async function startAndCheck(deploymentId: string, project: Project, imageRef: string): Promise<void> {
@@ -306,7 +372,13 @@ async function healthcheck(deploymentId: string, network: string, host: string, 
 
 /* --- Statisch ------------------------------------------------------------------- */
 
-async function runStatic(deploymentId: string, project: Project, job: Job): Promise<void> {
+async function runStatic(
+  deploymentId: string,
+  project: Project,
+  job: Job,
+  prepare: () => Promise<{ version: string }> = () => prepareStatic(project, deploymentId, job.kind === 'deploy' ? job.ref : undefined),
+  extra: Extra = {},
+): Promise<void> {
   emitStatus(deploymentId, 'pulling')
   let version: string
   if (job.kind === 'rollback') {
@@ -315,9 +387,9 @@ async function runStatic(deploymentId: string, project: Project, job: Job): Prom
       throw new AppError('rollback_unavailable', 'Der Versionsordner dieser Fassung ist nicht mehr vorhanden', 400)
     }
   } else {
-    version = (await prepareStatic(project, deploymentId, job.ref)).version
+    version = (await prepare()).version
   }
-  await setDeployment(deploymentId, { status: 'pulling', version, artifact: { siteVersion: version } })
+  await setDeployment(deploymentId, { status: 'pulling', version, artifact: { siteVersion: version, ...extra } })
 
   emitStatus(deploymentId, 'starting')
   await activateStatic(project, version, deploymentId)
@@ -332,9 +404,16 @@ async function runStatic(deploymentId: string, project: Project, job: Job): Prom
  * startet nur geänderte Dienste neu. Scheitert der Healthcheck, wird die
  * vorherige Datei wieder hochgefahren.
  */
-async function runCompose(deploymentId: string, project: Project, job: Job): Promise<void> {
+async function runCompose(
+  deploymentId: string,
+  project: Project,
+  job: Job,
+  prepare: () => ReturnType<typeof prepareCompose> = () => prepareCompose(project, deploymentId, job.kind === 'deploy' ? job.ref : undefined),
+  extra: Extra = {},
+  webServiceOverride?: string,
+): Promise<void> {
   emitStatus(deploymentId, 'pulling')
-  const cfg = project.sourceConfig as { webService: string }
+  const cfg = { webService: webServiceOverride ?? (project.sourceConfig as { webService: string }).webService }
   let artifactFile: string
   let webContainer: string
   let builtImages: string[] = []
@@ -353,7 +432,7 @@ async function runCompose(deploymentId: string, project: Project, job: Job): Pro
     builtImages = job.target.artifact?.builtImages ?? []
     version = job.target.version
   } else {
-    const prepared = await prepareCompose(project, deploymentId, job.ref)
+    const prepared = await prepare()
     artifactFile = prepared.file
     webContainer = prepared.normalized.webContainer
     builtImages = prepared.normalized.builtImages
@@ -362,7 +441,7 @@ async function runCompose(deploymentId: string, project: Project, job: Job): Pro
   await setDeployment(deploymentId, {
     status: 'starting',
     version,
-    artifact: { composeFile: artifactFile, webContainer, builtImages },
+    artifact: { composeFile: artifactFile, webContainer, builtImages, ...extra },
   })
 
   emitStatus(deploymentId, 'starting')
@@ -437,13 +516,19 @@ async function markActiveExclusively(projectId: string, deploymentId: string): P
 
 /**
  * Container alter Fassungen entfernen; die Images bleiben für ein Rollback.
- * Compose-Dienste nicht: die verwaltet Compose an Ort und Stelle.
+ * Compose-Dienste nur, wenn die neue Fassung nicht mehr als Compose läuft –
+ * sonst verwaltet Compose sie an Ort und Stelle. Benannte Volumes bleiben
+ * in jedem Fall (darin liegen Daten).
  */
-async function removeSupersededContainers(slug: string, keepDeploymentId: string): Promise<void> {
+async function removeSupersededContainers(
+  slug: string,
+  keepDeploymentId: string,
+  o: { includeCompose?: boolean } = {},
+): Promise<void> {
   const managed = await docker.listManagedContainers()
   for (const c of managed) {
     if (c.labels[docker.LABEL_PROJECT] !== slug) continue
-    if (c.labels['deployer.compose-service']) continue
+    if (c.labels['deployer.compose-service'] && !o.includeCompose) continue
     if (c.labels[docker.LABEL_DEPLOYMENT] === keepDeploymentId) continue
     await docker.stopContainer(c.id)
     await docker.removeContainer(c.id)
@@ -468,7 +553,7 @@ async function cleanupFailed(projectId: string, deploymentId: string): Promise<v
     const d = await getDeployment(deploymentId).catch(() => null)
     if (d?.trigger === 'deploy') {
       for (const img of d.artifact?.builtImages ?? []) await docker.removeImageIfUnused(img)
-      if (project.sourceType === 'compose') await dropArtifactDir(deploymentId)
+      if (effectiveKind(project.sourceType, d.artifact) === 'compose') await dropArtifactDir(deploymentId)
     }
   } catch (err) {
     log.warn('Aufräumen nach Fehlschlag unvollständig', { deploymentId, err: String(err) })

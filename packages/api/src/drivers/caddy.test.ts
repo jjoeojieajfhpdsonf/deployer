@@ -20,6 +20,18 @@ type Cfg = {
 
 const build = (routes: RouteSpec[], o = opts) => buildCaddyConfig(routes, o) as unknown as Cfg
 
+describe('kanonischer Vergleich (nur bei Änderung neu laden)', () => {
+  test('Reihenfolge der Schlüssel spielt keine Rolle, Inhalt schon', async () => {
+    process.env.DATABASE_URL ??= 'postgres://x@localhost/x'
+    process.env.ADMIN_PASSWORD ??= 'x'
+    const { canonicalJson } = await import('./caddy.js')
+    assert.equal(canonicalJson({ b: 1, a: { d: [1, { y: 2, x: 1 }], c: 2 } }), canonicalJson({ a: { c: 2, d: [1, { x: 1, y: 2 }] }, b: 1 }))
+    assert.notEqual(canonicalJson({ a: [1, 2] }), canonicalJson({ a: [2, 1] }), 'Reihenfolge in Listen zählt (Routen!)')
+    const cfg = build([proxyRoute])
+    assert.equal(canonicalJson(JSON.parse(JSON.stringify(cfg))), canonicalJson(cfg))
+  })
+})
+
 describe('Caddy-Konfiguration', () => {
   test('der admin-Block zeigt immer auf den Unix-Socket', () => {
     // Fehlte er, fiele Caddy beim naechsten /load auf TCP :2019 zurueck und
@@ -38,6 +50,13 @@ describe('Caddy-Konfiguration', () => {
     const route = build([proxyRoute]).apps.http.servers.srv0.routes[0]!
     assert.deepEqual(route.match![0]!.host, ['solar.int.example.ch', 'solar.192-168-1-10.nip.io'])
     assert.equal(route.handle[0]!.handler, 'reverse_proxy')
+  })
+
+  test('noKeepAlive setzt Connection: close vor dem Proxy', () => {
+    const route = build([{ ...proxyRoute, noKeepAlive: true }]).apps.http.servers.srv0.routes[0]!
+    assert.equal(route.handle[0]!.handler, 'headers')
+    assert.deepEqual((route.handle[0] as unknown as { response: unknown }).response, { set: { Connection: ['close'] } })
+    assert.equal(route.handle[1]!.handler, 'reverse_proxy')
   })
 
   test('IP-Filter setzt remote_ip auf allen Projekt-Routen', () => {

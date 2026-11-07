@@ -6,6 +6,7 @@ import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
 import { labelOf } from '../lib/hostnames.js'
+import { effectiveKind } from './deployments.js'
 import type { RouteTarget, RouteDto } from '@deployer/shared'
 
 /**
@@ -128,7 +129,8 @@ async function currentRouteRows(): Promise<RouteRow[]> {
     .map((r) => ({
       slug: r.slug,
       hostname: r.hostname,
-      sourceType: r.sourceType,
+      // Chat-Projekte (files) laufen als das, als was sie erkannt wurden.
+      sourceType: effectiveKind(r.sourceType, r.artifact),
       port: r.port,
       deploymentId: r.deploymentId,
       webContainer: r.artifact?.webContainer ?? null,
@@ -137,7 +139,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
 
 /** Container, an den Caddy den Verkehr eines Projekts gibt. */
 export function upstreamHost(r: { sourceType: string; slug: string; deploymentId: string; webContainer: string | null }): string {
-  if (r.sourceType === 'compose' && r.webContainer) return r.webContainer
+  if (r.webContainer) return r.webContainer
   return docker.containerName(r.slug, r.deploymentId)
 }
 
@@ -154,6 +156,8 @@ export async function buildRouteSpecs(): Promise<caddy.RouteSpec[]> {
     hosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
     kind: 'proxy',
     upstream: config.DEPLOYER_UPSTREAM,
+    // Siehe RouteSpec.noKeepAlive: MCP-Aufrufe nach einem Deploy.
+    noKeepAlive: true,
   })
 
   for (const r of rows) {
@@ -205,7 +209,10 @@ export async function syncCaddyNetworks(): Promise<void> {
 export async function reconcileCaddy(): Promise<void> {
   await syncCaddyNetworks()
   const specs = await buildRouteSpecs()
-  await caddy.loadConfig(
+  // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
+  // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
+  // dann eine Anfrage verlieren.
+  const changed = await caddy.loadConfigIfChanged(
     caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
       cidrs: [config.LAN_CIDR, config.tailnetCidr, '127.0.0.0/8', '::1/128'],
@@ -213,5 +220,5 @@ export async function reconcileCaddy(): Promise<void> {
     }),
   )
   await caddy.assertAdminOnUnixSocket()
-  log.info('Caddy abgeglichen', { routen: specs.length, ipFilter: config.CADDY_IP_FILTER })
+  if (changed) log.info('Caddy abgeglichen', { routen: specs.length, ipFilter: config.CADDY_IP_FILTER })
 }

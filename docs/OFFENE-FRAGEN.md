@@ -27,3 +27,18 @@ Format: **Frage** – getroffene Annahme – *wo*.
 - **Quellenart wechseln?** Nicht per PATCH: Compose-Dienste werden anders verwaltet als einzelne Container, beim Wechsel blieben Reste. Für eine andere Art ein neues Projekt anlegen. – *http/routes/projects.ts*
 - **Rollback und Umgebungsvariablen.** Ein Rollback nimmt die heutigen Variablen, nicht die damaligen. Dafür liegen in den aufbewahrten Artefakten keine Secrets. – *deploy/sources/compose.ts*
 - **Aufbewahrung.** Die letzten 5 erfolgreichen Fassungen (Rollback-Ziele) und die letzten 10 fehlgeschlagenen Versuche (wegen ihrer Logs). – *deploy/pipeline.ts, pruneOldDeployments*
+
+## Meilenstein 3
+
+- **API-Tokens auch für REST?** Ja, damit Skripte die API nutzen können (SPEC: «für die UI und für Skripte»). **Tokens verwalten** geht aber nur mit Anmeldung: Ein gestohlenes Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern. – *http/auth.ts*
+- **Hash der Tokens.** SHA-256 statt scrypt: Die Tokens sind 32 Zufallsbytes; Wörterbuchangriffe, gegen die ein langsamer Hash hilft, greifen nicht. – *lib/tokens.ts*
+- **Warten MCP-Werkzeuge auf den Deploy?** Ja, standardmässig (`wait: true`, höchstens 10 Minuten). Ein Agent soll ohne Nachfragen wissen, ob es geklappt hat; bei Fehlern kommen die letzten 20 Log-Zeilen mit. `wait: false` antwortet sofort. – *mcp/server.ts*
+- **Keep-Alive auf der deployer-Route.** Caddy setzt dort `Connection: close`. Grund: MCP antwortet per SSE; lädt ein Deploy Caddy neu, schliesst Caddy die Verbindung nach der Antwort, ohne dass der Client es weiss – sein nächster Aufruf scheiterte. Im LAN kostet eine neue TCP-Verbindung pro Anfrage nichts; mit HTTP/2 ab M4 entfällt das Problem. Projekt-Routen behalten Keep-Alive. – *drivers/caddy-config.ts*
+- **Caddy neu laden nur bei Änderung.** Verglichen wird kanonisch mit Caddys tatsächlich geladener Konfiguration. Ein Image-Redeploy ändert den Upstream (neuer Container) und lädt deshalb weiterhin neu. Mögliche Verbesserung: ein stabiler Netz-Alias pro Projekt, der nach dem Healthcheck auf den neuen Container wandert – dann bräuchte ein Redeploy gar kein Neuladen. Nicht umgesetzt. – *domain/routes.ts*
+- **Port bei Chat-Projekten.** Die Art wird erst beim Deploy erkannt. Wird ein Chat-Projekt zum Dockerfile- oder Compose-Projekt, braucht es einen Port; `update_files` nimmt dafür `port` an. Ohne Port scheitert der Deploy mit klarer Meldung. – *deploy/pipeline.ts, runFiles*
+- **Vorgaben bei Chat-Projekten.** Compose: Web-Dienst `web`. Statischer Build: `npm run build`, Ausgabe `dist`. Beides über `source` änderbar. – *deploy/sources/files.ts*
+- **Deploy auf einen bestimmten Stand.** Bei Chat-Projekten nimmt `deploy` als `ref` nur einen Commit-Hash an, keine Branches. – *deploy/sources/files.ts*
+- **export_repo mit push.** Veröffentlicht Code auf einem fremden Server – nur auf ausdrücklichen Aufruf, mit derselben URL-Prüfung wie beim Clone; das Zugangs-Token wird weder gespeichert noch geloggt. In der Nacht nur gegen einen lokalen Git-Server getestet, nie gegen GitHub. – *lib/git.ts, pushRepo*
+- **MCP-Sitzungen** liegen im Speicher. Ein Neustart des deployers beendet sie; Clients verbinden sich neu. – *mcp/http.ts*
+- **«Läuft bald ab»** landet in M3 nur im Audit-Log; Push und E-Mail kommen mit M6. – *jobs/expiry.ts*
+- **Tests der Werkzeuge.** Statt der geplanten In-Memory-Tests laufen die Werkzeuge Ende-zu-Ende mit dem offiziellen MCP-Client über HTTP gegen den echten Stack: Sie brauchen ohnehin Datenbank und Docker. – *e2e/m3.e2e.ts*

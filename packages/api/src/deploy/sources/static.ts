@@ -122,6 +122,20 @@ async function prepareStaticFromRepo(
   ref?: string,
 ): Promise<{ version: string }> {
   const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl!, ref ?? cfg.ref)
+  return prepareStaticFromDir(project, deploymentId, dir, commit, cfg)
+}
+
+/**
+ * Statische Seite aus einem bereits vorliegenden Ordner (Clone oder lokales
+ * Repo eines Chat-Projekts, M3).
+ */
+export async function prepareStaticFromDir(
+  project: Project,
+  deploymentId: string,
+  dir: string,
+  commit: string,
+  cfg: { buildCommand?: string; outputDir?: string },
+): Promise<{ version: string }> {
   const outputDir = cfg.outputDir ?? (cfg.buildCommand ? 'dist' : '.')
   const env = cfg.buildCommand ? await resolvePublicEnv(project.id) : {}
   const version = staticVersionHash({ commit, buildCommand: cfg.buildCommand, outputDir, env })

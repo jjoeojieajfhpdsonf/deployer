@@ -17,10 +17,7 @@ export function builtTag(slug: string, deploymentId: string): string {
   return `deployer/${slug}:${deploymentId.replace(/-/g, '').slice(0, 12)}`
 }
 
-/**
- * Clone, Prüfung der Pfade, Build. Ergebnis ist ein lokaler Tag, der ab hier
- * wie ein fertiges Image behandelt wird.
- */
+/** Clone, dann Build. Ergebnis ist ein lokaler Tag, ab hier wie ein fertiges Image. */
 export async function buildFromRepo(
   project: Project,
   deploymentId: string,
@@ -28,19 +25,32 @@ export async function buildFromRepo(
 ): Promise<{ imageTag: string; commit: string }> {
   const cfg = project.sourceConfig as { repoUrl?: string; ref?: string; dockerfile?: string; context?: string }
   if (!cfg.repoUrl) throw badRequest('Dem Projekt fehlt die Repo-URL')
-
   const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl, ref ?? cfg.ref)
+  const imageTag = await buildFromDir(project, deploymentId, dir, { dockerfile: cfg.dockerfile, context: cfg.context })
+  return { imageTag, commit }
+}
 
-  // Kontext und Dockerfile müssen nach dem Auflösen im Repo liegen.
-  const context = await resolveInRepo(dir, cfg.context ?? '.')
-  const dockerfileAbs = await resolveInRepo(dir, joinRel(cfg.context ?? '.', cfg.dockerfile ?? 'Dockerfile'))
+/**
+ * Build aus einem bereits vorliegenden Ordner (Clone oder lokales Repo eines
+ * Chat-Projekts). Kontext und Dockerfile müssen nach dem Auflösen darin liegen.
+ */
+export async function buildFromDir(
+  project: Project,
+  deploymentId: string,
+  dir: string,
+  o: { dockerfile?: string; context?: string },
+): Promise<string> {
+  const contextRel = o.context ?? '.'
+  const dockerfileRel = o.dockerfile ?? 'Dockerfile'
+  const context = await resolveInRepo(dir, contextRel)
+  const dockerfileAbs = await resolveInRepo(dir, joinRel(contextRel, dockerfileRel))
   const dockerfileInContext = relative(context, dockerfileAbs)
   if (dockerfileInContext.startsWith('..')) {
     throw badRequest('Das Dockerfile muss innerhalb des Build-Kontexts liegen')
   }
 
   const tag = builtTag(project.slug, deploymentId)
-  appendLine(deploymentId, `Build startet (${cfg.dockerfile ?? 'Dockerfile'}, Kontext ${cfg.context ?? '.'})`)
+  appendLine(deploymentId, `Build startet (${dockerfileRel}, Kontext ${contextRel})`)
   await docker.buildImage(await packDir(context, { dockerignore: true, alwaysInclude: [dockerfileInContext] }), {
     tag,
     dockerfile: dockerfileInContext,
@@ -54,7 +64,7 @@ export async function buildFromRepo(
     onLine: (l) => appendLine(deploymentId, l),
   })
   appendLine(deploymentId, `Image gebaut: ${tag}`)
-  return { imageTag: tag, commit }
+  return tag
 }
 
 function joinRel(a: string, b: string): string {

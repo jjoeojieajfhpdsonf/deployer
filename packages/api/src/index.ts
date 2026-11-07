@@ -7,6 +7,7 @@ import { ensureAdminPassword } from './http/auth.js'
 import { buildApp } from './http/app.js'
 import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
+import { startExpiryJob } from './jobs/expiry.js'
 import { log } from './lib/log.js'
 
 async function main(): Promise<void> {
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   }
 
   startCleanupJob()
+  startExpiryJob()
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })

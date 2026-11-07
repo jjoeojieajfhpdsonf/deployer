@@ -3,6 +3,7 @@ import {
   createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
 } from '@deployer/shared'
 import { checkSourceEarly } from '../../domain/source-checks.js'
+import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import {
   listProjects, findProject, toDto, createProject, updateProject, deleteProject,
   assertSourceSupported,
@@ -31,7 +32,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     // Früh prüfen: gesperrte Repo-URL oder unzulässige compose.yaml kommen als
     // 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
-    const project = await createProject(input, actorFor(request))
+    const project = input.source.type === 'files'
+      ? await createFilesProject(input, actorFor(request))
+      : await createProject(input, actorFor(request))
 
     if (input.deploy) {
       const deployment = await startDeploy(project.id, actorFor(request))
@@ -89,6 +92,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       reply.code(204)
     },
   )
+
+  /** M3: Dateien eines Chat-Projekts (nur Liste; Inhalte über MCP read_files). */
+  app.get<{ Params: IdParams }>('/projects/:id/files', async (request) => listProjectFiles(request.params.id))
 
   /* --- Umgebungsvariablen ------------------------------------------------ */
 

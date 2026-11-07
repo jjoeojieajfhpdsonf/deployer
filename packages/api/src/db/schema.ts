@@ -31,6 +31,19 @@ export const projects = pgTable('projects', {
   memoryLimitMb: integer('memory_limit_mb').notNull().default(512),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // M3
+  localRepoPath: text('local_repo_path'),
+  lastChangeAt: timestamp('last_change_at', { withTimezone: true }).notNull().defaultNow(),
+  expiryWarnedAt: timestamp('expiry_warned_at', { withTimezone: true }),
+})
+
+export const apiTokens = pgTable('api_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
 })
 
 export const deployments = pgTable(
@@ -66,7 +79,12 @@ export interface DeploymentArtifact {
   siteVersion?: string
   /** dockerfile, compose mit build: von dieser Fassung gebaute Image-Tags */
   builtImages?: string[]
+  /** files (M3): als was das Chat-Projekt in dieser Fassung erkannt wurde */
+  filesKind?: FilesKind
 }
+
+/** Erkannte Art eines Chat-Projekts (Quelle "files"). */
+export type FilesKind = 'compose' | 'dockerfile' | 'static-build' | 'static'
 
 export const routes = pgTable(
   'routes',

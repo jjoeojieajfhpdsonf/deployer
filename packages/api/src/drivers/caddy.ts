@@ -62,6 +62,32 @@ export async function loadConfig(cfg: Record<string, unknown>): Promise<void> {
   await adminRequest('/load', 'POST', cfg)
 }
 
+/** JSON mit sortierten Schlüsseln, damit Caddys Rückgabe vergleichbar ist. */
+export function canonicalJson(v: unknown): string {
+  const sort = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(sort)
+    if (x && typeof x === 'object') {
+      return Object.fromEntries(Object.keys(x as Record<string, unknown>).sort().map((k) => [k, sort((x as Record<string, unknown>)[k])]))
+    }
+    return x
+  }
+  return JSON.stringify(sort(v))
+}
+
+/**
+ * Lädt nur, wenn sich die Konfiguration wirklich ändert. Jedes Neuladen
+ * schliesst ruhende Keep-Alive-Verbindungen (Go-Server); ein Client, der
+ * genau dann seine nächste Anfrage schickt, bekommt "connection closed".
+ * Verglichen wird mit dem, was Caddy tatsächlich geladen hat – nicht mit
+ * einem Zwischenspeicher, der nach einem Caddy-Neustart falsch wäre.
+ */
+export async function loadConfigIfChanged(cfg: Record<string, unknown>): Promise<boolean> {
+  const current = await getConfig().catch(() => null)
+  if (current && canonicalJson(current) === canonicalJson(cfg)) return false
+  await loadConfig(cfg)
+  return true
+}
+
 export async function getConfig(): Promise<unknown> {
   const text = await adminRequest('/config/', 'GET')
   return text ? JSON.parse(text) : null

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, ApiError, subscribeLogs } from '../api.js'
+import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
 import { StatusBadge, relativeTime, duration } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
@@ -35,6 +35,11 @@ export function ProjectDetail() {
       }
       void qc.invalidateQueries({ queryKey: ['project', id] })
     },
+  })
+
+  const keep = useMutation({
+    mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
   })
 
   if (q.isLoading) return <p className="state state-loading">Projekt wird geladen…</p>
@@ -116,11 +121,21 @@ export function ProjectDetail() {
             </dd>
 
             <dt>Quelle</dt>
-            <dd>
-              {p.sourceType === 'image'
-                ? <code>{(p.source as { image?: string } | null)?.image ?? '–'}</code>
-                : 'statische Seite'}
-            </dd>
+            <dd><SourceLine p={p} /></dd>
+
+            {p.sourceType === 'files' && (
+              <>
+                <dt>Ablauf</dt>
+                <dd>
+                  {p.expiresAt
+                    ? <>wird am {new Date(p.expiresAt).toLocaleDateString('de-CH')} gestoppt, wenn sich bis dahin nichts ändert{' '}</>
+                    : <>läuft nicht ab{' '}</>}
+                  <button onClick={() => keep.mutate(!p.keep)} disabled={keep.isPending}>
+                    {p.keep ? 'Ablauf wieder einschalten' : 'Behalten'}
+                  </button>
+                </dd>
+              </>
+            )}
 
             <dt>Aktive Fassung</dt>
             <dd>
@@ -163,6 +178,35 @@ export function ProjectDetail() {
       )}
     </section>
   )
+}
+
+const FILES_KIND: Record<string, string> = {
+  compose: 'Docker Compose',
+  dockerfile: 'Dockerfile',
+  'static-build': 'statische Seite mit Build',
+  static: 'statische Seite',
+}
+
+function SourceLine({ p }: { p: ProjectDto }) {
+  const s = (p.source ?? {}) as Record<string, string | undefined>
+  switch (p.sourceType) {
+    case 'image':
+      return <code>{s.image ?? '–'}</code>
+    case 'dockerfile':
+      return <>Dockerfile aus <code>{s.repoUrl}</code>{s.ref ? <> ({s.ref})</> : null}</>
+    case 'compose':
+      return s.repoUrl
+        ? <>Compose aus <code>{s.repoUrl}</code>, Web-Dienst <code>{s.webService}</code></>
+        : <>hochgeladene compose.yaml, Web-Dienst <code>{s.webService}</code></>
+    case 'static':
+      return s.repoUrl
+        ? <>statische Seite aus <code>{s.repoUrl}</code>{s.buildCommand ? <>, Build <code>{s.buildCommand}</code></> : null}</>
+        : <>statische Seite (ZIP)</>
+    case 'files':
+      return <>Chat-Projekt{p.filesKind ? <>, erkannt als {FILES_KIND[p.filesKind]}</> : null}</>
+    default:
+      return <>{p.sourceType}</>
+  }
 }
 
 /* --- Deployments ----------------------------------------------------------- */

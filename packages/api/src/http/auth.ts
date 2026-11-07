@@ -4,6 +4,8 @@ import { getSetting, setSetting } from '../db/index.js'
 import { hashPassword, verifyPassword } from '../lib/crypto.js'
 import { config } from '../config.js'
 import { unauthorized, AppError } from '../lib/errors.js'
+import { bearerFrom } from '../lib/tokens.js'
+import { verifyToken } from '../domain/tokens.js'
 import { log } from '../lib/log.js'
 
 export const SESSION_COOKIE = 'deployer_session'
@@ -97,15 +99,50 @@ export function isLoggedIn(request: FastifyRequest): boolean {
   return Date.now() - issued < SESSION_MAX_AGE_S * 1000
 }
 
-/** Schuetzt alles unter /api/v1 ausser den ausdruecklich offenen Pfaden. */
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** "ui:joel" bei Anmeldung, "token:<name>" bei API-Token (M3). */
+    actor: string
+    tokenId: string | null
+  }
+}
+
+/**
+ * Schuetzt alles unter /api/v1 ausser den ausdruecklich offenen Pfaden.
+ *
+ * Zwei Wege hinein: Session-Cookie (UI) oder `Authorization: Bearer dpl_…`
+ * (Skripte, M3). Tokens verwalten geht nur mit Anmeldung: ein gestohlenes
+ * Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern.
+ */
 export function registerAuthGuard(app: FastifyInstance): void {
   const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health'])
+  app.decorateRequest('actor', '')
+  app.decorateRequest('tokenId', null)
   app.addHook('onRequest', async (request) => {
-    const path = request.url.split('?')[0] ?? ''
-    if (!path.startsWith('/api/')) return
-    if (open.has(path)) return
+    // Entschieden wird am ROUTENMUSTER, das der Router gewählt hat – nie am
+    // rohen Pfad. Der Router dekodiert Prozentkodierung: "/%61pi/v1/projects"
+    // landet auf "/api/v1/projects", hätte aber eine Prüfung des rohen Pfads
+    // ("beginnt mit /api/") umgangen. Genau das war seit M1 möglich
+    // (gefunden im Review von M3).
+    const route = request.routeOptions.url
+    if (!route) return // keine Route: 404 ohne Daten
+    if (!route.startsWith('/api/')) return
+    if (open.has(route)) return
+
+    const bearer = bearerFrom(request.headers.authorization)
+    if (bearer) {
+      const identity = await verifyToken(bearer)
+      if (!identity) throw unauthorized()
+      if (route.startsWith('/api/v1/tokens')) {
+        throw new AppError('forbidden', 'Tokens lassen sich nur mit einer Anmeldung verwalten, nicht mit einem Token', 403)
+      }
+      request.actor = `token:${identity.name}`
+      request.tokenId = identity.id
+      return
+    }
     if (!isLoggedIn(request)) throw unauthorized()
+    request.actor = 'ui:joel'
   })
 }
 
-export const actorFor = (_request: FastifyRequest): string => 'ui:joel'
+export const actorFor = (request: FastifyRequest): string => request.actor || 'ui:joel'

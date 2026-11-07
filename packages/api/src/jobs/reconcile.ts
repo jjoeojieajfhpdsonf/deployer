@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { reconcileCaddy, rehostRoutes } from '../domain/routes.js'
 import { setStatus } from '../domain/projects.js'
+import { effectiveKind } from '../domain/deployments.js'
 import { audit } from '../domain/audit.js'
 import { log } from '../lib/log.js'
 
@@ -45,6 +46,7 @@ async function restoreDesiredState(): Promise<void> {
       slug: schema.projects.slug,
       sourceType: schema.projects.sourceType,
       containerId: schema.deployments.containerId,
+      artifact: schema.deployments.artifact,
     })
     .from(schema.projects)
     .leftJoin(
@@ -56,11 +58,13 @@ async function restoreDesiredState(): Promise<void> {
   const managed = await docker.listManagedContainers()
 
   for (const row of rows) {
-    if (row.sourceType === 'static') {
+    // Chat-Projekte (files) laufen als das, als was sie erkannt wurden.
+    const kind = effectiveKind(row.sourceType, row.artifact)
+    if (kind === 'static') {
       await setStatus(row.id, 'running')
       continue
     }
-    if (row.sourceType === 'compose') {
+    if (kind === 'compose') {
       // Compose-Dienste haben keine einzelne Container-ID im Deployment.
       const services = managed.filter(
         (c) => c.labels[docker.LABEL_PROJECT] === row.slug && c.labels['deployer.compose-service'],

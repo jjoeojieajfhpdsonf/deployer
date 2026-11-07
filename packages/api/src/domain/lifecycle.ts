@@ -1,6 +1,6 @@
 import * as docker from '../drivers/docker.js'
-import { findProject, setDesiredState, setStatus } from './projects.js'
-import { activeDeployment } from './deployments.js'
+import { findProject, setDesiredState, setStatus, touchActivity } from './projects.js'
+import { activeDeployment, effectiveKind } from './deployments.js'
 import { reconcileCaddy } from './routes.js'
 import { audit } from './audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
@@ -19,11 +19,16 @@ export async function startProject(
 ): Promise<{ started: boolean; deployment?: DeploymentDto }> {
   const project = await findProject(idOrSlug)
   await setDesiredState(project.id, 'running')
+  // Ein Start von Hand ist Aktivität: sonst stoppte der Ablauf-Job ein
+  // abgelaufenes Chat-Projekt in der nächsten Stunde wieder.
+  await touchActivity(project.id)
 
   const active = await activeDeployment(project.id)
+  // Chat-Projekte laufen als das, als was ihre aktive Fassung erkannt wurde.
+  const kind = effectiveKind(project.sourceType, active?.artifact)
 
   // Statische Seiten haben keinen Container; es reicht die Route.
-  if (project.sourceType === 'static') {
+  if (kind === 'static') {
     if (!active) {
       const deployment = await startDeploy(project.id, actor)
       return { started: true, deployment }
@@ -36,7 +41,7 @@ export async function startProject(
 
   // Compose: alle Dienste des Projekts wieder starten; gibt es keine mehr,
   // neu deployen.
-  if (project.sourceType === 'compose') {
+  if (kind === 'compose') {
     const services = (await docker.listManagedContainers()).filter(
       (c) => c.labels[docker.LABEL_PROJECT] === project.slug && c.labels['deployer.compose-service'],
     )

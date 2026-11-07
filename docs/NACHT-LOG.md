@@ -34,3 +34,25 @@ Neu: Quellen `dockerfile` (Clone + Build), `compose` (Upload oder Repo, mit eige
 - Der Mac hat nachts per DHCP eine neue IP bekommen; `SERVER_LAN_IP` musste nachgezogen werden. Für den Server: feste IP oder DHCP-Reservierung.
 - Compose-Deploys haben einen kurzen Ausfall der geänderten Dienste (bewusst, siehe OFFENE-FRAGEN).
 - Das deployer-Image ist durch git und die Docker-CLI grösser geworden.
+
+## Meilenstein 3 – MCP und Chat-Deploy
+
+**Stand:** fertig und committet. Plan, Abnahme, Review in [MILESTONE-3.md](MILESTONE-3.md).
+
+> **Wichtig, aus dem Review:** Seit Meilenstein 1 liess sich die Anmeldung mit einem prozentkodierten Pfad umgehen (`/%61pi/v1/projects` lieferte ohne Login die Projektliste; POST hätte Container gestartet). Erreichbar aus dem LAN. Im M3-Commit behoben, mit Regressionstest in der M1-Suite. Der M1- und der M2-Commit enthalten die Lücke noch.
+
+Neu: API-Tokens (Anlegen, Widerrufen, nur der Hash gespeichert), MCP-Server unter `/mcp` mit 14 Werkzeugen, Bestätigungen per Elicitation oder Bestätigungs-Token, Quelle `files` mit lokalem Git-Repo und Typ-Erkennung bei jedem Deploy, Ablauf von Chat-Projekten nach 30 Tagen, Tokens-Ansicht in der UI.
+
+**Getestet:**
+- 228 Unit-Tests.
+- 58 Ende-zu-Ende-Tests über M1–M3, alle grün. M3 mit dem offiziellen MCP-Client über HTTP: Zugang und Widerruf, Sitzungsbindung, alle drei erkannten Arten, Pfad- und Grössengrenzen, Bestätigungen (auch per Elicitation), Audit, Ablauf-Job.
+- `/code-review high`: zehn Befunde, alle behoben (Tabelle in MILESTONE-3.md).
+
+**Nicht getestet:**
+- `export_repo` mit `push` gegen einen echten Anbieter (bewusst nicht – das wäre Veröffentlichen).
+- Ablauf eines Bestätigungs-Tokens nach 5 Minuten nur als Unit-Test.
+- Tokens-Ansicht und Chat-Angaben in der UI nicht im Browser angesehen.
+
+**Bekannte Probleme / Hinweise:**
+- Ein Image-Redeploy lädt Caddy weiterhin neu (neuer Upstream). Auf Projekt-Routen mit Keep-Alive kann ein Client dabei eine Anfrage verlieren; Browser wiederholen GET-Anfragen von selbst. Verbesserung wäre ein stabiler Netz-Alias pro Projekt (siehe OFFENE-FRAGEN).
+- MCP-Sitzungen liegen im Speicher und enden mit einem Neustart des deployers.

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable } from '../api.js'
+import { copyText } from '../lib/clipboard.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -105,8 +106,9 @@ export function System() {
           <pre className="code-block">{s.hostsBlock}</pre>
           <button
             onClick={async () => {
-              await navigator.clipboard.writeText(s.hostsBlock ?? '')
-              setCopied(true)
+              // navigator.clipboard fehlt über HTTP; copyText hat einen Rückfall.
+              const ok = await copyText(s.hostsBlock ?? '')
+              setCopied(ok)
               setTimeout(() => setCopied(false), 2000)
             }}
           >

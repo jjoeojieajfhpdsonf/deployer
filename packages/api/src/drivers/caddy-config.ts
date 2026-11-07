@@ -13,6 +13,15 @@ export interface RouteSpec {
   upstream?: string
   /** Bei kind=files: Verzeichnis im sites-Volume */
   root?: string
+  /**
+   * Keine Keep-Alive-Verbindungen (Connection: close). Für die Route des
+   * deployers selbst: MCP antwortet per SSE, die Header gehen also vor einem
+   * Deploy hinaus. Lädt der Deploy Caddy neu, schliesst Caddy die
+   * Verbindung danach – ohne dass der Client es aus den Headern wüsste. Seine
+   * nächste Anfrage über diese Verbindung scheitert dann. Mit
+   * Connection: close benutzt er sie gar nicht erst wieder.
+   */
+  noKeepAlive?: boolean
 }
 
 export interface CaddyBuildOptions {
@@ -55,6 +64,9 @@ export function buildCaddyConfig(
             { handler: 'vars', root: r.root },
             { handler: 'file_server', index_names: ['index.html'] },
           ]
+    if (r.noKeepAlive) {
+      handle.unshift({ handler: 'headers', response: { set: { Connection: ['close'] } } })
+    }
 
     return { match: [match], handle, terminal: true }
   })

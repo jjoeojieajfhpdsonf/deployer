@@ -12,6 +12,8 @@ import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
 import { systemRoutes } from './routes/system.js'
 import { uploadRoutes } from './routes/uploads.js'
+import { tokenRoutes } from './routes/tokens.js'
+import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -66,9 +68,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   registerAuthGuard(app)
 
+  // M3: MCP mit eigener Token-Prüfung, ausserhalb von /api/v1.
+  await app.register(mcpRoutes)
+
   await app.register(
     async (api) => {
       await api.register(authRoutes)
+      await api.register(tokenRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
       await api.register(systemRoutes)

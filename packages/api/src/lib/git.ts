@@ -50,7 +50,7 @@ function baseArgs(host: string, port: number, addresses: string[]): string[] {
   return args
 }
 
-function gitEnv(): NodeJS.ProcessEnv {
+function gitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     HOME: '/tmp',
@@ -59,15 +59,19 @@ function gitEnv(): NodeJS.ProcessEnv {
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
     LANG: 'C',
+    ...extra,
   }
 }
 
-function run(args: string[], opts: { cwd?: string; timeoutMs: number; onLine?: (l: string) => void }): Promise<string> {
+function run(
+  args: string[],
+  opts: { cwd?: string; timeoutMs: number; onLine?: (l: string) => void; env?: NodeJS.ProcessEnv },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
       args,
-      { cwd: opts.cwd, env: gitEnv(), timeout: opts.timeoutMs, maxBuffer: 4 * 1024 * 1024 },
+      { cwd: opts.cwd, env: gitEnv(opts.env), timeout: opts.timeoutMs, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
           const killed = (err as { killed?: boolean }).killed
@@ -89,6 +93,38 @@ function run(args: string[], opts: { cwd?: string; timeoutMs: number; onLine?: (
       for (const l of d.toString().split(/[\r\n]+/)) if (l.trim()) opts.onLine?.(l.trim())
     })
   })
+}
+
+/**
+ * Schiebt ein lokales Repo auf eine entfernte URL (export_repo, M3).
+ *
+ * Dieselbe URL-Prüfung wie beim Clone. Das Zugangs-Token kommt über
+ * GIT_CONFIG_COUNT in die Umgebung, nicht in die Argumente – so steht es
+ * nicht in der Prozessliste und nicht in Fehlermeldungen.
+ */
+export async function pushRepo(o: {
+  dir: string
+  url: string
+  branch: string
+  token?: string
+  policy: RepoUrlPolicy
+}): Promise<{ displayUrl: string }> {
+  if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/.test(o.branch) || o.branch.includes('..')) {
+    throw new AppError('git_failed', `Ungültiger Branch "${o.branch}"`, 400)
+  }
+  const checked = await checkRepoUrl(o.url, o.policy)
+  const env: NodeJS.ProcessEnv = {}
+  if (o.token) {
+    const basic = Buffer.from(`x-access-token:${o.token}`).toString('base64')
+    env.GIT_CONFIG_COUNT = '1'
+    env.GIT_CONFIG_KEY_0 = 'http.extraHeader'
+    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basic}`
+  }
+  await run(
+    [...baseArgs(checked.host, checked.port, checked.addresses), '-C', o.dir, 'push', '--', checked.url.toString(), `HEAD:refs/heads/${o.branch}`],
+    { timeoutMs: 2 * 60_000, env },
+  )
+  return { displayUrl: displayUrl(checked.url) }
 }
 
 export async function cloneRepo(o: CloneOptions): Promise<{ commit: string; displayUrl: string }> {

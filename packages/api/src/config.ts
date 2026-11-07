@@ -44,6 +44,9 @@ const envSchema = z.object({
 
   DEFAULT_CPU_LIMIT: z.coerce.number().min(0.1).max(16).default(1),
   DEFAULT_MEMORY_LIMIT_MB: z.coerce.number().int().min(64).default(512),
+
+  // M3: Chat-Deploys (Quelle files) nach so vielen Tagen ohne Änderung stoppen.
+  CHAT_EXPIRY_DAYS: z.coerce.number().int().min(4).max(3650).default(30),
 })
 
 export type Config = z.infer<typeof envSchema> & {

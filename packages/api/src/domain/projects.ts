@@ -1,4 +1,4 @@
-import { eq, or, asc } from 'drizzle-orm'
+import { eq, or, asc, and } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
@@ -7,7 +7,8 @@ import { notFound, conflict, badRequest } from '../lib/errors.js'
 import { slugify, sourceTypesSupported, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
 import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
-import { activeDeployment, toDeploymentDto } from './deployments.js'
+import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
+import { expiresAt } from '../jobs/expiry-rule.js'
 import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
 import { replaceEnv } from './env.js'
 import { audit } from './audit.js'
@@ -37,7 +38,25 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     routes: await routeDtosFor(r.id, r.slug),
     activeDeployment: active ? toDeploymentDto(active) : null,
     runsAsRoot: null,
+    // M3
+    runtimeKind: effectiveKind(r.sourceType, active?.artifact),
+    filesKind: active?.artifact?.filesKind ?? null,
+    lastChangeAt: r.lastChangeAt.toISOString(),
+    expiresAt: expiresAt(r, config.CHAT_EXPIRY_DAYS)?.toISOString() ?? null,
   }
+}
+
+/**
+ * Eine bewusste Handlung an einem Chat-Projekt (Deploy, Rollback, Start)
+ * zählt als Aktivität: Frist neu, Warnung zurückgesetzt. Ohne das stoppte
+ * der Ablauf-Job ein gerade von Hand gestartetes Projekt in der nächsten
+ * Stunde wieder (Review M3).
+ */
+export async function touchActivity(id: string): Promise<void> {
+  await db
+    .update(schema.projects)
+    .set({ lastChangeAt: new Date(), expiryWarnedAt: null })
+    .where(and(eq(schema.projects.id, id), eq(schema.projects.sourceType, 'files')))
 }
 
 export async function listProjects(): Promise<ProjectDto[]> {
@@ -184,10 +203,10 @@ export async function deleteProject(id: string, actor: string, purgeVolumes = fa
     if (removed.length) log.info('Volumes gelöscht', { slug: project.slug, volumes: removed })
   }
 
-  // 3. Statische Dateien weg
-  if (project.sourceType === 'static') {
-    await rm(join(config.SITES_DIR, project.slug), { recursive: true, force: true })
-  }
+  // 3. Statische Dateien weg (auch bei Chat-Projekten, die als statisch liefen),
+  //    und das lokale Repo eines Chat-Projekts.
+  await rm(join(config.SITES_DIR, project.slug), { recursive: true, force: true })
+  if (project.localRepoPath) await rm(project.localRepoPath, { recursive: true, force: true })
 
   // 4. Datenbankzeilen (Routen, Env, Deployments haengen per ON DELETE CASCADE)
   await db.delete(schema.projects).where(eq(schema.projects.id, project.id))

@@ -1,0 +1,128 @@
+import { useState, type FormEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, ApiError } from '../api.js'
+import { relativeTime } from '../components/Status.js'
+import { copyText } from '../lib/clipboard.js'
+
+/**
+ * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
+ * erscheint genau einmal, direkt nach dem Anlegen.
+ */
+export function Tokens() {
+  const qc = useQueryClient()
+  const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens })
+  const [name, setName] = useState('')
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  const mcpUrl = `${window.location.origin}/mcp`
+
+  const create = useMutation({
+    mutationFn: (n: string) => api.createToken(n),
+    onSuccess: (r) => {
+      setFresh({ name: r.apiToken.name, token: r.token })
+      setName('')
+      void qc.invalidateQueries({ queryKey: ['tokens'] })
+    },
+  })
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.revokeToken(id),
+    onSuccess: () => {
+      setConfirming(null)
+      void qc.invalidateQueries({ queryKey: ['tokens'] })
+    },
+  })
+
+  async function copy(label: string, text: string) {
+    const ok = await copyText(text)
+    setCopied(ok ? label : `${label}-fehler`)
+    setTimeout(() => setCopied(null), ok ? 2000 : 6000)
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    if (name.trim()) create.mutate(name.trim())
+  }
+
+  const cli = fresh
+    ? `claude mcp add --transport http deployer ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
+    : ''
+
+  return (
+    <section className="page page-tokens">
+      <header className="page-header">
+        <h1>Tokens</h1>
+      </header>
+      <p className="hint">
+        Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
+        MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
+        mit Anmeldung – nicht mit einem Token.
+      </p>
+
+      <form onSubmit={submit} className="form-actions">
+        <input aria-label="Name des Tokens" placeholder="Name, z.B. Claude Desktop" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+        <button type="submit" className="button-primary" disabled={create.isPending || !name.trim()}>
+          {create.isPending ? 'Wird angelegt…' : 'Token anlegen'}
+        </button>
+      </form>
+      {create.isError && <p role="alert" className="error">{(create.error as Error).message}</p>}
+
+      {fresh && (
+        <section className="banner banner-warn" role="status">
+          <p><strong>Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</strong></p>
+          <pre className="code-block">{fresh.token}</pre>
+          <div className="form-actions">
+            <button onClick={() => copy('token', fresh.token)}>{copied === 'token' ? 'Kopiert' : 'Token kopieren'}</button>
+            <button onClick={() => copy('cli', cli)}>{copied === 'cli' ? 'Kopiert' : 'Befehl für Claude Code kopieren'}</button>
+            <button className="link-button" onClick={() => setFresh(null)}>Ausblenden</button>
+          </div>
+          {copied?.endsWith('-fehler') && (
+            <p role="alert" className="error">Kopieren ging nicht – bitte den Text oben von Hand markieren.</p>
+          )}
+          <pre className="code-block">{cli}</pre>
+        </section>
+      )}
+
+      {tokens.isLoading ? (
+        <p className="state state-loading">Wird geladen…</p>
+      ) : (tokens.data?.tokens ?? []).length === 0 ? (
+        <p className="state state-empty">Noch kein Token.</p>
+      ) : (
+        <div className="table-scroll">
+          <table className="table">
+            <thead>
+              <tr><th>Name</th><th>Angelegt</th><th>Zuletzt benutzt</th><th>Status</th><th /></tr>
+            </thead>
+            <tbody>
+              {tokens.data!.tokens.map((t) => (
+                <tr key={t.id} className={t.revokedAt ? 'row-muted' : undefined}>
+                  <td>{t.name}</td>
+                  <td>{new Date(t.createdAt).toLocaleDateString('de-CH')}</td>
+                  <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
+                  <td>{t.revokedAt ? '✕ widerrufen' : '✓ gültig'}</td>
+                  <td className="row-actions">
+                    {!t.revokedAt && confirming !== t.id && (
+                      <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
+                    )}
+                    {confirming === t.id && (
+                      <>
+                        <button className="button-danger" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
+                          Ja, widerrufen
+                        </button>
+                        <button onClick={() => setConfirming(null)}>Abbrechen</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {revoke.isError && (
+        <p role="alert" className="error">{revoke.error instanceof ApiError ? revoke.error.message : 'Widerrufen fehlgeschlagen'}</p>
+      )}
+    </section>
+  )
+}

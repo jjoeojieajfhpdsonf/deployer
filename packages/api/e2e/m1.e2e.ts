@@ -93,6 +93,23 @@ describe('M1: Image deployen', () => {
   })
 })
 
+describe('M1: Anmeldung (Lücke gefunden im Review von M3)', () => {
+  for (const path of ['/api/v1/projects', '/%61pi/v1/projects', '/%61%70%69/v1/projects', '/api/v1/%70rojects']) {
+    test(`ohne Anmeldung kein Zugriff über ${path}`, async () => {
+      const r = await fetch(`${BASE}${path}`)
+      assert.ok(r.status === 401 || r.status === 404, `${path} -> ${r.status}`)
+      assert.ok(!(await r.text()).includes('"projects"'))
+    })
+  }
+  test('auch kein POST über einen kodierten Pfad', async () => {
+    const r = await fetch(`${BASE}/%61pi/v1/projects`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'boese', source: { type: 'image', image: 'alpine' }, port: 80 }),
+    })
+    assert.ok(r.status === 401 || r.status === 404, String(r.status))
+  })
+})
+
 describe('M1: statische Seite und Zip Slip', () => {
   test('ZIP mit ../ wird abgelehnt, nichts landet ausserhalb', async () => {
     const zip = makeZip([{ name: 'index.html', data: '<h1>x</h1>' }, { name: '../../entwischt.html', data: 'boom' }])

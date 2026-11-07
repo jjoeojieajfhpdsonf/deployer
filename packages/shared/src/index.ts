@@ -37,8 +37,8 @@ export const sourceTypes = ['image', 'static', 'dockerfile', 'compose', 'files']
 export type SourceType = (typeof sourceTypes)[number]
 /** In M1 umgesetzt. */
 export const sourceTypesM1 = ['image', 'static'] as const
-/** Seit M2 umgesetzt; `files` kommt mit M3. */
-export const sourceTypesSupported = ['image', 'static', 'dockerfile', 'compose'] as const
+/** Seit M3 alle Quellen. */
+export const sourceTypesSupported = ['image', 'static', 'dockerfile', 'compose', 'files'] as const
 
 export const projectStatuses = ['created', 'deploying', 'running', 'stopped', 'failed'] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
@@ -134,11 +134,32 @@ export const composeSourceSchema = z.object({
   webService: z.string().regex(COMPOSE_SERVICE_RE, 'Ungültiger Dienstname'),
 })
 
+/**
+ * M3: Dateien direkt aus dem Chat, im lokalen Git-Repo des Projekts. Die Art
+ * (statisch, Build, Dockerfile, Compose) wird bei jedem Deploy erkannt.
+ */
+export const filesSourceSchema = z.object({
+  type: z.literal('files'),
+  /** Bei Compose: Dienst, der den Web-Verkehr bekommt (Standard "web"). */
+  webService: z.string().regex(COMPOSE_SERVICE_RE, 'Ungültiger Dienstname').optional(),
+  /** Bei statischer Seite mit Build: Befehl (Standard "npm run build") und Ausgabe. */
+  buildCommand: z.string().min(1).max(500).optional(),
+  outputDir: repoPathSchema.optional(),
+})
+
+export const fileInputSchema = z.object({
+  path: z.string().min(1).max(255),
+  content: z.string(),
+  encoding: z.enum(['utf8', 'base64']).default('utf8'),
+})
+export type FileInputDto = z.infer<typeof fileInputSchema>
+
 export const sourceSchema = z.discriminatedUnion('type', [
   imageSourceSchema,
   staticSourceSchema,
   dockerfileSourceSchema,
   composeSourceSchema,
+  filesSourceSchema,
 ])
 export type Source = z.infer<typeof sourceSchema>
 
@@ -204,10 +225,18 @@ export const createProjectSchema = z
     memoryLimitMb: z.number().int().min(64).max(32768).optional(),
     keep: z.boolean().default(false),
     deploy: z.boolean().default(true),
+    /** M3: Anfangsdateien bei Quelle files. Grenzen prüft der Server. */
+    files: z.array(fileInputSchema).max(2000).optional(),
   })
   .superRefine((v, ctx) => {
     if (sourceNeedsPort(v.source.type) && v.port === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['port'], message: 'Port im Container ist für diese Quelle nötig' })
+    }
+    if (v.source.type === 'files' && (!v.files || v.files.length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['files'], message: 'Quelle files braucht mindestens eine Datei' })
+    }
+    if (v.source.type !== 'files' && v.files) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['files'], message: 'Dateien gibt es nur bei Quelle files' })
     }
     for (const i of sourceIssues(v.source)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: i.path, message: i.message })
@@ -289,6 +318,13 @@ export interface ProjectDto {
   activeDeployment: DeploymentDto | null
   /** Läuft der Container als root? Nur Hinweis, kein Fehler (siehe Plan). */
   runsAsRoot: boolean | null
+  /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). */
+  runtimeKind: 'image' | 'dockerfile' | 'static' | 'compose'
+  /** M3, nur Quelle files: als was die aktive Fassung erkannt wurde. */
+  filesKind: 'compose' | 'dockerfile' | 'static-build' | 'static' | null
+  lastChangeAt: string
+  /** M3: wann ein Chat-Projekt ohne Änderung gestoppt wird; null = läuft nicht ab. */
+  expiresAt: string | null
 }
 
 /* ------------------------------------------------------------------ *

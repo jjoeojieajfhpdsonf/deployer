@@ -7,6 +7,7 @@ import { NewProject } from './pages/NewProject.js'
 import { ProjectDetail } from './pages/ProjectDetail.js'
 import { Audit } from './pages/Audit.js'
 import { System } from './pages/System.js'
+import { Tokens } from './pages/Tokens.js'
 
 export function App() {
   const qc = useQueryClient()
@@ -39,6 +40,7 @@ export function App() {
         <nav className="app-nav">
           <NavLink to="/projekte">Projekte</NavLink>
           <NavLink to="/system">System</NavLink>
+          <NavLink to="/tokens">Tokens</NavLink>
           <NavLink to="/audit">Audit</NavLink>
         </nav>
         <button
@@ -60,6 +62,7 @@ export function App() {
           <Route path="/projekte/:id" element={<ProjectDetail />} />
           <Route path="/system" element={<System />} />
           <Route path="/audit" element={<Audit />} />
+          <Route path="/tokens" element={<Tokens />} />
           <Route path="*" element={<p className="state">Diese Seite gibt es nicht.</p>} />
         </Routes>
       </main>

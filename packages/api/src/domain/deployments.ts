@@ -1,9 +1,27 @@
 import { eq, and, desc } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
+import type { DeploymentArtifact } from '../db/schema.js'
 import { notFound } from '../lib/errors.js'
 import type { DeploymentDto } from '@deployer/shared'
 
 type Row = typeof schema.deployments.$inferSelect
+
+/** Wie ein Projekt zur Laufzeit behandelt wird (Routing, Start, Abgleich). */
+export type RuntimeKind = 'image' | 'dockerfile' | 'static' | 'compose'
+
+/**
+ * Ein Chat-Projekt (Quelle files) läuft als das, als was seine aktive
+ * Fassung erkannt wurde. Alle anderen Quellen sind, was sie sind.
+ */
+export function effectiveKind(sourceType: string, artifact: DeploymentArtifact | null | undefined): RuntimeKind {
+  if (sourceType === 'files') {
+    const k = artifact?.filesKind
+    if (k === 'compose') return 'compose'
+    if (k === 'dockerfile') return 'dockerfile'
+    return 'static'
+  }
+  return sourceType as RuntimeKind
+}
 
 /**
  * Auf eine Fassung lässt sich zurückrollen, wenn sie einmal erfolgreich lief

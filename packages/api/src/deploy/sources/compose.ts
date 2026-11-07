@@ -35,14 +35,18 @@ export async function prepareCompose(
   project: Project,
   deploymentId: string,
   ref?: string,
+  /** M3: bereits vorliegender Ordner (lokales Repo eines Chat-Projekts). */
+  local?: { dir: string; commit: string; composePath: string; webService: string },
 ): Promise<{ file: string; normalized: NormalizedCompose; version: string }> {
-  const cfg = project.sourceConfig as ComposeConfig
+  const cfg = (local
+    ? { webService: local.webService, composePath: local.composePath }
+    : project.sourceConfig) as ComposeConfig
   let text: string
   let version: string
   let repo: Parameters<typeof normalizeCompose>[1]['repo'] = null
 
-  if (cfg.repoUrl) {
-    const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl, ref ?? cfg.ref)
+  if (local || cfg.repoUrl) {
+    const { dir, commit } = local ?? (await cloneForDeployment(deploymentId, cfg.repoUrl!, ref ?? cfg.ref))
     const composePath = cfg.composePath ?? 'compose.yaml'
     text = await readRepoFile(dir, composePath, COMPOSE_MAX_BYTES)
     version = commit
