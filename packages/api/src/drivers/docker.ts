@@ -374,6 +374,20 @@ export async function removeProjectVolumes(composeProject: string): Promise<stri
 }
 
 /** Subnetze eines Netzes, z.B. fuer die Sperrliste der Repo-URLs. */
+/** IPv4-Adresse eines Containers in einem Netz; null, wenn nicht vorhanden. */
+export async function containerIp(container: string, network: string): Promise<string | null> {
+  try {
+    const info = (await docker.getContainer(container).inspect()) as {
+      State?: { Running?: boolean }
+      NetworkSettings?: { Networks?: Record<string, { IPAddress?: string }> }
+    }
+    if (!info.State?.Running) return null
+    return info.NetworkSettings?.Networks?.[network]?.IPAddress || null
+  } catch {
+    return null
+  }
+}
+
 export async function networkSubnets(name: string): Promise<string[]> {
   try {
     const info = (await docker.getNetwork(name).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } }

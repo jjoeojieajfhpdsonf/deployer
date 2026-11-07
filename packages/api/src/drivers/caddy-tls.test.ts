@@ -128,3 +128,25 @@ describe('Quell-Bereiche pro Route (Review M4)', () => {
     assert.equal(c.apps.http.servers.srv1.routes[0].match[0].remote_ip, undefined)
   })
 })
+
+describe('M5: öffentliche Routen hinter cloudflared', () => {
+  const edge = ['172.30.0.0/16']
+  test('CF-Connecting-IP nur vom edge-Netz; öffentliche Route nur von dort, über :80', () => {
+    const c = buildCaddyConfig(
+      [{ hosts: ['solar.example.ch'], kind: 'proxy', upstream: 'dep_solar_1:80', cidrs: edge }],
+      { ...base, trustedProxies: edge },
+    ) as any
+    const srv0 = c.apps.http.servers.srv0
+    assert.deepEqual(srv0.trusted_proxies, { source: 'static', ranges: edge })
+    assert.deepEqual(srv0.client_ip_headers, ['CF-Connecting-IP'])
+    const r = srv0.routes.find((x: R) => x.match?.[0]?.host.includes('solar.example.ch'))
+    assert.deepEqual(r.match[0].remote_ip.ranges, edge)
+    // nicht unter der internen Basisdomain -> kein :443-Eintrag bei Caddy (TLS macht Cloudflare)
+    assert.ok(!hostsOf(c.apps.http.servers.srv1.routes).includes('solar.example.ch'))
+  })
+  test('ohne trustedProxies kein client_ip_headers (Header vom Client würde sonst geglaubt)', () => {
+    const c = buildCaddyConfig([], base) as any
+    assert.equal(c.apps.http.servers.srv0.client_ip_headers, undefined)
+    assert.equal(c.apps.http.servers.srv0.trusted_proxies, undefined)
+  })
+})

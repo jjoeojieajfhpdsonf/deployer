@@ -20,7 +20,7 @@ export interface FakeCloudflare {
   close(): Promise<void>
 }
 
-export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch']): Promise<FakeCloudflare> {
+export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'], listen: { host?: string; port?: number } = {}): Promise<FakeCloudflare> {
   const state: Omit<FakeCloudflare, 'url' | 'close'> = {
     token: 'cf-test-token',
     zones: zones.map((name) => ({ id: `zone-${name}`, name })),
@@ -106,10 +106,10 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'])
       send(404, fail(7000, `No route for ${method} ${path}`))
     })
   })
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  await new Promise<void>((r) => server.listen(listen.port ?? 0, listen.host ?? '127.0.0.1', r))
   const port = (server.address() as AddressInfo).port
   return Object.assign(state, {
-    url: `http://127.0.0.1:${port}/client/v4`,
+    url: `http://${listen.host && listen.host !== '0.0.0.0' ? listen.host : '127.0.0.1'}:${port}/client/v4`,
     close: () => new Promise<void>((r) => server.close(() => r())),
   })
 }

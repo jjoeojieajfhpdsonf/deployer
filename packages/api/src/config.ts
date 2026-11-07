@@ -75,6 +75,19 @@ const envSchema = z.object({
     .transform((v) => (v === '' ? null : v)),
   CLOUDFLARE_API_TOKEN_FILE: z.string().default('/run/secrets/cloudflare_token'),
   CLOUDFLARE_API_BASE: z.string().url().default('https://api.cloudflare.com/client/v4'),
+
+  // M5: öffentlich über Cloudflare Tunnel. Ohne Konto- und Tunnel-ID bleibt
+  // "public" abgeschaltet. ACCESS_EMAIL: wer sich bei Cloudflare Access anmelden darf.
+  CLOUDFLARE_ACCOUNT_ID: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
+  CLOUDFLARE_TUNNEL_ID: z
+    .string()
+    .trim()
+    .default('')
+    .refine((v) => v === '' || /^[0-9a-f-]{36}$/i.test(v), 'CLOUDFLARE_TUNNEL_ID muss die UUID des Tunnels sein')
+    .transform((v) => (v === '' ? null : v.toLowerCase())),
+  ACCESS_EMAIL: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
+  EDGE_NETWORK: z.string().default('deployer_edge'),
+  CLOUDFLARED_CONTAINER: z.string().default('deployer-cloudflared'),
 })
 
 export type Config = z.infer<typeof envSchema> & {
@@ -113,13 +126,23 @@ export function tlsProblems(d: { TLS_MODE: string; INTERNAL_BASE_DOMAIN: string 
   return out
 }
 
-/** Das Cloudflare-Token, frisch aus der Datei (nie in der Umgebung oder in Logs). */
+let tokenCache: { at: number; v: string | null } | null = null
+
+/**
+ * Das Cloudflare-Token aus der Datei (nie in der Umgebung oder in Logs).
+ * 30 s zwischengespeichert: die Systemseite fragt oft; ein getauschtes Token
+ * gilt so nach spätestens einer halben Minute.
+ */
 export function cloudflareToken(): string | null {
+  if (tokenCache && Date.now() - tokenCache.at < 30_000) return tokenCache.v
+  let v: string | null
   try {
-    return readFileSync(config.CLOUDFLARE_API_TOKEN_FILE, 'utf8').trim() || null
+    v = readFileSync(config.CLOUDFLARE_API_TOKEN_FILE, 'utf8').trim() || null
   } catch {
-    return null
+    v = null
   }
+  tokenCache = { at: Date.now(), v }
+  return v
 }
 
 export const config = build()

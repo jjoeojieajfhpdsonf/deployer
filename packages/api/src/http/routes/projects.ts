@@ -10,6 +10,7 @@ import {
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
+import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject } from '../../domain/lifecycle.js'
@@ -17,7 +18,7 @@ import { startDeploy, startRollback } from '../../deploy/pipeline.js'
 import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
-import { badRequest, notFound } from '../../lib/errors.js'
+import { badRequest, notFound, AppError } from '../../lib/errors.js'
 
 interface IdParams {
   id: string
@@ -124,11 +125,23 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.put<{ Params: IdParams }>('/projects/:id/routes', async (request) => {
     const project = await findProject(request.params.id)
     const body = putRoutesSchema.parse(request.body)
-    for (const t of body.targets) {
-      if (t === 'public') throw badRequest('Ziel "public" kommt mit Meilenstein 5 (Cloudflare Tunnel)')
+    const wantsPublic = body.targets.includes('public')
+    // Öffentlich schalten nur mit Anmeldung oder über MCP mit Bestätigung –
+    // nicht mit einem blossen API-Token über REST (es gäbe keine Rückfrage).
+    if (wantsPublic && request.tokenId) {
+      throw new AppError('forbidden', 'Öffentlich schalten geht mit einem Token nur über MCP (mit Bestätigung) oder mit einer Anmeldung', 403)
     }
-    await setRoutes(project.id, project.slug, body.targets, body.subdomain)
-    await reconcileCaddy()
+    // Erst alles prüfen, dann ändern: scheitert "public", bleiben die internen Ziele.
+    const plan = wantsPublic
+      ? await planPublic(project, { subdomain: body.publicSubdomain, hostname: body.publicHostname, accessProtected: body.accessProtected })
+      : null
+    try {
+      await setRoutes(project.id, project.slug, body.targets.filter((t) => t !== 'public'), body.subdomain)
+      if (plan) await applyPublic(plan, actorFor(request))
+      else await removePublic(project, actorFor(request), { skipCaddy: true })
+    } finally {
+      await reconcileCaddy()
+    }
     await audit({
       actor: actorFor(request), action: 'project.routes.set', targetType: 'project',
       targetId: project.id, params: body, result: 'ok',

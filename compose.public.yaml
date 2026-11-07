@@ -1,0 +1,47 @@
+# Ergänzung für Meilenstein 5: öffentlich über Cloudflare Tunnel.
+#
+#   docker compose -f compose.yaml -f compose.tls.yaml -f compose.public.yaml up -d --build
+#
+# (compose.tls.yaml ist nicht zwingend, liefert aber das Cloudflare-Token für
+#  deployer. Ohne sie die beiden secrets-Einträge unten für deployer ergänzen.)
+#
+# Voraussetzungen (siehe docs/MILESTONE-5.md):
+#   - Tunnel im Cloudflare-Dashboard anlegen, Typ "remote verwaltet"
+#     (Konfiguration über die API, keine Datei)
+#   - secrets/tunnel_token: das Tunnel-Token aus dem Dashboard, Rechte 600
+#   - in .env: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_TUNNEL_ID, optional ACCESS_EMAIL
+#   - das Cloudflare-Token (secrets/cloudflare_token) braucht zusätzlich:
+#     Konto -> Cloudflare Tunnel -> Bearbeiten, Zone -> DNS -> Bearbeiten für die
+#     öffentlichen Zonen, optional Konto -> Access: Apps -> Bearbeiten
+#
+# Kein Port am Router: cloudflared baut die Verbindung nach aussen auf.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    restart: unless-stopped
+    container_name: deployer-cloudflared
+    # Token aus der Datei, nicht aus der Umgebung (sonst in docker inspect).
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
+    secrets:
+      - tunnel_token
+    # Nur im edge-Netz: erreicht Caddy, keine Projekt-Netze, nicht das interne Netz.
+    networks:
+      - edge
+    depends_on:
+      - caddy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  deployer:
+    environment:
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_TUNNEL_ID: ${CLOUDFLARE_TUNNEL_ID:-}
+      ACCESS_EMAIL: ${ACCESS_EMAIL:-}
+
+secrets:
+  tunnel_token:
+    file: ./secrets/tunnel_token

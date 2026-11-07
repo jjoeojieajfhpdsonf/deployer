@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { statfs } from 'node:fs/promises'
-import { asc } from 'drizzle-orm'
+import { asc, ne } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
 import { config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
 import { currentCert, certProblemNow } from '../../jobs/cert.js'
 import { daysLeftOf } from '../../lib/cert.js'
 import { ensureTailnetDns, tailnetDnsConfigured } from '../../domain/tailnet.js'
+import { listDomains, syncDomains, setDefaultDomain, reconcileTunnel, tunnelStatus, publicEnabled } from '../../domain/public.js'
+import { z } from 'zod'
 import { CloudflareError } from '../../drivers/cloudflare.js'
 import { actorFor } from '../auth.js'
 import { badRequest, AppError } from '../../lib/errors.js'
@@ -30,8 +32,9 @@ async function check(name: string, fn: () => Promise<string>): Promise<{ name: s
 export async function hostsBlock(): Promise<string | null> {
   if (!config.INTERNAL_BASE_DOMAIN) return null
   const ip = config.SERVER_LAN_IP
-  const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).orderBy(asc(schema.routes.hostname))
-  const names = [primaryHost('deployer'), ...rows.map((r) => r.hostname)]
+  const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(ne(schema.routes.target, 'public')).orderBy(asc(schema.routes.hostname))
+  // Ohne Doppel (LAN und Tailnet teilen sich den Namen), ohne öffentliche Namen.
+  const names = [...new Set([primaryHost('deployer'), ...rows.map((r) => r.hostname)])]
   if (!ip) {
     return [
       '# SERVER_LAN_IP ist nicht gesetzt.',
@@ -87,6 +90,10 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
         cert: cert ? { ...cert, daysLeft: daysLeftOf(cert), problem: certProblemNow(cert) } : null,
         tailscaleIp: config.TAILSCALE_IP,
       },
+      publicTunnel: await (async () => {
+        const t = await tunnelStatus()
+        return t ? { configured: true, status: t.status, connections: t.connections } : { configured: false, status: null, connections: 0 }
+      })(),
       // Geprueft wird im Browser, nicht auf dem Server: die Frage ist, ob
       // DIESES Geraet den Namen aufloest. Eine Aufloesung auf dem Server
       // beantwortet sie nicht.
@@ -110,6 +117,23 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
       throw err
     }
+  })
+
+  /* --- M5: Domains und Cloudflare --------------------------------------------- */
+
+  app.get('/domains', async () => ({ domains: await listDomains(), publicEnabled: publicEnabled() }))
+
+  app.post('/domains/sync', async () => ({ domains: await syncDomains() }))
+
+  app.put('/domains/default', async (request) => {
+    const { name } = z.object({ name: z.string().min(3).max(253) }).parse(request.body)
+    return { domains: await setDefaultDomain(name, actorFor(request)) }
+  })
+
+  // Tunnel-Ingress aus der Datenbank neu setzen (nur mit Anmeldung, siehe auth.ts).
+  app.post('/system/cloudflare-sync', async () => {
+    await syncDomains()
+    return { tunnel: await reconcileTunnel() }
   })
 
   app.get('/system/hosts', async (_request, reply) => {

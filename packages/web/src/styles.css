@@ -509,6 +509,10 @@ label { display: block; font-size: 12.5px; color: var(--ink-dim); margin: 14px 0
 .notify-form label.checkbox { display: flex; align-items: center; gap: 8px; }
 .notify-form td input[type='checkbox'] { width: auto; }
 
+/* --- Erreichbarkeit (M5) --- */
+.public-options { display: grid; gap: 6px; margin: 4px 0 8px 26px; max-width: 520px; }
+.public-options label { display: grid; gap: 4px; font-size: 13px; }
+
 /* --- Schmale Fenster ------------------------------------------------------------------------- */
 
 @media (max-width: 760px) {

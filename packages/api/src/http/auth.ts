@@ -155,7 +155,7 @@ export function registerAuthGuard(app: FastifyInstance): void {
         throw new AppError('forbidden', 'Benachrichtigungen lassen sich nur mit einer Anmeldung einstellen', 403)
       }
       // M4/M5: DNS bei Cloudflare ändern nur mit Anmeldung.
-      if (route.startsWith('/api/v1/system/tailnet-dns') || route.startsWith('/api/v1/system/cloudflare')) {
+      if (route.startsWith('/api/v1/system/tailnet-dns') || route.startsWith('/api/v1/system/cloudflare') || (route.startsWith('/api/v1/domains') && request.method !== 'GET')) {
         throw new AppError('forbidden', 'DNS bei Cloudflare lässt sich nur mit einer Anmeldung ändern', 403)
       }
       request.actor = `token:${identity.name}`

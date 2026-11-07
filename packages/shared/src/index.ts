@@ -252,7 +252,7 @@ export const createProjectSchema = z
     }
     for (const t of v.targets) {
       if (!(routeTargetsSupported as readonly string[]).includes(t)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targets'], message: `Ziel "${t}" kommt erst in einem späteren Meilenstein` })
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targets'], message: 'Öffentlich geht erst nach dem ersten Scan: intern anlegen, dann die Erreichbarkeit ändern' })
       }
     }
   })
@@ -278,6 +278,10 @@ export const rollbackSchema = z.object({ deploymentId: z.string().uuid().optiona
 export const putRoutesSchema = z.object({
   targets: z.array(z.enum(routeTargets)).min(0),
   subdomain: slugSchema.optional(),
+  // M5: öffentlicher Name – Subdomain der Standard-Domain oder voller Hostname
+  publicSubdomain: slugSchema.optional(),
+  publicHostname: z.string().min(3).max(253).optional(),
+  accessProtected: z.boolean().optional(),
 })
 
 export const deploySchema = z.object({ ref: z.string().max(255).optional() })
@@ -286,6 +290,8 @@ export interface RouteDto {
   /** Erstes Ziel; alle Ziele dieses Namens in targets (LAN und Tailnet teilen sich ihn). */
   target: RouteTarget
   targets?: RouteTarget[]
+  /** M5: öffentliche Route hinter Cloudflare Access */
+  accessProtected?: boolean
   hostname: string
   /** Zusätzliche Namen, über die dieselbe Route erreichbar ist (nip.io). */
   aliases: string[]
@@ -397,6 +403,8 @@ export interface SystemStatusDto {
     cert: { ok: boolean; subject: string | null; issuer: string | null; validTo: string | null; daysLeft: number | null; error: string | null; problem: string | null } | null
     tailscaleIp: string | null
   }
+  /** M5: Cloudflare Tunnel */
+  publicTunnel: { configured: boolean; status: string | null; connections: number }
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }

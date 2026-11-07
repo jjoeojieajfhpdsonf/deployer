@@ -1,4 +1,4 @@
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { config, primaryHost, aliasHosts, urlForHost } from '../config.js'
 import * as caddy from '../drivers/caddy.js'
@@ -41,6 +41,11 @@ export async function routeDtosFor(projectId: string, _slug: string): Promise<Ro
     const have = byHost.get(r.hostname)
     if (have) {
       have.targets = [...(have.targets ?? [have.target]), r.target]
+      continue
+    }
+    if (r.target === 'public') {
+      // M5: TLS macht Cloudflare; kein nip.io-Alias für öffentliche Namen.
+      byHost.set(r.hostname, { target: r.target, targets: [r.target], hostname: r.hostname, aliases: [], urls: [`https://${r.hostname}`], accessProtected: r.accessProtected })
       continue
     }
     const aliases = aliasesForHost(r.hostname)
@@ -99,7 +104,8 @@ export async function setRoutes(
     if (clash.some((r) => r.projectId !== projectId)) {
       throw conflict(`Der Hostname ${host} ist schon von einem anderen Projekt belegt`)
     }
-    await tx.delete(schema.routes).where(eq(schema.routes.projectId, projectId))
+    // Nur die internen Ziele; die öffentliche Route (M5) verwaltet domain/public.ts.
+    await tx.delete(schema.routes).where(and(eq(schema.routes.projectId, projectId), ne(schema.routes.target, 'public')))
     if (targets.length === 0) return
     // LAN und Tailnet zeigen auf denselben Namen (SPEC); seit Migration 0005
     // ist (target, hostname) eindeutig, nicht mehr hostname allein.
@@ -169,7 +175,20 @@ export function siteRootFor(slug: string): string {
   return `${config.SITES_DIR}/${slug}/current`
 }
 
-export async function buildRouteSpecs(): Promise<caddy.RouteSpec[]> {
+/**
+ * Woher öffentlicher Verkehr kommen darf: genau die Adresse von cloudflared
+ * im edge-Netz (M5). Nicht das ganze Subnetz – darin liegt auch das Gateway,
+ * über das Docker veröffentlichte Ports weiterreicht; ein LAN-Client könnte
+ * sonst CF-Connecting-IP vortäuschen (Review M5). Leer, wenn cloudflared
+ * nicht läuft – dann gibt es keine öffentlichen Routen.
+ */
+export async function cloudflaredCidrs(): Promise<string[]> {
+  if (!config.CLOUDFLARE_TUNNEL_ID) return []
+  const ip = await docker.containerIp(config.CLOUDFLARED_CONTAINER, config.EDGE_NETWORK)
+  return ip ? [`${ip}/32`] : []
+}
+
+export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.RouteSpec[]> {
   const rows = await currentRouteRows()
   const specs: caddy.RouteSpec[] = []
 
@@ -190,8 +209,11 @@ export async function buildRouteSpecs(): Promise<caddy.RouteSpec[]> {
   for (const r of rows) {
     if (seen.has(r.hostname)) continue
     seen.add(r.hostname)
-    const hosts = [r.hostname, ...aliasesForHost(r.hostname)]
-    const cidrs = cidrsForTargets(targetsByHost.get(r.hostname)!, config.LAN_CIDR, config.tailnetCidr)
+    // M5: öffentliche Namen nur über cloudflared (edge-Netz), ohne nip.io-Alias.
+    const isPublic = r.target === 'public'
+    if (isPublic && edgeCidrs.length === 0) continue
+    const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
+    const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, config.LAN_CIDR, config.tailnetCidr)
     if (r.sourceType === 'static') {
       specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs })
     } else if (r.port && r.deploymentId) {
@@ -238,6 +260,25 @@ export async function syncCaddyNetworks(): Promise<void> {
  * Datenbank ist die Wahrheit.
  */
 let reconcileChain: Promise<unknown> = Promise.resolve()
+let lastCloudflaredCidrs = ''
+
+/**
+ * M5: cloudflared bekommt bei jedem Neustart eine neue Adresse. Alle 30 s
+ * nachsehen und Caddy neu abgleichen, wenn sie sich geändert hat.
+ */
+export function startCloudflaredWatch(): NodeJS.Timeout | null {
+  if (!config.CLOUDFLARE_TUNNEL_ID) return null
+  const t = setInterval(() => {
+    void cloudflaredCidrs().then((c) => {
+      if (c.join(',') !== lastCloudflaredCidrs) {
+        log.info('cloudflared hat eine neue Adresse; Caddy wird abgeglichen', { cidrs: c })
+        return reconcileCaddy()
+      }
+    }).catch((err) => log.warn('cloudflared-Prüfung fehlgeschlagen', { err: String(err) }))
+  }, 30_000)
+  t.unref()
+  return t
+}
 
 /**
  * Nacheinander, nie gleichzeitig: Zwei überlappende Abgleiche lesen die
@@ -255,7 +296,9 @@ export function reconcileCaddy(): Promise<void> {
 
 async function reconcileCaddyNow(): Promise<void> {
   await syncCaddyNetworks()
-  const specs = await buildRouteSpecs()
+  const edge = await cloudflaredCidrs()
+  lastCloudflaredCidrs = edge.join(',')
+  const specs = await buildRouteSpecs(edge)
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
@@ -267,6 +310,8 @@ async function reconcileCaddyNow(): Promise<void> {
       tls: config.TLS_MODE === 'cloudflare' && config.INTERNAL_BASE_DOMAIN
         ? { baseDomain: config.INTERNAL_BASE_DOMAIN, acmeCa: config.ACME_CA, email: config.ACME_EMAIL }
         : null,
+      // M5: nur wenn es öffentliche Routen geben kann
+      trustedProxies: edge,
     }),
   )
   await caddy.assertAdminOnUnixSocket()

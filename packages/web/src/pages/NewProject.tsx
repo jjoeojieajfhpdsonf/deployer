@@ -72,7 +72,7 @@ export function NewProject() {
         ...(needsPort ? { port: Number(port) } : {}),
         healthcheckPath,
         env: env.filter((x) => x.key).map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
-        targets: ['lan'],
+        targets: ['lan', 'tailnet'],
         deploy: true,
       })
       navigate(`/projekte/${project.id}`)
@@ -215,7 +215,7 @@ export function NewProject() {
             <input type="checkbox" disabled />
             <span>
               Öffentlich über Cloudflare Tunnel
-              <small>Kommt mit Meilenstein 5</small>
+              <small>Erst nach dem ersten Scan, unter Einstellungen → Erreichbarkeit</small>
             </span>
           </label>
         </fieldset>

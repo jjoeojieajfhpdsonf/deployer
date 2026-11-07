@@ -96,6 +96,8 @@ export const routes = pgTable(
     hostname: text('hostname').notNull(),
     cfDnsRecordId: text('cf_dns_record_id'),
     accessProtected: boolean('access_protected').notNull().default(false),
+    // M5
+    cfAccessAppId: text('cf_access_app_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -206,4 +208,14 @@ export const findingAcceptances = pgTable('finding_acceptances', {
   reason: text('reason').notNull(),
   actor: text('actor').notNull(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/* --- M5: Domains (Zonen bei Cloudflare) ------------------------------------- */
+
+export const domains = pgTable('domains', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cfZoneId: text('cf_zone_id').notNull().unique(),
+  name: text('name').notNull().unique(),
+  isDefault: boolean('is_default').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

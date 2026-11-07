@@ -5,6 +5,7 @@ import { listProjects, findProject, toDto, createProject, deleteProject, updateP
 import { listDeployments, getDeployment, activeDeployment } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
+import { planPublic, applyPublic, removePublic, publicEnabled, listDomains, syncDomains } from '../domain/public.js'
 import { startProject, stopProject } from '../domain/lifecycle.js'
 import { checkSourceEarly } from '../domain/source-checks.js'
 import {
@@ -33,8 +34,11 @@ import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 const project = z.string().min(1).max(64).describe('Slug oder ID des Projekts')
 const wait = z.boolean().default(true).describe('Auf das Ende des Deploys warten (Standard) und das Ergebnis liefern')
 
-/** Werkzeuge, die vor M5/M6 noch nicht verfügbar sind. */
-const PUBLIC_LATER = 'Das Ziel "public" kommt mit Meilenstein 5 (Cloudflare Tunnel). Bis dahin "lan" und "tailnet".'
+/**
+ * "public" beim Anlegen: geht nicht, weil die Schwelle (M6) einen
+ * abgeschlossenen Scan verlangt – den gibt es erst nach dem ersten Deploy.
+ */
+const PUBLIC_AT_CREATE = 'Öffentlich geht erst nach dem ersten Scan (Schwelle aus Meilenstein 6): Projekt mit "lan"/"tailnet" anlegen, get_scan_report abwarten, dann set_targets mit "public".'
 
 type Content = { type: 'text'; text: string } | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } }
 type ToolResult = { content: Content[]; isError?: boolean }
@@ -194,8 +198,10 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     return ok({ logs: await docker.getLogs(container, { tail: a.lines, ...(since ? { since } : {}) }) })
   })
 
-  tool('list_domains', 'Verwaltete Domains (kommt mit Meilenstein 5)', {}, async () => {
-    return ok({ domains: [], note: 'Domains und DNS kommen mit Meilenstein 5. Bis dahin sind Projekte intern erreichbar.' })
+  tool('list_domains', 'Domains (Zonen bei Cloudflare) für öffentliche Projekte und welche Standard ist', {}, async () => {
+    if (!publicEnabled()) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
+    const domains = await listDomains().then((d) => (d.length ? d : syncDomains()))
+    return ok({ domains: domains.map((d) => ({ name: d.name, default: d.isDefault })) })
   })
 
   /* --- Anlegen und Dateien --------------------------------------------------- */
@@ -210,7 +216,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     subdomain: z.string().optional(),
     wait,
   }, async (a) => {
-    if (a.targets.includes('public')) return fail(PUBLIC_LATER)
+    if (a.targets.includes('public')) return fail(PUBLIC_AT_CREATE)
     const input = createProjectSchema.parse({
       name: a.name, source: sourceSchema.parse(a.source), files: a.files, port: a.port,
       env: a.env ?? [], targets: a.targets.filter((t) => t !== 'public'), subdomain: a.subdomain,
@@ -417,15 +423,39 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     hostname: z.string().min(1).max(253),
   }, async (a) => ok(await verifyExternalTarget(a.hostname, actor)))
 
-  tool('set_targets', 'Erreichbarkeit setzen: "lan" und "tailnet" (dieselbe interne Adresse); "public" ab Meilenstein 5', {
+  tool('set_targets', 'Erreichbarkeit setzen: "lan" und "tailnet" (dieselbe interne Adresse), "public" über Cloudflare Tunnel (Bestätigung nötig; nur mit abgeschlossenem Scan ohne offenen kritischen Befund)', {
     project,
     targets: z.array(z.enum(routeTargets)),
-    subdomain: z.string().optional(),
+    subdomain: z.string().optional().describe('Interne Subdomain'),
+    public_subdomain: z.string().optional().describe('Öffentlich: Subdomain der Standard-Domain (Standard: Slug)'),
+    public_hostname: z.string().optional().describe('Öffentlich: voller Hostname in einer Zone des Kontos'),
+    access: z.boolean().optional().describe('Öffentlich: Cloudflare Access davorschalten (Login per E-Mail-Code)'),
+    confirmation_token: z.string().optional(),
   }, async (a) => {
-    if (a.targets.includes('public')) return fail(PUBLIC_LATER)
     const p = await findProject(a.project)
-    await setRoutes(p.id, p.slug, a.targets, a.subdomain)
-    await reconcileCaddy()
+    const wantsPublic = a.targets.includes('public')
+    let plan: Awaited<ReturnType<typeof planPublic>> | null = null
+    if (wantsPublic) {
+      if (!publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
+      // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
+      // scheitert – oder ein Teil (interne Ziele) wäre schon umgestellt.
+      plan = await planPublic(p, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access })
+      const before = plan.before
+      const changes = !before || before.hostname !== plan.hostname || before.accessProtected !== plan.access
+      if (changes) {
+        const c = await confirm('set_targets', {
+          project: p.id, targets: [...a.targets].sort(), public_subdomain: a.public_subdomain, public_hostname: a.public_hostname, access: a.access, confirmation_token: a.confirmation_token,
+        }, `"${p.name}" ÖFFENTLICH im Internet erreichbar machen unter ${plan.hostname}${plan.access ? ' (hinter Cloudflare Access)' : ' (ohne Login)'}?`)
+        if (!c.go) return c.result
+      }
+    }
+    try {
+      await setRoutes(p.id, p.slug, a.targets.filter((t) => t !== 'public'), a.subdomain)
+      if (plan) await applyPublic(plan, actor)
+      else await removePublic(p, actor, { skipCaddy: true })
+    } finally {
+      await reconcileCaddy()
+    }
     return ok(summarize(await toDto(await findProject(p.id))))
   })
 

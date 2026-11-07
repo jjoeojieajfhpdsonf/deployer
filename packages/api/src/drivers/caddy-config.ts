@@ -41,6 +41,11 @@ export interface CaddyBuildOptions {
    * Cloudflare. null/fehlend = nur HTTP wie in M1-M3, M6.
    */
   tls?: TlsOptions | null
+  /**
+   * M5: Netz, aus dem cloudflared kommt (deployer_edge). Nur von dort wird
+   * die Besucher-IP aus CF-Connecting-IP übernommen (SPEC, wichtig für M7).
+   */
+  trustedProxies?: string[]
 }
 
 export interface TlsOptions {
@@ -142,6 +147,9 @@ export function buildCaddyConfig(
       // Kein automatisches HTTPS auf :80; Zertifikate kommen (ab M4) nur
       // über die ausdrückliche Wildcard-Policy unten.
       automatic_https: { disable: true },
+      ...(opts.trustedProxies?.length
+        ? { trusted_proxies: { source: 'static', ranges: opts.trustedProxies }, client_ip_headers: ['CF-Connecting-IP'] }
+        : {}),
     },
   }
   const apps: Record<string, unknown> = { http: { servers } }

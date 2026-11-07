@@ -76,3 +76,18 @@ Format: **Frage** – getroffene Annahme – *wo*.
 - **testssl.sh intern** weiterhin nicht: TLS endet bei Caddy; der Zertifikatsstatus steht auf der Systemseite, ein stündlicher Job meldet Probleme (höchstens einmal pro Tag). – *jobs/cert.ts*
 - **Erster Versuch auf dem Server** mit `ACME_CA=staging`, damit ein Fehler nicht ins Rate-Limit von Let's Encrypt läuft. Danach auf `production` umstellen und Caddys Daten-Volume behalten. – *compose.tls.yaml*
 - **«Nur LAN» heisst wirklich nur LAN.** Caddy lässt pro Route nur die Bereiche der gewählten Ziele zu (LAN-Subnetz, `100.64.0.0/10` oder beides). Mit `CADDY_IP_FILTER=off` (Mac) gibt es diese Unterscheidung nicht. Auf dem Linux-Server ungetestet. – *domain/routes.ts, cidrsForTargets*
+
+## Meilenstein 5 (Code, ungetestet gegen echte Dienste)
+
+- **«public» beim Anlegen?** Geht nicht. Die Schwelle aus M6 verlangt einen abgeschlossenen Scan, den es vor dem ersten Deploy nicht gibt. `create_project` mit `public` antwortet mit der Reihenfolge: intern anlegen, Scan abwarten, dann `set_targets`. Die SPEC sieht für `create_project` mit `public` eine Bestätigung vor; das erübrigt sich damit. – *mcp/server.ts, PUBLIC_AT_CREATE*
+- **Öffentlich schalten mit einem API-Token über REST?** Nein (403). Über REST gäbe es keine Rückfrage; mit Token geht es nur über MCP mit Bestätigung, sonst mit Anmeldung in der UI. Ebenso Domains ändern und den Cloudflare-Abgleich anstossen. – *http/routes/projects.ts, http/auth.ts*
+- **Schwelle vor der Rückfrage.** MCP prüft Konfiguration und Schwelle, bevor es nach einer Bestätigung fragt; die UI zeigt den Grund einer Ablehnung. Scheitert «public», bleiben die internen Ziele unverändert. – *domain/public.ts, preflightPublic*
+- **Eine öffentliche Route pro Projekt.** Subdomain der Standard-Domain (Vorgabe: der Slug) oder ein voller Name in einer Zone des Kontos; genau eine Ebene unter der Zone (Universal-SSL), kein Apex, nichts unter der internen Basisdomain, `deployer` und `ext-scan` reserviert. – *lib/public-hosts.ts*
+- **Fremde Einträge und Regeln bleiben.** Ein DNS-Eintrag gleichen Namens ohne den Kommentar `managed by deployer` wird nicht überschrieben (409). Im Tunnel bleiben Regeln für Namen, die deployer nie gesetzt hat; welche es selbst gesetzt hat, merkt es sich in `app_settings`. – *drivers/cloudflare.ts, lib/public-hosts.ts*
+- **Öffentliche Namen in Caddy** nur von Absendern aus dem edge-Netz (dort hängt cloudflared), ohne nip.io-Alias, auf :80 (TLS macht Cloudflare). Nur von dort wird `CF-Connecting-IP` als Besucher-IP übernommen. – *drivers/caddy-config.ts, domain/routes.ts*
+- **Löschen scheitert nicht an Cloudflare.** Sind CNAME, Access-App oder Tunnel-Regel nicht entfernbar (Netz, Rechte), wird trotzdem gelöscht, protokolliert und `infra_problem` gemeldet. – *domain/public.ts, removePublic*
+- **Access** nur mit `ACCESS_EMAIL`, eine Richtlinie «diese E-Mail», Sitzungsdauer 24 h. – *drivers/cloudflare.ts*
+- **cloudflared liest das Token aus einer Datei** (`--token-file`, Version 2025.8.1), nicht aus der Umgebung. – *compose.public.yaml*
+- **Neue Projekte** sind standardmässig im LAN und im Tailnet (die UI zeigte das schon so, schickte aber nur `lan`). – *web/pages/NewProject.tsx*
+- **Getestet** gegen eine Cloudflare-Attrappe, mit der der laufende deployer spricht (`pnpm --filter @deployer/api e2e:cf`). Nie gegen die echte API. – *e2e/m5.e2e.ts*
+

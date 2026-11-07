@@ -23,6 +23,8 @@ export interface NotifySettingsDto {
   matrix: Record<NotifyEvent, { push: boolean; email: boolean }>
 }
 
+export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
+
 export interface ApiTokenDto {
   id: string
   name: string
@@ -78,8 +80,13 @@ export const api = {
 
   putEnv: (id: string, entries: EnvEntryInput[]) =>
     call<{ env: EnvEntryDto[] }>(`/projects/${id}/env`, { method: 'PUT', body: body({ entries }) }),
-  putRoutes: (id: string, targets: RouteTarget[], subdomain?: string) =>
-    call<{ project: ProjectDto }>(`/projects/${id}/routes`, { method: 'PUT', body: body({ targets, subdomain }) }),
+  putRoutes: (id: string, targets: RouteTarget[], subdomain?: string, pub?: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
+    call<{ project: ProjectDto }>(`/projects/${id}/routes`, { method: 'PUT', body: body({ targets, subdomain, ...(pub ?? {}) }) }),
+
+  /* Domains (M5) */
+  domains: () => call<{ domains: DomainDto[]; publicEnabled: boolean }>('/domains'),
+  syncDomains: () => call<{ domains: DomainDto[] }>('/domains/sync', { method: 'POST' }),
+  setDefaultDomain: (name: string) => call<{ domains: DomainDto[] }>('/domains/default', { method: 'PUT', body: body({ name }) }),
 
   /* Betrieb */
   deploy: (id: string, ref?: string) =>

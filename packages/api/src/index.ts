@@ -11,6 +11,8 @@ import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
+import { reconcilePublicOnBoot } from './domain/public.js'
+import { startCloudflaredWatch } from './domain/routes.js'
 import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 
@@ -54,6 +56,9 @@ async function main(): Promise<void> {
   // M4: Tailnet-DNS und Zertifikat (nur mit TLS_MODE=cloudflare)
   // Im Hintergrund: ein langsames Cloudflare soll den Start nicht aufhalten.
   void ensureTailnetDnsOnBoot()
+  // M5: Domains und Tunnel-Ingress aus der Datenbank, ebenfalls im Hintergrund.
+  void reconcilePublicOnBoot()
+  startCloudflaredWatch()
   startCertJob()
 
   startCleanupJob()

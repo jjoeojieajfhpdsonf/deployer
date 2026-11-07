@@ -10,6 +10,7 @@ import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
 import { expiresAt } from '../jobs/expiry-rule.js'
 import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
+import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
@@ -190,6 +191,11 @@ export async function setDesiredState(id: string, desired: Row['desiredState']):
  */
 export async function deleteProject(id: string, actor: string, purgeVolumes = false): Promise<void> {
   const project = await findProject(id)
+
+  // 0. M5: zuerst die öffentliche Seite schliessen – CNAME, Access-App und
+  //    Tunnel-Regel bei Cloudflare. Scheitert das, wird gemeldet, aber
+  //    trotzdem gelöscht. Caddy gleicht Schritt 5 ab.
+  await removePublic(project, actor, { skipCaddy: true }).catch((err) => log.warn('Öffentliche Route nicht sauber entfernt', { slug: project.slug, err: String(err) }))
 
   // 1. Container weg
   const managed = await docker.listManagedContainers()
