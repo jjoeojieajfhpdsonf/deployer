@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { NotificationSettings } from '../components/Notifications.js'
+import { PageHead } from '../components/PageHead.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -44,8 +45,8 @@ export function System() {
   const s = status.data
 
   return (
-    <section className="page page-system">
-      <h1>System</h1>
+    <section className="page page-medium">
+      <PageHead crumbs={[{ label: 'system' }]} title="System" />
 
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
@@ -121,9 +122,6 @@ export function System() {
       <h2>HTTPS und Tailnet</h2>
       <TlsSection s={s} />
 
-      <h2>Öffentlich (Cloudflare Tunnel)</h2>
-      <PublicSection s={s} />
-
       <h2>Benachrichtigungen</h2>
       <NotificationSettings />
     </section>
@@ -177,50 +175,6 @@ function TlsSection({ s }: { s: SystemStatusDto }) {
         <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
         denselben Namen auf die Tailscale-IP auf.
       </p>
-    </>
-  )
-}
-
-/** M5: Tunnel-Zustand und Standard-Domain für öffentliche Projekte. */
-function PublicSection({ s }: { s: SystemStatusDto }) {
-  const d = useQuery({ queryKey: ['domains'], queryFn: api.domains, enabled: s.publicTunnel.configured })
-  const sync = useMutation({ mutationFn: api.syncDomains, onSuccess: () => void d.refetch() })
-  const setDefault = useMutation({ mutationFn: (n: string) => api.setDefaultDomain(n), onSuccess: () => void d.refetch() })
-  const t = s.publicTunnel
-  if (!t.configured) {
-    return (
-      <p className="hint">
-        Nicht eingerichtet: Projekte sind nur intern erreichbar. Einschalten auf dem Server mit{' '}
-        <code>compose.public.yaml</code> (Tunnel, Konto-ID, Token) – siehe docs/MILESTONE-5.md.
-      </p>
-    )
-  }
-  const healthy = t.status === 'healthy'
-  return (
-    <>
-      <ul className="check-list">
-        <li className={healthy ? 'check-ok' : 'check-fail'}>
-          <span className="check-name">Tunnel</span>
-          <span className="check-detail">{healthy ? `verbunden (${t.connections} Verbindungen)` : `nicht verbunden: ${t.status ?? 'unbekannt'}`}</span>
-        </li>
-      </ul>
-      <h3>Standard-Domain</h3>
-      {d.isLoading ? <p className="state state-loading">Wird geladen…</p> : (
-        <ul className="check-list">
-          {(d.data?.domains ?? []).map((dom) => (
-            <li key={dom.id} className={dom.isDefault ? 'check-ok' : 'check-none'}>
-              <span className="check-name">{dom.name}</span>
-              <span className="check-detail">
-                {dom.isDefault ? '✓ Standard' : <button onClick={() => setDefault.mutate(dom.name)} disabled={setDefault.isPending}>Als Standard</button>}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="form-actions">
-        <button onClick={() => sync.mutate()} disabled={sync.isPending}>Zonen bei Cloudflare abgleichen</button>
-      </div>
-      {[sync, setDefault].map((m, i) => (m.isError ? <p key={i} role="alert" className="error">{(m.error as Error).message}</p> : null))}
     </>
   )
 }

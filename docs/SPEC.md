@@ -14,6 +14,7 @@ Ziel: Ein Projekt soll in unter 5 Minuten von der Idee im Chat oder vom Git-Repo
 - Pro Projekt wählbar, wo es erreichbar ist: öffentlich über Cloudflare Tunnel, im Heimnetz (LAN), im Tailnet, oder eine Kombination
 - Domains und DNS-Einträge über die Cloudflare-API anlegen und entfernen
 - Automatische Security-Prüfung nach jedem Deployment, mit Score und Befunden, sowie Erkennung von Angriffsversuchen und Einbruchsindizien
+- Befunde direkt beheben: Security-Header per Klick, Codeänderungen mit Claude (Diff oder Pull Request)
 - Steuerung über Web-UI und über einen MCP-Server, damit Claude Projekte hochfahren und prüfen kann
 - Logs, Status, Redeploy, Rollback auf die vorherige Version
 
@@ -127,6 +128,7 @@ deployer meldet wichtige Ereignisse per Push und E-Mail. Für Push bietet sich n
 | Tunnel oder Zertifikat mit Problem | Push und E-Mail |
 | Einbruchsindiz (Drift, unerwarteter Prozess) | Push und E-Mail |
 | Gehäufte Angriffsversuche auf ein Projekt | Push |
+| Fix-PR geöffnet oder Befund nach Merge bestätigt behoben | Push |
 | Wöchentliche Zusammenfassung (Status, Scores, offene Befunde) | E-Mail |
 
 Jedes Ereignis lässt sich pro Kanal ein- und ausschalten. Benachrichtigungen enthalten nie Secrets.
@@ -192,6 +194,54 @@ Der Scanner beantwortet, ob ein Angriff klappen *würde*. Die Angriffserkennung 
 
 **Grenze.** Ob ein Angriff erfolgreich war, lässt sich nie lückenlos beweisen. deployer liefert Indizien und meldet sie früh; die Beurteilung bleibt bei dir.
 
+## Fix-Assistent
+
+Neben jedem Befund bietet deployer einen Weg an, ihn zu beheben statt nur zu akzeptieren. Welcher Weg angeboten wird, hängt vom Befund und von der Quelle des Projekts ab. Jede Änderung braucht deine Zustimmung, erzeugt eine neue Version und wird durch einen Nachscan bestätigt.
+
+### Header über Caddy setzen
+
+Fehlende Security-Header behebt deployer ohne Codeänderung: Caddy ergänzt sie in der Antwort des Projekts. Kein Redeploy nötig, ein Neuladen von Caddy genügt.
+
+| Header | Vorgehen |
+| --- | --- |
+| `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors` | Ein Klick, sofort aktiv |
+| `Content-Security-Policy` | Zuerst als `Content-Security-Policy-Report-Only`. deployer sammelt die Verstösse, die Browser melden, und schlägt daraus eine Regel vor. Erst nach Bestätigung wird sie scharf geschaltet. |
+| `Strict-Transport-Security` | Nur bei HTTPS und erst, wenn TLS stabil läuft; kurze `max-age` zum Start |
+
+Setzt die App einen Header selbst, gewinnt der Wert der App; Caddy ergänzt nur, was fehlt. Jede Header-Regel lässt sich pro Projekt wieder entfernen.
+
+Der Header-Check prüft dafür künftig über Caddy, also so, wie Besucher die Seite sehen, und nicht mehr direkt am Container.
+
+### Mit Claude lösen
+
+Für Befunde, die eine Codeänderung brauchen (veraltete Pakete, Dockerfile-Fehlkonfiguration, offen erreichbare Dateien), schlägt Claude eine Änderung vor.
+
+| Quelle | Was passiert |
+| --- | --- |
+| Chat (`files`) | Vorschlag als Diff in deployer. Nach Bestätigung neue Version im lokalen Repo, Deploy, Nachscan. |
+| GitHub- oder GitLab-Repo | Claude erstellt einen Branch `deployer/fix-<befund>`, committet die Änderung und öffnet einen Pull Request bzw. Merge Request mit Befund, Erklärung und Link zum Scan. Nach dem Merge deployt deployer automatisch und scannt nach. |
+| Fertiges Image | Kein Eingriff möglich; deployer zeigt nur, welche Image-Version das Problem behebt. |
+
+Nie direkt auf den Standard-Branch pushen, immer über einen eigenen Branch. Branch-Schutzregeln des Repos gelten unverändert.
+
+**Zwei Wege zu Claude:**
+
+1. **Über MCP (Standard).** Der Knopf erzeugt einen fertigen Auftrag («Behebe Befund X in Projekt Y») und kopiert ihn. In Claude oder Claude Code holt sich Claude Befund und Dateien über MCP, schlägt die Änderung vor und spielt sie nach Zustimmung ein bzw. öffnet den PR selbst. Kein API-Schlüssel nötig, läuft über das eigene Abo.
+2. **Direkt in deployer (optional).** Mit `ANTHROPIC_API_KEY` in `.env` fragt deployer Claude selbst und zeigt den Vorschlag als Diff in der Oberfläche. Abrechnung pro Nutzung über die API. Ohne Schlüssel ist dieser Weg ausgeblendet.
+
+An Claude gehen nur der Befund und die betroffenen Dateien, nie Secrets oder Werte aus der Projekt-Env.
+
+### Mit GitHub und GitLab verbinden
+
+- **GitHub:** über eine eigene GitHub App, angelegt per App-Manifest mit wenigen Klicks. Du wählst die Repos, für die sie gilt. Rechte nur «Contents: write» und «Pull requests: write». deployer holt pro Vorgang ein Installations-Token, das nach einer Stunde abläuft. Der private Schlüssel der App liegt verschlüsselt wie die Projekt-Secrets.
+- **GitLab:** über eine OAuth-App (Rechte `api`, `write_repository`) oder ein Projekt-Zugangstoken pro Repo.
+- Die Rückleitung nach der Anmeldung läuft über den Browser, deployer muss dafür nicht öffentlich erreichbar sein.
+- Damit werden auch private Repos als Quelle möglich (bisher nur öffentliche).
+
+### Automatisch deployen nach Merge
+
+Pro Projekt einstellbar (`auto_deploy`): deployer prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil deployer nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt deployer einen Kommentar mit dem Ergebnis.
+
 ## MCP-Schnittstelle
 
 deployer bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.deinedomain.ch/mcp`. Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
@@ -218,6 +268,8 @@ deployer bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.d
 | `accept_finding` | `project`, `finding`, `reason` | Ja |
 | `list_security_events` | `project`, `since`, `severity` | Nein |
 | `quarantine_project` | `project` | Ja |
+| `get_fix_context` | `project`, `finding` | Nein |
+| `set_security_header` | `project`, `header`, `value`, `mode` (`report-only` oder `enforce`) | Ja bei `enforce` für CSP und HSTS |
 
 **Bestätigungen.** Unterstützt der Client MCP-Elicitation, fragt deployer direkt dort nach. Sonst antwortet das Tool mit einer Zusammenfassung und einem `confirmation_token`; erst ein zweiter Aufruf mit diesem Token innerhalb von 5 Minuten führt die Aktion aus. So kann ein Agent nichts versehentlich öffentlich machen oder löschen.
 
@@ -231,7 +283,7 @@ Alle Daten liegen in PostgreSQL, als eigener Container im deployer-Stack; Web-UI
 
 | Objekt | Wichtige Felder |
 | --- | --- |
-| Project | `id`, `name`, `slug`, `source_type` (`files`, `dockerfile`, `compose`, `static`, `image`), `local_repo_path`, `source_ref`, `port`, `healthcheck_path`, `status` (`running`, `stopped`, `failed`, `deploying`), `keep` (vom Ablauf ausgenommen), `created_at` |
+| Project | `id`, `name`, `slug`, `source_type` (`files`, `dockerfile`, `compose`, `static`, `image`), `local_repo_path`, `source_ref`, `port`, `healthcheck_path`, `status` (`running`, `stopped`, `failed`, `deploying`), `keep` (vom Ablauf ausgenommen), `auto_deploy`, `created_at` |
 | Deployment | `id`, `project_id`, `version` (Commit-Hash oder Digest), `started_at`, `finished_at`, `result`, `log_ref`, `is_active` |
 | Route | `id`, `project_id`, `target` (`public`, `lan`, `tailnet`), `hostname`, `cf_dns_record_id`, `access_protected` |
 | Domain | `id`, `cf_zone_id`, `name`, `is_default` |
@@ -239,6 +291,9 @@ Alle Daten liegen in PostgreSQL, als eigener Container im deployer-Stack; Web-UI
 | Secret | `id`, `project_id`, `key`, `value_encrypted` |
 | ScanRun | `id`, `deployment_id` oder `external_target_id`, `level`, `started_at`, `score`, `grade` |
 | Finding | `id`, `scan_run_id`, `tool`, `severity`, `title`, `location`, `fix`, `status` (`open`, `accepted`, `fixed`), `accept_reason` |
+| HeaderRule | `id`, `project_id`, `header`, `value`, `mode` (`report-only`, `enforce`), `created_at` |
+| GitConnection | `id`, `provider` (`github`, `gitlab`), `app_id`, `installation_id`, `repos`, `private_key_encrypted`, `created_at` |
+| FixRequest | `id`, `finding_id`, `way` (`mcp`, `api`), `status` (`proposed`, `applied`, `pr_open`, `merged`, `verified`, `rejected`), `branch`, `pr_url`, `diff`, `created_at` |
 | SecurityEvent | `id`, `project_id`, `source` (`crowdsec`, `cloudflare`, `drift`, `falco`), `severity`, `kind`, `ip`, `details`, `at`, `status` (`open`, `acknowledged`) |
 | ApiToken | `id`, `name`, `token_hash`, `last_used_at`, `revoked_at` |
 | AuditEvent | `id`, `at`, `actor` (UI oder Token-Name), `action`, `params_masked`, `result` |
@@ -310,6 +365,7 @@ Jeder Meilenstein ist für sich nutzbar.
 5. **Öffentlich:** Cloudflare Tunnel, DNS-Verwaltung, optional Cloudflare Access.
 6. **Security:** drei Scan-Stufen, Score, Schwelle für «öffentlich», externe Domains, wöchentlicher Rescan, Benachrichtigungen.
 7. **Angriffserkennung:** CrowdSec mit Caddy-Bouncer, Cloudflare Security Events, Drift-Prüfung, Quarantäne; Falco optional. Setzt Meilenstein 5 (Tunnel) und 6 (Benachrichtigungen) voraus.
+8. **Fix-Assistent:** Header über Caddy (CSP mit Report-Only), Header-Check über Caddy, Mit Claude lösen über MCP und optional API, GitHub App und GitLab, private Repos, Auto-Deploy nach Merge.
 
 MCP kommt bewusst früh (Meilenstein 3): Ab dann kann Claude beim Weiterbauen von deployer selbst schon Testprojekte deployen.
 

@@ -91,3 +91,11 @@ Format: **Frage** – getroffene Annahme – *wo*.
 - **Neue Projekte** sind standardmässig im LAN und im Tailnet (die UI zeigte das schon so, schickte aber nur `lan`). – *web/pages/NewProject.tsx*
 - **Getestet** gegen eine Cloudflare-Attrappe, mit der der laufende deployer spricht (`pnpm --filter @deployer/api e2e:cf`). Nie gegen die echte API. – *e2e/m5.e2e.ts*
 
+## Oberfläche (Umbau nach Prototyp, 7.11.2026)
+
+- **Passwort in der Oberfläche ändern** überdauert Neustarts. `ADMIN_PASSWORD` in `.env` gilt beim ersten Start und immer dann, wenn es sich dort ändert – das ist der Weg zurück, falls das Passwort vergessen ist. Nach einer Änderung sind alle anderen Sitzungen abgemeldet. – *http/auth.ts, ensureAdminPassword*
+- **Name im Profil-Menü** kommt aus `ADMIN_NAME` in `.env` (Standard «Admin»), der Servername in den Brotkrumen aus `SERVER_NAME`. – *config.ts*
+- **Formular-Prüfung** im Browser mit denselben Zod-Schemas wie in der API (`packages/shared`); Meldungen auf Deutsch mit Beispiel. Die Browser-Prüfung ist überall abgeschaltet (`noValidate`). – *web/lib/form.ts*
+- **Testdaten-Umschalter** (`?demo=lang|leer|eins|viele|hunderte`) gibt es nur im Entwicklungsmodus; im gebauten Bundle fehlen Daten und Schalter. – *web/lib/demo.ts, components/DemoToggle.tsx*
+- **Status in der Projektliste:** Scheitert ein Deploy und die alte Fassung läuft weiter, heisst der Zustand «läuft», der Fehlschlag steht darunter. – *web/lib/projects.ts, runtimeStatus*
+

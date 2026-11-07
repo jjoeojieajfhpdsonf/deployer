@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { slugify } from '@deployer/shared'
+import { slugify, createProjectSchema } from '@deployer/shared'
 import { api, ApiError } from '../api.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
+import { PageHead } from '../components/PageHead.js'
+import { Field, FormError } from '../components/Field.js'
+import { useFormErrors, type Errors } from '../lib/form.js'
 
 type Kind = 'image' | 'dockerfile' | 'compose' | 'static'
 type Origin = 'upload' | 'repo'
@@ -13,6 +16,12 @@ const KINDS: { kind: Kind; title: string; hint: string }[] = [
   { kind: 'compose', title: 'Docker Compose', hint: 'Mehrere Dienste, z.B. App und Datenbank' },
   { kind: 'static', title: 'Statische Seite', hint: 'ZIP oder Repo, optional mit Build-Befehl' },
 ]
+
+const MAX_ZIP = 100 * 1024 * 1024
+const MAX_COMPOSE = 256 * 1024
+/** Platzhalter für die Prüfung vor dem Hochladen; die echte id kommt danach. */
+const PENDING_UPLOAD = '00000000-0000-4000-8000-000000000000'
+const opt = (v: string) => (v.trim() === '' ? undefined : v)
 
 export function NewProject() {
   const navigate = useNavigate()
@@ -40,170 +49,181 @@ export function NewProject() {
   const usesUpload = (kind === 'static' || kind === 'compose') && origin === 'upload'
   const usesRepo = kind === 'dockerfile' || ((kind === 'static' || kind === 'compose') && origin === 'repo')
 
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      let uploadId: string | undefined
-      if (usesUpload) {
-        if (!file) throw new Error(kind === 'compose' ? 'Bitte eine compose.yaml auswählen' : 'Bitte ein ZIP auswählen')
-        uploadId = (await api.upload(file)).upload.id
-      }
-      const r = ref.trim() || undefined
-      const source =
-        kind === 'image' ? { type: 'image', image }
-        : kind === 'dockerfile' ? { type: 'dockerfile', repoUrl, ref: r, dockerfile, context }
-        : kind === 'compose'
-          ? usesRepo
-            ? { type: 'compose', repoUrl, ref: r, composePath, webService }
-            : { type: 'compose', uploadId, webService }
-          : usesRepo
-            ? {
-                type: 'static', repoUrl, ref: r,
-                buildCommand: buildCommand.trim() || undefined,
-                outputDir: outputDir.trim() || undefined,
-              }
-            : { type: 'static', uploadId }
+  /** Eingaben in der Form, die die API erwartet – geprüft mit demselben Schema. */
+  function payload(uploadId?: string) {
+    const r = opt(ref)
+    const source =
+      kind === 'image' ? { type: 'image', image }
+      : kind === 'dockerfile' ? { type: 'dockerfile', repoUrl, ref: r, dockerfile, context }
+      : kind === 'compose'
+        ? usesRepo
+          ? { type: 'compose', repoUrl, ref: r, composePath, webService }
+          : { type: 'compose', uploadId, webService }
+        : usesRepo
+          ? { type: 'static', repoUrl, ref: r, buildCommand: opt(buildCommand), outputDir: opt(outputDir) }
+          : { type: 'static', uploadId }
+    return {
+      name,
+      source,
+      ...(needsPort ? { port: port.trim() === '' ? undefined : Number(port) } : {}),
+      healthcheckPath,
+      env: env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
+      targets: ['lan', 'tailnet'],
+      deploy: true,
+    }
+  }
 
-      const { project } = await api.createProject({
-        name,
-        source,
-        ...(needsPort ? { port: Number(port) } : {}),
-        healthcheckPath,
-        env: env.filter((x) => x.key).map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
-        targets: ['lan', 'tailnet'],
-        deploy: true,
-      })
+  const form = useFormErrors({
+    schema: createProjectSchema,
+    values: () => payload(file ? PENDING_UPLOAD : undefined),
+    extra: (): Errors => {
+      if (!usesUpload) return {}
+      if (!file) return { file: kind === 'compose' ? 'Wähle deine compose.yaml aus' : 'Wähle das ZIP mit den Dateien der Seite aus, z.B. dist.zip' }
+      if (kind === 'compose' && file.size > MAX_COMPOSE) return { file: `Die Datei ist ${Math.ceil(file.size / 1024)} KB gross; eine compose.yaml darf höchstens 256 KB haben` }
+      if (kind === 'static' && file.size > MAX_ZIP) return { file: `Das ZIP ist ${Math.ceil(file.size / 1024 / 1024)} MB gross; höchstens 100 MB` }
+      if (kind === 'static' && !/\.zip$/i.test(file.name)) return { file: 'Wähle eine ZIP-Datei (.zip) aus' }
+      return {}
+    },
+  })
+  const e = form.errors
+  // «Upload oder Repo» meldet das Schema auf "source"; beim Hochladen gehört die Meldung zum Dateifeld.
+  const sourceError = usesUpload ? undefined : e.source
+
+  async function submit(ev: FormEvent) {
+    ev.preventDefault()
+    setError(null)
+    if (!form.validateAll()) return
+    setBusy(true)
+    try {
+      const uploadId = usesUpload && file ? (await api.upload(file)).upload.id : undefined
+      const { project } = await api.createProject(payload(uploadId))
       navigate(`/projekte/${project.id}`)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message)
+      // Prüft die API anders als erwartet, landet ihre Meldung trotzdem am Feld.
+      if (!form.setServerErrors(err)) setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <section className="page page-new">
-      <h1>Neues Projekt</h1>
+    <section className="page page-narrow">
+      <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }, { label: 'neu' }]} title="Neues Projekt">
+        <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>
+      </PageHead>
 
-      <form onSubmit={submit} className="form">
+      <form onSubmit={submit} className="form" noValidate ref={form.formRef}>
         <fieldset className="field-group">
-          <legend>Woher kommt das Projekt?</legend>
-          {KINDS.map((k) => (
-            <label key={k.kind} className="choice">
-              <input type="radio" checked={kind === k.kind} onChange={() => setKind(k.kind)} />
-              <span>
-                <strong>{k.title}</strong>
-                <small>{k.hint}</small>
-              </span>
-            </label>
-          ))}
+          <legend>Quelle</legend>
+          <div className="kind-grid">
+            {KINDS.map((k) => (
+              <label key={k.kind} className="choice kind-card">
+                <input type="radio" name="kind" checked={kind === k.kind} onChange={() => { setKind(k.kind); form.reset() }} />
+                <span>
+                  <strong>{k.title}</strong>
+                  <small>{k.hint}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+          {(kind === 'static' || kind === 'compose') && (
+            <div className="origin-switch" role="radiogroup" aria-label={kind === 'compose' ? 'Woher kommt die compose.yaml?' : 'Woher kommen die Dateien?'}>
+              <label className="choice">
+                <input type="radio" name="origin" checked={origin === 'upload'} onChange={() => { setOrigin('upload'); form.reset() }} />
+                <span>Hochladen</span>
+              </label>
+              <label className="choice">
+                <input type="radio" name="origin" checked={origin === 'repo'} onChange={() => { setOrigin('repo'); form.reset() }} />
+                <span>Aus einem Git-Repo</span>
+              </label>
+            </div>
+          )}
         </fieldset>
 
-        {(kind === 'static' || kind === 'compose') && (
-          <fieldset className="field-group">
-            <legend>{kind === 'compose' ? 'compose.yaml' : 'Dateien'}</legend>
-            <label className="choice">
-              <input type="radio" checked={origin === 'upload'} onChange={() => setOrigin('upload')} />
-              <span>Hochladen</span>
-            </label>
-            <label className="choice">
-              <input type="radio" checked={origin === 'repo'} onChange={() => setOrigin('repo')} />
-              <span>Aus einem Git-Repo</span>
-            </label>
-          </fieldset>
-        )}
+        <fieldset className="field-group">
+          <legend>Projekt</legend>
+          <Field id={form.idFor('name')} label="Name" error={e.name}
+            hint={slug && name ? <>Kurzname <code>{slug}</code> – die vollständige Adresse steht nach dem Anlegen auf der Projektseite.</> : 'Frei wählbar; daraus entsteht der Kurzname für die Adresse.'}>
+            <input {...form.field('name', name ? `${form.idFor('name')}-hint` : undefined)} value={name} onChange={(x) => setName(x.target.value)} maxLength={120} autoComplete="off" />
+          </Field>
 
-        <label htmlFor="name">Name</label>
-        <input id="name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} />
-        {slug && (
-          <p className="hint">
-            Kurzname <code>{slug}</code> – die vollständige Adresse steht nach dem Anlegen auf der Projektseite.
-          </p>
-        )}
+          {kind === 'image' && (
+            <Field id={form.idFor('source.image')} label="Image" error={e['source.image']} hint="Mit Tag, z.B. nginx:alpine oder ghcr.io/user/app:1.2">
+              <input {...form.field('source.image', `${form.idFor('source.image')}-hint`)} value={image} onChange={(x) => setImage(x.target.value)} placeholder="ghcr.io/user/app:1.2" autoComplete="off" spellCheck={false} />
+            </Field>
+          )}
 
-        {kind === 'image' && (
-          <>
-            <label htmlFor="image">Image</label>
-            <input id="image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="ghcr.io/user/app:1.2" required />
-          </>
-        )}
+          {usesRepo && (
+            <>
+              <Field id={form.idFor('source.repoUrl')} label="Repo-URL" error={e['source.repoUrl'] ?? sourceError} hint="Nur öffentliche Repos über https:// (oder http:// im LAN).">
+                <input {...form.field('source.repoUrl', `${form.idFor('source.repoUrl')}-hint`)} value={repoUrl} onChange={(x) => setRepoUrl(x.target.value)} placeholder="https://github.com/user/app.git" autoComplete="off" spellCheck={false} inputMode="url" />
+              </Field>
+              <Field id={form.idFor('source.ref')} label="Branch, Tag oder Commit" optional error={e['source.ref']} hint="Leer = Standard-Branch des Repos.">
+                <input {...form.field('source.ref', `${form.idFor('source.ref')}-hint`)} value={ref} onChange={(x) => setRef(x.target.value)} placeholder="main" autoComplete="off" spellCheck={false} />
+              </Field>
+            </>
+          )}
 
-        {usesRepo && (
-          <>
-            <label htmlFor="repo">Repo-URL</label>
-            <input id="repo" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/user/app.git" required />
-            <p className="hint">Nur öffentliche Repos über https:// (oder http:// im LAN).</p>
-            <label htmlFor="ref">Branch, Tag oder Commit</label>
-            <input id="ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="leer = Standard-Branch" />
-          </>
-        )}
+          {kind === 'dockerfile' && (
+            <>
+              <Field id={form.idFor('source.dockerfile')} label="Dockerfile" error={e['source.dockerfile']}>
+                <input {...form.field('source.dockerfile')} value={dockerfile} onChange={(x) => setDockerfile(x.target.value)} spellCheck={false} />
+              </Field>
+              <Field id={form.idFor('source.context')} label="Build-Kontext" error={e['source.context']} hint="Ordner im Repo, aus dem gebaut wird; . ist die Wurzel.">
+                <input {...form.field('source.context', `${form.idFor('source.context')}-hint`)} value={context} onChange={(x) => setContext(x.target.value)} spellCheck={false} />
+              </Field>
+            </>
+          )}
 
-        {kind === 'dockerfile' && (
-          <>
-            <label htmlFor="df">Dockerfile</label>
-            <input id="df" value={dockerfile} onChange={(e) => setDockerfile(e.target.value)} required />
-            <label htmlFor="ctx">Build-Kontext</label>
-            <input id="ctx" value={context} onChange={(e) => setContext(e.target.value)} required />
-          </>
-        )}
+          {kind === 'compose' && usesRepo && (
+            <Field id={form.idFor('source.composePath')} label="Pfad der compose.yaml im Repo" error={e['source.composePath']}>
+              <input {...form.field('source.composePath')} value={composePath} onChange={(x) => setComposePath(x.target.value)} spellCheck={false} />
+            </Field>
+          )}
 
-        {kind === 'compose' && usesRepo && (
-          <>
-            <label htmlFor="cp">Pfad der compose.yaml im Repo</label>
-            <input id="cp" value={composePath} onChange={(e) => setComposePath(e.target.value)} required />
-          </>
-        )}
+          {kind === 'compose' && (
+            <Field id={form.idFor('source.webService')} label="Web-Dienst" error={e['source.webService']}
+              hint={<>Der Dienst, der die Besucher bekommt. Nicht erlaubt sind u.a. <code>ports</code>, <code>privileged</code> und Bind-Mounts – Dateien gehören ins Image.</>}>
+              <input {...form.field('source.webService', `${form.idFor('source.webService')}-hint`)} value={webService} onChange={(x) => setWebService(x.target.value)} spellCheck={false} />
+            </Field>
+          )}
 
-        {kind === 'compose' && (
-          <>
-            <label htmlFor="ws">Web-Dienst</label>
-            <input id="ws" value={webService} onChange={(e) => setWebService(e.target.value)} required />
-            <p className="hint">
-              Der Dienst, der die Besucher bekommt. Nicht erlaubt sind u.a. <code>ports</code>,
-              <code> privileged</code> und Bind-Mounts – Dateien gehören ins Image.
-            </p>
-          </>
-        )}
+          {kind === 'static' && usesRepo && (
+            <>
+              <Field id={form.idFor('source.buildCommand')} label="Build-Befehl" optional error={e['source.buildCommand']} hint="Leer = die Dateien im Repo werden so ausgeliefert.">
+                <input {...form.field('source.buildCommand', `${form.idFor('source.buildCommand')}-hint`)} value={buildCommand} onChange={(x) => setBuildCommand(x.target.value)} placeholder="npm run build" spellCheck={false} />
+              </Field>
+              <Field id={form.idFor('source.outputDir')} label="Ausgabeordner" optional error={e['source.outputDir']}>
+                <input {...form.field('source.outputDir')} value={outputDir} onChange={(x) => setOutputDir(x.target.value)} placeholder={buildCommand ? 'dist' : '.'} spellCheck={false} />
+              </Field>
+            </>
+          )}
 
-        {kind === 'static' && usesRepo && (
-          <>
-            <label htmlFor="bc">Build-Befehl (optional)</label>
-            <input id="bc" value={buildCommand} onChange={(e) => setBuildCommand(e.target.value)} placeholder="npm run build" />
-            <label htmlFor="od">Ausgabeordner</label>
-            <input id="od" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={buildCommand ? 'dist' : '.'} />
-          </>
-        )}
+          {usesUpload && (
+            <Field id={form.idFor('file')} label={kind === 'compose' ? 'compose.yaml' : 'ZIP-Datei'} error={e.file}
+              hint={kind === 'compose' ? 'Höchstens 256 KB. Ohne Repo gibt es kein build: und kein env_file.' : 'Höchstens 100 MB, entpackt höchstens 500 MB und 10 000 Dateien.'}>
+              <input
+                {...form.field('file', `${form.idFor('file')}-hint`)}
+                type="file"
+                accept={kind === 'compose' ? '.yaml,.yml' : '.zip,application/zip'}
+                onChange={(x) => { setFile(x.target.files?.[0] ?? null); form.validateField('file') }}
+              />
+            </Field>
+          )}
 
-        {usesUpload && (
-          <>
-            <label htmlFor="file">{kind === 'compose' ? 'compose.yaml' : 'ZIP-Datei'}</label>
-            <input
-              id="file"
-              type="file"
-              accept={kind === 'compose' ? '.yaml,.yml' : '.zip,application/zip'}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              required
-            />
-            <p className="hint">
-              {kind === 'compose'
-                ? 'Höchstens 256 KB. Ohne Repo gibt es kein build: und kein env_file.'
-                : 'Höchstens 100 MB, entpackt höchstens 500 MB und 10 000 Dateien.'}
-            </p>
-          </>
-        )}
+          {needsPort && (
+            <div className="field-row">
+              <Field id={form.idFor('port')} label="Port im Container" error={e.port} hint="Auf diesem Port lauscht die App im Container.">
+                <input {...form.field('port', `${form.idFor('port')}-hint`)} inputMode="numeric" value={port} onChange={(x) => setPort(x.target.value)} />
+              </Field>
+              <Field id={form.idFor('healthcheckPath')} label="Pfad für den Healthcheck" error={e.healthcheckPath} hint="Muss mit 2xx oder 3xx antworten.">
+                <input {...form.field('healthcheckPath', `${form.idFor('healthcheckPath')}-hint`)} value={healthcheckPath} onChange={(x) => setHealthcheckPath(x.target.value)} spellCheck={false} />
+              </Field>
+            </div>
+          )}
+        </fieldset>
 
-        {needsPort && (
-          <>
-            <label htmlFor="port">Port im Container</label>
-            <input id="port" type="number" min={1} max={65535} value={port} onChange={(e) => setPort(e.target.value)} required />
-            <label htmlFor="hc">Pfad für den Healthcheck</label>
-            <input id="hc" value={healthcheckPath} onChange={(e) => setHealthcheckPath(e.target.value)} required />
-          </>
-        )}
-
-        <EnvEditor rows={env} onChange={setEnv} />
+        <EnvEditor rows={env} onChange={setEnv} prefix="env" errors={e} field={form.field} />
 
         <fieldset className="field-group">
           <legend>Erreichbarkeit</legend>
@@ -220,7 +240,7 @@ export function NewProject() {
           </label>
         </fieldset>
 
-        {error && <p role="alert" className="error">{error}</p>}
+        <FormError id={form.idFor('_form')} message={error ?? e._form ?? (usesUpload ? undefined : e.source && !usesRepo ? e.source : undefined)} />
 
         <div className="form-actions">
           <button type="submit" className="button-primary" disabled={busy}>

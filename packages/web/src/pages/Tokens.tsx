@@ -3,6 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../components/Status.js'
 import { copyText } from '../lib/clipboard.js'
+import { PageHead } from '../components/PageHead.js'
+import { tokenNameSchema } from '@deployer/shared'
+import { useFormErrors } from '../lib/form.js'
+import { FieldError } from '../components/Field.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -20,6 +24,7 @@ export function Tokens() {
 
   const mcpUrl = `${window.location.origin}/mcp`
 
+  const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name }) })
   const create = useMutation({
     mutationFn: (n: string) => api.createToken(n),
     onSuccess: (r) => {
@@ -44,7 +49,7 @@ export function Tokens() {
 
   function submit(e: FormEvent) {
     e.preventDefault()
-    if (name.trim()) create.mutate(name.trim())
+    if (form.validateAll()) create.mutate(name.trim())
   }
 
   const cli = fresh
@@ -52,19 +57,21 @@ export function Tokens() {
     : ''
 
   return (
-    <section className="page page-tokens">
-      <header className="page-header">
-        <h1>Tokens</h1>
-      </header>
-      <p className="hint">
+    <section className="page page-medium">
+      <PageHead crumbs={[{ label: 'tokens' }]} title="Tokens" />
+      <p className="lede" style={{ marginBottom: 20 }}>
         Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
         MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
         mit Anmeldung – nicht mit einem Token.
       </p>
 
-      <form onSubmit={submit} className="form-actions">
-        <input aria-label="Name des Tokens" placeholder="Name, z.B. Claude Desktop" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
-        <button type="submit" className="button-primary" disabled={create.isPending || !name.trim()}>
+      <form onSubmit={submit} className="inline-form" noValidate ref={form.formRef}>
+        <div className="inline-form-field">
+          <label htmlFor={form.idFor('name')} className="visually-hidden">Name des Tokens</label>
+          <input {...form.field('name')} placeholder="Name, z.B. Claude Desktop" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" />
+          {form.errors.name && <FieldError id={form.idFor('name')} message={form.errors.name} />}
+        </div>
+        <button type="submit" className="button-primary" disabled={create.isPending}>
           {create.isPending ? 'Wird angelegt…' : 'Token anlegen'}
         </button>
       </form>
@@ -93,7 +100,7 @@ export function Tokens() {
       ) : (
         <>
           {active.length === 0 ? (
-            <p className="state state-empty">Kein gültiges Token.</p>
+            <p className="state state-empty">Noch kein aktives Token. Lege eins an, z.B. «Claude Desktop», und trage es dort als MCP-Server ein.</p>
           ) : (
             <TokenTable rows={active} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
           )}

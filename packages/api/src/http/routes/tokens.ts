@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { z } from 'zod'
+import { tokenNameSchema } from '@deployer/shared'
 import { createToken, listTokens, revokeToken } from '../../domain/tokens.js'
 import { actorFor } from '../auth.js'
 
@@ -8,7 +8,7 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tokens', async () => ({ tokens: await listTokens() }))
 
   app.post('/tokens', async (request, reply) => {
-    const { name } = z.object({ name: z.string().min(1).max(80) }).parse(request.body)
+    const { name } = tokenNameSchema.parse(request.body)
     const { token, dto } = await createToken(name, actorFor(request))
     reply.code(201)
     // Der Klartext steht nur in dieser einen Antwort.

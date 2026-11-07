@@ -49,6 +49,8 @@ const envSchema = z.object({
   LAN_CIDR: z.string().default('192.168.1.0/24'),
 
   ADMIN_PASSWORD: z.string().min(1),
+  // Anzeigename im Profil-Menü (Initiale als Avatar), z.B. "Joël".
+  ADMIN_NAME: z.string().trim().max(60).default(''),
   SESSION_SECRET: z.string().trim().default(''),
 
   DEFAULT_CPU_LIMIT: z.coerce.number().min(0.1).max(16).default(1),
@@ -88,6 +90,9 @@ const envSchema = z.object({
   ACCESS_EMAIL: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
   EDGE_NETWORK: z.string().default('deployer_edge'),
   CLOUDFLARED_CONTAINER: z.string().default('deployer-cloudflared'),
+
+  // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
+  SERVER_NAME: z.string().trim().max(40).default(''),
 })
 
 export type Config = z.infer<typeof envSchema> & {

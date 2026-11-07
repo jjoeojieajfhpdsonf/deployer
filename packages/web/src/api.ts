@@ -23,6 +23,15 @@ export interface NotifySettingsDto {
   matrix: Record<NotifyEvent, { push: boolean; email: boolean }>
 }
 
+export interface MeDto {
+  loggedIn: boolean
+  name?: string
+  sessionSince?: string | null
+  viaHttps?: boolean
+  passwordChangedAt?: string | null
+  passwordSource?: 'env' | 'ui' | null
+}
+
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
 
 export interface ApiTokenDto {
@@ -59,7 +68,8 @@ const body = (v: unknown) => JSON.stringify(v)
 
 export const api = {
   /* Auth */
-  me: () => call<{ loggedIn: boolean }>('/auth/me'),
+  me: () => call<MeDto>('/auth/me'),
+  changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
   login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
 

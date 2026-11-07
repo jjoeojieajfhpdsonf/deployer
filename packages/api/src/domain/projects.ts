@@ -45,20 +45,47 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     lastChangeAt: r.lastChangeAt.toISOString(),
     expiresAt: expiresAt(r, config.CHAT_EXPIRY_DAYS)?.toISOString() ?? null,
     security: await securitySummary(r.id),
+    lastDeployment: await lastDeploymentDto(r.id),
   }
 }
 
-/** Letzter Scan in Kurzform (M6). Direkt abgefragt, ohne security/scan.ts zu laden. */
-async function securitySummary(projectId: string): Promise<ProjectDto['security']> {
+async function lastDeploymentDto(projectId: string): Promise<ProjectDto['lastDeployment']> {
   const rows = await db
     .select()
-    .from(schema.scanRuns)
-    .where(eq(schema.scanRuns.projectId, projectId))
-    .orderBy(desc(schema.scanRuns.startedAt))
+    .from(schema.deployments)
+    .where(eq(schema.deployments.projectId, projectId))
+    .orderBy(desc(schema.deployments.startedAt))
     .limit(1)
-  const s = rows[0]
-  if (!s) return null
-  return { scanId: s.id, status: s.status, score: s.score, grade: s.grade, finishedAt: s.finishedAt?.toISOString() ?? null }
+  return rows[0] ? toDeploymentDto(rows[0]) : null
+}
+
+/**
+ * Letzter Scan in Kurzform (M6). Status vom neuesten Scan, Score und offene
+ * Befunde vom letzten abgeschlossenen – ein laufender Scan soll die Note in
+ * der Übersicht nicht auf «keine Befunde» springen lassen.
+ */
+async function securitySummary(projectId: string): Promise<ProjectDto['security']> {
+  const latest = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.projectId, projectId)).orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
+  if (!latest) return null
+  const done = latest.status === 'done'
+    ? latest
+    : (await db.select().from(schema.scanRuns).where(and(eq(schema.scanRuns.projectId, projectId), eq(schema.scanRuns.status, 'done'))).orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
+  const open = { critical: 0, high: 0, medium: 0, low: 0 }
+  if (done) {
+    const f = await db
+      .select({ severity: schema.findings.severity })
+      .from(schema.findings)
+      .where(and(eq(schema.findings.scanRunId, done.id), eq(schema.findings.status, 'open')))
+    for (const x of f) open[x.severity]++
+  }
+  return {
+    scanId: latest.id,
+    status: latest.status,
+    score: done?.score ?? null,
+    grade: done?.grade ?? null,
+    finishedAt: done?.finishedAt?.toISOString() ?? null,
+    open,
+  }
 }
 
 /**

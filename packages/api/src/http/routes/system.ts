@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { statfs } from 'node:fs/promises'
+import { statfs, readFile } from 'node:fs/promises'
+import { cpus, totalmem, freemem } from 'node:os'
+import { scanQueueLength } from '../../security/scan.js'
 import { asc, ne } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
 import { config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
@@ -45,6 +47,40 @@ export async function hostsBlock(): Promise<string | null> {
   return `${ip}  ${names.join(' ')}`
 }
 
+/**
+ * Auslastung des Rechners, auf dem der Container läuft. Auf Linux teilt der
+ * Container Kernel und /proc mit dem Server – die Werte sind die des Servers.
+ * Unter Docker Desktop sind es die der VM.
+ */
+async function memoryUsage(): Promise<{ used: number; total: number } | null> {
+  try {
+    const info = await readFile('/proc/meminfo', 'utf8')
+    const kb = (k: string) => Number(new RegExp(`^${k}:\\s+(\\d+)`, 'm').exec(info)?.[1] ?? NaN) * 1024
+    const total = kb('MemTotal')
+    const avail = kb('MemAvailable')
+    if (Number.isFinite(total) && Number.isFinite(avail)) return { used: total - avail, total }
+  } catch {
+    /* kein /proc (Entwicklung auf dem Mac) */
+  }
+  return { used: totalmem() - freemem(), total: totalmem() }
+}
+
+/** CPU über ein kurzes Messfenster (200 ms), ohne Bibliothek. */
+async function cpuPercent(): Promise<number | null> {
+  const sample = () => cpus().reduce((a, c) => {
+    const t = c.times
+    a.idle += t.idle
+    a.total += t.user + t.nice + t.sys + t.idle + t.irq
+    return a
+  }, { idle: 0, total: 0 })
+  const a = sample()
+  await new Promise((r) => setTimeout(r, 200))
+  const b = sample()
+  const total = b.total - a.total
+  if (total <= 0) return null
+  return Math.round((1 - (b.idle - a.idle) / total) * 100)
+}
+
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.get('/system/status', async (): Promise<SystemStatusDto> => {
     const checks = await Promise.all([
@@ -64,12 +100,15 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     ])
 
     let diskFreeBytes: number | null = null
+    let diskTotalBytes: number | null = null
     try {
       const s = await statfs(config.DATA_DIR)
       diskFreeBytes = Number(s.bavail) * Number(s.bsize)
+      diskTotalBytes = Number(s.blocks) * Number(s.bsize)
     } catch {
       diskFreeBytes = null
     }
+    const mem = await memoryUsage()
 
     const base = config.INTERNAL_BASE_DOMAIN
     const nip = nipioHost('deployer')
@@ -84,6 +123,15 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       serverLanIp: config.SERVER_LAN_IP,
       nipioEnabled,
       hostsBlock: await hostsBlock(),
+      server: {
+        name: config.SERVER_NAME || 'deployer',
+        cpuPercent: await cpuPercent(),
+        memUsedBytes: mem?.used ?? null,
+        memTotalBytes: mem?.total ?? null,
+        diskUsedBytes: diskTotalBytes !== null && diskFreeBytes !== null ? diskTotalBytes - diskFreeBytes : null,
+        diskTotalBytes,
+      },
+      scanQueue: scanQueueLength(),
       tls: {
         mode: config.TLS_MODE,
         acmeCa: config.ACME_CA,

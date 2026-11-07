@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { acceptFindingSchema, addExternalTargetSchema, ntfySettingsSchema, emailSettingsSchema } from '@deployer/shared'
 import { findProject } from '../../domain/projects.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, listScans, acceptFinding, assertPublishable, latestExternalScan } from '../../security/scan.js'
 import {
@@ -56,7 +57,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>('/scans/:id', async (request) => ({ report: await scanReport(request.params.id) }))
 
   app.patch<{ Params: { id: string } }>('/findings/:id', async (request) => {
-    const body = z.object({ status: z.literal('accepted'), reason: z.string().min(3).max(1000) }).parse(request.body)
+    const body = acceptFindingSchema.parse(request.body)
     await acceptFinding(request.params.id, body.reason, actorFor(request))
     return { ok: true }
   })
@@ -66,7 +67,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/external-targets', async () => ({ targets: await listExternalTargets() }))
 
   app.post('/external-targets', async (request, reply) => {
-    const { hostname } = z.object({ hostname: z.string().min(1).max(253) }).parse(request.body)
+    const { hostname } = addExternalTargetSchema.parse(request.body)
     reply.code(201)
     return { target: await addExternalTarget(hostname, actorFor(request)) }
   })
@@ -106,12 +107,8 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/notifications', async (request) => {
     const body = z.object({
-      ntfy: z.object({ url: z.string().max(500), topic: z.string().max(64), token: z.string().max(500).nullable().optional() }).nullable().optional(),
-      email: z.object({
-        host: z.string().max(253), port: z.number().int().min(1).max(65535), secure: z.boolean(),
-        user: z.string().max(200).nullable().optional(), password: z.string().max(500).nullable().optional(),
-        from: z.string().max(200), to: z.string().max(500),
-      }).nullable().optional(),
+      ntfy: ntfySettingsSchema.nullable().optional(),
+      email: emailSettingsSchema.nullable().optional(),
       matrix: channelMatrix.optional(),
     }).parse(request.body)
     return putNotifySettings(body as Parameters<typeof putNotifySettings>[0], actorFor(request))

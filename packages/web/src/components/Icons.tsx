@@ -1,0 +1,45 @@
+/** Wenige Linien-Icons, 16 px, Strichstärke 1.6 – mehr braucht die Oberfläche nicht. */
+type P = { size?: number; className?: string }
+const base = (size = 16) => ({ width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true })
+
+export const IconSearch = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+)
+export const IconPlus = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>
+)
+export const IconAlert = ({ size = 20, className }: P) => (
+  <svg {...base(size)} viewBox="0 0 16 16" className={className}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.6M8 10.9v.1" /></svg>
+)
+export const IconMore = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth={2.4} /></svg>
+)
+export const IconChevron = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
+)
+export const IconExternal = ({ size = 12, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M6 3H3v10h10v-3M9 3h4v4M13 3 7.5 8.5" /></svg>
+)
+
+/* Navigation (Seitenleiste, eingeklappt nur Icons) */
+export const IconProjects = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
+)
+export const IconShield = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 1.8 13 3.6v4.1c0 3-2.1 5.4-5 6.5-2.9-1.1-5-3.5-5-6.5V3.6Z" /><path d="m5.8 8 1.5 1.5 3-3" /></svg>
+)
+export const IconGlobe = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" /></svg>
+)
+export const IconTarget = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.5" /></svg>
+)
+export const IconKey = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="5.5" cy="10.5" r="3" /><path d="m7.6 8.4 5.4-5.4M11 4.9l1.6 1.6M9.4 6.5l1.2 1.2" /></svg>
+)
+export const IconList = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" /></svg>
+)
+export const IconServer = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="2.5" y="2.5" width="11" height="4.5" rx="1" /><rect x="2.5" y="9" width="11" height="4.5" rx="1" /><path d="M5 4.75h.01M5 11.25h.01" /></svg>
+)

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { getSetting, setSetting } from '../db/index.js'
 import { hashPassword, verifyPassword } from '../lib/crypto.js'
 import { config } from '../config.js'
@@ -18,11 +18,59 @@ const SESSION_MAX_AGE_S = 7 * 24 * 60 * 60
  * Netz Container starten.
  */
 
+/** Fingerabdruck des Passworts aus .env – nur um eine Änderung dort zu erkennen. */
+const envFingerprint = () => createHash('sha256').update(`deployer-env\0${config.ADMIN_PASSWORD}`).digest('hex')
+
+/**
+ * Passwort beim Start. ADMIN_PASSWORD aus .env gilt beim ersten Start und
+ * immer dann, wenn es sich in .env GEÄNDERT hat (Weg zurück, falls das
+ * Passwort vergessen ist). Ein in der Oberfläche geändertes Passwort bleibt
+ * sonst über Neustarts erhalten – vorher setzte jeder Start .env wieder durch.
+ */
 export async function ensureAdminPassword(): Promise<void> {
   const stored = await getSetting('admin_password_hash')
-  if (stored && verifyPassword(config.ADMIN_PASSWORD, stored)) return
+  const fp = await getSetting('admin_password_env_fp')
+  validAfter = Number((await getSetting('sessions_valid_after')) ?? 0)
+  if (stored && fp === envFingerprint()) return
+  if (stored && fp === null && verifyPassword(config.ADMIN_PASSWORD, stored)) {
+    await setSetting('admin_password_env_fp', envFingerprint())
+    return
+  }
   await setSetting('admin_password_hash', hashPassword(config.ADMIN_PASSWORD))
-  log.info(stored ? 'Admin-Passwort aus der Umgebung übernommen' : 'Admin-Passwort gesetzt')
+  await setSetting('admin_password_env_fp', envFingerprint())
+  await setSetting('admin_password_changed', JSON.stringify({ at: new Date().toISOString(), source: 'env' }))
+  log.info(stored ? 'Admin-Passwort aus der Umgebung übernommen (.env geändert)' : 'Admin-Passwort gesetzt')
+}
+
+/** Sitzungen, die vor diesem Zeitpunkt begonnen haben, gelten nicht mehr. */
+let validAfter = 0
+
+export async function changePassword(current: string, next: string): Promise<void> {
+  const stored = await getSetting('admin_password_hash')
+  if (!stored || !verifyPassword(current, stored)) throw new AppError('invalid_credentials', 'Das bisherige Passwort stimmt nicht', 400)
+  if (next === current) throw new AppError('bad_request', 'Das neue Passwort ist dasselbe wie das bisherige', 400)
+  await setSetting('admin_password_hash', hashPassword(next))
+  await setSetting('admin_password_changed', JSON.stringify({ at: new Date().toISOString(), source: 'ui' }))
+  // Alle anderen Sitzungen abmelden; die eigene bekommt danach ein neues Cookie.
+  validAfter = Date.now()
+  await setSetting('sessions_valid_after', String(validAfter))
+}
+
+export async function passwordInfo(): Promise<{ changedAt: string | null; source: 'env' | 'ui' | null }> {
+  const raw = await getSetting('admin_password_changed')
+  if (!raw) return { changedAt: null, source: null }
+  const v = JSON.parse(raw) as { at: string; source: 'env' | 'ui' }
+  return { changedAt: v.at, source: v.source }
+}
+
+/** Beginn der Sitzung (Zeitpunkt der Anmeldung) oder null. */
+export function sessionStart(request: FastifyRequest): number | null {
+  const raw = request.cookies[SESSION_COOKIE]
+  if (!raw) return null
+  const result = request.unsignCookie(raw)
+  if (!result.valid || !result.value) return null
+  const issued = Number(result.value)
+  return Number.isFinite(issued) ? issued : null
 }
 
 export async function sessionSecret(): Promise<string> {
@@ -103,12 +151,9 @@ export function clearSessionCookie(reply: FastifyReply): void {
 }
 
 export function isLoggedIn(request: FastifyRequest): boolean {
-  const raw = request.cookies[SESSION_COOKIE]
-  if (!raw) return false
-  const result = request.unsignCookie(raw)
-  if (!result.valid || !result.value) return false
-  const issued = Number(result.value)
-  if (!Number.isFinite(issued)) return false
+  const issued = sessionStart(request)
+  if (issued === null) return false
+  if (issued < validAfter) return false
   return Date.now() - issued < SESSION_MAX_AGE_S * 1000
 }
 
@@ -146,7 +191,7 @@ export function registerAuthGuard(app: FastifyInstance): void {
     if (bearer) {
       const identity = await verifyToken(bearer)
       if (!identity) throw unauthorized()
-      if (route.startsWith('/api/v1/tokens')) {
+      if (route.startsWith('/api/v1/tokens') || route.startsWith('/api/v1/auth/')) {
         throw new AppError('forbidden', 'Tokens lassen sich nur mit einer Anmeldung verwalten, nicht mit einem Token', 403)
       }
       // M6: ebenso die Benachrichtigungen – ein gestohlenes Token könnte sie

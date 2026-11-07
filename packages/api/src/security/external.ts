@@ -1,5 +1,6 @@
 import { BlockList, isIP } from 'node:net'
 import { AppError } from '../lib/errors.js'
+import { externalHostnameSchema } from '@deployer/shared'
 
 /**
  * Externe Ziele mit DNS-Besitznachweis (SPEC). Reine Logik; der Resolver ist
@@ -13,24 +14,18 @@ export const RESOLVER_QUORUM = 2
 
 const bad = (msg: string) => new AppError('external_target_rejected', msg, 400)
 
-const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
-/** Namen, die nie öffentlich auflösen oder uns selbst gehören. */
-const RESERVED_SUFFIXES = ['localhost', 'local', 'internal', 'invalid', 'test', 'example', 'lan', 'home.arpa', 'nip.io']
 
+/**
+ * Form des Namens nach den gemeinsamen Regeln aus @deployer/shared (dieselben
+ * wie im Formular), dazu was nur der Server weiss: die interne Basisdomain.
+ */
 export function validateExternalHostname(raw: string, internalBaseDomain: string | null): string {
-  const h = raw.trim().toLowerCase().replace(/\.$/, '')
-  if (!h || h.length > 253) throw bad('Ungültiger Hostname')
-  if (isIP(h)) throw bad('Eine IP-Adresse ist kein Ziel; bitte den Hostnamen angeben')
-  const labels = h.split('.')
-  if (labels.length < 2 || !labels.every((l) => LABEL.test(l))) throw bad(`"${raw}" ist kein gültiger Hostname`)
-  if (!/^[a-z]{2,63}$/.test(labels[labels.length - 1]!) && !labels[labels.length - 1]!.startsWith('xn--')) {
-    throw bad(`"${raw}" hat keine gültige Top-Level-Domain`)
-  }
-  for (const s of RESERVED_SUFFIXES) {
-    if (h === s || h.endsWith(`.${s}`)) throw bad(`"${h}" ist kein öffentlicher Name`)
-  }
+  const r = externalHostnameSchema.safeParse(raw)
+  if (!r.success) throw bad(r.error.issues[0]?.message ?? 'Ungültiger Hostname')
+  const h = r.data
+  if (isIP(h)) throw bad('Gib einen Hostnamen statt einer IP-Adresse an, z.B. www.meine-domain.ch')
   if (internalBaseDomain && (h === internalBaseDomain || h.endsWith(`.${internalBaseDomain}`))) {
-    throw bad(`"${h}" liegt unter der internen Basisdomain; das sind Projekte von deployer selbst`)
+    throw bad(`«${h}» liegt unter der internen Basisdomain; das sind Projekte von deployer selbst`)
   }
   return h
 }

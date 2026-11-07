@@ -4,6 +4,10 @@ import { api, ApiError, type ExternalTargetDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { ScanReport } from '../components/Security.js'
 import { relativeTime } from '../components/Status.js'
+import { PageHead } from '../components/PageHead.js'
+import { addExternalTargetSchema } from '@deployer/shared'
+import { useFormErrors } from '../lib/form.js'
+import { FieldError } from '../components/Field.js'
 
 /**
  * Fremde Websites scannen, aber nur nach Nachweis per DNS-TXT-Eintrag
@@ -13,34 +17,43 @@ export function ExternalTargets() {
   const qc = useQueryClient()
   const [hostname, setHostname] = useState('')
   const list = useQuery({ queryKey: ['external-targets'], queryFn: api.externalTargets })
+  const form = useFormErrors({ schema: addExternalTargetSchema, values: () => ({ hostname }) })
   const add = useMutation({
     mutationFn: () => api.addExternalTarget(hostname.trim()),
     onSuccess: () => {
       setHostname('')
+      form.reset()
       void qc.invalidateQueries({ queryKey: ['external-targets'] })
     },
+    // Was nur der Server weiss (Basisdomain, schon eingetragen), steht ebenfalls am Feld.
+    onError: (err) => form.setErrors({ hostname: err instanceof ApiError ? err.message : 'Nicht hinzugefügt' }),
   })
 
   return (
-    <section className="page page-external">
-      <h1>Externe Ziele</h1>
-      <p className="hint">
+    <section className="page page-medium">
+      <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele" />
+      <p className="lede">
         Eigene Websites, die nicht über den deployer laufen, lassen sich mit denselben
         passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
         die Domain dir gehört.
       </p>
 
       <form
-        className="form-actions"
+        className="inline-form"
+        noValidate
+        ref={form.formRef}
         onSubmit={(e) => {
           e.preventDefault()
-          if (hostname.trim()) add.mutate()
+          if (form.validateAll()) add.mutate()
         }}
       >
-        <input aria-label="Hostname" placeholder="www.meine-domain.ch" value={hostname} onChange={(e) => setHostname(e.target.value)} />
-        <button className="button-primary" type="submit" disabled={add.isPending || !hostname.trim()}>Ziel hinzufügen</button>
+        <div className="inline-form-field">
+          <label htmlFor={form.idFor('hostname')} className="visually-hidden">Hostname</label>
+          <input {...form.field('hostname')} placeholder="www.meine-domain.ch" value={hostname} onChange={(e) => setHostname(e.target.value)} autoComplete="off" spellCheck={false} inputMode="url" />
+          {form.errors.hostname && <FieldError id={form.idFor('hostname')} message={form.errors.hostname} />}
+        </div>
+        <button className="button-primary" type="submit" disabled={add.isPending}>Ziel hinzufügen</button>
       </form>
-      {add.isError && <p role="alert" className="error">{(add.error as Error).message}</p>}
 
       {list.isLoading ? (
         <p className="state state-loading">Wird geladen…</p>

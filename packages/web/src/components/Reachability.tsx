@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ProjectDto } from '../api.js'
+import { publicNameFormSchema } from '@deployer/shared'
+import { useFormErrors } from '../lib/form.js'
+import { Field } from './Field.js'
 
 type Target = 'lan' | 'tailnet' | 'public'
 
@@ -22,6 +25,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
   const defaultZone = domains.data?.domains.find((d) => d.isDefault)?.name ?? null
   const publicEnabled = Boolean(domains.data?.publicEnabled)
 
+  const v = useFormErrors({ schema: publicNameFormSchema, values: () => ({ name: pubName }) })
   const save = useMutation({
     mutationFn: () => {
       // Eine eigene interne Subdomain behalten: das Label der bisherigen Adresse.
@@ -35,9 +39,17 @@ export function Reachability({ p }: { p: ProjectDto }) {
     },
     onSuccess: () => {
       setConfirming(false)
+      v.reset()
       void qc.invalidateQueries({ queryKey: ['project', p.id] })
     },
-    onError: () => setConfirming(false),
+    onError: (err) => {
+      setConfirming(false)
+      // Was nur der Server prüfen kann (Zone des Kontos, belegt, fremder DNS-Eintrag), steht am Namensfeld.
+      if (want.has('public') && err instanceof ApiError && (err.status === 400 || err.status === 409) && err.code !== 'not_publishable' && err.code !== 'public_disabled') {
+        v.setErrors({ name: err.message })
+        requestAnimationFrame(() => document.getElementById(v.idFor('name'))?.focus())
+      }
+    },
   })
 
   const toggle = (t: Target) => {
@@ -72,17 +84,17 @@ export function Reachability({ p }: { p: ProjectDto }) {
 
       {want.has('public') && publicEnabled && (
         <div className="public-options">
-          <label>
-            Öffentlicher Name
+          <Field id={v.idFor('name')} label="Öffentlicher Name" optional error={v.errors.name}
+            hint={<>Nur die Subdomain ({defaultZone ? <>wird zu <code>…{'.'}{defaultZone}</code></> : 'keine Standard-Domain gesetzt'}) oder ein voller Name in einer Zone des Kontos. Leer = <code>{p.slug}</code>.</>}>
             <input
+              {...v.field('name', `${v.idFor('name')}-hint`)}
               value={pubName}
               placeholder={defaultZone ? `${p.slug}.${defaultZone}` : 'name.deinedomain.ch'}
+              spellCheck={false}
+              autoComplete="off"
               onChange={(e) => setPubName(e.target.value)}
             />
-          </label>
-          <p className="hint">
-            Nur die Subdomain ({defaultZone ? <>wird zu <code>…{'.'}{defaultZone}</code></> : 'keine Standard-Domain gesetzt'}) oder ein voller Name in einer Zone des Kontos.
-          </p>
+          </Field>
           <label className="choice">
             <input type="checkbox" checked={access} onChange={(e) => setAccess(e.target.checked)} />
             <span>Cloudflare Access <small>nur nach Login per E-Mail-Code</small></span>
@@ -96,7 +108,12 @@ export function Reachability({ p }: { p: ProjectDto }) {
           <button
             className="button-primary"
             disabled={!changed || save.isPending}
-            onClick={() => (needsConfirm ? setConfirming(true) : save.mutate())}
+            onClick={() => {
+              // Erst prüfen, dann fragen – bestätigt wird nur, was auch gehen kann.
+              if (want.has('public') && !v.validateAll()) return
+              if (needsConfirm) setConfirming(true)
+              else save.mutate()
+            }}
           >
             Erreichbarkeit speichern
           </button>
@@ -109,7 +126,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
           </>
         )}
       </div>
-      {save.isError && <p role="alert" className="error">{save.error instanceof ApiError ? save.error.message : 'Nicht gespeichert'}</p>}
+      {save.isError && !v.errors.name && <p role="alert" className="error">{save.error instanceof ApiError ? save.error.message : 'Nicht gespeichert'}</p>}
     </fieldset>
   )
 }

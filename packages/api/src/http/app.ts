@@ -32,7 +32,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       reply.code(400).send({
         error: {
           code: 'bad_request',
-          message: 'Eingabe nicht gültig',
+          // Die erste Meldung als Text; alle mit Pfad in details – das Formular
+          // zeigt sie unter dem jeweiligen Feld (gleiche Regeln wie im Browser).
+          message: err.issues[0]?.message ?? 'Eingabe nicht gültig',
           details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
         },
       })

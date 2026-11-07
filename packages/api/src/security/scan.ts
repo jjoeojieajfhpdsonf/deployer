@@ -33,6 +33,11 @@ export const scanSourceDir = (deploymentId: string) => join(config.DATA_DIR, 'sc
 const queue: string[] = []
 let busy = false
 
+/** Scans in der Warteschlange inklusive des laufenden (für die Übersicht). */
+export function scanQueueLength(): number {
+  return queue.length + (busy ? 1 : 0)
+}
+
 function pump(): void {
   if (busy) return
   const id = queue.shift()

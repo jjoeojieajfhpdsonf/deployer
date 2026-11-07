@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
+import { acceptFindingSchema } from '@deployer/shared'
+import { useFormErrors } from '../lib/form.js'
+import { FieldError } from './Field.js'
 
 /**
  * Ergebnis eines Scans: Score, Note, Stufen, Befunde. Wird am Projekt und
@@ -86,12 +89,18 @@ export function ScanReport({ report, onAccepted }: { report: ScanReportDto; onAc
 function Finding({ f, onAccepted }: { f: FindingDto; onAccepted?: () => void }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const v = useFormErrors({
+    schema: acceptFindingSchema,
+    values: () => ({ status: 'accepted', reason }),
+    idFor: (n) => `f-${f.id}-${n}`,
+  })
   const accept = useMutation({
     mutationFn: () => api.acceptFinding(f.id, reason),
     onSuccess: () => {
       setOpen(false)
       onAccepted?.()
     },
+    onError: (err) => void v.setServerErrors(err),
   })
   return (
     <li className={`finding finding-${f.severity} finding-${f.status}`}>
@@ -105,17 +114,27 @@ function Finding({ f, onAccepted }: { f: FindingDto; onAccepted?: () => void }) 
       {f.fix && <p><span className="muted">Behebung:</span> {f.fix}</p>}
       {f.status === 'accepted' && <p className="muted">✓ akzeptiert: {f.acceptReason}</p>}
       {f.status === 'fixed' && <p className="muted">✓ behoben</p>}
-      {f.status === 'open' && onAccepted && !open && <button onClick={() => setOpen(true)}>Akzeptieren …</button>}
+      {f.status === 'open' && onAccepted && !open && <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button>}
       {open && (
-        <div className="form-actions">
-          <input aria-label="Begründung" placeholder="Begründung (steht im Audit-Log)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="button-primary" disabled={reason.trim().length < 3 || accept.isPending} onClick={() => accept.mutate()}>
-            Akzeptieren
-          </button>
-          <button onClick={() => setOpen(false)}>Abbrechen</button>
-        </div>
+        <form
+          className="inline-form"
+          noValidate
+          ref={v.formRef}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (v.validateAll()) accept.mutate()
+          }}
+        >
+          <div className="inline-form-field">
+            <label htmlFor={v.idFor('reason')} className="visually-hidden">Begründung</label>
+            <input {...v.field('reason')} placeholder="Begründung (steht im Audit-Log)" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
+            {v.errors.reason && <FieldError id={v.idFor('reason')} message={v.errors.reason} />}
+          </div>
+          <button type="submit" className="button-primary" disabled={accept.isPending}>Akzeptieren</button>
+          <button type="button" onClick={() => { setOpen(false); v.reset() }}>Abbrechen</button>
+        </form>
       )}
-      {accept.isError && <p role="alert" className="error">{(accept.error as Error).message}</p>}
+      {accept.isError && !v.errors.reason && <p role="alert" className="error">{(accept.error as Error).message}</p>}
     </li>
   )
 }
