@@ -817,10 +817,6 @@ details > summary:hover { color: var(--ink); }
   .rail-foot { display: none; }
   .main { padding-top: 20px; }
   h1 { font-size: 24px; }
-
-
-}
-
 }
 
 @media (max-width: 640px) {
@@ -940,3 +936,80 @@ details > summary:hover { color: var(--ink); }
   .projects-table td { padding: 4px 0; border: none; max-width: none; }
   .projects-table td:first-child { padding-right: 48px; min-width: 0; max-width: none; }
   .projects-table td:last-child { position: absolute; top: 12px; right: 12px; width: auto; }
+}
+
+/* --- Security-Reiter --------------------------------------------------------- */
+
+/* Beschriftungen in normaler Schrift, gut lesbar (statt Mono-Versalien) */
+.facts-plain dt { font-family: var(--font); font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--ink-dim); padding-top: 13px; }
+.facts-plain dd { padding-top: 12px; padding-bottom: 12px; }
+
+/* Note und Score auf einer Linie */
+.grade-line { display: inline-flex; align-items: center; gap: 12px; }
+.grade-line .grade { min-width: 32px; height: 32px; font-size: 16px; }
+.grade-score { font-family: var(--mono); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.grade-score strong { color: var(--ink); font-weight: 500; font-size: 16px; }
+
+.scan-running { display: inline-flex; align-items: center; gap: 8px; color: var(--info); font-weight: 500; }
+.scan-running-inline { margin-left: 16px; font-size: 13px; font-weight: 400; }
+
+/* Zähler nach Schwere: gleiche Chips, Farbe nur über 0 */
+.sev-chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.sev-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-size: 13px;
+  line-height: 26px;
+  color: var(--muted);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.sev-chip-n { font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.sev-chip-zero { color: var(--muted); }
+.sev-chip-critical, .sev-chip-high { color: var(--bad); border-color: rgba(244, 116, 116, 0.35); background: var(--bad-bg); }
+.sev-chip-medium { color: var(--warn); border-color: rgba(242, 184, 75, 0.35); background: var(--warn-bg); }
+.sev-chip-low { color: var(--ink-dim); border-color: var(--line-strong); }
+
+/* Stufen: Icon, Name, Zustand */
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.stage { display: grid; grid-template-columns: 16px minmax(160px, 220px) minmax(0, 1fr); gap: 12px; align-items: center; min-height: 30px; }
+.stage-icon { display: grid; color: var(--faint); }
+.stage-clean .stage-icon, .stage-accepted .stage-icon { color: var(--ok); }
+.stage-found .stage-icon { color: var(--ink-dim); }
+.stage-critical .stage-icon, .stage-high .stage-icon { color: var(--bad); }
+.stage-medium .stage-icon { color: var(--warn); }
+.stage-low .stage-icon { color: var(--ink-dim); }
+.stage-failed .stage-icon, .stage-failed-note { color: var(--bad); }
+.stage-name { color: var(--ink); }
+.stage-skipped .stage-name { color: var(--muted); }
+.stage-state { font-size: 13px; color: var(--ink-dim); min-width: 0; overflow-wrap: anywhere; }
+.stage-clean .stage-state { color: var(--ok); }
+.stage-link { color: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: currentColor; }
+.stage-critical .stage-link, .stage-high .stage-link { color: var(--bad); }
+.stage-medium .stage-link { color: var(--warn); }
+.stage-link:hover:not(:disabled) { color: var(--ink); }
+.stage-link { padding-block: 6px; margin-block: -6px; }
+.stage-link[aria-pressed='true'] { font-weight: 500; text-decoration-thickness: 2px; }
+
+/* Knöpfe: Hauptaktion und zweitrangige Warnaktion */
+.scan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 20px; }
+.button-warn { color: var(--warn); border-color: rgba(242, 184, 75, 0.35); background: transparent; }
+.button-warn:hover:not(:disabled) { background: var(--warn-bg); border-color: var(--warn); }
+.scan-actions-hint { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); max-width: var(--measure); }
+.scan-actions-hint strong { color: var(--ink-dim); font-weight: 500; }
+
+.findings-head { margin-top: 32px; }
+.findings-head h2 { display: flex; align-items: baseline; gap: 8px; }
+.findings-count { font-family: var(--mono); font-size: 13px; font-weight: 400; }
+
+@media (max-width: 640px) {
+  .stages { gap: 10px; }
+  .stage { grid-template-columns: 16px minmax(0, 1fr); row-gap: 2px; }
+  .stage-state { grid-column: 2; }
+  .scan-running-inline { margin-left: 0; display: flex; margin-top: 6px; }
+}

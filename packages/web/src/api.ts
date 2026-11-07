@@ -125,7 +125,7 @@ export const api = {
   /* Security (M6) */
   startScan: (id: string, level: 'standard' | 'active' = 'standard') =>
     call<{ scan: { id: string; status: string } }>(`/projects/${id}/scans`, { method: 'POST', body: body({ level, confirm: level === 'active' }) }),
-  latestScan: (id: string) => call<{ report: ScanReportDto | null }>(`/projects/${id}/scans/latest`),
+  latestScan: (id: string, done = false) => call<{ report: ScanReportDto | null }>(`/projects/${id}/scans/latest${done ? '?done=1' : ''}`),
   acceptFinding: (findingId: string, reason: string) =>
     call<{ ok: true }>(`/findings/${findingId}`, { method: 'PATCH', body: body({ status: 'accepted', reason }) }),
   externalTargets: () => call<{ targets: ExternalTargetDto[] }>('/external-targets'),

@@ -37,9 +37,10 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     return { scans: (await listScans(p.id)).map((r) => ({ id: r.id, status: r.status, level: r.level, startedAt: r.startedAt, finishedAt: r.finishedAt, score: r.score, grade: r.grade })) }
   })
 
-  app.get<{ Params: { id: string } }>('/projects/:id/scans/latest', async (request) => {
+  // ?done=1: der letzte abgeschlossene Scan (die Oberfläche zeigt ihn, solange ein neuer läuft)
+  app.get<{ Params: { id: string }; Querystring: { done?: string } }>('/projects/:id/scans/latest', async (request) => {
     const p = await findProject(request.params.id)
-    const last = await latestScan(p.id)
+    const last = await latestScan(p.id, request.query.done === '1')
     return { report: last ? await scanReport(last.id) : null }
   })
 
