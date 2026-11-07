@@ -5,6 +5,7 @@ import { stopProject } from '../domain/lifecycle.js'
 import { audit } from '../domain/audit.js'
 import { log } from '../lib/log.js'
 import { expiryDecision, expiresAt } from './expiry-rule.js'
+import { notify } from '../notify/send.js'
 
 /**
  * Stündlicher Ablauf-Job für Chat-Deploys (Quelle files). Stoppt über
@@ -30,6 +31,7 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
         actor: 'system', action: 'project.expiry_warning', targetType: 'project', targetId: p.id,
         params: { slug: p.slug, expiresAt: expiresAt(p, config.CHAT_EXPIRY_DAYS)?.toISOString() }, result: 'ok',
       })
+      await notify('expiry', { project: p.name, date: expiresAt(p, config.CHAT_EXPIRY_DAYS)?.toLocaleDateString('de-CH') ?? '' })
       warned.push(p.slug)
     } else if (decision === 'stop') {
       await stopProject(p.id, 'system')
@@ -37,6 +39,7 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
         actor: 'system', action: 'project.expired', targetType: 'project', targetId: p.id,
         params: { slug: p.slug, days: config.CHAT_EXPIRY_DAYS }, result: 'ok',
       })
+      await notify('expiry', { project: p.name, stopped: true, days: config.CHAT_EXPIRY_DAYS })
       stopped.push(p.slug)
     }
   }

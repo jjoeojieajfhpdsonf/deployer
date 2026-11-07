@@ -56,3 +56,31 @@ Neu: API-Tokens (Anlegen, Widerrufen, nur der Hash gespeichert), MCP-Server unte
 **Bekannte Probleme / Hinweise:**
 - Ein Image-Redeploy lädt Caddy weiterhin neu (neuer Upstream). Auf Projekt-Routen mit Keep-Alive kann ein Client dabei eine Anfrage verlieren; Browser wiederholen GET-Anfragen von selbst. Verbesserung wäre ein stabiler Netz-Alias pro Projekt (siehe OFFENE-FRAGEN).
 - MCP-Sitzungen liegen im Speicher und enden mit einem Neustart des deployers.
+
+## Meilenstein 6 – Security
+
+**Stand:** fertig und committet. Plan, Abnahme, Review in [MILESTONE-6.md](MILESTONE-6.md).
+
+Neu: Scans nach jedem Deploy im Hintergrund (Trivy für Image und Quellen, eigener Header-Check, ZAP Baseline, Nuclei; testssl.sh bei externen Zielen), Score und Note, Akzeptieren mit Begründung über Scans hinweg, Schwelle für «öffentlich» (`assertPublishable`, an M5 anzuschliessen), externe Ziele mit TXT-Nachweis (2 von 3 öffentlichen Resolvern), wöchentlicher Rescan und Wochenübersicht, Benachrichtigungen über ntfy und SMTP pro Ereignis und Kanal schaltbar. MCP: `run_scan`, `get_scan_report`, `accept_finding`, `add_external_target`, `verify_external_target`. UI: Reiter Security, Seite Externe Ziele, Benachrichtigungen unter System, Note in der Projektliste.
+
+**Getestet:**
+- 312 Unit-Tests (Score, Fingerabdruck, Parser gegen echte Berichte, Header-Regeln, TXT-Quorum, öffentliche Adressen, Netz-Zähler, Benachrichtigungs-Matrix und Schwärzung).
+- 15 neue Ende-zu-Ende-Tests mit echten Scannern (`e2e/m6.e2e.ts`), alle grün.
+- Gesamtsuite M1–M6 (73 Tests) dreimal gelaufen: 72 von 73 grün im letzten Lauf. Die Fehlschläge davor waren Testfilter, die Scanner-Container (tragen jetzt das Projekt-Label) als Projekt-Container zählten – behoben – und ein liegengebliebener Scan-Server (behoben, siehe unten). Der verbleibende Fehlschlag ist **sporadisch**, siehe «Bekannte Probleme».
+- `/code-review high`: zehn Befunde, alle behoben.
+
+**Die Abnahme hat drei echte Fehler gefunden** (Details in MILESTONE-6.md): Nuclei hatte nie Vorlagen und prüfte darum nichts (auch der frühere Probelauf gegen whoami war wertlos); der Scan statischer Seiten lief über einen Server, der `.env` verweigert, während Caddy sie ausliefert; der Header-Check lief in eine tote Keep-Alive-Verbindung. Dazu in der Gesamtsuite: ein Scan-Server blieb liegen, wenn das Projekt während des Scans gelöscht wurde; und zwei Caddy-Abgleiche konnten gleichzeitig laufen (jetzt nacheinander). Alles behoben.
+
+**Nicht getestet:**
+- Echte externe Domain (keine vorhanden): Nachweis nur mit Attrappen-Resolver, Scan eines externen Ziels nur bis zur Ablehnung ohne Nachweis.
+- testssl.sh nie gelaufen (intern kein TLS, extern kein Ziel).
+- Aktiver Scan (ZAP Full) nur bis zur Bestätigungsfrage, nicht durchgelaufen.
+- Echter ntfy-Dienst und echter Mailserver (bewusst nicht – Attrappen auf dem Host).
+- Wochenübersicht und wöchentlicher Rescan nur per Code; die Zeitpunkte nicht abgewartet.
+- Die neuen Ansichten sind typgeprüft und gebaut, aber nicht im Browser angesehen.
+
+**Bekannte Probleme / Hinweise:**
+- **Sporadische Fehlschläge in der M3-Suite** (MCP), etwa einer von vier Läufen, nie derselbe Test: einmal eine Zeitüberschreitung bei `delete_project` mit Elicitation, einmal 404 direkt nach dem Deploy einer Chat-Seite, einmal ein Fehler direkt nach einem Compose-Deploy. Einzeln wiederholt laufen die Tests grün. Gemeinsam ist der Zeitpunkt: direkt nach einem Deploy bzw. Neuladen von Caddy, mit Scans im Hintergrund. Gefunden und behoben wurde dabei, dass zwei Caddy-Abgleiche gleichzeitig laufen konnten (ein älterer Stand konnte zuletzt geladen werden) – das erklärt aber nicht alle Fälle. Verdacht für den Rest: Caddy wird ins Projekt-Netz gehängt und lädt sofort; die Namensauflösung im neuen Netz ist einen Moment später bereit. Nicht weiter verfolgt, um M4/M5 nicht zu gefährden.
+- Rest-Risiko DNS-Rebinding bei externen Zielen (siehe OFFENE-FRAGEN); Voraussetzung ist ein gültiges API-Token.
+- Scans laufen nacheinander. Nach vielen Deploys in kurzer Zeit (etwa der ganzen Testsuite) staut sich die Warteschlange; die M6-Suite dauerte in der Gesamtsuite deshalb rund 15 Minuten.
+- ZAP filtert Regeln, die der Header-Check schon abdeckt; bei kleinen Seiten bleiben dann oft keine ZAP-Befunde übrig.

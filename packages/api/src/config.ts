@@ -47,6 +47,11 @@ const envSchema = z.object({
 
   // M3: Chat-Deploys (Quelle files) nach so vielen Tagen ohne Änderung stoppen.
   CHAT_EXPIRY_DAYS: z.coerce.number().int().min(4).max(3650).default(30),
+
+  // M6: Name des Docker-Volumes mit den statischen Seiten (Compose-Projekt "deployer").
+  SITES_VOLUME: z.string().default('deployer_sites'),
+  // M6: nach einem erfolgreichen Deploy automatisch scannen.
+  SCAN_AFTER_DEPLOY: onOff.default('on'),
 })
 
 export type Config = z.infer<typeof envSchema> & {

@@ -3,6 +3,7 @@ import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { pruneOldDeployments } from '../deploy/pipeline.js'
 import { log } from '../lib/log.js'
+import { RESERVED_SLUGS } from '@deployer/shared'
 
 const EVERY_MS = 6 * 60 * 60 * 1000
 
@@ -34,11 +35,20 @@ export async function runCleanup(): Promise<void> {
   for (const n of nets) {
     const name = n.Name
     if (!name?.startsWith('dep_')) continue
-    if (knownSlugs.has(name.slice('dep_'.length))) continue
-    await docker.disconnectFromNetwork(name, config.CADDY_CONTAINER)
-    await docker.disconnectFromNetwork(name, config.DEPLOYER_CONTAINER)
-    await docker.removeNetwork(name)
-    log.info('Verwaistes Netz entfernt', { name })
+    const slug = name.slice('dep_'.length)
+    if (knownSlugs.has(slug)) continue
+    // Reservierte Namen sind keine Projekte, etwa dep_ext-scan für externe
+    // Scans (Review M6).
+    if ((RESERVED_SLUGS as readonly string[]).includes(slug)) continue
+    try {
+      await docker.disconnectFromNetwork(name, config.CADDY_CONTAINER)
+      await docker.disconnectFromNetwork(name, config.DEPLOYER_CONTAINER)
+      await docker.removeNetwork(name)
+      log.info('Verwaistes Netz entfernt', { name })
+    } catch (err) {
+      // Ein Netz mit aktiven Teilnehmern bleibt; die übrigen trotzdem aufräumen.
+      log.warn('Verwaistes Netz nicht entfernt', { name, err: String(err) })
+    }
   }
 }
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { StatusBadge, relativeTime } from '../components/Status.js'
+import { GradeBadge } from '../components/Security.js'
 
 export function Projects() {
   const qc = useQueryClient()
@@ -46,6 +47,7 @@ export function Projects() {
                 <div className="project-main">
                   <Link to={`/projekte/${p.id}`} className="project-name">{p.name}</Link>
                   <StatusBadge status={p.status} />
+                  {p.security && p.security.status === 'done' && <GradeBadge grade={p.security.grade} score={p.security.score} />}
                 </div>
 
                 <div className="project-meta">

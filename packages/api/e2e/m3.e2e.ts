@@ -266,7 +266,9 @@ describe('M3: Review-Fälle', () => {
     })
     assert.equal(u.data.deploy.status, 'active', JSON.stringify(u.data))
     assert.match((await get(host(p.data.project))).body, /statisch jetzt/)
-    assert.equal(docker('ps', '-a', '--filter', `label=deployer.project=${p.data.project}`, '-q'), '', 'Compose-Dienste laufen noch')
+    const svc = docker('ps', '-a', '--filter', `label=deployer.project=${p.data.project}`, '--format', '{{.Names}} {{.Label "deployer.role"}}')
+      .split('\n').filter((l) => l && !l.endsWith(' scanner'))
+    assert.deepEqual(svc, [], 'Compose-Dienste laufen noch')
     await c.close()
   })
 

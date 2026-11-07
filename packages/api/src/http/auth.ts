@@ -136,6 +136,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/tokens')) {
         throw new AppError('forbidden', 'Tokens lassen sich nur mit einer Anmeldung verwalten, nicht mit einem Token', 403)
       }
+      // M6: ebenso die Benachrichtigungen – ein gestohlenes Token könnte sie
+      // sonst auf ein fremdes ntfy oder Postfach umleiten.
+      if (route.startsWith('/api/v1/notifications')) {
+        throw new AppError('forbidden', 'Benachrichtigungen lassen sich nur mit einer Anmeldung einstellen', 403)
+      }
       request.actor = `token:${identity.name}`
       request.tokenId = identity.id
       return

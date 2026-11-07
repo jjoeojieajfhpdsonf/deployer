@@ -145,3 +145,61 @@ export const appSettings = pgTable('app_settings', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- M6: Security ------------------------------------------------------------ */
+
+export const scanIntervalEnum = pgEnum('scan_interval', ['off', 'daily', 'weekly', 'monthly'])
+
+export const externalTargets = pgTable('external_targets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  hostname: text('hostname').notNull().unique(),
+  txtToken: text('txt_token').notNull(),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  lastCheckAt: timestamp('last_check_at', { withTimezone: true }),
+  scanInterval: scanIntervalEnum('scan_interval').notNull().default('weekly'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export interface ScanStages {
+  /** failed: lief an und scheiterte (anders als «nicht anwendbar»). */
+  [stage: string]: { ran: boolean; note?: string; findings?: number; failed?: boolean }
+}
+
+export const scanRuns = pgTable('scan_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  externalTargetId: uuid('external_target_id').references(() => externalTargets.id, { onDelete: 'cascade' }),
+  deploymentId: uuid('deployment_id'),
+  level: text('level').$type<'standard' | 'active'>().notNull().default('standard'),
+  status: text('status').$type<'queued' | 'running' | 'done' | 'failed'>().notNull().default('queued'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  score: integer('score'),
+  grade: text('grade').$type<'A' | 'B' | 'C' | 'D'>(),
+  error: text('error'),
+  stages: jsonb('stages').$type<ScanStages>().notNull().default({}),
+})
+
+export const findings = pgTable('findings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  scanRunId: uuid('scan_run_id').notNull().references(() => scanRuns.id, { onDelete: 'cascade' }),
+  tool: text('tool').notNull(),
+  severity: text('severity').$type<'critical' | 'high' | 'medium' | 'low'>().notNull(),
+  title: text('title').notNull(),
+  location: text('location').notNull(),
+  description: text('description').notNull().default(''),
+  fix: text('fix').notNull().default(''),
+  fingerprint: text('fingerprint').notNull(),
+  status: text('status').$type<'open' | 'accepted' | 'fixed'>().notNull().default('open'),
+  acceptReason: text('accept_reason'),
+})
+
+export const findingAcceptances = pgTable('finding_acceptances', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id'),
+  externalTargetId: uuid('external_target_id'),
+  fingerprint: text('fingerprint').notNull(),
+  reason: text('reason').notNull(),
+  actor: text('actor').notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+})

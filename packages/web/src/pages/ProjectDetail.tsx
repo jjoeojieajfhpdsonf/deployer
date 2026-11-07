@@ -5,8 +5,9 @@ import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
 import { StatusBadge, relativeTime, duration } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
+import { ProjectSecurity } from '../components/Security.js'
 
-type Tab = 'uebersicht' | 'deployments' | 'logs' | 'einstellungen'
+type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
 export function ProjectDetail() {
   const { id = '' } = useParams()
@@ -80,6 +81,7 @@ export function ProjectDetail() {
           ['uebersicht', 'Übersicht'],
           ['deployments', 'Deployments'],
           ['logs', 'Logs'],
+          ['security', 'Security'],
           ['einstellungen', 'Einstellungen'],
         ] as const).map(([key, label]) => (
           <button
@@ -168,6 +170,7 @@ export function ProjectDetail() {
         />
       )}
       {tab === 'logs' && <LiveLogs projectId={id} />}
+      {tab === 'security' && <ProjectSecurity projectId={p.id} />}
       {tab === 'einstellungen' && (
         <Settings
           projectId={id}

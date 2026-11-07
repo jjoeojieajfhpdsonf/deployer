@@ -1,7 +1,27 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget,
+  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto,
 } from '@deployer/shared'
+
+export type { ScanReportDto, FindingDto }
+
+export interface ExternalTargetDto {
+  id: string
+  hostname: string
+  verified: boolean
+  verifiedAt: string | null
+  lastCheckAt: string | null
+  scanInterval: 'off' | 'daily' | 'weekly' | 'monthly'
+  txt: { name: string; value: string }
+}
+
+export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary'
+
+export interface NotifySettingsDto {
+  ntfy: { url: string; topic: string; hasToken: boolean } | null
+  email: { host: string; port: number; secure: boolean; user: string | null; hasPassword: boolean; from: string; to: string } | null
+  matrix: Record<NotifyEvent, { push: boolean; email: boolean }>
+}
 
 export interface ApiTokenDto {
   id: string
@@ -84,6 +104,23 @@ export const api = {
 
   /* Dateien eines Chat-Projekts (M3) */
   listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
+
+  /* Security (M6) */
+  startScan: (id: string, level: 'standard' | 'active' = 'standard') =>
+    call<{ scan: { id: string; status: string } }>(`/projects/${id}/scans`, { method: 'POST', body: body({ level, confirm: level === 'active' }) }),
+  latestScan: (id: string) => call<{ report: ScanReportDto | null }>(`/projects/${id}/scans/latest`),
+  acceptFinding: (findingId: string, reason: string) =>
+    call<{ ok: true }>(`/findings/${findingId}`, { method: 'PATCH', body: body({ status: 'accepted', reason }) }),
+  externalTargets: () => call<{ targets: ExternalTargetDto[] }>('/external-targets'),
+  addExternalTarget: (hostname: string) => call<{ target: ExternalTargetDto }>('/external-targets', { method: 'POST', body: body({ hostname }) }),
+  verifyExternalTarget: (id: string) => call<{ target: ExternalTargetDto & { confirmedBy: string[]; errors: string[] } }>(`/external-targets/${id}/verify`, { method: 'POST' }),
+  setExternalInterval: (id: string, scanInterval: string) => call<{ target: ExternalTargetDto }>(`/external-targets/${id}`, { method: 'PATCH', body: body({ scanInterval }) }),
+  deleteExternalTarget: (id: string) => call<void>(`/external-targets/${id}`, { method: 'DELETE' }),
+  scanExternal: (id: string) => call<{ scan: { id: string } }>(`/external-targets/${id}/scans`, { method: 'POST', body: body({}) }),
+  latestExternalScan: (id: string) => call<{ report: ScanReportDto | null }>(`/external-targets/${id}/scans/latest`),
+  notifications: () => call<NotifySettingsDto>('/notifications'),
+  putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
+  testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
 
   /* System */
   system: () => call<SystemStatusDto>('/system/status'),

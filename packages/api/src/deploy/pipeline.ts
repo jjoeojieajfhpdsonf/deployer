@@ -13,13 +13,17 @@ import { audit } from '../domain/audit.js'
 import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
 import { waitForHealthy } from './healthcheck.js'
+import { withProjectNetwork } from './attach.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
 import { prepareStatic, prepareStaticFromDir, activateStatic, siteDir } from './sources/static.js'
 import { buildFromRepo, buildFromDir } from './sources/dockerfile.js'
 import { checkoutFiles, KIND_LABEL, type FilesConfig } from './sources/files.js'
 import { prepareCompose, materialize } from './sources/compose.js'
 import { dropWorkDir, dropArtifactDir, workDir, ensureArtifactDir } from './workdir.js'
-import { copyFile, rm } from 'node:fs/promises'
+import { copyFile, rm, rename, mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { enqueueProjectScan, scanSourceDir } from '../security/scan.js'
+import { notify } from '../notify/send.js'
 import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import type { DeploymentDto } from '@deployer/shared'
@@ -194,12 +198,27 @@ async function run(
     await removeSupersededContainers(project.slug, deploymentId, { includeCompose: newKind !== 'compose' })
     await pruneOldDeployments(projectId)
 
+    // M6: Quellordner für den Scan aufheben (der Scan räumt ihn danach weg).
+    const repoDir = join(workDir(deploymentId), 'repo')
+    if (config.SCAN_AFTER_DEPLOY && existsSync(repoDir)) {
+      await mkdir(dirname(scanSourceDir(deploymentId)), { recursive: true })
+      await rename(repoDir, scanSourceDir(deploymentId)).catch(() => {})
+    }
+
     appendLine(deploymentId, `Fertig in ${Math.round((Date.now() - started) / 1000)} s`)
     await setStatus(projectId, 'running')
     await setDeployment(deploymentId, { status: 'active', isActive: true, finishedAt: new Date() })
     await lock.release()
     emitDone(deploymentId, true)
     await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'ok' })
+
+    // M6: automatischer Scan nach jedem erfolgreichen Deploy, im Hintergrund.
+    if (config.SCAN_AFTER_DEPLOY) {
+      await enqueueProjectScan(projectId, { deploymentId, actor: 'system' }).catch(async (e) => {
+        log.warn('Scan nach Deploy nicht gestartet', { projectId, err: String(e) })
+        await rm(scanSourceDir(deploymentId), { recursive: true, force: true }).catch(() => {})
+      })
+    }
   } catch (err) {
     const message = (err as Error).message
     appendLine(deploymentId, `FEHLGESCHLAGEN: ${message}`)
@@ -219,6 +238,9 @@ async function run(
     emitDone(deploymentId, false)
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
     await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: message })
+    // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
+    const p = await findProject(projectId).catch(() => null)
+    await notify('deploy_failed', { project: p?.name ?? projectId, error: message.slice(0, 300) })
   } finally {
     await dropWorkDir(deploymentId)
   }
@@ -351,8 +373,9 @@ async function healthcheck(deploymentId: string, network: string, host: string, 
   emitStatus(deploymentId, 'healthchecking')
   const url = `http://${host}:${project.port}${project.healthcheckPath}`
   appendLine(deploymentId, `Healthcheck gegen ${url}`)
-  try {
-    await docker.connectToNetwork(network, config.DEPLOYER_CONTAINER)
+  // withProjectNetwork zählt mit: ein gleichzeitiger Scan (M6) behält seine
+  // Verbindung, wenn dieser Healthcheck endet.
+  const ok = await withProjectNetwork(network, async () => {
     const result = await waitForHealthy({
       url,
       timeoutMs: 60_000,
@@ -364,10 +387,9 @@ async function healthcheck(deploymentId: string, network: string, host: string, 
       appendLine(deploymentId, `Healthcheck nach ${result.attempts} Versuchen nicht bestanden (${result.lastError ?? 'keine Antwort'})`)
     }
     return result.ok
-  } finally {
-    await docker.disconnectFromNetwork(network, config.DEPLOYER_CONTAINER)
-    appendLine(deploymentId, 'deployer aus dem Projekt-Netz getrennt')
-  }
+  })
+  appendLine(deploymentId, 'Healthcheck beendet, Netzverbindung des deployers freigegeben')
+  return ok
 }
 
 /* --- Statisch ------------------------------------------------------------------- */
@@ -529,6 +551,8 @@ async function removeSupersededContainers(
   for (const c of managed) {
     if (c.labels[docker.LABEL_PROJECT] !== slug) continue
     if (c.labels['deployer.compose-service'] && !o.includeCompose) continue
+    // Laufende Scanner (M6) gehören keiner Fassung; sie räumen sich selbst weg.
+    if (c.labels['deployer.role'] === 'scanner') continue
     if (c.labels[docker.LABEL_DEPLOYMENT] === keepDeploymentId) continue
     await docker.stopContainer(c.id)
     await docker.removeContainer(c.id)
@@ -597,6 +621,7 @@ export async function pruneOldDeployments(projectId: string): Promise<void> {
       if (!imagesInUse.has(img)) await docker.removeImageIfUnused(img).catch(() => {})
     }
     await dropArtifactDir(r.id)
+    await rm(scanSourceDir(r.id), { recursive: true, force: true }).catch(() => {})
     await db.delete(schema.deployments).where(eq(schema.deployments.id, r.id))
   }
 }

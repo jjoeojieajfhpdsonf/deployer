@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
+import { NotificationSettings } from '../components/Notifications.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -116,6 +117,9 @@ export function System() {
           </button>
         </>
       )}
+
+      <h2>Benachrichtigungen</h2>
+      <NotificationSettings />
     </section>
   )
 }

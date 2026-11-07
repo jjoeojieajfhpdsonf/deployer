@@ -1,10 +1,10 @@
-import { eq, or, asc, and } from 'drizzle-orm'
+import { eq, or, asc, and, desc } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, sourceTypesSupported, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
+import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
 import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
@@ -43,7 +43,21 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     filesKind: active?.artifact?.filesKind ?? null,
     lastChangeAt: r.lastChangeAt.toISOString(),
     expiresAt: expiresAt(r, config.CHAT_EXPIRY_DAYS)?.toISOString() ?? null,
+    security: await securitySummary(r.id),
   }
+}
+
+/** Letzter Scan in Kurzform (M6). Direkt abgefragt, ohne security/scan.ts zu laden. */
+async function securitySummary(projectId: string): Promise<ProjectDto['security']> {
+  const rows = await db
+    .select()
+    .from(schema.scanRuns)
+    .where(eq(schema.scanRuns.projectId, projectId))
+    .orderBy(desc(schema.scanRuns.startedAt))
+    .limit(1)
+  const s = rows[0]
+  if (!s) return null
+  return { scanId: s.id, status: s.status, score: s.score, grade: s.grade, finishedAt: s.finishedAt?.toISOString() ?? null }
 }
 
 /**
@@ -80,7 +94,10 @@ export async function findProject(idOrSlug: string): Promise<Row> {
 /* --- Schreiben ------------------------------------------------------------ */
 
 async function freeSlug(wanted: string): Promise<string> {
-  const taken = new Set((await db.select({ slug: schema.projects.slug }).from(schema.projects)).map((r) => r.slug))
+  const taken = new Set([
+    ...RESERVED_SLUGS,
+    ...(await db.select({ slug: schema.projects.slug }).from(schema.projects)).map((r) => r.slug),
+  ])
   if (!taken.has(wanted)) return wanted
   for (let i = 2; i < 100; i++) {
     const candidate = `${wanted.slice(0, 37)}-${i}`

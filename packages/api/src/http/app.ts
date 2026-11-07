@@ -13,6 +13,7 @@ import { deploymentRoutes } from './routes/deployments.js'
 import { systemRoutes } from './routes/system.js'
 import { uploadRoutes } from './routes/uploads.js'
 import { tokenRoutes } from './routes/tokens.js'
+import { securityRoutes } from './routes/security.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 
@@ -75,6 +76,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (api) => {
       await api.register(authRoutes)
       await api.register(tokenRoutes)
+      await api.register(securityRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
       await api.register(systemRoutes)

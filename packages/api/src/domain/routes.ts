@@ -206,7 +206,23 @@ export async function syncCaddyNetworks(): Promise<void> {
  * Aenderung und beim Start aufgerufen. Caddys Zustand ist abgeleitet, die
  * Datenbank ist die Wahrheit.
  */
-export async function reconcileCaddy(): Promise<void> {
+let reconcileChain: Promise<unknown> = Promise.resolve()
+
+/**
+ * Nacheinander, nie gleichzeitig: Zwei überlappende Abgleiche lesen die
+ * Datenbank zu verschiedenen Zeiten; lädt der ältere Stand zuletzt, fehlt
+ * eine eben angelegte Route bis zum nächsten Abgleich (sporadische 404 in
+ * der Gesamtsuite, sichtbar geworden mit den Hintergrund-Scans aus M6).
+ * Jeder Lauf liest die Datenbank erst, wenn er dran ist – der letzte Stand
+ * gewinnt.
+ */
+export function reconcileCaddy(): Promise<void> {
+  const next = reconcileChain.then(reconcileCaddyNow, reconcileCaddyNow)
+  reconcileChain = next.catch(() => {})
+  return next
+}
+
+async function reconcileCaddyNow(): Promise<void> {
   await syncCaddyNetworks()
   const specs = await buildRouteSpecs()
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende

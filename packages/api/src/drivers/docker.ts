@@ -56,6 +56,10 @@ export interface ContainerSpec {
   cmd?: string[]
   workingDir?: string
   user?: string
+  /** M6, Scanner */
+  entrypoint?: string[]
+  /** M6: ausdrücklich erlaubte Volumes ausserhalb des Projekts (Scanner-Caches). */
+  extraVolumes?: { name: string; readOnly?: boolean }[]
 }
 
 /**
@@ -70,6 +74,7 @@ export function buildCreateOptions(spec: ContainerSpec): Record<string, unknown>
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
     Labels: spec.labels,
     ...(spec.cmd ? { Cmd: spec.cmd } : {}),
+    ...(spec.entrypoint ? { Entrypoint: spec.entrypoint } : {}),
     ...(spec.workingDir ? { WorkingDir: spec.workingDir } : {}),
     ...(spec.user ? { User: spec.user } : {}),
     HostConfig: {
@@ -91,8 +96,22 @@ export function buildCreateOptions(spec: ContainerSpec): Record<string, unknown>
         : {}),
     },
   }
-  assertCreatePolicy(options, spec.network)
+  assertCreatePolicy(options, spec.network, { extraVolumes: spec.extraVolumes })
   return options
+}
+
+/** Image als Tar (GET /images/{name}/get), für Trivy ohne Docker-Socket. */
+export async function exportImage(ref: string): Promise<Readable> {
+  return (await docker.getImage(ref).get()) as unknown as Readable
+}
+
+export async function ensureVolume(name: string): Promise<void> {
+  try {
+    await docker.getVolume(name).inspect()
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode !== 404) throw err
+    await docker.createVolume({ Name: name, Labels: { [LABEL_MANAGED]: 'true', 'deployer.role': 'scanner-cache' } })
+  }
 }
 
 export async function ping(): Promise<void> {

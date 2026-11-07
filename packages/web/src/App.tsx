@@ -8,6 +8,7 @@ import { ProjectDetail } from './pages/ProjectDetail.js'
 import { Audit } from './pages/Audit.js'
 import { System } from './pages/System.js'
 import { Tokens } from './pages/Tokens.js'
+import { ExternalTargets } from './pages/ExternalTargets.js'
 
 export function App() {
   const qc = useQueryClient()
@@ -39,6 +40,7 @@ export function App() {
         <span className="brand">deployer</span>
         <nav className="app-nav">
           <NavLink to="/projekte">Projekte</NavLink>
+          <NavLink to="/extern">Externe Ziele</NavLink>
           <NavLink to="/system">System</NavLink>
           <NavLink to="/tokens">Tokens</NavLink>
           <NavLink to="/audit">Audit</NavLink>
@@ -60,6 +62,7 @@ export function App() {
           <Route path="/projekte" element={<Projects />} />
           <Route path="/projekte/neu" element={<NewProject />} />
           <Route path="/projekte/:id" element={<ProjectDetail />} />
+          <Route path="/extern" element={<ExternalTargets />} />
           <Route path="/system" element={<System />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/tokens" element={<Tokens />} />

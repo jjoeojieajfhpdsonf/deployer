@@ -61,9 +61,19 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * Prüft die vollständige Nutzlast für POST /containers/create.
  * `expectedNetwork` ist das Projekt-Netz, in dem der Container laufen MUSS.
  */
+export interface PolicyOptions {
+  /**
+   * M6: zusätzlich erlaubte benannte Volumes, mit exaktem Namen – etwa der
+   * Cache eines Scanners. `readOnly: true` erzwingt den Mount nur lesend.
+   * Leer im Normalfall; Projekt-Container bekommen hier nie etwas.
+   */
+  extraVolumes?: { name: string; readOnly?: boolean }[]
+}
+
 export function assertCreatePolicy(
   options: Record<string, unknown>,
   expectedNetwork: string,
+  opts: PolicyOptions = {},
 ): void {
   if (!PROJECT_NETWORK_RE.test(expectedNetwork)) {
     fail('network.name', `Projekt-Netz "${expectedNetwork}" entspricht nicht dem Muster dep_<slug>`)
@@ -106,7 +116,7 @@ export function assertCreatePolicy(
 
   const hostConfig = options.HostConfig
   if (!isPlainObject(hostConfig)) fail('hostconfig.missing', 'HostConfig fehlt')
-  assertHostConfigPolicy(hostConfig, expectedNetwork)
+  assertHostConfigPolicy(hostConfig, expectedNetwork, opts)
 
   if (options.NetworkingConfig !== undefined) {
     assertNetworkingConfigPolicy(options.NetworkingConfig, expectedNetwork)
@@ -116,6 +126,7 @@ export function assertCreatePolicy(
 export function assertHostConfigPolicy(
   hostConfig: Record<string, unknown>,
   expectedNetwork: string,
+  opts: PolicyOptions = {},
 ): void {
   // --- Der Kern: alles ausserhalb der Erlaubnisliste fliegt raus. ----------
   for (const key of Object.keys(hostConfig)) {
@@ -204,11 +215,15 @@ export function assertHostConfigPolicy(
             `Volumes zulässig; bind-Mounts auf Host-Pfade werden grundsätzlich abgelehnt.`,
         )
       }
-      if (typeof m.Source !== 'string' || !m.Source.startsWith(volumePrefix)) {
+      const extra = opts.extraVolumes?.find((v) => v.name === m.Source)
+      if (typeof m.Source !== 'string' || (!m.Source.startsWith(volumePrefix) && !extra)) {
         fail(
           'hostconfig.mounts.source',
           `Volume "${String(m.Source)}" gehört nicht zu diesem Projekt (erwartet: ${volumePrefix}*)`,
         )
+      }
+      if (extra?.readOnly && m.ReadOnly !== true) {
+        fail('hostconfig.mounts.readonly', `Volume "${m.Source}" darf nur lesend eingehängt werden`)
       }
       if (typeof m.Target !== 'string' || !m.Target.startsWith('/')) {
         fail('hostconfig.mounts.target', 'Mount-Target muss ein absoluter Pfad sein')

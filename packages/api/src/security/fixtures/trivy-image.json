@@ -1,0 +1,293 @@
+{
+ "SchemaVersion": 2,
+ "ArtifactName": "nginx:1.21-alpine",
+ "Results": [
+  {
+   "Target": "nginx:1.21-alpine (alpine 3.15.4)",
+   "Class": "os-pkgs",
+   "Type": "alpine",
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2022-32207",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "CRITICAL",
+     "Title": "curl: Unpreserved file permissions"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-32221",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r4",
+     "Severity": "CRITICAL",
+     "Title": "curl: POST following PUT confusion"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-23914",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r6",
+     "Severity": "CRITICAL",
+     "Title": "curl: HSTS ignored on multiple requests"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-38545",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.4.0-r0",
+     "Severity": "CRITICAL",
+     "Title": "curl: heap based buffer overflow in the SOCKS5 proxy handshake"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-27780",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "HIGH",
+     "Title": "curl: percent-encoded path separator in URL host"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-27781",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "HIGH",
+     "Title": "curl: CERTINFO never-ending busy-loop"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-27782",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "HIGH",
+     "Title": "curl: TLS and SSH connection too eager reuse"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-42915",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r4",
+     "Severity": "HIGH",
+     "Title": "curl: HTTP proxy double-free"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-42916",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r4",
+     "Severity": "HIGH",
+     "Title": "curl: HSTS bypass via IDN"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-43551",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r5",
+     "Severity": "HIGH",
+     "Title": "curl: HSTS bypass via IDN"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27533",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "HIGH",
+     "Title": "curl: TELNET option IAC injection"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27534",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "HIGH",
+     "Title": "curl: SFTP path ~ resolving discrepancy"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-28319",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.1.0-r0",
+     "Severity": "HIGH",
+     "Title": "curl: use after free in SSH sha256 fingerprint check"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-38039",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.3.0-r0",
+     "Severity": "HIGH",
+     "Title": "curl: out of heap memory issue due to missing limit on header quantity"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-32205",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "MEDIUM",
+     "Title": "curl: Set-Cookie denial of service"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-32206",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "MEDIUM",
+     "Title": "curl: HTTP compression denial of service"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-32208",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r2",
+     "Severity": "MEDIUM",
+     "Title": "curl: FTP-KRB bad message verification"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-43552",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r5",
+     "Severity": "MEDIUM",
+     "Title": "curl: Use-after-free triggered by an HTTP proxy deny response"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-23915",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r6",
+     "Severity": "MEDIUM",
+     "Title": "curl: HSTS amnesia with --parallel"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-23916",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r6",
+     "Severity": "MEDIUM",
+     "Title": "curl: HTTP multi-header compression denial of service"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27535",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: FTP too eager connection reuse"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27536",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: GSS delegation too eager connection re-use"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27537",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: HSTS double-free"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-27538",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.0.1-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: SSH connection too eager reuse still"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-28320",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.1.0-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: siglongjmp race condition may lead to crash"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-28321",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.1.0-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: IDN wildcard match may lead to Improper Cerificate Validation"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-46218",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.5.0-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: information disclosure by exploiting a mixed case flaw"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-46219",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.5.0-r0",
+     "Severity": "MEDIUM",
+     "Title": "curl: excessively long file name may lead to unknown HSTS status"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-35252",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "7.80.0-r3",
+     "Severity": "LOW",
+     "Title": "curl: Incorrect handling of control code characters in cookies"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-28322",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.1.0-r0",
+     "Severity": "LOW",
+     "Title": "curl: more POST-after-PUT confusion"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-38546",
+     "PkgName": "curl",
+     "InstalledVersion": "7.80.0-r1",
+     "FixedVersion": "8.4.0-r0",
+     "Severity": "LOW",
+     "Title": "curl: cookie injection with none file"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-2309",
+     "PkgName": "libxml2",
+     "InstalledVersion": "2.9.14-r0",
+     "FixedVersion": "2.9.14-r1",
+     "Severity": "HIGH",
+     "Title": "lxml: NULL Pointer Dereference in lxml"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-40303",
+     "PkgName": "libxml2",
+     "InstalledVersion": "2.9.14-r0",
+     "FixedVersion": "2.9.14-r2",
+     "Severity": "HIGH",
+     "Title": "libxml2: integer overflows with XML_PARSE_HUGE"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-40304",
+     "PkgName": "libxml2",
+     "InstalledVersion": "2.9.14-r0",
+     "FixedVersion": "2.9.14-r2",
+     "Severity": "HIGH",
+     "Title": "libxml2: dict corruption caused by entity reference cycles"
+    },
+    {
+     "VulnerabilityID": "CVE-2022-37434",
+     "PkgName": "zlib",
+     "InstalledVersion": "1.2.12-r0",
+     "FixedVersion": "1.2.12-r2",
+     "Severity": "CRITICAL",
+     "Title": "zlib: heap-based buffer over-read and overflow in inflate() in inflate.c via a large gzip header extra field"
+    }
+   ]
+  }
+ ]
+}

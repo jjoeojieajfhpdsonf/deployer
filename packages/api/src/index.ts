@@ -8,6 +8,8 @@ import { buildApp } from './http/app.js'
 import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
 import { startExpiryJob } from './jobs/expiry.js'
+import { startSecurityJobs } from './jobs/security.js'
+import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 
 async function main(): Promise<void> {
@@ -49,6 +51,9 @@ async function main(): Promise<void> {
 
   startCleanupJob()
   startExpiryJob()
+  // M6
+  await abandonUnfinishedScans()
+  startSecurityJobs()
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })

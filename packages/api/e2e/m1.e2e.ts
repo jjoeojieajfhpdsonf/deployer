@@ -61,7 +61,9 @@ describe('M1: Image deployen', () => {
     // Container wird unmittelbar danach entfernt. Darauf warten.
     let n: string[] = []
     for (let i = 0; i < 20; i++) {
-      n = docker('ps', '--filter', `label=deployer.project=${slug}`, '--format', '{{.Names}}').split('\n').filter(Boolean)
+      // Ohne Scanner (M6): die tragen das Projekt-Label ebenfalls.
+      n = docker('ps', '--filter', `label=deployer.project=${slug}`, '--format', '{{.Names}} {{.Label "deployer.role"}}')
+        .split('\n').filter((l) => l && !l.endsWith(' scanner')).map((l) => l.split(' ')[0]!)
       if (n.length === 1) break
       await sleep(500)
     }

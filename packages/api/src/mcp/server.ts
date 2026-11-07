@@ -18,6 +18,8 @@ import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
 import { slugify } from '@deployer/shared'
 import { issueConfirmation, consumeConfirmation } from './confirm.js'
+import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
+import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import type { TokenIdentity } from '../domain/tokens.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 
@@ -312,6 +314,108 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     await deleteProject(p.id, actor, a.purge_volumes)
     return ok({ deleted: p.slug })
   })
+
+  /* --- Security (M6) ---------------------------------------------------------- */
+
+  tool('run_scan', 'Security-Scan starten: Projekt oder nachgewiesene externe Domain. "active" (XSS, SQL-Injection) verlangt Bestätigung und geht nur gegen Projekte.', {
+    project: z.string().min(1).max(64).optional(),
+    hostname: z.string().min(1).max(253).optional().describe('Externe Domain; nur nach TXT-Nachweis'),
+    level: z.enum(['standard', 'active']).default('standard'),
+    confirmation_token: z.string().optional(),
+  }, async (a) => {
+    if (!!a.project === !!a.hostname) return fail('Entweder project oder hostname angeben')
+    if (a.hostname) {
+      const t = await findExternalTarget(a.hostname)
+      if (a.level === 'active') {
+        const c = await confirm('run_scan', { hostname: t.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (Angriffstests) gegen die externe Domain ${t.hostname} starten? Vorher die Bedingungen des Hosters prüfen.`)
+        if (!c.go) return c.result
+      }
+      const run = await enqueueExternalScan(t.id, { level: a.level, actor })
+      return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report mit dem Hostnamen zeigt das Ergebnis' })
+    }
+    const p = await findProject(a.project!)
+    if (a.level === 'active') {
+      const c = await confirm('run_scan', { project: p.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (XSS, SQL-Injection) gegen "${p.name}" starten? Er läuft nur gegen den internen Container und kann Daten verändern.`)
+      if (!c.go) return c.result
+    }
+    const run = await enqueueProjectScan(p.id, { level: a.level, actor })
+    return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report zeigt das Ergebnis' })
+  })
+
+  tool('get_scan_report', 'Ergebnis des letzten (oder eines bestimmten) Scans eines Projekts oder einer externen Domain: Adresse, Status, Score, Note und die drei wichtigsten Befunde', {
+    project: z.string().min(1).max(64).optional(),
+    hostname: z.string().min(1).max(253).optional().describe('Externe Domain statt Projekt'),
+    scan: z.string().uuid().optional(),
+    wait: z.boolean().default(true).describe('Auf einen laufenden Scan kurz warten (höchstens 50 Sekunden, dann Zwischenstand; erneut aufrufen)'),
+    all: z.boolean().default(false).describe('Alle Befunde statt nur der wichtigsten'),
+  }, async (a) => {
+    if (!!a.project === !!a.hostname) return fail('Entweder project oder hostname angeben')
+    let head: Record<string, unknown>
+    let id: string | undefined
+    let owner: { projectId?: string; externalTargetId?: string }
+    if (a.hostname) {
+      const t = await findExternalTarget(a.hostname)
+      head = { hostname: t.hostname, url: `https://${t.hostname}`, verified: t.verifiedAt !== null }
+      owner = { externalTargetId: t.id }
+      id = a.scan ?? (await latestExternalScan(t.id))?.id
+    } else {
+      const p = await findProject(a.project!)
+      const dto = await toDto(p)
+      head = { project: p.slug, url: dto.routes[0]?.urls[0] ?? null, status: dto.status }
+      owner = { projectId: p.id }
+      id = a.scan ?? (await latestScan(p.id))?.id
+    }
+    if (!id) return ok({ ...head, report: null, note: 'Noch kein Scan. run_scan startet einen.' })
+    if (!(await scanBelongsTo(id, owner))) return fail('Dieser Scan gehört zu einem anderen Ziel')
+    // Unter der üblichen Zeitgrenze von MCP-Clients (60 s) bleiben; ein
+    // abgebrochener Aufruf hinterliesse sonst eine Schleife auf dem Server.
+    const until = Date.now() + 50_000
+    let r = await scanReport(id)
+    while (a.wait && ['queued', 'running'].includes(r.scan.status) && Date.now() < until) {
+      await new Promise((res) => setTimeout(res, 3000))
+      r = await scanReport(id)
+    }
+    return ok({
+      ...head,
+      scan: { id: r.scan.id, status: r.scan.status, level: r.scan.level, finished: r.scan.finishedAt, error: r.scan.error },
+      score: r.scan.score,
+      grade: r.scan.grade,
+      open: r.counts,
+      top: r.top,
+      ...(a.all ? { findings: r.findings.map((f) => ({ id: f.id, severity: f.severity, status: f.status, title: f.title, location: f.location, fix: f.fix })) } : {}),
+      stages: r.scan.stages,
+      ...(['queued', 'running'].includes(r.scan.status) ? { note: 'Scan läuft noch; get_scan_report in einer Minute erneut aufrufen' } : {}),
+    })
+  })
+
+  tool('accept_finding', 'Befund mit Begründung akzeptieren (zählt dann nicht mehr; verlangt Bestätigung, steht im Audit-Log)', {
+    project: z.string().min(1).max(64),
+    finding: z.string().uuid(),
+    reason: z.string().min(3).max(1000),
+    confirmation_token: z.string().optional(),
+  }, async (a) => {
+    const p = await findProject(a.project)
+    // Vor der Rückfrage prüfen: der Befund muss zu diesem Projekt gehören,
+    // sonst nennte die Rückfrage das falsche Projekt (Review M6).
+    const own = await findingProject(a.finding)
+    if (own !== p.id) return fail(`Befund ${a.finding} gehört nicht zu "${p.name}"`)
+    const c = await confirm('accept_finding', { project: p.id, finding: a.finding, reason: a.reason, confirmation_token: a.confirmation_token }, `Befund ${a.finding} in "${p.name}" akzeptieren? Begründung: ${a.reason}`)
+    if (!c.go) return c.result
+    await acceptFinding(a.finding, a.reason, actor, { projectId: p.id })
+    const last = await latestScan(p.id)
+    return ok({ accepted: a.finding, score: last ? (await scanReport(last.id)).scan.score : null })
+  })
+
+  tool('add_external_target', 'Eigene Domain ausserhalb von deployer zum Scannen eintragen; liefert den nötigen TXT-Eintrag', {
+    hostname: z.string().min(1).max(253),
+  }, async (a) => {
+    const t = await addExternalTarget(a.hostname, actor)
+    return ok({ ...t, next: `TXT-Eintrag ${t.txt.name} mit dem Wert "${t.txt.value}" setzen, dann verify_external_target aufrufen.` })
+  })
+
+  tool('verify_external_target', 'TXT-Nachweis einer externen Domain über öffentliche DNS-Resolver prüfen', {
+    hostname: z.string().min(1).max(253),
+  }, async (a) => ok(await verifyExternalTarget(a.hostname, actor)))
 
   tool('set_targets', 'Erreichbarkeit setzen (in M3 nur "lan")', {
     project,

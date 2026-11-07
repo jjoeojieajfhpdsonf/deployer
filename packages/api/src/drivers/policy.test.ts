@@ -107,6 +107,23 @@ describe('Die klassischen Ausbrüche', () => {
     rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.mounts.type')
   })
 
+  test('M6: ausdrücklich erlaubtes Scanner-Volume, nur mit genauem Namen', () => {
+    const hc = goodHostConfig()
+    hc.Mounts = [{ Type: 'volume', Source: 'deployer_scan-trivy', Target: '/root/.cache' }]
+    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'deployer_scan-trivy' }] }))
+    rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.mounts.source')
+    rejects(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'deployer_scan' }] }), 'hostconfig.mounts.source')
+  })
+
+  test('M6: nur-lesend-Volume darf nicht schreibbar eingehängt werden', () => {
+    const hc = goodHostConfig()
+    hc.Mounts = [{ Type: 'volume', Source: 'deployer_sites', Target: '/srv/sites' }]
+    const opts = { extraVolumes: [{ name: 'deployer_sites', readOnly: true }] }
+    rejects(() => assertHostConfigPolicy(hc, NET, opts), 'hostconfig.mounts.readonly')
+    hc.Mounts = [{ Type: 'volume', Source: 'deployer_sites', Target: '/srv/sites', ReadOnly: true }]
+    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, opts))
+  })
+
   test('fremdes Volume', () => {
     const hc = goodHostConfig()
     hc.Mounts = [{ Type: 'volume', Source: 'dep_andereapp_data', Target: '/data' }]

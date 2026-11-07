@@ -7,11 +7,19 @@ import { z } from 'zod'
 /** 1-40 Zeichen, Kleinbuchstaben, Ziffern, Bindestrich; nicht am Rand. */
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/
 
+/**
+ * Vergeben an deployer selbst: "deployer" ist die Adresse der Oberfläche
+ * (sonst hätte ein Projekt sie überdeckt – Fehler aus M1), "ext-scan" das
+ * Netz für Scans externer Ziele (M6).
+ */
+export const RESERVED_SLUGS = ['deployer', 'ext-scan'] as const
+
 export const slugSchema = z
   .string()
   .min(1)
   .max(40)
   .regex(SLUG_RE, 'Nur a-z, 0-9 und Bindestrich; nicht am Anfang oder Ende')
+  .refine((s) => !(RESERVED_SLUGS as readonly string[]).includes(s), 'Dieser Name ist für deployer selbst reserviert')
 
 export function slugify(name: string): string {
   const base = name
@@ -325,6 +333,43 @@ export interface ProjectDto {
   lastChangeAt: string
   /** M3: wann ein Chat-Projekt ohne Änderung gestoppt wird; null = läuft nicht ab. */
   expiresAt: string | null
+  /** M6: letzter Scan in Kurzform. */
+  security: {
+    scanId: string
+    status: 'queued' | 'running' | 'done' | 'failed'
+    score: number | null
+    grade: 'A' | 'B' | 'C' | 'D' | null
+    finishedAt: string | null
+  } | null
+}
+
+export interface FindingDto {
+  id: string
+  tool: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  title: string
+  location: string
+  description: string
+  fix: string
+  status: 'open' | 'accepted' | 'fixed'
+  acceptReason: string | null
+}
+
+export interface ScanReportDto {
+  scan: {
+    id: string
+    status: 'queued' | 'running' | 'done' | 'failed'
+    level: 'standard' | 'active'
+    startedAt: string
+    finishedAt: string | null
+    score: number | null
+    grade: 'A' | 'B' | 'C' | 'D' | null
+    error: string | null
+    stages: Record<string, { ran: boolean; note?: string; findings?: number; failed?: boolean }>
+  }
+  counts: Record<'critical' | 'high' | 'medium' | 'low', number>
+  top: { id: string; severity: string; title: string; location: string; fix: string }[]
+  findings: FindingDto[]
 }
 
 /* ------------------------------------------------------------------ *
