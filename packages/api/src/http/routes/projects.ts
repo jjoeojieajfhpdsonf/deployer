@@ -125,7 +125,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const project = await findProject(request.params.id)
     const body = putRoutesSchema.parse(request.body)
     for (const t of body.targets) {
-      if (t !== 'lan') throw badRequest(`Ziel "${t}" kommt erst in einem späteren Meilenstein`)
+      if (t === 'public') throw badRequest('Ziel "public" kommt mit Meilenstein 5 (Cloudflare Tunnel)')
     }
     await setRoutes(project.id, project.slug, body.targets, body.subdomain)
     await reconcileCaddy()

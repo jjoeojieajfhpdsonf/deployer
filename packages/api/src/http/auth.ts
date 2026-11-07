@@ -72,14 +72,27 @@ export async function login(ip: string, password: string): Promise<boolean> {
   return true
 }
 
-export function setSessionCookie(reply: FastifyReply): void {
+/**
+ * Kam die Anfrage über HTTPS bei Caddy an? Caddy setzt X-Forwarded-Proto
+ * selbst und überschreibt, was ein Client mitschickt. Bewusst nur dieser
+ * Header und kein trustProxy: X-Forwarded-For bleibt unbeachtet, damit im
+ * Projekt-Netz niemand eine Absenderadresse vortäuschen kann. Ein
+ * vorgetäuschtes "https" schadet nicht – es macht nur das eigene Cookie
+ * strenger.
+ */
+export function viaHttps(request: FastifyRequest): boolean {
+  const v = request.headers['x-forwarded-proto']
+  return (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim() === 'https'
+}
+
+export function setSessionCookie(reply: FastifyReply, request: FastifyRequest): void {
   reply.setCookie(SESSION_COOKIE, String(Date.now()), {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
-    // Kein secure-Flag: M1 laeuft bewusst ohne TLS (Zertifikate ab M4).
-    // Mit M4 gehoert hier secure: true hin.
-    secure: false,
+    // M4: Secure, sobald über HTTPS angemeldet. Über nip.io (HTTP, kein
+    // Zertifikat) bleibt der Login möglich – sonst wäre der Rückfall zu.
+    secure: viaHttps(request),
     signed: true,
     maxAge: SESSION_MAX_AGE_S,
   })
@@ -140,6 +153,10 @@ export function registerAuthGuard(app: FastifyInstance): void {
       // sonst auf ein fremdes ntfy oder Postfach umleiten.
       if (route.startsWith('/api/v1/notifications')) {
         throw new AppError('forbidden', 'Benachrichtigungen lassen sich nur mit einer Anmeldung einstellen', 403)
+      }
+      // M4/M5: DNS bei Cloudflare ändern nur mit Anmeldung.
+      if (route.startsWith('/api/v1/system/tailnet-dns') || route.startsWith('/api/v1/system/cloudflare')) {
+        throw new AppError('forbidden', 'DNS bei Cloudflare lässt sich nur mit einer Anmeldung ändern', 403)
       }
       request.actor = `token:${identity.name}`
       request.tokenId = identity.id

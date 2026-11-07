@@ -84,3 +84,23 @@ Neu: Scans nach jedem Deploy im Hintergrund (Trivy für Image und Quellen, eigen
 - Rest-Risiko DNS-Rebinding bei externen Zielen (siehe OFFENE-FRAGEN); Voraussetzung ist ein gültiges API-Token.
 - Scans laufen nacheinander. Nach vielen Deploys in kurzer Zeit (etwa der ganzen Testsuite) staut sich die Warteschlange; die M6-Suite dauerte in der Gesamtsuite deshalb rund 15 Minuten.
 - ZAP filtert Regeln, die der Header-Check schon abdeckt; bei kleinen Seiten bleiben dann oft keine ZAP-Befunde übrig.
+
+## Meilenstein 4 – Tailnet und Zertifikate (Code, ungetestet gegen echte Dienste)
+
+**Stand:** Code fertig und committet. Plan, Abnahme, Review in [MILESTONE-4.md](MILESTONE-4.md). Ohne Domain, Token und Server – wie beauftragt.
+
+Neu: `TLS_MODE=cloudflare` über die Compose-Ergänzung `compose.tls.yaml` (Caddy mit `caddy-dns/cloudflare`, :443, Token als Compose-Secret); Wildcard-Zertifikat `*.<basisdomain>` per DNS-01, Weiterleitung auf HTTPS nur für interne Namen, nip.io bleibt HTTP; Tailnet-DNS-Eintrag bei Cloudflare (A, nicht proxied); LAN und Tailnet unter einem Namen (Migration 0005), mit Quell-Bereichen nach Ziel; Secure-Cookie über HTTPS; Zertifikatsstatus auf der Systemseite mit stündlicher Prüfung; Erreichbarkeit (LAN/Tailnet) in den Projekt-Einstellungen.
+
+**Getestet:**
+- 325 Unit-Tests, darunter der TLS-Konfigurationsbau, der Cloudflare-Client gegen eine Attrappe, Zertifikatsregeln gegen einen lokalen TLS-Server.
+- Lokal mit Docker: Caddy-Image mit dem Modul gebaut; `caddy validate` nimmt die erzeugte TLS-Konfiguration an; Startskript liest das Secret; Compose-Ergänzung ergibt :80 + :443.
+- `e2e/m4.e2e.ts` (7 Tests) und die **Gesamtsuite M1–M6 + M4: 80 von 80 grün** (diesmal ohne den sporadischen Fehlschlag).
+- `/code-review high`: zehn Befunde, alle behoben – darunter, dass «nur LAN» bzw. «nur Tailnet» vorher nichts einschränkte.
+
+**Nicht getestet:**
+- Ausstellung eines echten Zertifikats, echte Cloudflare-API, HTTPS im Browser.
+- IP-Filter nach Ziel auf dem Linux-Server (lokal ist der Filter aus).
+- Systemseite und Erreichbarkeits-Schalter nicht im Browser angesehen.
+
+**Für die Inbetriebnahme auf dem Server:** `INTERNAL_BASE_DOMAIN`, `TAILSCALE_IP` und `ACME_CA=staging` in `.env`; Token (Zone → DNS → Bearbeiten) nach `secrets/cloudflare_token` (Rechte 600); `docker compose -f compose.yaml -f compose.tls.yaml up -d --build`; Systemseite prüfen; dann `ACME_CA=production`. Lokaler DNS: `*.int…` auf die LAN-IP.
+

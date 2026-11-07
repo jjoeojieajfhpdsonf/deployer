@@ -1,6 +1,6 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { config, primaryHost, aliasHosts } from '../config.js'
+import { config, primaryHost, aliasHosts, urlForHost } from '../config.js'
 import * as caddy from '../drivers/caddy.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
@@ -29,15 +29,36 @@ export function aliasesForHost(hostname: string): string[] {
 }
 
 export function urlsFor(hostname: string, aliases: string[]): string[] {
-  return [hostname, ...aliases].map((h) => `http://${h}`)
+  // M4: https:// für Namen unter der Basisdomain, sobald TLS an ist.
+  return [hostname, ...aliases].map((h) => urlForHost(h))
 }
 
 export async function routeDtosFor(projectId: string, _slug: string): Promise<RouteDto[]> {
   const rows = await db.select().from(schema.routes).where(eq(schema.routes.projectId, projectId))
-  return rows.map((r) => {
+  // LAN und Tailnet teilen sich einen Namen (M4): eine Adresse, mehrere Ziele.
+  const byHost = new Map<string, RouteDto>()
+  for (const r of rows.sort((a, b) => targetOrder(a.target) - targetOrder(b.target))) {
+    const have = byHost.get(r.hostname)
+    if (have) {
+      have.targets = [...(have.targets ?? [have.target]), r.target]
+      continue
+    }
     const aliases = aliasesForHost(r.hostname)
-    return { target: r.target, hostname: r.hostname, aliases, urls: urlsFor(r.hostname, aliases) }
-  })
+    byHost.set(r.hostname, { target: r.target, targets: [r.target], hostname: r.hostname, aliases, urls: urlsFor(r.hostname, aliases) })
+  }
+  return [...byHost.values()]
+}
+
+const targetOrder = (t: string) => ['public', 'lan', 'tailnet'].indexOf(t)
+
+/** Quell-Bereiche je nach Ziel: nur LAN, nur Tailnet oder beides (Review M4). */
+export function cidrsForTargets(targets: string[], lanCidr: string, tailnetCidr: string): string[] {
+  const out: string[] = []
+  if (targets.includes('lan')) out.push(lanCidr)
+  if (targets.includes('tailnet')) out.push(tailnetCidr)
+  // Healthchecks und Werkzeuge auf dem Server selbst
+  out.push('127.0.0.0/8', '::1/128')
+  return out
 }
 
 /**
@@ -69,24 +90,22 @@ export async function setRoutes(
 ): Promise<void> {
   const host = primaryHost(subdomain ?? slug)
 
-  const clash = await db.select().from(schema.routes).where(eq(schema.routes.hostname, host))
-  if (clash.some((r) => r.projectId !== projectId)) {
-    throw conflict(`Der Hostname ${host} ist schon von einem anderen Projekt belegt`)
-  }
-
   await db.transaction(async (tx) => {
+    // Seit Migration 0005 verhindert die Datenbank nicht mehr, dass zwei
+    // Projekte denselben Namen unter verschiedenen Zielen tragen. Deshalb
+    // Prüfung und Einfügen unter einer Sperre, in einer Transaktion (Review M4).
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('deployer.routes'))`)
+    const clash = await tx.select().from(schema.routes).where(eq(schema.routes.hostname, host))
+    if (clash.some((r) => r.projectId !== projectId)) {
+      throw conflict(`Der Hostname ${host} ist schon von einem anderen Projekt belegt`)
+    }
     await tx.delete(schema.routes).where(eq(schema.routes.projectId, projectId))
     if (targets.length === 0) return
-    // LAN und Tailnet zeigen auf denselben Namen; ein Eintrag pro Ziel, der
-    // Unique-Index auf hostname erlaubt aber nur einen. In M1 gibt es nur lan.
-    const unique = [...new Set(targets)]
-    await tx.insert(schema.routes).values(
-      unique.map((t, i) => ({
-        projectId,
-        target: t,
-        hostname: i === 0 ? host : `${t}-${host}`,
-      })),
-    )
+    // LAN und Tailnet zeigen auf denselben Namen (SPEC); seit Migration 0005
+    // ist (target, hostname) eindeutig, nicht mehr hostname allein.
+    const unique = [...new Set(targets)].filter((t) => t !== 'public')
+    if (unique.length === 0) return
+    await tx.insert(schema.routes).values(unique.map((t) => ({ projectId, target: t, hostname: host })))
   })
 }
 
@@ -95,6 +114,7 @@ export async function setRoutes(
 interface RouteRow {
   slug: string
   hostname: string
+  target: string
   sourceType: string
   port: number | null
   deploymentId: string | null
@@ -107,6 +127,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
     .select({
       slug: schema.projects.slug,
       hostname: schema.routes.hostname,
+      target: schema.routes.target,
       sourceType: schema.projects.sourceType,
       port: schema.projects.port,
       status: schema.projects.status,
@@ -129,6 +150,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
     .map((r) => ({
       slug: r.slug,
       hostname: r.hostname,
+      target: r.target as string,
       // Chat-Projekte (files) laufen als das, als was sie erkannt wurden.
       sourceType: effectiveKind(r.sourceType, r.artifact),
       port: r.port,
@@ -160,15 +182,24 @@ export async function buildRouteSpecs(): Promise<caddy.RouteSpec[]> {
     noKeepAlive: true,
   })
 
+  // LAN und Tailnet: zwei Zeilen, ein Name – eine Caddy-Route, deren
+  // Quell-Bereiche den gewählten Zielen folgen.
+  const targetsByHost = new Map<string, string[]>()
+  for (const r of rows) targetsByHost.set(r.hostname, [...(targetsByHost.get(r.hostname) ?? []), r.target])
+  const seen = new Set<string>()
   for (const r of rows) {
+    if (seen.has(r.hostname)) continue
+    seen.add(r.hostname)
     const hosts = [r.hostname, ...aliasesForHost(r.hostname)]
+    const cidrs = cidrsForTargets(targetsByHost.get(r.hostname)!, config.LAN_CIDR, config.tailnetCidr)
     if (r.sourceType === 'static') {
-      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug) })
+      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs })
     } else if (r.port && r.deploymentId) {
       specs.push({
         hosts,
         kind: 'proxy',
         upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId })}:${r.port}`,
+        cidrs,
       })
     }
   }
@@ -233,6 +264,9 @@ async function reconcileCaddyNow(): Promise<void> {
       ipFilter: config.CADDY_IP_FILTER,
       cidrs: [config.LAN_CIDR, config.tailnetCidr, '127.0.0.0/8', '::1/128'],
       adminSocket: config.CADDY_ADMIN_SOCKET,
+      tls: config.TLS_MODE === 'cloudflare' && config.INTERNAL_BASE_DOMAIN
+        ? { baseDomain: config.INTERNAL_BASE_DOMAIN, acmeCa: config.ACME_CA, email: config.ACME_EMAIL }
+        : null,
     }),
   )
   await caddy.assertAdminOnUnixSocket()

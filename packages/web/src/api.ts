@@ -124,6 +124,7 @@ export const api = {
 
   /* System */
   system: () => call<SystemStatusDto>('/system/status'),
+  tailnetDns: () => call<{ record: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string } }>('/system/tailnet-dns', { method: 'POST' }),
   audit: (limit = 100) => call<{ events: AuditEventDto[] }>(`/audit?limit=${limit}`),
 }
 

@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { primaryHost, aliasHosts, nipHost, labelOf, parseBaseDomain, anyReachable } from './hostnames.js'
+import { primaryHost, aliasHosts, nipHost, labelOf, parseBaseDomain, anyReachable, urlFor } from './hostnames.js'
 
 const ip = '192.168.0.63'
 
@@ -57,5 +57,23 @@ describe('Hilfen', () => {
     assert.equal(parseBaseDomain('   '), null)
     assert.equal(parseBaseDomain(undefined), null)
     assert.equal(parseBaseDomain('.Int.MeineDomain.ch.'), 'int.meinedomain.ch')
+  })
+})
+
+describe('urlFor (M4)', () => {
+  const s = { baseDomain: 'int.example.ch', lanIp: '192.168.1.10', nipio: true }
+  test('ohne TLS immer http', () => {
+    assert.equal(urlFor('solar.int.example.ch', s), 'http://solar.int.example.ch')
+  })
+  test('mit TLS: https unter der Basisdomain, http für nip.io', () => {
+    const t = { ...s, tls: true }
+    assert.equal(urlFor('solar.int.example.ch', t), 'https://solar.int.example.ch')
+    assert.equal(urlFor('solar.192-168-1-10.nip.io', t), 'http://solar.192-168-1-10.nip.io')
+  })
+  test('zweite Ebene liegt nicht im Wildcard-Zertifikat: http', () => {
+    assert.equal(urlFor('a.b.int.example.ch', { ...s, tls: true }), 'http://a.b.int.example.ch')
+  })
+  test('TLS ohne Basisdomain: http', () => {
+    assert.equal(urlFor('solar.192-168-1-10.nip.io', { baseDomain: null, lanIp: '192.168.1.10', nipio: true, tls: true }), 'http://solar.192-168-1-10.nip.io')
   })
 })

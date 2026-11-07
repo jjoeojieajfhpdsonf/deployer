@@ -63,7 +63,8 @@ export type DeploymentStatus = (typeof deploymentStatuses)[number]
 export const routeTargets = ['public', 'lan', 'tailnet'] as const
 export type RouteTarget = (typeof routeTargets)[number]
 /** In M1 umgesetzt. */
-export const routeTargetsM1 = ['lan'] as const
+/** Ziele, die ohne Cloudflare-Tunnel gehen (M4: Tailnet dazu). public kommt mit M5. */
+export const routeTargetsSupported = ['lan', 'tailnet'] as const
 
 /* ------------------------------------------------------------------ *
  * Quellen
@@ -250,7 +251,7 @@ export const createProjectSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: i.path, message: i.message })
     }
     for (const t of v.targets) {
-      if (!(routeTargetsM1 as readonly string[]).includes(t)) {
+      if (!(routeTargetsSupported as readonly string[]).includes(t)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targets'], message: `Ziel "${t}" kommt erst in einem späteren Meilenstein` })
       }
     }
@@ -282,7 +283,9 @@ export const putRoutesSchema = z.object({
 export const deploySchema = z.object({ ref: z.string().max(255).optional() })
 
 export interface RouteDto {
+  /** Erstes Ziel; alle Ziele dieses Namens in targets (LAN und Tailnet teilen sich ihn). */
   target: RouteTarget
+  targets?: RouteTarget[]
   hostname: string
   /** Zusätzliche Namen, über die dieselbe Route erreichbar ist (nip.io). */
   aliases: string[]
@@ -387,6 +390,13 @@ export interface SystemStatusDto {
   nipioEnabled: boolean
   /** Kopierfertiger Block für /etc/hosts; null ohne Basisdomain (nicht nötig). */
   hostsBlock: string | null
+  /** M4: HTTPS und Tailnet. null-Felder = nicht eingerichtet. */
+  tls: {
+    mode: 'off' | 'cloudflare'
+    acmeCa: 'production' | 'staging'
+    cert: { ok: boolean; subject: string | null; issuer: string | null; validTo: string | null; daysLeft: number | null; error: string | null; problem: string | null } | null
+    tailscaleIp: string | null
+  }
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }

@@ -92,12 +92,16 @@ export const routes = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
     target: routeTargetEnum('target').notNull(),
-    hostname: text('hostname').notNull().unique(),
+    // M4: eindeutig pro Ziel (Migration 0005); LAN und Tailnet teilen sich den Namen.
+    hostname: text('hostname').notNull(),
     cfDnsRecordId: text('cf_dns_record_id'),
     accessProtected: boolean('access_protected').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('routes_project_target').on(t.projectId, t.target)],
+  (t) => [
+    uniqueIndex('routes_project_target').on(t.projectId, t.target),
+    uniqueIndex('routes_target_hostname').on(t.target, t.hostname),
+  ],
 )
 
 export const projectEnv = pgTable(

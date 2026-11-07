@@ -2,7 +2,13 @@ import type { FastifyInstance } from 'fastify'
 import { statfs } from 'node:fs/promises'
 import { asc } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
-import { config, nipioEnabled, nipioHost, primaryHost } from '../../config.js'
+import { config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
+import { currentCert, certProblemNow } from '../../jobs/cert.js'
+import { daysLeftOf } from '../../lib/cert.js'
+import { ensureTailnetDns, tailnetDnsConfigured } from '../../domain/tailnet.js'
+import { CloudflareError } from '../../drivers/cloudflare.js'
+import { actorFor } from '../auth.js'
+import { badRequest, AppError } from '../../lib/errors.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
@@ -64,6 +70,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
     const base = config.INTERNAL_BASE_DOMAIN
     const nip = nipioHost('deployer')
+    const cert = await currentCert().catch(() => null)
 
     return {
       version: config.version,
@@ -74,15 +81,34 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       serverLanIp: config.SERVER_LAN_IP,
       nipioEnabled,
       hostsBlock: await hostsBlock(),
+      tls: {
+        mode: config.TLS_MODE,
+        acmeCa: config.ACME_CA,
+        cert: cert ? { ...cert, daysLeft: daysLeftOf(cert), problem: certProblemNow(cert) } : null,
+        tailscaleIp: config.TAILSCALE_IP,
+      },
       // Geprueft wird im Browser, nicht auf dem Server: die Frage ist, ob
       // DIESES Geraet den Namen aufloest. Eine Aufloesung auf dem Server
       // beantwortet sie nicht.
       reachability: [
         base
-          ? { way: 'dns', label: `Interner Name (deployer.${base})`, url: `http://deployer.${base}/health` }
+          ? { way: 'dns', label: `Interner Name (deployer.${base})`, url: `${urlForHost(`deployer.${base}`)}/health` }
           : { way: 'dns', label: 'Interner Name (keine Basisdomain gesetzt)', url: null },
         { way: 'nipio', label: nip ? `nip.io (${nip})` : 'nip.io (SERVER_LAN_IP fehlt)', url: nip ? `http://${nip}/health` : null },
       ],
+    }
+  })
+
+  // M4: Tailnet-Eintrag bei Cloudflare von Hand anstossen (nur mit Anmeldung, siehe auth.ts).
+  app.post('/system/tailnet-dns', async (request) => {
+    if (!tailnetDnsConfigured()) {
+      throw badRequest('Tailnet-DNS braucht TLS_MODE=cloudflare, INTERNAL_BASE_DOMAIN und TAILSCALE_IP')
+    }
+    try {
+      return { record: await ensureTailnetDns(actorFor(request)) }
+    } catch (err) {
+      if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
+      throw err
     }
   })
 

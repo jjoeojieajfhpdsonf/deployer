@@ -6,6 +6,7 @@ import { StatusBadge, relativeTime, duration } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
+import { Reachability } from '../components/Reachability.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -171,6 +172,7 @@ export function ProjectDetail() {
       )}
       {tab === 'logs' && <LiveLogs projectId={id} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} />}
+      {tab === 'einstellungen' && <Reachability p={p} />}
       {tab === 'einstellungen' && (
         <Settings
           projectId={id}

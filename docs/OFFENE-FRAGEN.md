@@ -60,3 +60,19 @@ Format: **Frage** – getroffene Annahme – *wo*.
 - **Fingerabdruck.** Wo Titel oder Ort von Lauf zu Lauf schwanken (Anzahl CVEs, installierte Version, Image-Tag, erste ZAP-Fundstelle, «+N ähnliche» bei Nuclei), bildet ein stabiler Schlüssel den Fingerabdruck: Paket, ZAP-Regel, Pfad. Eine Akzeptanz überlebt damit neue Deploys und neue CVEs desselben Pakets – solange der höchste Schweregrad gleich bleibt; wird das Paket kritischer, ist es ein neuer Befund. – *security/parsers.ts*
 - **«Behoben»** heisst: Das Werkzeug lief diesmal vollständig und fand den Befund nicht mehr. Scheiterte eine Stufe, bleiben ihre alten Befunde offen. – *security/scan.ts, toolsChecked*
 - **Wöchentlicher Rescan** betrifft nur Projekte, die laufen sollen (`desiredState = running`); gestoppte Projekte haben kein Laufzeit-Ziel. – *jobs/security.ts*
+
+## Meilenstein 4 (Code, ungetestet gegen echte Dienste)
+
+- **TLS nur über eine Compose-Ergänzung.** `compose.tls.yaml` baut Caddy mit dem DNS-Modul und öffnet :443. Ohne sie läuft alles wie bisher über HTTP; so bleibt der lokale Betrieb auf dem Mac testbar und ein fehlendes Token bricht den Basis-Stack nicht. – *compose.tls.yaml*
+- **Token als Datei, nicht in `.env`.** `secrets/cloudflare_token` (Rechte 600, von Git ignoriert), als Compose-Secret in Caddy und deployer. Caddy bekommt es über ein Startskript in die Umgebung und sieht in der Konfiguration nur `{env.CF_API_TOKEN}` – so steht es weder in `docker inspect` noch in Caddys `autosave.json`. – *caddy/entrypoint.sh, drivers/caddy-config.ts*
+- **Eigener Cloudflare-Client statt des SDK `cloudflare`** (SPEC schlägt das SDK vor): wenige Endpunkte, keine weitere Abhängigkeit, in Tests durch eine Attrappe ersetzbar. – *drivers/cloudflare.ts*
+- **Versionen:** Caddy 2.10.0, `caddy-dns/cloudflare` v0.2.1, fest im Dockerfile. Lokal gebaut; `caddy validate` nimmt die erzeugte Konfiguration an. – *caddy/Dockerfile*
+- **Weiterleitung auf HTTPS** nur für Namen unter der Basisdomain; nip.io bleibt HTTP (kein Zertifikat möglich). – *drivers/caddy-config.ts*
+- **Kein HSTS.** Würde TLS später wieder abgeschaltet, kämen Browser ein Jahr lang nicht mehr auf die HTTP-Adressen. Kann nachgerüstet werden, wenn TLS stabil läuft. – *drivers/caddy-config.ts*
+- **Kein HTTP/3.** Bräuchte UDP :443 und ist mit dem IP-Filter nicht geprüft. – *drivers/caddy-config.ts*
+- **Secure-Cookie** nur, wenn die Anmeldung über HTTPS kam (`X-Forwarded-Proto` von Caddy). Über nip.io bleibt die Anmeldung möglich, dann ohne Secure. – *http/auth.ts*
+- **LAN und Tailnet:** ein Name, zwei Zeilen in `routes` (Migration 0005: eindeutig pro Ziel statt global), eine Route in Caddy. Bestehende `tailnet-<host>`-Einträge zieht die Migration nach. – *migrations/0005_tailnet.sql*
+- **Tailnet-DNS** wird beim Start und auf Knopfdruck gesetzt, nicht bei jedem Deploy: Es ist ein einziger Wildcard-Eintrag. Ein fremder Eintrag gleichen Namens wird nicht überschrieben. – *domain/tailnet.ts*
+- **testssl.sh intern** weiterhin nicht: TLS endet bei Caddy; der Zertifikatsstatus steht auf der Systemseite, ein stündlicher Job meldet Probleme (höchstens einmal pro Tag). – *jobs/cert.ts*
+- **Erster Versuch auf dem Server** mit `ACME_CA=staging`, damit ein Fehler nicht ins Rate-Limit von Let's Encrypt läuft. Danach auf `production` umstellen und Caddys Daten-Volume behalten. – *compose.tls.yaml*
+- **«Nur LAN» heisst wirklich nur LAN.** Caddy lässt pro Route nur die Bereiche der gewählten Ziele zu (LAN-Subnetz, `100.64.0.0/10` oder beides). Mit `CADDY_IP_FILTER=off` (Mac) gibt es diese Unterscheidung nicht. Auf dem Linux-Server ungetestet. – *domain/routes.ts, cidrsForTargets*

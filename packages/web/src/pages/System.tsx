@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { api, checkReachable } from '../api.js'
+import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { NotificationSettings } from '../components/Notifications.js'
 
@@ -118,8 +118,62 @@ export function System() {
         </>
       )}
 
+      <h2>HTTPS und Tailnet</h2>
+      <TlsSection s={s} />
+
       <h2>Benachrichtigungen</h2>
       <NotificationSettings />
     </section>
+  )
+}
+
+/** M4: Zertifikat, Tailnet-Eintrag, Anleitung für den lokalen DNS. */
+function TlsSection({ s }: { s: SystemStatusDto }) {
+  const [note, setNote] = useState<string | null>(null)
+  const tailnet = useMutation({
+    mutationFn: api.tailnetDns,
+    onSuccess: (r) => setNote(`✓ ${r.record.name} → ${r.record.content} (${r.record.action === 'unchanged' ? 'schon richtig' : r.record.action === 'created' ? 'angelegt' : 'aktualisiert'})`),
+  })
+  const t = s.tls
+  if (t.mode === 'off') {
+    return (
+      <p className="hint">
+        Aus: alles läuft über HTTP. Einschalten auf dem Server mit <code>compose.tls.yaml</code>
+        {' '}(Basisdomain, Cloudflare-Token als Datei) – siehe docs/MILESTONE-4.md.
+      </p>
+    )
+  }
+  const c = t.cert
+  return (
+    <>
+      <ul className="check-list">
+        <li className={c && c.ok && !c.problem ? 'check-ok' : 'check-fail'}>
+          <span className="check-name">Zertifikat *.{s.baseDomain}</span>
+          <span className="check-detail">
+            {!c ? 'nicht abrufbar'
+              : c.problem ? c.problem
+              : `gültig bis ${new Date(c.validTo!).toLocaleDateString('de-CH')} (${c.daysLeft} Tage) · ${c.issuer ?? ''}`}
+            {t.acmeCa === 'staging' ? ' · Staging-CA (Browser warnen)' : ''}
+          </span>
+        </li>
+        <li className={t.tailscaleIp ? 'check-ok' : 'check-none'}>
+          <span className="check-name">Tailnet</span>
+          <span className="check-detail">{t.tailscaleIp ? `*.${s.baseDomain} → ${t.tailscaleIp} (Cloudflare, nicht proxied)` : 'TAILSCALE_IP nicht gesetzt'}</span>
+        </li>
+      </ul>
+      {t.tailscaleIp && (
+        <div className="form-actions">
+          <button onClick={() => { setNote(null); tailnet.mutate() }} disabled={tailnet.isPending}>Tailnet-Eintrag prüfen</button>
+        </div>
+      )}
+      {note && <p className="hint" role="status">{note}</p>}
+      {tailnet.isError && <p role="alert" className="error">{(tailnet.error as Error).message}</p>}
+      <h3>Im Heimnetz</h3>
+      <p className="hint">
+        Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
+        <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
+        denselben Namen auf die Tailscale-IP auf.
+      </p>
+    </>
   )
 }

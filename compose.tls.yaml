@@ -1,0 +1,36 @@
+# Ergänzung für Meilenstein 4: HTTPS mit Wildcard-Zertifikat (DNS-01 bei Cloudflare).
+#
+#   docker compose -f compose.yaml -f compose.tls.yaml up -d --build
+#
+# Voraussetzungen (siehe docs/MILESTONE-4.md):
+#   - INTERNAL_BASE_DOMAIN in .env, z.B. int.deinedomain.ch
+#   - secrets/cloudflare_token mit einem Token (Zone DNS bearbeiten), Rechte 600
+#   - optional TAILSCALE_IP, ACME_EMAIL, ACME_CA=staging für den ersten Versuch
+#
+# Ohne diese Datei läuft der Stack wie in M1-M6: nur HTTP auf :80.
+
+services:
+  caddy:
+    image: deployer/caddy-cloudflare:local
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    ports:
+      - "443:443"
+    secrets:
+      - cloudflare_token
+
+  deployer:
+    environment:
+      TLS_MODE: cloudflare
+      ACME_CA: ${ACME_CA:-production}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      TAILSCALE_IP: ${TAILSCALE_IP:-}
+      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/cloudflare_token
+    secrets:
+      - cloudflare_token
+
+secrets:
+  cloudflare_token:
+    file: ./secrets/cloudflare_token

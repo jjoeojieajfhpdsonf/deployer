@@ -17,3 +17,6 @@ data/
 
 # Lokale Werkzeug-Einstellungen.
 *.local.json
+
+# M4/M5: Cloudflare- und Tunnel-Token (Compose-Secrets), nie einchecken
+secrets/

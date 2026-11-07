@@ -9,6 +9,8 @@ import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
+import { startCertJob } from './jobs/cert.js'
+import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
 import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 
@@ -48,6 +50,11 @@ async function main(): Promise<void> {
     // Fehler anzeigen koennen.
     log.error('Abgleich beim Start fehlgeschlagen', { err: String(err) })
   }
+
+  // M4: Tailnet-DNS und Zertifikat (nur mit TLS_MODE=cloudflare)
+  // Im Hintergrund: ein langsames Cloudflare soll den Start nicht aufhalten.
+  void ensureTailnetDnsOnBoot()
+  startCertJob()
 
   startCleanupJob()
   startExpiryJob()

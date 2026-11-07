@@ -13,7 +13,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       await audit({ actor: `ip:${ip}`, action: 'auth.login', result: 'error', error: 'falsches Passwort' })
       throw new AppError('invalid_credentials', 'Passwort stimmt nicht', 401)
     }
-    setSessionCookie(reply)
+    setSessionCookie(reply, request)
     await audit({ actor: 'ui:joel', action: 'auth.login', result: 'ok' })
     return { ok: true }
   })

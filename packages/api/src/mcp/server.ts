@@ -34,7 +34,7 @@ const project = z.string().min(1).max(64).describe('Slug oder ID des Projekts')
 const wait = z.boolean().default(true).describe('Auf das Ende des Deploys warten (Standard) und das Ergebnis liefern')
 
 /** Werkzeuge, die vor M5/M6 noch nicht verfügbar sind. */
-const PUBLIC_LATER = 'Das Ziel "public" kommt mit Meilenstein 5 (Cloudflare Tunnel). Bis dahin nur "lan".'
+const PUBLIC_LATER = 'Das Ziel "public" kommt mit Meilenstein 5 (Cloudflare Tunnel). Bis dahin "lan" und "tailnet".'
 
 type Content = { type: 'text'; text: string } | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } }
 type ToolResult = { content: Content[]; isError?: boolean }
@@ -417,7 +417,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     hostname: z.string().min(1).max(253),
   }, async (a) => ok(await verifyExternalTarget(a.hostname, actor)))
 
-  tool('set_targets', 'Erreichbarkeit setzen (in M3 nur "lan")', {
+  tool('set_targets', 'Erreichbarkeit setzen: "lan" und "tailnet" (dieselbe interne Adresse); "public" ab Meilenstein 5', {
     project,
     targets: z.array(z.enum(routeTargets)),
     subdomain: z.string().optional(),
