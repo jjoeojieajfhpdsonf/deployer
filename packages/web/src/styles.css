@@ -399,13 +399,16 @@ label { display: block; font-size: 12.5px; color: var(--ink-dim); margin: 14px 0
 
 .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.table th, .table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table th, .table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .table th { color: var(--p-muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
 .table tr:last-child td { border-bottom: none; }
 .table tbody tr:hover { background: var(--p-surface); }
 .row-error td:first-child { box-shadow: inset 2px 0 0 var(--bad); }
 .row-muted td { color: var(--p-muted); }
-.row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+/* Bleibt eine Tabellenzelle: display:flex auf einem <td> nimmt es aus dem
+   Tabellen-Layout, Linien und Höhen der letzten Spalte verrutschen. */
+.table td.row-actions { text-align: right; white-space: nowrap; }
+.table td.row-actions > * + * { margin-left: 6px; }
 .cell-detail { font-family: var(--font-mono); font-size: 11.5px; color: var(--p-muted); max-width: 420px; overflow-wrap: anywhere; }
 
 /* --- System ---------------------------------------------------------------------------- */
@@ -508,6 +511,12 @@ label { display: block; font-size: 12.5px; color: var(--ink-dim); margin: 14px 0
 .notify-form label { display: grid; gap: 4px; font-size: 13px; }
 .notify-form label.checkbox { display: flex; align-items: center; gap: 8px; }
 .notify-form td input[type='checkbox'] { width: auto; }
+
+/* --- Tokens --- */
+.page form.form-actions + .table-scroll, .page form.form-actions + .state { margin-top: 16px; }
+.revoked-tokens { margin-top: 16px; }
+.revoked-tokens summary { cursor: pointer; color: var(--p-muted); margin-bottom: 8px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* --- Erreichbarkeit (M5) --- */
 .public-options { display: grid; gap: 6px; margin: 4px 0 8px 26px; max-width: 520px; }

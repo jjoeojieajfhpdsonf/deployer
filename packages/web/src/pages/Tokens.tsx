@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '../api.js'
+import { api, ApiError, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../components/Status.js'
 import { copyText } from '../lib/clipboard.js'
 
@@ -11,6 +11,8 @@ import { copyText } from '../lib/clipboard.js'
 export function Tokens() {
   const qc = useQueryClient()
   const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens })
+  const active = (tokens.data?.tokens ?? []).filter((t) => !t.revokedAt)
+  const revoked = (tokens.data?.tokens ?? []).filter((t) => t.revokedAt)
   const [name, setName] = useState('')
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -89,40 +91,63 @@ export function Tokens() {
       ) : (tokens.data?.tokens ?? []).length === 0 ? (
         <p className="state state-empty">Noch kein Token.</p>
       ) : (
-        <div className="table-scroll">
-          <table className="table">
-            <thead>
-              <tr><th>Name</th><th>Angelegt</th><th>Zuletzt benutzt</th><th>Status</th><th /></tr>
-            </thead>
-            <tbody>
-              {tokens.data!.tokens.map((t) => (
-                <tr key={t.id} className={t.revokedAt ? 'row-muted' : undefined}>
-                  <td>{t.name}</td>
-                  <td>{new Date(t.createdAt).toLocaleDateString('de-CH')}</td>
-                  <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
-                  <td>{t.revokedAt ? '✕ widerrufen' : '✓ gültig'}</td>
-                  <td className="row-actions">
-                    {!t.revokedAt && confirming !== t.id && (
-                      <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
-                    )}
-                    {confirming === t.id && (
-                      <>
-                        <button className="button-danger" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
-                          Ja, widerrufen
-                        </button>
-                        <button onClick={() => setConfirming(null)}>Abbrechen</button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {active.length === 0 ? (
+            <p className="state state-empty">Kein gültiges Token.</p>
+          ) : (
+            <TokenTable rows={active} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+          )}
+          {revoked.length > 0 && (
+            <details className="revoked-tokens">
+              <summary>{revoked.length} widerrufene Token</summary>
+              <TokenTable rows={revoked} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+            </details>
+          )}
+        </>
       )}
       {revoke.isError && (
         <p role="alert" className="error">{revoke.error instanceof ApiError ? revoke.error.message : 'Widerrufen fehlgeschlagen'}</p>
       )}
     </section>
+  )
+}
+
+function TokenTable({ rows, confirming, setConfirming, revoke }: {
+  rows: ApiTokenDto[]
+  confirming: string | null
+  setConfirming: (id: string | null) => void
+  revoke: { isPending: boolean; mutate: (id: string) => void }
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="table">
+        <thead>
+          <tr><th>Name</th><th>Angelegt</th><th>Zuletzt benutzt</th><th>Status</th><th><span className="visually-hidden">Aktion</span></th></tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <tr key={t.id} className={t.revokedAt ? 'row-muted' : undefined}>
+              <td>{t.name}</td>
+              <td>{new Date(t.createdAt).toLocaleDateString('de-CH')}</td>
+              <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
+              <td>{t.revokedAt ? '✕ widerrufen' : '✓ gültig'}</td>
+              <td className="row-actions">
+                {!t.revokedAt && confirming !== t.id && (
+                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
+                )}
+                {confirming === t.id && (
+                  <>
+                    <button className="button-danger" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
+                      Ja, widerrufen
+                    </button>
+                    <button onClick={() => setConfirming(null)}>Abbrechen</button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
