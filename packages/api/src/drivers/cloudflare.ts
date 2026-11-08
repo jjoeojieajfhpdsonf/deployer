@@ -82,6 +82,35 @@ export class Cloudflare {
     return out
   }
 
+  /* --- Token und Konten (Cloudflare verbinden) -------------------------------- */
+
+  /** Status des Tokens: «active», «disabled», «expired». Wirft bei ungültigem Token. */
+  async verifyToken(): Promise<{ id: string; status: string; expiresOn: string | null }> {
+    const r = await this.req<{ id: string; status: string; expires_on?: string }>('GET', '/user/tokens/verify')
+    return { id: r.id, status: r.status, expiresOn: r.expires_on ?? null }
+  }
+
+  listAccounts(): Promise<{ id: string; name: string }[]> {
+    return this.all<{ id: string; name: string }>('/accounts')
+  }
+
+  /**
+   * Darf das Token schreiben? Geschickt wird eine absichtlich ungültige
+   * Anfrage: Mit dem Recht antwortet Cloudflare mit einem Prüffehler (400),
+   * ohne mit «Authentication error» (403). Angelegt wird so nie etwas.
+   */
+  async probeWrite(method: 'POST' | 'PUT', path: string, invalidBody: unknown): Promise<'allowed' | 'denied' | 'unknown'> {
+    try {
+      await this.req(method, path, invalidBody)
+      return 'allowed'
+    } catch (err) {
+      if (!(err instanceof CloudflareError)) return 'unknown'
+      if (err.status === 401 || err.status === 403 || err.code === 10000 || err.code === 9109) return 'denied'
+      if (err.status === 400 || err.status === 409 || err.status === 422) return 'allowed'
+      return 'unknown'
+    }
+  }
+
   /* --- Zonen ------------------------------------------------------------------ */
 
   listZones(): Promise<Zone[]> {
@@ -121,6 +150,33 @@ export class Cloudflare {
 
   async putTunnelIngress(accountId: string, tunnelId: string, ingress: IngressRule[]): Promise<void> {
     await this.req('PUT', `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config: { ingress } })
+  }
+
+  /** Remote verwalteter Tunnel (Konfiguration über die API). */
+  createTunnel(accountId: string, name: string): Promise<{ id: string; name: string }> {
+    return this.req('POST', `/accounts/${accountId}/cfd_tunnel`, { name, config_src: 'cloudflare' })
+  }
+
+  async findTunnel(accountId: string, name: string): Promise<{ id: string; name: string } | null> {
+    const q = new URLSearchParams({ name, is_deleted: 'false' })
+    const list = await this.req<{ id: string; name: string }[]>('GET', `/accounts/${accountId}/cfd_tunnel?${q}`)
+    return list.find((t) => t.name === name) ?? null
+  }
+
+  /** Token, mit dem cloudflared sich als dieser Tunnel anmeldet. */
+  tunnelToken(accountId: string, tunnelId: string): Promise<string> {
+    return this.req<string>('GET', `/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`)
+  }
+
+  async deleteTunnel(accountId: string, tunnelId: string): Promise<void> {
+    try {
+      // Erst die Verbindungen lösen, sonst lehnt Cloudflare das Löschen ab
+      await this.req('DELETE', `/accounts/${accountId}/cfd_tunnel/${tunnelId}/connections`).catch(() => {})
+      await this.req('DELETE', `/accounts/${accountId}/cfd_tunnel/${tunnelId}`)
+    } catch (err) {
+      if (err instanceof CloudflareError && err.status === 404) return
+      throw err
+    }
   }
 
   async tunnelStatus(accountId: string, tunnelId: string): Promise<{ status: string; connections: number }> {

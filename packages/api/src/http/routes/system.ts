@@ -4,7 +4,7 @@ import { cpus, totalmem, freemem } from 'node:os'
 import { scanQueueLength } from '../../security/scan.js'
 import { asc, ne } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
-import { config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
+import { cf, config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
 import { currentCert, certProblemNow } from '../../jobs/cert.js'
 import { daysLeftOf } from '../../lib/cert.js'
 import { ensureTailnetDns, tailnetDnsConfigured } from '../../domain/tailnet.js'
@@ -17,6 +17,10 @@ import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
 import type { SystemStatusDto } from '@deployer/shared'
+import { cfTokenSchema, cfDomainsSchema } from '@deployer/shared'
+import {
+  cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, restartTunnel, startTls, disconnect,
+} from '../../domain/cloudflare-settings.js'
 
 async function check(name: string, fn: () => Promise<string>): Promise<{ name: string; ok: boolean; detail: string }> {
   try {
@@ -32,7 +36,7 @@ async function check(name: string, fn: () => Promise<string>): Promise<{ name: s
  * sich ohnehin selbst aufloesen. Dann gibt es keinen Block.
  */
 export async function hostsBlock(): Promise<string | null> {
-  if (!config.INTERNAL_BASE_DOMAIN) return null
+  if (!cf.baseDomain()) return null
   const ip = config.SERVER_LAN_IP
   const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(ne(schema.routes.target, 'public')).orderBy(asc(schema.routes.hostname))
   // Ohne Doppel (LAN und Tailnet teilen sich den Namen), ohne öffentliche Namen.
@@ -110,7 +114,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     }
     const mem = await memoryUsage()
 
-    const base = config.INTERNAL_BASE_DOMAIN
+    const base = cf.baseDomain()
     const nip = nipioHost('deployer')
     const cert = await currentCert().catch(() => null)
 
@@ -119,7 +123,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       checks,
       diskFreeBytes,
       ipFilterEnabled: config.CADDY_IP_FILTER,
-      baseDomain: config.INTERNAL_BASE_DOMAIN,
+      baseDomain: cf.baseDomain(),
       serverLanIp: config.SERVER_LAN_IP,
       nipioEnabled,
       hostsBlock: await hostsBlock(),
@@ -133,10 +137,10 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       },
       scanQueue: scanQueueLength(),
       tls: {
-        mode: config.TLS_MODE,
-        acmeCa: config.ACME_CA,
+        mode: cf.tls() ? 'cloudflare' : 'off',
+        acmeCa: cf.acmeCa(),
         cert: cert ? { ...cert, daysLeft: daysLeftOf(cert), problem: certProblemNow(cert) } : null,
-        tailscaleIp: config.TAILSCALE_IP,
+        tailscaleIp: cf.tailscaleIp(),
       },
       publicTunnel: await (async () => {
         const t = await tunnelStatus()
@@ -165,6 +169,46 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
       throw err
     }
+  })
+
+  /* --- Cloudflare verbinden (nur mit Anmeldung, siehe auth.ts) ------------------ */
+
+  app.get('/system/cloudflare', async () => cloudflareStatus())
+
+  // Nur prüfen, nichts speichern (Schritt 2 sofort beim Einfügen)
+  app.post('/system/cloudflare/check', async (request) => {
+    const { token } = cfTokenSchema.parse(request.body)
+    return { check: await checkToken(token) }
+  })
+
+  app.put('/system/cloudflare/token', async (request) => {
+    const { token } = cfTokenSchema.parse(request.body)
+    return { check: await saveToken(token, actorFor(request)), status: await cloudflareStatus() }
+  })
+
+  app.put('/system/cloudflare/domains', async (request) => {
+    await saveDomains(cfDomainsSchema.parse(request.body), actorFor(request))
+    return cloudflareStatus()
+  })
+
+  app.post('/system/cloudflare/tunnel', async (request) => {
+    await setupTunnel(actorFor(request))
+    return cloudflareStatus()
+  })
+
+  app.post('/system/cloudflare/tunnel/restart', async (request) => {
+    await restartTunnel(actorFor(request))
+    return cloudflareStatus()
+  })
+
+  app.post('/system/cloudflare/tls', async (request) => {
+    await startTls(actorFor(request))
+    return cloudflareStatus()
+  })
+
+  app.delete('/system/cloudflare', async (request) => {
+    await disconnect(actorFor(request))
+    return cloudflareStatus()
   })
 
   /* --- M5: Domains und Cloudflare --------------------------------------------- */

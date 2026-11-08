@@ -90,6 +90,10 @@ const envSchema = z.object({
   ACCESS_EMAIL: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
   EDGE_NETWORK: z.string().default('deployer_edge'),
   CLOUDFLARED_CONTAINER: z.string().default('deployer-cloudflared'),
+  CLOUDFLARED_IMAGE: z.string().default('cloudflare/cloudflared:2025.8.1'),
+  // Gemeinsames Volume mit Caddy: dort liegt das Token für die DNS-Challenge
+  // als Datei. Caddys Konfiguration (und autosave.json) enthält nur den Pfad.
+  CADDY_SECRETS_DIR: z.string().default('/run/caddy-secrets'),
 
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),
@@ -133,12 +137,8 @@ export function tlsProblems(d: { TLS_MODE: string; INTERNAL_BASE_DOMAIN: string 
 
 let tokenCache: { at: number; v: string | null } | null = null
 
-/**
- * Das Cloudflare-Token aus der Datei (nie in der Umgebung oder in Logs).
- * 30 s zwischengespeichert: die Systemseite fragt oft; ein getauschtes Token
- * gilt so nach spätestens einer halben Minute.
- */
-export function cloudflareToken(): string | null {
+/** Das Cloudflare-Token aus der alten Secret-Datei (compose.tls.yaml), 30 s zwischengespeichert. */
+function fileToken(): string | null {
   if (tokenCache && Date.now() - tokenCache.at < 30_000) return tokenCache.v
   let v: string | null
   try {
@@ -152,22 +152,64 @@ export function cloudflareToken(): string | null {
 
 export const config = build()
 
-export const hostSettings: HostSettings = {
-  baseDomain: config.INTERNAL_BASE_DOMAIN,
-  lanIp: config.SERVER_LAN_IP,
-  nipio: config.NIPIO_FALLBACK,
-  tls: config.TLS_MODE === 'cloudflare',
+/* --- Cloudflare zur Laufzeit ---------------------------------------------------
+ * Seit «Cloudflare verbinden» (Systemseite) stehen Token, Konto, Tunnel,
+ * Basisdomain und TLS in der Datenbank (domain/cloudflare-settings.ts). Was
+ * dort gesetzt ist, gilt; sonst die alten Variablen aus .env. Hier liegt nur
+ * der Zwischenspeicher, damit config.ts ohne Datenbank auskommt.
+ * --------------------------------------------------------------------------- */
+
+export interface CfRuntime {
+  token: string
+  accountId: string
+  tunnelId: string
+  baseDomain: string | null
+  tls: boolean
+  acmeCa: 'production' | 'staging'
+  acmeEmail: string | null
+  tailscaleIp: string | null
+  accessEmail: string | null
+}
+
+let rt: Partial<CfRuntime> = {}
+
+/** Nur domain/cloudflare-settings.ts ruft das auf: Werte aus der Datenbank (fehlende Schlüssel = .env). */
+export function setCfRuntime(r: Partial<CfRuntime>): void {
+  rt = r
+}
+
+const pick = <K extends keyof CfRuntime>(k: K, fallback: CfRuntime[K] | null): CfRuntime[K] | null => (k in rt ? (rt[k] as CfRuntime[K]) : fallback)
+
+/** Wirksame Werte: Datenbank vor .env. */
+export const cf = {
+  token: (): string | null => pick('token', null) ?? fileToken(),
+  tokenSource: (): 'ui' | 'env' | null => ('token' in rt ? 'ui' : fileToken() ? 'env' : null),
+  accountId: (): string | null => pick('accountId', config.CLOUDFLARE_ACCOUNT_ID),
+  tunnelId: (): string | null => pick('tunnelId', config.CLOUDFLARE_TUNNEL_ID),
+  baseDomain: (): string | null => pick('baseDomain', config.INTERNAL_BASE_DOMAIN),
+  tls: (): boolean => pick('tls', config.TLS_MODE === 'cloudflare') ?? false,
+  acmeCa: (): 'production' | 'staging' => pick('acmeCa', config.ACME_CA) ?? 'production',
+  acmeEmail: (): string | null => pick('acmeEmail', config.ACME_EMAIL),
+  tailscaleIp: (): string | null => pick('tailscaleIp', config.TAILSCALE_IP),
+  accessEmail: (): string | null => pick('accessEmail', config.ACCESS_EMAIL),
+}
+
+/** Das Cloudflare-Token (nie in der Umgebung oder in Logs). */
+export const cloudflareToken = (): string | null => cf.token()
+
+export function hostSettings(): HostSettings {
+  return { baseDomain: cf.baseDomain(), lanIp: config.SERVER_LAN_IP, nipio: config.NIPIO_FALLBACK, tls: cf.tls() }
 }
 
 /** nip.io ist nur nutzbar, wenn die LAN-IP bekannt ist. */
-export const nipioEnabled = nipHost('x', hostSettings) !== null
+export const nipioEnabled = nipHost('x', hostSettings()) !== null
 
-export const nipioHost = (label: string) => nipHost(label, hostSettings)
+export const nipioHost = (label: string) => nipHost(label, hostSettings())
 
 /** Die Adresse, die tatsaechlich erreichbar ist (siehe lib/hostnames.ts). */
-export const primaryHost = (label: string) => primaryHostFor(label, hostSettings)
+export const primaryHost = (label: string) => primaryHostFor(label, hostSettings())
 
-export const aliasHosts = (label: string) => aliasHostsFor(label, hostSettings)
+export const aliasHosts = (label: string) => aliasHostsFor(label, hostSettings())
 
 /** URL eines Namens: https:// unter der Basisdomain bei TLS, sonst http:// (M4). */
-export const urlForHost = (host: string) => urlForFn(host, hostSettings)
+export const urlForHost = (host: string) => urlForFn(host, hostSettings())

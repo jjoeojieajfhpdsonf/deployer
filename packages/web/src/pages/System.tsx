@@ -4,6 +4,7 @@ import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { NotificationSettings } from '../components/Notifications.js'
 import { PageHead } from '../components/PageHead.js'
+import { CloudflareSetup } from '../components/CloudflareSetup.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -95,8 +96,8 @@ export function System() {
       {s.hostsBlock === null ? (
         <p className="hint">
           Noch keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.
-          Für eigene interne Namen <code>INTERNAL_BASE_DOMAIN</code> in <code>.env</code> setzen
-          und den deployer neu starten – bestehende Projekte ziehen dann mit.
+          Eigene interne Namen mit Zertifikat gibt es mit «Cloudflare verbinden» weiter unten –
+          bestehende Projekte ziehen dann mit.
         </p>
       ) : (
         <>
@@ -119,8 +120,10 @@ export function System() {
         </>
       )}
 
-      <h2>HTTPS und Tailnet</h2>
-      <TlsSection s={s} />
+      <h2 id="cloudflare">Cloudflare verbinden</h2>
+      <p className="hint">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
+      <CloudflareSetup />
+      {s.baseDomain && <TlsSection s={s} />}
 
       <h2>Benachrichtigungen</h2>
       <NotificationSettings />
@@ -136,30 +139,20 @@ function TlsSection({ s }: { s: SystemStatusDto }) {
     onSuccess: (r) => setNote(`✓ ${r.record.name} → ${r.record.content} (${r.record.action === 'unchanged' ? 'schon richtig' : r.record.action === 'created' ? 'angelegt' : 'aktualisiert'})`),
   })
   const t = s.tls
-  if (t.mode === 'off') {
-    return (
-      <p className="hint">
-        Aus: alles läuft über HTTP. Einschalten auf dem Server mit <code>compose.tls.yaml</code>
-        {' '}(Basisdomain, Cloudflare-Token als Datei) – siehe docs/MILESTONE-4.md.
-      </p>
-    )
-  }
   const c = t.cert
   return (
     <>
+      <h3>Namen auflösen</h3>
       <ul className="check-list">
-        <li className={c && c.ok && !c.problem ? 'check-ok' : 'check-fail'}>
-          <span className="check-name">Zertifikat *.{s.baseDomain}</span>
-          <span className="check-detail">
-            {!c ? 'nicht abrufbar'
-              : c.problem ? c.problem
-              : `gültig bis ${new Date(c.validTo!).toLocaleDateString('de-CH')} (${c.daysLeft} Tage) · ${c.issuer ?? ''}`}
-            {t.acmeCa === 'staging' ? ' · Staging-CA (Browser warnen)' : ''}
-          </span>
-        </li>
+        {t.mode === 'cloudflare' && c?.problem && (
+          <li className="check-fail">
+            <span className="check-name">Zertifikat *.{s.baseDomain}</span>
+            <span className="check-detail">{c.problem}</span>
+          </li>
+        )}
         <li className={t.tailscaleIp ? 'check-ok' : 'check-none'}>
           <span className="check-name">Tailnet</span>
-          <span className="check-detail">{t.tailscaleIp ? `*.${s.baseDomain} → ${t.tailscaleIp} (Cloudflare, nicht proxied)` : 'TAILSCALE_IP nicht gesetzt'}</span>
+          <span className="check-detail">{t.tailscaleIp ? `*.${s.baseDomain} → ${t.tailscaleIp} (Cloudflare, nicht proxied)` : 'keine Tailscale-IP angegeben (Schritt 3, optional)'}</span>
         </li>
       </ul>
       {t.tailscaleIp && (
@@ -169,9 +162,8 @@ function TlsSection({ s }: { s: SystemStatusDto }) {
       )}
       {note && <p className="hint" role="status">{note}</p>}
       {tailnet.isError && <p role="alert" className="error">{(tailnet.error as Error).message}</p>}
-      <h3>Im Heimnetz</h3>
       <p className="hint">
-        Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
+        <strong>Im Heimnetz:</strong> Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
         <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
         denselben Namen auf die Tailscale-IP auf.
       </p>

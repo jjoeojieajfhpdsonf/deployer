@@ -63,7 +63,12 @@ services:
     networks: [internal]
 
   caddy:
-    image: caddy:2-alpine
+    # Caddy mit dem DNS-Modul für Cloudflare: das Wildcard-Zertifikat lässt
+    # sich so jederzeit über die Systemseite einrichten, ohne Compose-Ergänzung.
+    image: deployer/caddy-cloudflare:local
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
     restart: unless-stopped
     logging: *logging
     container_name: deployer-caddy
@@ -75,6 +80,8 @@ services:
     command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     ports:
       - "80:80"
+      # Erst in Gebrauch, wenn das Zertifikat eingerichtet ist (System → Cloudflare)
+      - "443:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -82,6 +89,9 @@ services:
       # Admin-Socket. Kein TCP :2019 - siehe docs/MILESTONE-1.md.
       - caddy_admin:/run/caddy
       - sites:/srv/sites:ro
+      # Cloudflare-Token als Datei, geschrieben vom deployer. Die Konfiguration
+      # (und autosave.json) enthält nur den Pfad: {file./run/caddy-secrets/...}
+      - caddy_secrets:/run/caddy-secrets:ro
     networks:
       edge:
         # Caddy wird zur Laufzeit in Projekt-Netze (dep_*) gehaengt. Bei
@@ -128,6 +138,7 @@ services:
       DEFAULT_MEMORY_LIMIT_MB: ${DEFAULT_MEMORY_LIMIT_MB:-512}
     volumes:
       - caddy_admin:/run/caddy
+      - caddy_secrets:/run/caddy-secrets
       - sites:/srv/sites
       - deployer_data:/data
     networks:
@@ -155,5 +166,6 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_admin:
+  caddy_secrets:
   sites:
   deployer_data:

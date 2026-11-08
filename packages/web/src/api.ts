@@ -1,9 +1,9 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto, ProjectHealthDto,
+  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto,
 } from '@deployer/shared'
 
-export type { ScanReportDto, FindingDto, ProjectHealthDto }
+export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto }
 
 export interface ExternalTargetDto {
   id: string
@@ -139,6 +139,16 @@ export const api = {
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
+
+  /* Cloudflare verbinden */
+  cloudflare: () => call<CfStatusDto>('/system/cloudflare'),
+  cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>('/system/cloudflare/check', { method: 'POST', body: body({ token }) }),
+  cloudflareToken: (token: string) => call<{ check: CfTokenCheckDto; status: CfStatusDto }>('/system/cloudflare/token', { method: 'PUT', body: body({ token }) }),
+  cloudflareDomains: (d: unknown) => call<CfStatusDto>('/system/cloudflare/domains', { method: 'PUT', body: body(d) }),
+  cloudflareTunnel: () => call<CfStatusDto>('/system/cloudflare/tunnel', { method: 'POST' }),
+  cloudflareTunnelRestart: () => call<CfStatusDto>('/system/cloudflare/tunnel/restart', { method: 'POST' }),
+  cloudflareTls: () => call<CfStatusDto>('/system/cloudflare/tls', { method: 'POST' }),
+  cloudflareDisconnect: () => call<CfStatusDto>('/system/cloudflare', { method: 'DELETE' }),
 
   /* System */
   system: () => call<SystemStatusDto>('/system/status'),

@@ -2,6 +2,8 @@
 
 Stand: 7. November 2026
 
+> **Neu (8.11.2026):** Eingerichtet wird über die Oberfläche, System → «Cloudflare verbinden» – siehe [CLOUDFLARE.md](CLOUDFLARE.md). `compose.tls.yaml` und die Variablen unten gelten nur noch als Rückfall für bestehende Installationen.
+
 Umfang laut [SPEC.md](SPEC.md): Wildcard-Zertifikat per DNS-Challenge bei Cloudflare, dieselbe interne Adresse `projekt.int.deinedomain.ch` im LAN und im Tailnet, gültiges HTTPS ohne Warnung.
 
 **Ohne echte Domain, ohne Cloudflare-Token, ohne Server gebaut.** Der Auftrag für die Nacht: Code schreiben, mit Unit-Tests absichern, aber nicht gegen Cloudflare oder Let's Encrypt testen. Was davon lokal doch prüfbar ist, steht unter «Abnahme».

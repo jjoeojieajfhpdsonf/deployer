@@ -150,3 +150,23 @@ describe('M5: öffentliche Routen hinter cloudflared', () => {
     assert.equal(c.apps.http.servers.srv0.trusted_proxies, undefined)
   })
 })
+
+describe('Token aus der Oberfläche', () => {
+  test('Token als Datei: Konfiguration enthält nur den Pfad-Platzhalter, nie das Token', () => {
+    const c = cfg({ tls: { baseDomain: 'int.example.ch', acmeCa: 'staging', tokenFile: '/run/caddy-secrets/cloudflare_token' } })
+    const issuer = c.apps.tls.automation.policies[0].issuers[0]
+    assert.equal(issuer.challenges.dns.provider.api_token, '{file./run/caddy-secrets/cloudflare_token}')
+    assert.equal(issuer.ca, ACME_STAGING)
+    assert.doesNotMatch(JSON.stringify(c), /cf-test-token|eyJ/)
+  })
+  test('ohne Datei: alter Platzhalter aus der Umgebung', () => {
+    const c = cfg()
+    assert.equal(c.apps.tls.automation.policies[0].issuers[0].challenges.dns.provider.api_token, CF_TOKEN_PLACEHOLDER)
+  })
+  test('während der Einrichtung keine Weiterleitung auf https', () => {
+    const c = cfg({ tls: { baseDomain: 'int.example.ch', acmeCa: 'staging', redirect: false } })
+    const redirects = c.apps.http.servers.srv0.routes.filter((r: R) => r.handle[0]?.status_code === 308)
+    assert.equal(redirects.length, 0)
+    assert.ok(c.apps.http.servers.srv1)
+  })
+})

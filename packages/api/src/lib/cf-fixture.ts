@@ -16,6 +16,9 @@ export interface FakeCloudflare {
   ingress: IngressRule[]
   apps: { id: string; name: string; domain: string; policies: unknown }[]
   tunnel: { status: string; connections: unknown[] }
+  /** Rechte des Tokens: zone_read, dns_edit, tunnel_edit, access_edit (Standard: alle) */
+  perms: Set<string>
+  tunnels: { id: string; name: string }[]
   calls: { method: string; path: string }[]
   close(): Promise<void>
 }
@@ -28,6 +31,8 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'],
     ingress: [{ service: 'http_status:404' }],
     apps: [],
     tunnel: { status: 'healthy', connections: [{}, {}] },
+    perms: new Set(['zone_read', 'dns_edit', 'tunnel_edit', 'access_edit']),
+    tunnels: [],
     calls: [],
   }
 
@@ -48,7 +53,29 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'],
       const page = Number(url.searchParams.get('page') ?? '1')
       let m: RegExpExecArray | null
 
-      if (method === 'GET' && path === '/zones') return send(200, ok(page === 1 ? state.zones : []))
+      const denied = () => send(403, fail(10000, 'Authentication error'))
+      if (method === 'GET' && path === '/user/tokens/verify') return send(200, ok({ id: 'tok-1', status: 'active' }))
+      if (method === 'GET' && path === '/accounts') return send(200, ok(page === 1 ? [{ id: 'acc-e2e-test', name: 'Joëls Konto' }] : []))
+      if (method === 'GET' && path === '/zones') return send(200, ok(page === 1 && state.perms.has('zone_read') ? state.zones : []))
+      // Schreibrechte: ohne Recht 403, mit Recht prüft die Attrappe den Inhalt
+      if (method !== 'GET' && /\/dns_records/.test(path) && !state.perms.has('dns_edit')) return denied()
+      if (method !== 'GET' && /\/cfd_tunnel/.test(path) && !state.perms.has('tunnel_edit')) return denied()
+      if (method !== 'GET' && /\/access\/apps/.test(path) && !state.perms.has('access_edit')) return denied()
+      if ((m = /^\/accounts\/([^/]+)\/cfd_tunnel$/.exec(path))) {
+        if (method === 'POST') {
+          if (!body.name || body.config_src !== 'cloudflare') return send(400, fail(1003, 'Invalid tunnel name or config_src'))
+          const t = { id: randomUUID(), name: body.name }
+          state.tunnels.push(t)
+          return send(200, ok(t))
+        }
+        if (method === 'GET') return send(200, ok(state.tunnels.filter((t) => !url.searchParams.get('name') || t.name === url.searchParams.get('name'))))
+      }
+      if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)\/token$/.exec(path)) && method === 'GET') return send(200, ok(`eyJ-fake-tunnel-token-${m[1]}`))
+      if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)\/connections$/.exec(path)) && method === 'DELETE') return send(200, ok(null))
+      if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)$/.exec(path)) && method === 'DELETE') {
+        state.tunnels = state.tunnels.filter((t) => t.id !== m![1])
+        return send(200, ok({ id: m[1] }))
+      }
 
       if ((m = /^\/zones\/([^/]+)\/dns_records$/.exec(path))) {
         const zoneId = m[1]!
@@ -59,6 +86,7 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'],
           return send(200, ok([...state.records.values()].filter((r) => r.zoneId === zoneId && (!name || r.name === name) && (!type || r.type === type))))
         }
         if (method === 'POST') {
+          if (!['A', 'AAAA', 'CNAME', 'TXT'].includes(body.type)) return send(400, fail(9005, 'Content for type is invalid'))
           const dup = [...state.records.values()].find((r) => r.name === body.name && (r.type === 'CNAME' || body.type === 'CNAME'))
           if (dup) return send(400, fail(81053, 'An A, AAAA, or CNAME record with that host already exists.'))
           const r = { id: randomUUID(), zoneId, ...body }
@@ -92,6 +120,7 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'],
       if (/^\/accounts\/[^/]+\/access\/apps$/.exec(path)) {
         if (method === 'GET') return send(200, ok(page === 1 ? state.apps : []))
         if (method === 'POST') {
+          if (body.type !== 'self_hosted') return send(400, fail(12000, 'invalid app type'))
           const app = { id: randomUUID(), name: body.name, domain: body.domain, policies: body.policies }
           state.apps.push(app)
           return send(200, ok(app))

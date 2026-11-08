@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import type { ScanStages } from '../db/schema.js'
-import { config, urlForHost } from '../config.js'
+import { cf, config, urlForHost } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { findProject } from '../domain/projects.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
@@ -203,7 +203,7 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
     await stage('nuclei', () => nuclei(run.id, target, scanLabels))
     // TLS endet bei Caddy, nicht im Projekt-Container: geprüft würde für jedes
     // Projekt dieselbe Caddy-Konfiguration. Zertifikatsstatus: Systemseite (M4).
-    stages.testssl = { ran: false, note: config.TLS_MODE === 'cloudflare' ? 'zentral über Caddy, siehe Systemseite' : 'nicht anwendbar: intern kein TLS' }
+    stages.testssl = { ran: false, note: cf.tls() ? 'zentral über Caddy, siehe Systemseite' : 'nicht anwendbar: intern kein TLS' }
   } finally {
     if (stopStatic) await stopStatic().catch(() => {})
   }

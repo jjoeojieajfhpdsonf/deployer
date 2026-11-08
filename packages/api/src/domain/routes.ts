@@ -1,6 +1,7 @@
 import { eq, and, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { config, primaryHost, aliasHosts, urlForHost } from '../config.js'
+import { cf, config, primaryHost, aliasHosts, urlForHost } from '../config.js'
+import { caddyTlsOptions } from './cloudflare-settings.js'
 import * as caddy from '../drivers/caddy.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
@@ -183,7 +184,7 @@ export function siteRootFor(slug: string): string {
  * nicht läuft – dann gibt es keine öffentlichen Routen.
  */
 export async function cloudflaredCidrs(): Promise<string[]> {
-  if (!config.CLOUDFLARE_TUNNEL_ID) return []
+  if (!cf.tunnelId()) return []
   const ip = await docker.containerIp(config.CLOUDFLARED_CONTAINER, config.EDGE_NETWORK)
   return ip ? [`${ip}/32`] : []
 }
@@ -267,8 +268,9 @@ let lastCloudflaredCidrs = ''
  * nachsehen und Caddy neu abgleichen, wenn sie sich geändert hat.
  */
 export function startCloudflaredWatch(): NodeJS.Timeout | null {
-  if (!config.CLOUDFLARE_TUNNEL_ID) return null
+  // Läuft immer: der Tunnel kann jederzeit über die Oberfläche dazukommen
   const t = setInterval(() => {
+    if (!cf.tunnelId() && !lastCloudflaredCidrs) return
     void cloudflaredCidrs().then((c) => {
       if (c.join(',') !== lastCloudflaredCidrs) {
         log.info('cloudflared hat eine neue Adresse; Caddy wird abgeglichen', { cidrs: c })
@@ -288,13 +290,14 @@ export function startCloudflaredWatch(): NodeJS.Timeout | null {
  * Jeder Lauf liest die Datenbank erst, wenn er dran ist – der letzte Stand
  * gewinnt.
  */
-export function reconcileCaddy(): Promise<void> {
-  const next = reconcileChain.then(reconcileCaddyNow, reconcileCaddyNow)
+export function reconcileCaddy(o: { force?: boolean } = {}): Promise<void> {
+  const run = () => reconcileCaddyNow(Boolean(o.force))
+  const next = reconcileChain.then(run, run)
   reconcileChain = next.catch(() => {})
   return next
 }
 
-async function reconcileCaddyNow(): Promise<void> {
+async function reconcileCaddyNow(force: boolean): Promise<void> {
   await syncCaddyNetworks()
   const edge = await cloudflaredCidrs()
   lastCloudflaredCidrs = edge.join(',')
@@ -302,18 +305,17 @@ async function reconcileCaddyNow(): Promise<void> {
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
-  const changed = await caddy.loadConfigIfChanged(
-    caddy.buildCaddyConfig(specs, {
+  const build = caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
       cidrs: [config.LAN_CIDR, config.tailnetCidr, '127.0.0.0/8', '::1/128'],
       adminSocket: config.CADDY_ADMIN_SOCKET,
-      tls: config.TLS_MODE === 'cloudflare' && config.INTERNAL_BASE_DOMAIN
-        ? { baseDomain: config.INTERNAL_BASE_DOMAIN, acmeCa: config.ACME_CA, email: config.ACME_EMAIL }
-        : null,
+      // Datenbank (Cloudflare verbinden) oder alte Einrichtung über .env
+      tls: caddyTlsOptions(),
       // M5: nur wenn es öffentliche Routen geben kann
       trustedProxies: edge,
-    }),
-  )
+    })
+  // force: das Token in der Datei hat sich geändert – Caddy liest es nur beim Laden
+  const changed = force ? (await caddy.loadConfig(build), true) : await caddy.loadConfigIfChanged(build)
   await caddy.assertAdminOnUnixSocket()
   if (changed) log.info('Caddy abgeglichen', { routen: specs.length, ipFilter: config.CADDY_IP_FILTER })
 }

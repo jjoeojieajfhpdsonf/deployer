@@ -1,4 +1,4 @@
-import { config, cloudflareToken } from '../config.js'
+import { cf as settings, config, cloudflareToken } from '../config.js'
 import { Cloudflare, zoneFor, upsertManagedRecord, CloudflareError } from '../drivers/cloudflare.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
@@ -25,14 +25,14 @@ export function cloudflareClient(): Cloudflare | null {
 }
 
 export function tailnetDnsConfigured(): boolean {
-  return config.TLS_MODE === 'cloudflare' && Boolean(config.INTERNAL_BASE_DOMAIN && config.TAILSCALE_IP)
+  return Boolean(settings.token() && settings.baseDomain() && settings.tailscaleIp())
 }
 
 export async function ensureTailnetDns(actor: string, cf = cloudflareClient()): Promise<TailnetDnsResult> {
-  const base = config.INTERNAL_BASE_DOMAIN
-  const ip = config.TAILSCALE_IP
-  if (!base || !ip) throw new CloudflareError('Für den Tailnet-Eintrag braucht es INTERNAL_BASE_DOMAIN und TAILSCALE_IP', 400)
-  if (!cf) throw new CloudflareError(`Kein Cloudflare-Token in ${config.CLOUDFLARE_API_TOKEN_FILE}`, 400)
+  const base = settings.baseDomain()
+  const ip = settings.tailscaleIp()
+  if (!base || !ip) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (System → Cloudflare)', 400)
+  if (!cf) throw new CloudflareError('Kein Cloudflare-Token (System → Cloudflare verbinden)', 400)
   return ensureWildcardRecord(cf, base, ip, actor)
 }
 

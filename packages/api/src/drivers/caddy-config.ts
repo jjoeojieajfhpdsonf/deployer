@@ -52,10 +52,22 @@ export interface TlsOptions {
   baseDomain: string
   acmeCa: 'production' | 'staging'
   email?: string | null
+  /**
+   * Token als Datei im gemeinsamen Volume (eingerichtet über die
+   * Oberfläche). Caddy liest sie mit dem Platzhalter {file.<pfad>} beim
+   * Laden; in der Konfiguration und in autosave.json steht nur der Pfad.
+   * Fehlt er: alter Weg über die Umgebung (compose.tls.yaml).
+   */
+  tokenFile?: string | null
+  /** http -> https für interne Namen. Während der Einrichtung aus, bis das echte Zertifikat da ist. */
+  redirect?: boolean
 }
 
 /** Platzhalter, den Caddy zur Laufzeit aus seiner Umgebung füllt (Entrypoint liest das Secret). */
 export const CF_TOKEN_PLACEHOLDER = '{env.CF_API_TOKEN}'
+
+/** Platzhalter für das Token aus einer Datei – nie das Token selbst. */
+export const tokenPlaceholder = (tls: TlsOptions) => (tls.tokenFile ? `{file.${tls.tokenFile}}` : CF_TOKEN_PLACEHOLDER)
 export const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
 
 export { coveredByWildcard }
@@ -111,7 +123,7 @@ export function buildCaddyConfig(
     if (secure.length) tlsRoutes.push(toRoute(r, secure))
   }
 
-  if (tls) {
+  if (tls && tls.redirect !== false) {
     // Wer einen internen Namen über HTTP anfragt, landet auf HTTPS. Eigene
     // Weiterleitung statt Caddys automatischer: die erfasste auch nip.io.
     plainRoutes.push({
@@ -176,7 +188,7 @@ export function buildCaddyConfig(
             ...(tls.email ? { email: tls.email } : {}),
             challenges: {
               dns: {
-                provider: { name: 'cloudflare', api_token: CF_TOKEN_PLACEHOLDER },
+                provider: { name: 'cloudflare', api_token: tokenPlaceholder(tls) },
                 // Nicht der lokale DNS: ein Split-Horizon (AdGuard mit *.int)
                 // beantwortete die _acme-challenge-Abfrage falsch.
                 resolvers: ['1.1.1.1', '1.0.0.1'],

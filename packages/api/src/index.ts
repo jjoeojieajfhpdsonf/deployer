@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { config, nipioEnabled } from './config.js'
+import { cf, config, nipioEnabled } from './config.js'
 import { runMigrations } from './db/migrate.js'
 import { pool } from './db/index.js'
 import { loadOrCreateKey } from './lib/crypto.js'
@@ -11,6 +11,7 @@ import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startMonitorJob } from './jobs/monitor.js'
+import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
 import { reconcilePublicOnBoot } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
@@ -23,6 +24,8 @@ async function main(): Promise<void> {
   await runMigrations((msg) => log.info(msg))
   loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
   await ensureAdminPassword()
+  // Cloudflare aus der Datenbank (Systemseite), vor allem, was Adressen braucht
+  await loadCloudflareSettings()
 
   if (!config.CADDY_IP_FILTER) {
     // Ein stiller Schalter landet irgendwann unbemerkt auf dem Server.
@@ -31,18 +34,18 @@ async function main(): Promise<void> {
         'Nur für Docker Desktop auf dem Mac gedacht, nicht für den Server.',
     )
   }
-  if (!config.INTERNAL_BASE_DOMAIN) {
+  if (!cf.baseDomain()) {
     log.info('Keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.')
   }
   if (!nipioEnabled) {
     log.warn('nip.io-Rückfall inaktiv: SERVER_LAN_IP ist nicht gesetzt ("pnpm ip" auf dem Server).')
   }
-  if (!config.INTERNAL_BASE_DOMAIN && !nipioEnabled) {
+  if (!cf.baseDomain() && !nipioEnabled) {
     // Weder Basisdomain noch nip.io: die Adressen enden auf .int.invalid und
     // sind nirgends erreichbar. Laut, damit es nicht wie ein Netzproblem aussieht.
     log.error(
-      'Weder INTERNAL_BASE_DOMAIN noch SERVER_LAN_IP gesetzt – kein Projekt ist erreichbar. ' +
-        'Mindestens eines davon in .env eintragen.',
+      'Weder Basisdomain noch SERVER_LAN_IP gesetzt – kein Projekt ist erreichbar. ' +
+        'SERVER_LAN_IP in .env eintragen oder unter System «Cloudflare verbinden».',
     )
   }
 
@@ -59,6 +62,7 @@ async function main(): Promise<void> {
   void ensureTailnetDnsOnBoot()
   // M5: Domains und Tunnel-Ingress aus der Datenbank, ebenfalls im Hintergrund.
   void reconcilePublicOnBoot()
+  void ensureManagedTunnelOnBoot()
   startCloudflaredWatch()
   startCertJob()
 

@@ -475,6 +475,63 @@ export interface AuditEventDto {
   error: string | null
 }
 
+/* --- Cloudflare verbinden (Systemseite) ------------------------------------ */
+
+export interface CfPermissionCheck {
+  key: 'zone_read' | 'dns_edit' | 'tunnel_edit' | 'access_edit'
+  label: string
+  required: boolean
+  ok: boolean
+  /** Was genau fehlt, z.B. die Zonen ohne DNS-Recht */
+  detail: string | null
+}
+
+export interface CfTokenCheckDto {
+  valid: boolean
+  /** Alle Pflichtrechte vorhanden */
+  complete: boolean
+  message: string | null
+  expiresOn: string | null
+  accounts: { id: string; name: string }[]
+  zones: { id: string; name: string; dnsEdit: boolean }[]
+  permissions: CfPermissionCheck[]
+}
+
+export type CfTlsPhase = 'off' | 'staging' | 'production' | 'done' | 'failed'
+
+export interface CfStatusDto {
+  /** ui: über die Oberfläche eingerichtet; env: alte Variablen aus .env; null: nichts */
+  source: 'ui' | 'env' | null
+  token: { present: boolean; source: 'ui' | 'env' | null; savedAt: string | null; lastCheck: CfTokenCheckDto | null }
+  account: { id: string; name: string | null } | null
+  zones: { id: string; name: string; isDefault: boolean }[]
+  baseDomain: string | null
+  defaultZone: string | null
+  tailscaleIp: string | null
+  accessEmail: string | null
+  acmeEmail: string | null
+  tunnel: {
+    id: string
+    name: string | null
+    managed: boolean
+    container: { exists: boolean; running: boolean; restarting: boolean; startedAt: string | null; lastLog: string | null } | null
+    status: string | null
+    connections: number
+  } | null
+  tls: {
+    enabled: boolean
+    phase: CfTlsPhase
+    ca: 'production' | 'staging'
+    startedAt: string | null
+    steps: { at: string; text: string; tone: 'info' | 'ok' | 'bad' }[]
+    cert: { issuer: string | null; validTo: string | null; daysLeft: number | null; ok: boolean; error: string | null } | null
+  }
+  /** Link zur Token-Seite bei Cloudflare mit vorausgefüllten Rechten */
+  tokenTemplateUrl: string
+  requiredPermissions: { label: string; required: boolean; why: string }[]
+  publicProjects: number
+}
+
 /** Ein Messpunkt: CPU in Kernen (1 = ein voller Kern), RAM in MB. */
 export interface ResourceSample { at: string; cpu: number; memMb: number }
 
@@ -630,3 +687,41 @@ export const publicNameFormSchema = z.object({
   }),
 })
 
+
+/* --- Cloudflare verbinden ------------------------------------------------- */
+
+export const cfTokenSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(1, 'Füge das API-Token ein, das Cloudflare nach «Token erstellen» einmal anzeigt')
+    .regex(/^[A-Za-z0-9_-]{30,200}$/, 'Das ist kein API-Token: 40 Zeichen aus Buchstaben, Ziffern, - und _. Der «Global API Key» geht nicht.'),
+})
+
+const optionalEmail = z
+  .string()
+  .trim()
+  .max(200, 'Höchstens 200 Zeichen')
+  .regex(/^$|^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Das ist keine E-Mail-Adresse, z.B. joel@meine-domain.ch')
+  .nullable()
+  .optional()
+
+export const cfDomainsSchema = z.object({
+  baseZone: z.string().trim().min(1, 'Wähle die Zone, unter der die internen Adressen liegen'),
+  baseLabel: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(40, 'Höchstens 40 Zeichen')
+    .regex(/^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Ein einzelnes Label aus a-z, 0-9 und -, z.B. int'),
+  defaultZone: z.string().trim().nullable(),
+  accountId: z.string().trim().optional(),
+  tailscaleIp: z
+    .string()
+    .trim()
+    .regex(/^$|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/, 'Eine Tailscale-Adresse im Bereich 100.64.0.0/10, z.B. 100.101.102.103 – oder leer lassen')
+    .nullable()
+    .optional(),
+  accessEmail: optionalEmail,
+  acmeEmail: optionalEmail,
+})

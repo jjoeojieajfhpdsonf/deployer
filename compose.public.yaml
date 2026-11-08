@@ -1,4 +1,11 @@
-# Ergänzung für Meilenstein 5: öffentlich über Cloudflare Tunnel.
+# ALT – nur noch für bestehende Installationen.
+#
+# Neu legt deployer den Tunnel selbst an und startet cloudflared als eigenen
+# Container: System → «Cloudflare verbinden». Diese Datei und
+# secrets/tunnel_token braucht es dafür nicht. Nicht beides gleichzeitig:
+# läuft cloudflared aus dieser Datei, lehnt die Oberfläche den Tunnel ab.
+#
+# Bisherige Verwendung (öffentlich über Cloudflare Tunnel, Meilenstein 5):
 #
 #   docker compose -f compose.yaml -f compose.tls.yaml -f compose.public.yaml up -d --build
 #

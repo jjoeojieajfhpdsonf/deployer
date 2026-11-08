@@ -1,4 +1,4 @@
-import { config } from '../config.js'
+import { cf, config } from '../config.js'
 import { probeCert, certProblem, type CertInfo } from '../lib/cert.js'
 import { getSetting, setSetting } from '../db/index.js'
 import { notify } from '../notify/send.js'
@@ -22,14 +22,14 @@ const CACHE_MS = 5 * 60_000
  * Caddy 5 s Wartezeit) wäre unnötig (Review M4).
  */
 export async function currentCert(fresh = false): Promise<CertInfo | null> {
-  if (config.TLS_MODE !== 'cloudflare' || !config.INTERNAL_BASE_DOMAIN) return null
+  if (!cf.tls() || !cf.baseDomain()) return null
   if (!fresh && cached && Date.now() - cached.at < CACHE_MS) return cached.info
-  const info = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${config.INTERNAL_BASE_DOMAIN}`)
+  const info = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${cf.baseDomain()}`)
   cached = { at: Date.now(), info }
   return info
 }
 
-export const certProblemNow = (c: CertInfo, now = new Date()) => certProblem(c, now, { staging: config.ACME_CA === 'staging' })
+export const certProblemNow = (c: CertInfo, now = new Date()) => certProblem(c, now, { staging: cf.acmeCa() === 'staging' })
 
 export async function checkCertificate(now = new Date()): Promise<string | null> {
   const c = await currentCert(true)
@@ -46,7 +46,7 @@ export async function checkCertificate(now = new Date()): Promise<string | null>
 }
 
 export function startCertJob(): NodeJS.Timeout | null {
-  if (config.TLS_MODE !== 'cloudflare') return null
+  // Läuft immer; ohne TLS kehrt currentCert sofort zurück (TLS kann über die Oberfläche dazukommen)
   const tick = () => checkCertificate().catch((err) => log.error('Zertifikatsprüfung fehlgeschlagen', { err: String(err) }))
   // Erste Prüfung nach 10 Minuten: Caddy braucht für die DNS-Challenge etwas.
   setTimeout(tick, 10 * 60_000).unref()

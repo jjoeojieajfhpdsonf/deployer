@@ -99,3 +99,11 @@ Format: **Frage** – getroffene Annahme – *wo*.
 - **Testdaten-Umschalter** (`?demo=lang|leer|eins|viele|hunderte`) gibt es nur im Entwicklungsmodus; im gebauten Bundle fehlen Daten und Schalter. – *web/lib/demo.ts, components/DemoToggle.tsx*
 - **Status in der Projektliste:** Scheitert ein Deploy und die alte Fassung läuft weiter, heisst der Zustand «läuft», der Fehlschlag steht darunter. – *web/lib/projects.ts, runtimeStatus*
 
+## Cloudflare verbinden (8.11.2026)
+
+- **Rechte-Prüfung über absichtlich ungültige Anfragen** (400 = Recht vorhanden, 403 = fehlt). So kommt sie ohne das Recht «API-Tokens lesen» und ohne Seiteneffekt aus. Gegen die echte API noch nicht geprüft; antwortet Cloudflare anders, meldet die Oberfläche «nicht sicher prüfbar» statt eines falschen Ergebnisses. – *domain/cloudflare-settings.ts, checkToken*
+- **Vorlagen-Link mit vorausgefüllten Rechten:** Die Schlüssel (`zone`, `dns`, `argotunnel`, `access`) sind nicht offiziell dokumentiert. Fehlt einer, ist das Recht auf der Cloudflare-Seite leer; die Liste daneben nennt es trotzdem.
+- **Mehrere Konten:** Standard ist das erste Konto, das das Token sieht; bei mehreren erscheint in Schritt 3 eine Auswahl.
+- **Trennen** löscht den Tunnel bei Cloudflare, behält aber die Basisdomain (Adressen laufen dann über http) und lehnt ab, solange ein Projekt öffentlich ist – nichts wird still unveröffentlicht.
+- **Basisdomain im LAN:** Der lokale DNS muss `*.<basis>` weiter selbst auf die LAN-IP zeigen; das kann deployer nicht (privater Adressbereich).
+

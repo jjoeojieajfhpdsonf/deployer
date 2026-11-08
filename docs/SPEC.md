@@ -108,6 +108,18 @@ Pro Projekt lassen sich die Ziele frei kombinieren. Standard für neue Projekte 
 
 Damit gilt im Heimnetz und unterwegs dieselbe interne Adresse. Caddy holt dafür ein Wildcard-Zertifikat von Let's Encrypt über die DNS-Challenge bei Cloudflare, also gültiges HTTPS ohne Warnungen. Caddy beantwortet interne Hostnamen nur für Anfragen aus dem LAN-Subnetz und aus dem Tailscale-Bereich `100.64.0.0/10`.
 
+### Cloudflare verbinden
+
+Cloudflare wird vollständig in der Oberfläche eingerichtet (System → «Cloudflare verbinden»), nicht über `.env` oder Compose-Dateien:
+
+1. **Token einfügen.** Ein Link öffnet die Token-Seite bei Cloudflare mit vorausgefüllten Rechten; die Seite listet die nötigen Rechte mit Zweck auf.
+2. **Token sofort prüfen:** gültig, aktiv, jedes Recht vorhanden. Fehlende Rechte werden konkret genannt (welches Recht, für welche Zone oder welches Konto). Geprüft wird ohne Seiteneffekt.
+3. **Domains wählen:** interne Basisdomain (Präfix + Zone, z.B. `int.deinedomain.ch`) und Standard-Domain für öffentliche Projekte; optional Tailscale-IP, E-Mail für Access und für Let's Encrypt.
+4. **Tunnel per API anlegen,** Tunnel-Token holen, `cloudflared` als Container durch deployer selbst starten und verwalten.
+5. **Wildcard-Zertifikat:** erst ACME-Staging, dann Produktion, mit sichtbarem Fortschritt. `https://` in Adressen und die Weiterleitung erst, wenn das echte Zertifikat da ist.
+
+Dazu: Verbindung trennen (erst wenn kein Projekt öffentlich ist) und Token ersetzen. Das Token liegt verschlüsselt in der Datenbank wie die übrigen Secrets; Änderungen nur mit Anmeldung, nicht mit einem API-Token. Caddy bekommt das Token als Datei in einem eigenen Volume; seine Konfiguration und `autosave.json` enthalten nur den Pfad. In `.env` bleibt nur, was zum Starten nötig ist; die alten Variablen (`INTERNAL_BASE_DOMAIN`, `TLS_MODE`, `CLOUDFLARE_*`) gelten weiter als Rückfall, solange in der Oberfläche nichts gesetzt ist.
+
 ### Domains
 
 - Cloudflare-Zonen des Kontos auflisten und eine als Standard setzen
@@ -314,7 +326,7 @@ deployer selbst ist das wertvollste Ziel auf dem Server, weil es Container start
 
 - **Nie öffentlich.** UI, API und MCP laufen nur unter `deployer.int.deinedomain.ch`, erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
 - **Docker-Socket abschirmen.** deployer spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
-- **Cloudflare-Token mit minimalen Rechten:** Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key.
+- **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.
 - **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen.
 - **Audit-Log** für jede Änderung, egal ob aus UI, API oder MCP.
@@ -345,9 +357,9 @@ Vorschlag mit Technik, die du aus dem Alltag kennst (TypeScript, React, Vite, Do
 | Docker-Steuerung | dockerode über einen Docker-Socket-Proxy | Programmierbarer Zugriff, eingeschränkte Rechte |
 | Lokale Repos | Git auf dem Server (isomorphic-git oder `git`-CLI) | Versionen für Chat-Deploys |
 | MCP | Offizielles TypeScript-SDK `@modelcontextprotocol/sdk`, Streamable HTTP | Standard, funktioniert mit Claude |
-| Cloudflare | Offizielles SDK `cloudflare` | DNS, Tunnel-Konfiguration, Access |
+| Cloudflare | Schlanker eigener Client über `fetch` | DNS, Tunnel anlegen und konfigurieren, Access, Token-Prüfung (siehe MILESTONE-4.md) |
 | Reverse Proxy | Caddy mit Modul `caddy-dns/cloudflare` | Konfiguration per Admin-API zur Laufzeit, automatische Zertifikate |
-| Tunnel | `cloudflared` als Container, remote verwaltet | Ingress-Regeln per API, keine Konfigurationsdatei |
+| Tunnel | `cloudflared` als Container, von deployer gestartet, remote verwaltet | Tunnel und Ingress-Regeln per API, Token als Datei im Container |
 | Scanner | Trivy, OWASP ZAP, Nuclei, testssl.sh als Container | Etablierte Open-Source-Werkzeuge, nur bei Bedarf gestartet |
 | Angriffserkennung | CrowdSec mit Caddy-Bouncer, Cloudflare Analytics-API, `docker diff`, optional Falco | Etablierte Werkzeuge, CrowdSec läuft als eigener Container |
 | Benachrichtigungen | ntfy (Push), SMTP (E-Mail) | Self-hosted möglich, einfache HTTP-API |

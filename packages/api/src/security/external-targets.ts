@@ -2,7 +2,7 @@ import { eq, desc } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { db, schema } from '../db/index.js'
-import { config } from '../config.js'
+import { cf, config } from '../config.js'
 import { audit } from '../domain/audit.js'
 import { notFound, conflict } from '../lib/errors.js'
 import { validateExternalHostname, txtRecordName, txtExpectedValue, verifyTxt, assertPublicTarget, PUBLIC_RESOLVERS, type TxtResolver, type AddressResolver } from './external.js'
@@ -77,7 +77,7 @@ export async function findExternalTarget(idOrHost: string): Promise<Row> {
 }
 
 export async function addExternalTarget(hostname: string, actor: string): Promise<ExternalTargetDto> {
-  const h = validateExternalHostname(hostname, config.INTERNAL_BASE_DOMAIN)
+  const h = validateExternalHostname(hostname, cf.baseDomain())
   const existing = await db.select().from(schema.externalTargets).where(eq(schema.externalTargets.hostname, h))
   if (existing[0]) throw conflict(`${h} ist schon eingetragen`)
   const rows = await db.insert(schema.externalTargets).values({ hostname: h, txtToken: randomBytes(18).toString('base64url') }).returning()

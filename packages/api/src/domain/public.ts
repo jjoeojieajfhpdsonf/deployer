@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
-import { config } from '../config.js'
+import { cf as settings, config } from '../config.js'
 import { RESERVED_SLUGS } from '@deployer/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, MANAGED_COMMENT, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
@@ -25,13 +25,13 @@ import { log } from '../lib/log.js'
 const MANAGED_HOSTS_KEY = 'tunnel_managed_hosts'
 
 export function publicEnabled(): boolean {
-  return Boolean(config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_TUNNEL_ID && cloudflareClient())
+  return Boolean(settings.accountId() && settings.tunnelId() && cloudflareClient())
 }
 
 function client(): Cloudflare {
   const cf = cloudflareClient()
-  if (!cf || !config.CLOUDFLARE_ACCOUNT_ID || !config.CLOUDFLARE_TUNNEL_ID) {
-    throw new AppError('public_disabled', 'Öffentlich ist nicht eingerichtet (Meilenstein 5): CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_TUNNEL_ID und das Cloudflare-Token fehlen (siehe compose.public.yaml)', 400)
+  if (!cf || !settings.accountId() || !settings.tunnelId()) {
+    throw new AppError('public_disabled', 'Öffentlich ist nicht eingerichtet: unter System «Cloudflare verbinden» Token und Tunnel einrichten.', 400)
   }
   return cf
 }
@@ -137,14 +137,14 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
       {
         zones: domains.map((d) => ({ id: d.zoneId, name: d.name })),
         defaultZone: domains.find((d) => d.isDefault)?.name ?? null,
-        internalBaseDomain: config.INTERNAL_BASE_DOMAIN,
+        internalBaseDomain: settings.baseDomain(),
         reservedLabels: RESERVED_SLUGS,
       },
     )
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
     if (clash.some((r) => r.projectId !== project.id)) throw conflict(`${hostname} ist schon von einem anderen Projekt belegt`)
     const access = input.accessProtected ?? Boolean(before?.accessProtected)
-    if (access && !config.ACCESS_EMAIL) throw badRequest('Für Cloudflare Access braucht es ACCESS_EMAIL in der Konfiguration')
+    if (access && !settings.accessEmail()) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (System → Cloudflare → Domains).')
     return { project, hostname, zone, access, before }
   } catch (err) {
     wrap(err)
@@ -163,13 +163,13 @@ export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ ho
   const created: { recordId?: string; accessId?: string } = {}
   try {
     // 1. DNS: CNAME proxied auf den Tunnel; fremde Einträge bleiben unangetastet.
-    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(config.CLOUDFLARE_TUNNEL_ID!), proxied: true })
+    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(settings.tunnelId()!), proxied: true })
     if (rec.action === 'created') created.recordId = rec.record.id
 
     // 2. Access
     let accessAppId = before?.hostname === hostname ? before.cfAccessAppId : null
     if (plan.access && !accessAppId) {
-      accessAppId = (await cf.createAccessApp(config.CLOUDFLARE_ACCOUNT_ID!, { name: `deployer: ${project.name}`, domain: hostname, email: config.ACCESS_EMAIL! })).id
+      accessAppId = (await cf.createAccessApp(settings.accountId()!, { name: `deployer: ${project.name}`, domain: hostname, email: settings.accessEmail()! })).id
       created.accessId = accessAppId
     }
 
@@ -188,7 +188,7 @@ export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ ho
     created.accessId = undefined
 
     // 4. Access abgeschaltet: App weg (erst nach dem Speichern, dann ist der Stand konsistent)
-    if (!plan.access && accessAppId) await cf.deleteAccessApp(config.CLOUDFLARE_ACCOUNT_ID!, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
+    if (!plan.access && accessAppId) await cf.deleteAccessApp(settings.accountId()!, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
 
     // 5. Alter Name (bei Umbenennung) aus DNS und Access entfernen
     if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
@@ -201,7 +201,7 @@ export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ ho
     return { hostname }
   } catch (err) {
     // Zurücknehmen, was dieser Aufruf neu angelegt hat (Review M5: sonst verwaist bei Cloudflare)
-    if (created.accessId) await cf.deleteAccessApp(config.CLOUDFLARE_ACCOUNT_ID!, created.accessId).catch(() => {})
+    if (created.accessId) await cf.deleteAccessApp(settings.accountId()!, created.accessId).catch(() => {})
     if (created.recordId) await cf.deleteRecord(zone.id, created.recordId).catch(() => {})
     wrap(err)
   }
@@ -218,13 +218,13 @@ export async function removePublic(project: { id: string; slug: string }, actor:
   if (!route) return false
   const cf = cloudflareClient()
   const problems: string[] = []
-  if (cf && config.CLOUDFLARE_ACCOUNT_ID) {
+  if (cf && settings.accountId()) {
     await dropCloudflareObjects(cf, route).catch((e) => problems.push(String((e as Error).message)))
   } else {
     problems.push('kein Cloudflare-Token: DNS-Eintrag und Access-App bleiben bei Cloudflare stehen')
   }
   await db.delete(schema.routes).where(eq(schema.routes.id, route.id))
-  if (cf && config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_TUNNEL_ID) {
+  if (cf && settings.accountId() && settings.tunnelId()) {
     await reconcileTunnel(cf).catch((e) => problems.push(`Tunnel: ${(e as Error).message}`))
   }
   // Ein Fehler hier (etwa ein schon entferntes Projekt-Netz beim Löschen)
@@ -249,7 +249,7 @@ async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; 
     const mine = recs.find((r) => r.id === route.cfDnsRecordId && r.comment === MANAGED_COMMENT)
     if (mine) await cf.deleteRecord(zone.zoneId, mine.id)
   }
-  if (route.cfAccessAppId) await cf.deleteAccessApp(config.CLOUDFLARE_ACCOUNT_ID!, route.cfAccessAppId)
+  if (route.cfAccessAppId) await cf.deleteAccessApp(settings.accountId()!, route.cfAccessAppId)
 }
 
 /* --- Tunnel ------------------------------------------------------------------------ */
@@ -271,11 +271,11 @@ export function reconcileTunnel(cf = client()): Promise<{ hosts: string[] }> {
 async function reconcileTunnelNow(cf: Cloudflare): Promise<{ hosts: string[] }> {
   const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(eq(schema.routes.target, 'public'))
   const managedBefore: string[] = JSON.parse((await getSetting(MANAGED_HOSTS_KEY)) ?? '[]')
-  const current = await cf.getTunnelIngress(config.CLOUDFLARE_ACCOUNT_ID!, config.CLOUDFLARE_TUNNEL_ID!)
-  const forbidden = config.INTERNAL_BASE_DOMAIN ? rows.map((r) => r.hostname).filter((h) => h.endsWith(`.${config.INTERNAL_BASE_DOMAIN}`)) : []
+  const current = await cf.getTunnelIngress(settings.accountId()!, settings.tunnelId()!)
+  const forbidden = settings.baseDomain() ? rows.map((r) => r.hostname).filter((h) => h.endsWith(`.${settings.baseDomain()}`)) : []
   const { ingress, managed } = reconcileIngress(current, rows.map((r) => r.hostname), managedBefore, forbidden)
   if (JSON.stringify(ingress) !== JSON.stringify(current)) {
-    await cf.putTunnelIngress(config.CLOUDFLARE_ACCOUNT_ID!, config.CLOUDFLARE_TUNNEL_ID!, ingress)
+    await cf.putTunnelIngress(settings.accountId()!, settings.tunnelId()!, ingress)
     log.info('Tunnel-Ingress abgeglichen', { hosts: managed })
   }
   await setSetting(MANAGED_HOSTS_KEY, JSON.stringify(managed))
@@ -301,7 +301,7 @@ function refreshTunnelStatus(): Promise<{ status: string; connections: number }>
   refreshing ??= (async () => {
     let v: { status: string; connections: number }
     try {
-      v = await client().tunnelStatus(config.CLOUDFLARE_ACCOUNT_ID!, config.CLOUDFLARE_TUNNEL_ID!)
+      v = await client().tunnelStatus(settings.accountId()!, settings.tunnelId()!)
     } catch (err) {
       v = { status: `Fehler: ${(err as Error).message}`, connections: 0 }
     }

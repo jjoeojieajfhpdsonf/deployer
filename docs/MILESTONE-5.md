@@ -2,6 +2,8 @@
 
 Stand: 7. November 2026
 
+> **Neu (8.11.2026):** Den Tunnel legt deployer selbst an und startet cloudflared als eigenen Container – System → «Cloudflare verbinden», siehe [CLOUDFLARE.md](CLOUDFLARE.md). `compose.public.yaml` und die Variablen unten gelten nur noch als Rückfall.
+
 Umfang laut [SPEC.md](SPEC.md): Cloudflare Tunnel, DNS-Verwaltung, optional Cloudflare Access. Dazu aus M6 die Schwelle für «öffentlich» und die Benachrichtigung «Projekt öffentlich geschaltet».
 
 **Ohne Domain, Token und Tunnel gebaut.** Code und Unit-Tests mit einer Cloudflare-Attrappe; nichts davon lief gegen die echte API.

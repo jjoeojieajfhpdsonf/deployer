@@ -1,23 +1,22 @@
-# Ergänzung für Meilenstein 4: HTTPS mit Wildcard-Zertifikat (DNS-01 bei Cloudflare).
+# ALT – nur noch für bestehende Installationen.
+#
+# Neu wird HTTPS über die Oberfläche eingerichtet: System → «Cloudflare
+# verbinden» (Token, Basisdomain, Zertifikat). Diese Datei braucht es dafür
+# nicht mehr; Caddy mit dem DNS-Modul und Port 443 sind im Basis-Stack.
+#
+# Wer schon so eingerichtet ist, kann sie weiter verwenden:
 #
 #   docker compose -f compose.yaml -f compose.tls.yaml up -d --build
 #
-# Voraussetzungen (siehe docs/MILESTONE-4.md):
 #   - INTERNAL_BASE_DOMAIN in .env, z.B. int.deinedomain.ch
-#   - secrets/cloudflare_token mit einem Token (Zone DNS bearbeiten), Rechte 600
-#   - optional TAILSCALE_IP, ACME_EMAIL, ACME_CA=staging für den ersten Versuch
+#   - secrets/cloudflare_token mit dem Token, Rechte 600
+#   - optional TAILSCALE_IP, ACME_EMAIL, ACME_CA=staging
 #
-# Ohne diese Datei läuft der Stack wie in M1-M6: nur HTTP auf :80.
+# Sobald über die Oberfläche ein Token gespeichert ist, gilt jenes; diese
+# Werte bleiben nur der Rückfall.
 
 services:
   caddy:
-    image: deployer/caddy-cloudflare:local
-    build:
-      context: ./caddy
-      dockerfile: Dockerfile
-    command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
-    ports:
-      - "443:443"
     secrets:
       - cloudflare_token
 
