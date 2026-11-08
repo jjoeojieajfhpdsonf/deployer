@@ -17,6 +17,7 @@ const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke:
 const IconOk = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m5.4 8.2 1.8 1.8 3.4-3.6" /></svg>
 const IconBad = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
 const IconOptional = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
+const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 
 type StepState = 'done' | 'current' | 'locked'
@@ -318,8 +319,55 @@ function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStat
       <span className={connected && running ? 'cf-ok' : 'cf-bad'}>{connected && running ? <IconOk /> : <IconBad />} {connected && running ? `verbunden, ${t.connections} Verbindungen` : `nicht verbunden${t.status && running ? ` (${t.status})` : ''}`}</span>
       <span className="cf-meta">Tunnel {t.name ?? t.id}</span>
       {!running && t.container?.lastLog && <span className="cf-meta cf-lastlog">Letzte Meldung: <code>{t.container.lastLog}</code></span>}
-      {!running && <button type="button" className="button-small" onClick={() => restart.mutate()} disabled={restart.isPending}>{restart.isPending ? 'Startet…' : 'cloudflared neu starten'}</button>}
+      {!running && t.managed && <button type="button" className="button-small" onClick={() => restart.mutate()} disabled={restart.isPending}>{restart.isPending ? 'Startet…' : 'cloudflared neu starten'}</button>}
       {restart.isError && <span role="alert" className="error-inline">{(restart.error as Error).message}</span>}
+      <CloudflaredVersion s={s} onChanged={onChanged} />
+      <ForeignIngress s={s} />
+    </div>
+  )
+}
+
+function CloudflaredVersion({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void }) {
+  const [confirm, setConfirm] = useState(false)
+  const update = useMutation({ mutationFn: api.cloudflareTunnelUpdate, onSuccess: (st) => { setConfirm(false); onChanged(st) } })
+  const t = s.tunnel!
+  return (
+    <div className="cf-version">
+      <span className="cf-version-line">
+        cloudflared <code>{t.version ?? 'Version unbekannt'}</code>
+        {t.updateAvailable
+          ? <span className="cf-update"><IconUp /> {t.latestVersion} verfügbar</span>
+          : t.latestVersion && t.version ? <span className="cf-meta-inline">aktuell</span> : null}
+      </span>
+      {t.updateAvailable && !confirm && (
+        <button type="button" className="button-small" onClick={() => setConfirm(true)}>Auf {t.latestVersion} aktualisieren …</button>
+      )}
+      {t.updateAvailable && confirm && (
+        <span className="confirm-inline" role="group" aria-label="Update bestätigen">
+          <span className="cf-meta-inline">Der Tunnel ist dabei einige Sekunden unterbrochen.</span>
+          <button type="button" className="button-small button-primary" onClick={() => update.mutate()} disabled={update.isPending} autoFocus>{update.isPending ? 'Aktualisiert…' : 'Jetzt aktualisieren'}</button>
+          <button type="button" className="button-small" onClick={() => setConfirm(false)}>Abbrechen</button>
+        </span>
+      )}
+      {!t.managed && t.updateAvailable && <span className="cf-meta-inline">Läuft aus compose.public.yaml – dort das Image anpassen.</span>}
+      {update.isError && <span role="alert" className="error-inline">{(update.error as Error).message}</span>}
+    </div>
+  )
+}
+
+/** Warnung: eine Regel des Tunnels zeigt nicht auf Caddy (am IP-Filter und Routing vorbei). */
+function ForeignIngress({ s }: { s: CfStatusDto }) {
+  const t = s.tunnel!
+  if (t.foreignIngress.length === 0) return null
+  return (
+    <div className="cf-ingress-warn" role="alert">
+      <p className="cf-ingress-title"><IconBad /> {t.foreignIngress.length === 1 ? 'Eine Regel des Tunnels zeigt' : `${t.foreignIngress.length} Regeln des Tunnels zeigen`} nicht auf Caddy</p>
+      <ul>
+        {t.foreignIngress.map((r, i) => (
+          <li key={i}><code>{r.hostname ?? '(alle übrigen Namen)'}</code> → <code>{r.service}</code></li>
+        ))}
+      </ul>
+      <p className="cf-meta">Solche Regeln umgehen Caddy: kein IP-Filter, keine Kontrolle durch deployer. Bei Cloudflare unter Zero Trust → Netzwerke → Tunnel → {t.name ?? 'Tunnel'} → Öffentliche Hostnamen entfernen. deployer setzt nur <code>http://caddy:80</code>.</p>
     </div>
   )
 }

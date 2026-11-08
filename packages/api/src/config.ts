@@ -89,8 +89,12 @@ const envSchema = z.object({
     .transform((v) => (v === '' ? null : v.toLowerCase())),
   ACCESS_EMAIL: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
   EDGE_NETWORK: z.string().default('deployer_edge'),
+  // Eigenes Netz nur für cloudflared und Caddy: der Tunnel erreicht ausschliesslich Caddy, nie den deployer.
+  TUNNEL_NETWORK: z.string().default('deployer_tunnel'),
   CLOUDFLARED_CONTAINER: z.string().default('deployer-cloudflared'),
   CLOUDFLARED_IMAGE: z.string().default('cloudflare/cloudflared:2025.8.1'),
+  // Für die Prüfung auf neuere cloudflared-Versionen (in Tests austauschbar)
+  DOCKER_HUB_API: z.string().url().default('https://hub.docker.com/v2'),
   // Gemeinsames Volume mit Caddy: dort liegt das Token für die DNS-Challenge
   // als Datei. Caddys Konfiguration (und autosave.json) enthält nur den Pfad.
   CADDY_SECRETS_DIR: z.string().default('/run/caddy-secrets'),

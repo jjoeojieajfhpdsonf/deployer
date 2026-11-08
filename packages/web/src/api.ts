@@ -147,6 +147,7 @@ export const api = {
   cloudflareDomains: (d: unknown) => call<CfStatusDto>('/system/cloudflare/domains', { method: 'PUT', body: body(d) }),
   cloudflareTunnel: () => call<CfStatusDto>('/system/cloudflare/tunnel', { method: 'POST' }),
   cloudflareTunnelRestart: () => call<CfStatusDto>('/system/cloudflare/tunnel/restart', { method: 'POST' }),
+  cloudflareTunnelUpdate: () => call<CfStatusDto>('/system/cloudflare/tunnel/update', { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>('/system/cloudflare/tls', { method: 'POST' }),
   cloudflareDisconnect: () => call<CfStatusDto>('/system/cloudflare', { method: 'DELETE' }),
 

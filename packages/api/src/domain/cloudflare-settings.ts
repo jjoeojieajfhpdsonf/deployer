@@ -7,7 +7,11 @@ import { config, setCfRuntime, cf, type CfRuntime } from '../config.js'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import { Cloudflare, CloudflareError } from '../drivers/cloudflare.js'
-import { startCloudflared, removeCloudflared, cloudflaredState, ensureCloudflaredRunning, cloudflaredLogTail } from '../drivers/cloudflared.js'
+import {
+  startCloudflared, removeCloudflared, cloudflaredState, ensureCloudflaredRunning, cloudflaredLogTail,
+  versionOf, latestCloudflaredVersion, compareVersions, imageWithVersion,
+} from '../drivers/cloudflared.js'
+import { TUNNEL_SERVICE, CATCH_ALL } from '../lib/public-hosts.js'
 import type { TlsOptions } from '../drivers/caddy-config.js'
 import { probeCert } from '../lib/cert.js'
 import * as docker from '../drivers/docker.js'
@@ -41,6 +45,8 @@ interface Stored {
   accessEmail?: string | null
   acmeEmail?: string | null
   tunnel?: { id: string; name: string; tokenEnc: string }
+  /** Festgelegtes cloudflared-Image (nach einem Update per Knopf) */
+  cloudflaredImage?: string
   tls?: { phase: CfTlsPhase; ca: 'production' | 'staging'; startedAt: string; steps: Step[] }
 }
 
@@ -114,7 +120,7 @@ export async function loadCloudflareSettings(): Promise<void> {
 export async function ensureManagedTunnelOnBoot(): Promise<void> {
   if (!stored.tunnel) return
   try {
-    const r = await ensureCloudflaredRunning(dec(stored.tunnel.tokenEnc))
+    const r = await ensureCloudflaredRunning(dec(stored.tunnel.tokenEnc), cloudflaredImage())
     if (r !== 'running') log.info('cloudflared gestartet', { how: r })
   } catch (err) {
     log.warn('cloudflared nicht gestartet', { err: (err as Error).message })
@@ -314,7 +320,7 @@ export async function setupTunnel(actor: string): Promise<void> {
     wrapCf(err)
   }
   await save({ ...stored, tunnel: { id: tunnel.id, name: tunnel.name, tokenEnc: enc(token) } })
-  await startCloudflared(token)
+  await startCloudflared(token, cloudflaredImage())
   const { reconcileTunnel, syncDomains } = await import('./public.js')
   await syncDomains(c).catch(() => {})
   await reconcileTunnel(c).catch((err) => log.warn('Tunnel-Regeln nicht gesetzt', { err: String(err) }))
@@ -332,8 +338,55 @@ export async function restartTunnel(actor: string): Promise<void> {
     wrapCf(err)
   }
   await save({ ...stored, tunnel: { ...stored.tunnel, tokenEnc: enc(token) } })
-  await startCloudflared(token)
+  await startCloudflared(token, cloudflaredImage())
   await audit({ actor, action: 'cloudflare.tunnel.restart', targetType: 'system', targetId: stored.tunnel.id, params: {}, result: 'ok' })
+}
+
+/** Das festgelegte Image: nach einem Update das neue, sonst das aus der Konfiguration. */
+const cloudflaredImage = () => stored.cloudflaredImage ?? config.CLOUDFLARED_IMAGE
+
+/** cloudflared auf die neueste Version: neues Image festlegen, Container neu anlegen. */
+export async function updateCloudflared(actor: string): Promise<void> {
+  if (!stored.tunnel || !stored.accountId) throw badRequest('cloudflared wird nicht von deployer verwaltet')
+  const latest = await latestCloudflaredVersion(true)
+  if (!latest.version) throw new AppError('cloudflared_version', `Neueste Version nicht abrufbar${latest.error ? `: ${latest.error}` : ''}`, 502)
+  const current = versionOf(cloudflaredImage())
+  if (current && compareVersions(latest.version, current) <= 0) throw badRequest(`cloudflared ${current} ist schon die neueste Version`)
+  const image = imageWithVersion(latest.version)
+  let token: string
+  try {
+    token = await client().tunnelToken(stored.accountId, stored.tunnel.id)
+  } catch (err) {
+    wrapCf(err)
+  }
+  // Erst anlegen, dann festlegen: scheitert das Holen des Images, bleibt die alte Version
+  await startCloudflared(token, image)
+  await save({ ...stored, cloudflaredImage: image, tunnel: { ...stored.tunnel, tokenEnc: enc(token) } })
+  await audit({ actor, action: 'cloudflare.cloudflared.update', targetType: 'system', targetId: stored.tunnel.id, params: { from: current, to: latest.version }, result: 'ok' })
+}
+
+let ingressCache: { at: number; foreign: { hostname: string | null; service: string }[]; error: string | null } | null = null
+
+/**
+ * Regeln des Tunnels, die nicht auf Caddy zeigen (etwa von Hand im
+ * Dashboard ergänzt). Der Tunnel soll nur Caddy erreichen; alles andere
+ * umginge IP-Filter und Routing. Eine Minute zwischengespeichert.
+ */
+async function foreignIngress(): Promise<{ foreign: { hostname: string | null; service: string }[]; error: string | null }> {
+  const acc = cf.accountId()
+  const tunnel = cf.tunnelId()
+  if (!acc || !tunnel || !cf.token()) return { foreign: [], error: null }
+  if (ingressCache && Date.now() - ingressCache.at < 60_000) return ingressCache
+  try {
+    const rules = await client().getTunnelIngress(acc, tunnel)
+    const foreign = rules
+      .filter((r) => r.service !== TUNNEL_SERVICE && !(r.service === CATCH_ALL.service && !r.hostname))
+      .map((r) => ({ hostname: r.hostname ?? null, service: r.service }))
+    ingressCache = { at: Date.now(), foreign, error: null }
+  } catch (err) {
+    ingressCache = { at: Date.now(), foreign: [], error: (err as Error).message }
+  }
+  return ingressCache
 }
 
 /* --- Zertifikat ------------------------------------------------------------------ */
@@ -457,11 +510,15 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
   const zones = await listDomains().catch(() => [])
   const tunnelId = cf.tunnelId()
   const managed = Boolean(stored.tunnel)
-  const container = managed ? await cloudflaredState().catch(() => null) : null
+  const container = tunnelId ? await cloudflaredState().catch(() => null) : null
   const lastLog = container?.exists && !container.running
     ? (await cloudflaredLogTail(10)).split('\n').map((l) => l.trim()).filter(Boolean).filter((l) => !/^See 'cloudflared/.test(l)).at(-1) ?? null
     : null
   const ts = tunnelId ? await tunnelStatus().catch(() => null) : null
+  const ingress = tunnelId ? await foreignIngress() : { foreign: [], error: null }
+  const runningImage = container?.exists ? container.image : managed ? cloudflaredImage() : null
+  const latest = tunnelId ? await latestCloudflaredVersion() : { version: null, error: null }
+  const currentVersion = versionOf(runningImage)
   const tls = caddyTlsOptions()
   const phase: CfTlsPhase = stored.tls?.phase ?? (config.TLS_MODE === 'cloudflare' ? 'done' : 'off')
   const base = cf.baseDomain()
@@ -485,6 +542,11 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
           container: container ? { exists: container.exists, running: container.running, restarting: container.restarting, startedAt: container.startedAt, lastLog } : null,
           status: ts?.status ?? null,
           connections: ts?.connections ?? 0,
+          version: currentVersion,
+          latestVersion: latest.version,
+          updateAvailable: Boolean(managed && currentVersion && latest.version && compareVersions(latest.version, currentVersion) > 0),
+          foreignIngress: ingress.foreign,
+          ingressError: ingress.error,
         }
       : null,
     tls: {

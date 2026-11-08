@@ -70,7 +70,12 @@ export async function startFakeCloudflare(zones = ['example.ch', 'beispiel.ch'],
         }
         if (method === 'GET') return send(200, ok(state.tunnels.filter((t) => !url.searchParams.get('name') || t.name === url.searchParams.get('name'))))
       }
-      if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)\/token$/.exec(path)) && method === 'GET') return send(200, ok(`eyJ-fake-tunnel-token-${m[1]}`))
+      if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)\/token$/.exec(path)) && method === 'GET') {
+        // Gültig aufgebaut (Konto, Tunnel, Geheimnis als Base64-JSON), aber erfunden:
+        // cloudflared startet damit und versucht es weiter, statt sofort abzubrechen
+        const secret = Buffer.from('nur-fuer-tests-kein-echtes-geheimnis!').toString('base64')
+        return send(200, ok(Buffer.from(JSON.stringify({ a: 'acc-e2e-test', t: m[1], s: secret })).toString('base64')))
+      }
       if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)\/connections$/.exec(path)) && method === 'DELETE') return send(200, ok(null))
       if ((m = /^\/accounts\/[^/]+\/cfd_tunnel\/([^/]+)$/.exec(path)) && method === 'DELETE') {
         state.tunnels = state.tunnels.filter((t) => t.id !== m![1])

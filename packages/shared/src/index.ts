@@ -517,6 +517,13 @@ export interface CfStatusDto {
     container: { exists: boolean; running: boolean; restarting: boolean; startedAt: string | null; lastLog: string | null } | null
     status: string | null
     connections: number
+    /** Version aus dem festgelegten Image-Tag, z.B. 2025.8.1 */
+    version: string | null
+    latestVersion: string | null
+    updateAvailable: boolean
+    /** Ingress-Regeln bei Cloudflare, die nicht auf Caddy zeigen */
+    foreignIngress: { hostname: string | null; service: string }[]
+    ingressError: string | null
   } | null
   tls: {
     enabled: boolean

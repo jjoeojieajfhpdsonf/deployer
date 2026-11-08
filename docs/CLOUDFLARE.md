@@ -44,7 +44,17 @@ Alle Endpunkte unter `/api/v1/system/cloudflare` verlangen eine Anmeldung; ein A
 
 ## cloudflared
 
-Eigener Container `deployer-cloudflared` mit Label `deployer.system=cloudflared`, nur im Netz `deployer_edge`, `restart: unless-stopped`, ohne Capabilities, 256 MB, 0,5 CPU. Beim Start des deployers wird er wieder hochgefahren, falls er fehlt. Eine Neustart-Schleife (etwa wegen eines ungültigen Tokens) zeigt die Systemseite als «startet ständig neu» mit der letzten Meldung.
+Eigener Container `deployer-cloudflared` mit Label `deployer.system=cloudflared`, `restart: unless-stopped`, ohne Capabilities, 256 MB, 0,5 CPU. Beim Start des deployers wird er wieder hochgefahren, falls er fehlt (oder neu angelegt, falls er noch im alten edge-Netz hängt). Eine Neustart-Schleife (etwa wegen eines ungültigen Tokens) zeigt die Systemseite als «startet ständig neu» mit der letzten Meldung.
+
+### Netz «tunnel»
+
+`deployer_tunnel` gehört nur cloudflared und Caddy. cloudflared hängt **nur** dort, nicht im edge-Netz: Was durch den Tunnel kommt, erreicht ausschliesslich Caddy (`http://caddy:80`) – nie den deployer, nie ein Projekt-Netz. Das Netz ist nicht `internal`, weil cloudflared die ausgehende Verbindung zu Cloudflare braucht. Caddy behält sein Gateway im edge-Netz (`gw_priority`). `trusted_proxies` und der Absender-Filter öffentlicher Routen nehmen die Adresse von cloudflared in diesem Netz.
+
+**Warnung bei fremden Regeln:** Die Systemseite liest die Ingress-Regeln des Tunnels bei Cloudflare (höchstens einmal pro Minute) und warnt, wenn eine auf etwas anderes als `http://caddy:80` zeigt – etwa eine von Hand im Dashboard ergänzte Regel auf einen anderen Dienst. Die Auffangregel `http_status:404` ist erlaubt.
+
+### Version und Update
+
+Die Systemseite zeigt die cloudflared-Version (aus dem festen Image-Tag) und fragt Docker Hub nach der neuesten Release-Version (Tags `JJJJ.M.P`, ohne `latest` und Architektur-Varianten; sechs Stunden zwischengespeichert). Ist eine neuere da: Knopf «Auf … aktualisieren» mit Rückfrage. Das Update holt ein frisches Tunnel-Token, legt den Container mit dem neuen Image neu an und legt das Image erst danach fest – scheitert das Holen, bleibt die alte Version. Läuft cloudflared noch aus `compose.public.yaml`, gibt es nur den Hinweis.
 
 Läuft noch ein `cloudflared` aus `compose.public.yaml`, lehnt die Oberfläche den Tunnel ab (gleicher Name). Zuerst den Stack ohne diese Datei starten.
 
@@ -71,5 +81,10 @@ Stand 8.11.2026, ohne echtes Konto: gegen die Cloudflare-Attrappe (`lib/cf-fixtu
 - [x] Caddy 2.10 löst `{file.*}` zur Laufzeit auf (eigener Test mit dem gebauten Image)
 - [x] Tunnel per API angelegt, cloudflared gestartet, liest das Token aus der Datei; Token nicht in `docker inspect` (Docker lokal, Attrappe)
 - [x] Zertifikats-Ablauf startet mit Staging; ein ACME-Fehler erscheint als Fortschrittsmeldung (lokal; Let's Encrypt lehnt die Testdomain `.invalid` ab)
-- [ ] (ungetestet) gegen die echte Cloudflare-API: Prüf-Anfragen (400 statt 403), Vorlagen-Link, Tunnel-Token
+- [x] Netz «tunnel»: aus dem Netz-Namensraum von cloudflared (`--network container:`) antwortet Caddy, der deployer-Port ist weder über den Namen noch über seine Adressen erreichbar (`e2e/tunnel-net.e2e.ts`, lokal mit der Attrappe)
+- [x] Warnung, wenn eine Ingress-Regel nicht auf Caddy zeigt (Attrappe mit einer Regel auf `http://deployer-app:3000`)
+- [x] cloudflared-Version aus dem Tag, neueste Version von Docker Hub (Unit; Docker Hub echt abgefragt)
+- [ ] (ungetestet) **Rechte-Prüfung beim ersten echten Einrichten gegenprüfen:** mit einem Token **ohne** das Recht «Cloudflare Tunnel → Bearbeiten» muss Schritt 2 genau dieses Recht als fehlend melden. Erst damit ist bestätigt, dass Cloudflare auf die absichtlich ungültige Anfrage mit 403 (ohne Recht) und 400 (mit Recht) antwortet; danach das Recht ergänzen und erneut prüfen.
+- [ ] (ungetestet) gegen die echte Cloudflare-API: Vorlagen-Link, Tunnel-Token
+- [ ] (ungetestet) Update auf eine neue cloudflared-Version mit echtem Tunnel
 - [ ] (ungetestet) echtes Wildcard-Zertifikat Staging → Produktion

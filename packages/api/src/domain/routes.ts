@@ -178,14 +178,14 @@ export function siteRootFor(slug: string): string {
 
 /**
  * Woher öffentlicher Verkehr kommen darf: genau die Adresse von cloudflared
- * im edge-Netz (M5). Nicht das ganze Subnetz – darin liegt auch das Gateway,
+ * im Netz «tunnel» (nur cloudflared und Caddy). Nicht das ganze Subnetz – darin liegt auch das Gateway,
  * über das Docker veröffentlichte Ports weiterreicht; ein LAN-Client könnte
  * sonst CF-Connecting-IP vortäuschen (Review M5). Leer, wenn cloudflared
  * nicht läuft – dann gibt es keine öffentlichen Routen.
  */
 export async function cloudflaredCidrs(): Promise<string[]> {
   if (!cf.tunnelId()) return []
-  const ip = await docker.containerIp(config.CLOUDFLARED_CONTAINER, config.EDGE_NETWORK)
+  const ip = await docker.containerIp(config.CLOUDFLARED_CONTAINER, config.TUNNEL_NETWORK)
   return ip ? [`${ip}/32`] : []
 }
 

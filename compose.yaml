@@ -101,6 +101,9 @@ services:
         # Port-Veroeffentlichung von :80 ab. Die hohe Prioritaet haelt das
         # Gateway fest auf edge.
         gw_priority: 100
+      # Nur cloudflared und Caddy: was durch den Tunnel kommt, erreicht nur
+      # Caddy – nie den deployer, nie ein Projekt-Netz.
+      tunnel: {}
 
   deployer:
     build:
@@ -160,6 +163,10 @@ networks:
     internal: true
   edge:
     name: deployer_edge
+  # cloudflared (von deployer gestartet) und Caddy. Nicht internal: cloudflared
+  # braucht die ausgehende Verbindung zu Cloudflare.
+  tunnel:
+    name: deployer_tunnel
 
 volumes:
   pgdata:

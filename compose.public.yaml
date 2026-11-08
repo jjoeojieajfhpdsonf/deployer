@@ -32,9 +32,9 @@ services:
     command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
     secrets:
       - tunnel_token
-    # Nur im edge-Netz: erreicht Caddy, keine Projekt-Netze, nicht das interne Netz.
+    # Nur im Netz tunnel: erreicht Caddy, nicht den deployer, keine Projekt-Netze.
     networks:
-      - edge
+      - tunnel
     depends_on:
       - caddy
     logging:

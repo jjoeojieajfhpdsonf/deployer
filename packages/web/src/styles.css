@@ -1238,3 +1238,13 @@ details > summary:hover { color: var(--ink); }
   .cf-check-state { grid-column: 2; }
 }
 .cf-lastlog { flex-basis: 100%; overflow-wrap: anywhere; }
+.cf-version { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-dim); }
+.cf-version-line { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cf-version code { color: var(--ink); }
+.cf-update { display: inline-flex; align-items: center; gap: 5px; color: var(--info); font-weight: 500; }
+.cf-update svg { width: 14px; height: 14px; }
+.cf-meta-inline { font-size: 12px; color: var(--muted); }
+.cf-ingress-warn { flex-basis: 100%; margin-top: 8px; padding: 12px 14px; border: 1px solid rgba(244, 116, 116, 0.35); border-radius: var(--r-sm); background: var(--bad-bg); }
+.cf-ingress-title { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; color: var(--bad); font-weight: 500; font-size: 13px; }
+.cf-ingress-warn ul { margin: 0; padding-left: 22px; font-size: 13px; color: var(--ink); display: grid; gap: 2px; }
+.cf-ingress-warn code { overflow-wrap: anywhere; }
