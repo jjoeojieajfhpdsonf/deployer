@@ -19,6 +19,7 @@ import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
+import { projectHealth } from '../../jobs/monitor.js'
 
 interface IdParams {
   id: string
@@ -63,6 +64,12 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     return { project: dto, env: await listEnvDto(project.id) }
+  })
+
+  /** Zustand: Container, letzter Healthcheck, CPU/RAM der letzten Stunde. */
+  app.get<{ Params: IdParams; Querystring: { fresh?: string } }>('/projects/:id/health', async (request) => {
+    const project = await findProject(request.params.id)
+    return projectHealth(project.id, { fresh: request.query.fresh === '1' })
   })
 
   app.patch<{ Params: IdParams }>('/projects/:id', async (request) => {

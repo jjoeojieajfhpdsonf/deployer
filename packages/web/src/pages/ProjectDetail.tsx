@@ -7,6 +7,7 @@ import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { Reachability } from '../components/Reachability.js'
+import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
@@ -55,6 +56,7 @@ export function ProjectDetail() {
     },
   })
 
+  const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
   const keep = useMutation({
     mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
@@ -76,16 +78,19 @@ export function ProjectDetail() {
   const p = q.data!.project
   const env = q.data!.env
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
-  const rt = runtimeStatus(p)
+  const dbRt = runtimeStatus(p)
+  // Der Container fehlt oder ist beendet, obwohl er laufen sollte: dann zählt das, nicht die Datenbank
+  const down = Boolean(health.data?.container && !health.data.container.running)
+  const rt = down && dbRt.status === 'running' ? { status: 'failed' as const, deployFailed: dbRt.deployFailed } : dbRt
 
   return (
     <section className="page page-project">
       <PageHead
         crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
-        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} />{rt.deployFailed && <span className="deploy-failed">✕ letzter Deploy fehlgeschlagen</span>}</>}
+        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
         actions={
           <>
-            {url && <a className="button button-ghost" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
+            {url && rt.status === 'running' && <a className="button button-ghost" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
             {p.desiredState === 'running' ? (
               confirmStop ? (
                 <span className="confirm-inline" role="group" aria-label="Stoppen bestätigen">
@@ -165,78 +170,15 @@ export function ProjectDetail() {
             />
           )}
 
-          <div className="panel panel-pad">
-          <dl className="facts">
-            <dt>Adressen</dt>
-            <dd>
-              {p.routes.length === 0 ? (
-                <span className="muted">keine</span>
-              ) : (
-                <ul className="url-list">
-                  {p.routes.flatMap((r) => r.urls).map((u) => (
-                    <li key={u}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>
-                  ))}
-                </ul>
-              )}
-            </dd>
-
-            <dt>Erreichbar</dt>
-            <dd>
-              {p.routes.length === 0 ? <span className="muted">nirgends – unter Einstellungen festlegen</span> : (
-                <div className="chips">
-                  {isPublic(p) && <span className="chip chip-public">Öffentlich</span>}
-                  {p.routes.some((r) => (r.targets ?? [r.target]).includes('lan')) && <span className="chip">LAN</span>}
-                  {p.routes.some((r) => (r.targets ?? [r.target]).includes('tailnet')) && <span className="chip">Tailnet</span>}
-                </div>
-              )}
-            </dd>
-
-            <dt>Security</dt>
-            <dd>
-              {p.security?.grade ? (
-                <button className="link-button grade-link" onClick={() => setTab('security')}>
-                  <span className={`grade grade-${p.security.grade}`}>{p.security.grade}</span>
-                  {' '}{p.security.score} / 100 · {p.security.open.critical} kritisch, {p.security.open.high} hoch
-                </button>
-              ) : <span className="muted">{p.security?.status === 'running' || p.security?.status === 'queued' ? 'Scan läuft' : 'noch kein Scan'}</span>}
-            </dd>
-
-            <dt>Quelle</dt>
-            <dd><SourceLine p={p} /></dd>
-
-            {p.sourceType === 'files' && (
-              <>
-                <dt>Ablauf</dt>
-                <dd>
-                  {p.expiresAt
-                    ? <>wird am {new Date(p.expiresAt).toLocaleDateString('de-CH')} gestoppt, wenn sich bis dahin nichts ändert{' '}</>
-                    : <>läuft nicht ab{' '}</>}
-                  <button onClick={() => keep.mutate(!p.keep)} disabled={keep.isPending}>
-                    {p.keep ? 'Ablauf wieder einschalten' : 'Behalten'}
-                  </button>
-                </dd>
-              </>
-            )}
-
-            <dt>Aktive Fassung</dt>
-            <dd>
-              {p.activeDeployment
-                ? <><code className="version" title={p.activeDeployment.version ?? undefined}>{shortVersion(p.activeDeployment.version)}</code>{' '}
-                   <span className="muted">({relativeTime(p.activeDeployment.startedAt)})</span></>
-                : <span className="muted">keine</span>}
-            </dd>
-
-            <dt>Grenzen</dt>
-            <dd>{p.cpuLimit} CPU, {p.memoryLimitMb} MB</dd>
-
-            {p.runsAsRoot && (
-              <>
-                <dt>Hinweis</dt>
-                <dd className="warn">Der Container läuft als root. Erlaubt, aber vermeidbar.</dd>
-              </>
-            )}
-          </dl>
-          </div>
+          <ProjectOverview
+            p={p}
+            env={env}
+            onTab={setTab}
+            onDeploy={() => act.mutate('deploy')}
+            deploying={act.isPending || p.status === 'deploying'}
+            onRollback={(depId) => setWatching(depId)}
+            onToggleKeep={() => keep.mutate(!p.keep)}
+          />
         </div>
       )}
 
@@ -263,35 +205,6 @@ export function ProjectDetail() {
       </div>
     </section>
   )
-}
-
-const FILES_KIND: Record<string, string> = {
-  compose: 'Docker Compose',
-  dockerfile: 'Dockerfile',
-  'static-build': 'statische Seite mit Build',
-  static: 'statische Seite',
-}
-
-function SourceLine({ p }: { p: ProjectDto }) {
-  const s = (p.source ?? {}) as Record<string, string | undefined>
-  switch (p.sourceType) {
-    case 'image':
-      return <code>{s.image ?? '–'}</code>
-    case 'dockerfile':
-      return <>Dockerfile aus <code>{s.repoUrl}</code>{s.ref ? <> ({s.ref})</> : null}</>
-    case 'compose':
-      return s.repoUrl
-        ? <>Compose aus <code>{s.repoUrl}</code>, Web-Dienst <code>{s.webService}</code></>
-        : <>hochgeladene compose.yaml, Web-Dienst <code>{s.webService}</code></>
-    case 'static':
-      return s.repoUrl
-        ? <>statische Seite aus <code>{s.repoUrl}</code>{s.buildCommand ? <>, Build <code>{s.buildCommand}</code></> : null}</>
-        : <>statische Seite (ZIP)</>
-    case 'files':
-      return <>Chat-Projekt{p.filesKind ? <>, erkannt als {FILES_KIND[p.filesKind]}</> : null}</>
-    default:
-      return <>{p.sourceType}</>
-  }
 }
 
 /* --- Deployments ----------------------------------------------------------- */

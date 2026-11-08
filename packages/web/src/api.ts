@@ -1,9 +1,9 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto,
+  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto, ProjectHealthDto,
 } from '@deployer/shared'
 
-export type { ScanReportDto, FindingDto }
+export type { ScanReportDto, FindingDto, ProjectHealthDto }
 
 export interface ExternalTargetDto {
   id: string
@@ -105,6 +105,7 @@ export const api = {
   stop: (id: string) => call<void>(`/projects/${id}/stop`, { method: 'POST' }),
   listDeployments: (id: string) => call<{ deployments: DeploymentDto[] }>(`/projects/${id}/deployments`),
   getDeployment: (id: string) => call<{ deployment: DeploymentDto; log: string }>(`/deployments/${id}`),
+  health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),
 
   /* Uploads */
@@ -142,7 +143,7 @@ export const api = {
   /* System */
   system: () => call<SystemStatusDto>('/system/status'),
   tailnetDns: () => call<{ record: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string } }>('/system/tailnet-dns', { method: 'POST' }),
-  audit: (limit = 100) => call<{ events: AuditEventDto[] }>(`/audit?limit=${limit}`),
+  audit: (limit = 100, targetId?: string) => call<{ events: AuditEventDto[] }>(`/audit?limit=${limit}${targetId ? `&targetId=${targetId}` : ''}`),
 }
 
 export type { ProjectDto, DeploymentDto, EnvEntryDto, AuditEventDto, SystemStatusDto, Source }
@@ -187,6 +188,20 @@ export function subscribeLogs(projectId: string, onLine: (line: string) => void)
  * Prueft aus dem BROWSER, ob ein Name auf diesem Geraet aufloest. Genau das
  * kann der Server nicht beantworten.
  */
+/**
+ * Wie checkReachable, aber ohne CORS: eine undurchsichtige Antwort heisst
+ * «der Name löst auf und der Server antwortet». Für Projekt-Adressen, die
+ * keine CORS-Header schicken.
+ */
+export async function probeUrl(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(5000) })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function checkReachable(url: string): Promise<boolean> {
   try {
     const res = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(4000) })

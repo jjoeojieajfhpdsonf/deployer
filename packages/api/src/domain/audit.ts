@@ -52,11 +52,12 @@ export async function withAudit<T>(
   }
 }
 
-export async function listAudit(opts: { limit?: number; before?: string; action?: string } = {}): Promise<AuditEventDto[]> {
+export async function listAudit(opts: { limit?: number; before?: string; action?: string; targetId?: string } = {}): Promise<AuditEventDto[]> {
   const limit = Math.min(opts.limit ?? 100, 500)
   const conds: SQL[] = []
   if (opts.before) conds.push(lt(schema.auditEvents.at, new Date(opts.before)))
   if (opts.action) conds.push(eq(schema.auditEvents.action, opts.action))
+  if (opts.targetId) conds.push(eq(schema.auditEvents.targetId, opts.targetId))
 
   const rows = await db
     .select()

@@ -7,6 +7,9 @@ import { badRequest } from '../lib/errors.js'
 import { repoUrlPolicy } from './git-policy.js'
 import { composeUploadPath, COMPOSE_MAX_BYTES } from '../deploy/sources/compose.js'
 import type { Source } from '@deployer/shared'
+import * as docker from '../drivers/docker.js'
+import { checkImageInRegistry, parseImageRef } from '../lib/registry.js'
+import { log } from '../lib/log.js'
 
 /**
  * Prüfungen, die schon beim Anlegen oder Ändern eines Projekts laufen, damit
@@ -15,6 +18,8 @@ import type { Source } from '@deployer/shared'
  * (Repo-Inhalte können sich ändern, DNS auch).
  */
 export async function checkSourceEarly(source: Source, slug: string): Promise<void> {
+  if (source.type === 'image') await checkImageEarly(source.image)
+
   const repoUrl = 'repoUrl' in source ? source.repoUrl : undefined
   if (repoUrl) await checkRepoUrl(repoUrl, await repoUrlPolicy())
 
@@ -38,4 +43,25 @@ export async function checkSourceEarly(source: Source, slug: string): Promise<vo
       repo: null,
     })
   }
+}
+
+/**
+ * Gibt es das Image? Liegt es schon auf dem Server, reicht das. Sonst fragt
+ * der deployer die Registry. Ist sie nicht erreichbar, wird nicht blockiert:
+ * dann sagt es der Deploy.
+ */
+async function checkImageEarly(image: string): Promise<void> {
+  if (await docker.imageExists(image).catch(() => false)) return
+  const result = await checkImageInRegistry(image)
+  if (result === 'ok') return
+  if (result === 'unknown') {
+    log.warn('Registry für die Image-Prüfung nicht erreichbar', { image })
+    return
+  }
+  const { registry, reference } = parseImageRef(image)
+  const where = registry === 'registry-1.docker.io' ? 'Docker Hub' : registry
+  const message = result === 'missing'
+    ? `Das Image «${image}» gibt es bei ${where} nicht. Prüfe Name und Tag («${reference}»), z.B. nginx:alpine.`
+    : `«${image}» ist bei ${where} nicht öffentlich abrufbar – es existiert nicht oder ist privat. Private Images unterstützt der deployer nicht; prüfe den Namen, z.B. nginx:alpine.`
+  throw badRequest(message, [{ path: 'source.image', message }])
 }

@@ -475,6 +475,19 @@ export interface AuditEventDto {
   error: string | null
 }
 
+/** Ein Messpunkt: CPU in Kernen (1 = ein voller Kern), RAM in MB. */
+export interface ResourceSample { at: string; cpu: number; memMb: number }
+
+/** Zustand eines Projekts für die Übersicht (GET /projects/:id/health). */
+export interface ProjectHealthDto {
+  kind: string | null
+  /** missing: der Container der aktiven Fassung existiert nicht mehr */
+  container: { running: boolean; missing?: boolean; startedAt: string | null; exitCode: number | null } | null
+  health: { at: string; ok: boolean; status: number | null; error: string | null; ms: number; url: string; port: number | null } | null
+  /** Bis zu 60 Werte, einer pro Minute */
+  samples: ResourceSample[]
+}
+
 /* ------------------------------------------------------------------ *
  * Fehlerformat (einheitlich, siehe Plan)
  * ------------------------------------------------------------------ */

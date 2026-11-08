@@ -192,13 +192,14 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     )
   })
 
-  app.get<{ Querystring: { limit?: string; before?: string; action?: string } }>(
+  app.get<{ Querystring: { limit?: string; before?: string; action?: string; targetId?: string } }>(
     '/audit',
     async (request) => ({
       events: await listAudit({
         limit: request.query.limit ? Number(request.query.limit) : undefined,
         before: request.query.before,
         action: request.query.action,
+        targetId: request.query.targetId,
       }),
     }),
   )

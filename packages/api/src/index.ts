@@ -10,6 +10,7 @@ import { startCleanupJob } from './jobs/cleanup.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
+import { startMonitorJob } from './jobs/monitor.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
 import { reconcilePublicOnBoot } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
   // M6
   await abandonUnfinishedScans()
   startSecurityJobs()
+  startMonitorJob()
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })
