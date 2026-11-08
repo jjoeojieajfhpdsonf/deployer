@@ -12,6 +12,7 @@ import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startMonitorJob } from './jobs/monitor.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
+import { startNetworkWatch } from './domain/network.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
 import { reconcilePublicOnBoot } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
@@ -26,6 +27,8 @@ async function main(): Promise<void> {
   await ensureAdminPassword()
   // Cloudflare aus der Datenbank (Systemseite), vor allem, was Adressen braucht
   await loadCloudflareSettings()
+  // LAN-IP, LAN-Netz und Tailscale-IP vom Host (stündlich erneut), vor allem, was Adressen braucht
+  await startNetworkWatch()
 
   if (!config.CADDY_IP_FILTER) {
     // Ein stiller Schalter landet irgendwann unbemerkt auf dem Server.
@@ -37,15 +40,15 @@ async function main(): Promise<void> {
   if (!cf.baseDomain()) {
     log.info('Keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.')
   }
-  if (!nipioEnabled) {
-    log.warn('nip.io-Rückfall inaktiv: SERVER_LAN_IP ist nicht gesetzt ("pnpm ip" auf dem Server).')
+  if (!nipioEnabled()) {
+    log.warn('nip.io-Rückfall inaktiv: weder Tailscale- noch LAN-IP bekannt (Erkennung ohne Ergebnis, SERVER_LAN_IP leer).')
   }
-  if (!cf.baseDomain() && !nipioEnabled) {
+  if (!cf.baseDomain() && !nipioEnabled()) {
     // Weder Basisdomain noch nip.io: die Adressen enden auf .int.invalid und
     // sind nirgends erreichbar. Laut, damit es nicht wie ein Netzproblem aussieht.
     log.error(
-      'Weder Basisdomain noch SERVER_LAN_IP gesetzt – kein Projekt ist erreichbar. ' +
-        'SERVER_LAN_IP in .env eintragen oder unter System «Cloudflare verbinden».',
+      'Weder Basisdomain noch eine IP des Servers bekannt – kein Projekt ist erreichbar. ' +
+        'Tailscale einrichten (siehe docs/INSTALL.md) oder SERVER_LAN_IP in .env eintragen.',
     )
   }
 

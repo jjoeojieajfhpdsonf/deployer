@@ -221,7 +221,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
   const [baseZone, setBaseZone] = useState(current?.name ?? zones[0]?.name ?? '')
   const [baseLabel, setBaseLabel] = useState(current && s.baseDomain ? s.baseDomain.slice(0, -(current.name.length + 1)) || '' : 'int')
   const [defaultZone, setDefaultZone] = useState<string>(s.defaultZone ?? zones[0]?.name ?? '')
-  const [tailscaleIp, setTailscaleIp] = useState(s.tailscaleIp ?? '')
+  const [tailscaleIp, setTailscaleIp] = useState(s.tailscaleIp ?? s.detectedTailscaleIp ?? '')
   const [accessEmail, setAccessEmail] = useState(s.accessEmail ?? '')
   const [acmeEmail, setAcmeEmail] = useState(s.acmeEmail ?? '')
   const accounts = s.token.lastCheck?.accounts ?? []
@@ -266,11 +266,12 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
         </select>
       </Field>
 
-      <details className="cf-more" open={Boolean(s.tailscaleIp || s.accessEmail || s.acmeEmail)}>
+      <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: deployer legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall mit Tailscale.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
+        <input {...v.field('tailscaleIp', `${v.idFor('tailscaleIp')}-hint`)} value={tailscaleIp} onChange={(x) => setTailscaleIp(x.target.value)} placeholder="100.101.102.103" inputMode="decimal" spellCheck={false} />
+      </Field>
+
+      <details className="cf-more" open={Boolean(s.accessEmail || s.acmeEmail)}>
         <summary>Weitere Angaben (optional)</summary>
-        <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" optional error={e.tailscaleIp} hint="Dann legt deployer *.{preview} → diese IP bei Cloudflare an (nicht proxied). Die internen Namen gehen so auch unterwegs.">
-          <input {...v.field('tailscaleIp', `${v.idFor('tailscaleIp')}-hint`)} value={tailscaleIp} onChange={(x) => setTailscaleIp(x.target.value)} placeholder="100.101.102.103" inputMode="decimal" spellCheck={false} />
-        </Field>
         <Field id={v.idFor('accessEmail')} label="E-Mail für Cloudflare Access" optional error={e.accessEmail} hint="Wer sich bei Projekten hinter Access anmelden darf.">
           <input {...v.field('accessEmail', `${v.idFor('accessEmail')}-hint`)} value={accessEmail} onChange={(x) => setAccessEmail(x.target.value)} type="email" placeholder="joel@deine-domain.ch" spellCheck={false} />
         </Field>

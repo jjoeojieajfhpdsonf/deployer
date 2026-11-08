@@ -268,7 +268,8 @@ export const createProjectSchema = z
     port: portSchema.optional(),
     healthcheckPath: healthcheckPathSchema.default('/'),
     env: z.array(envEntryInputSchema).max(200).default([]),
-    targets: z.array(z.enum(routeTargets)).default(['lan']),
+    // Tailscale ist die Hauptadresse des Servers; LAN braucht für eigene Namen einen lokalen DNS
+    targets: z.array(z.enum(routeTargets)).default(['tailnet']),
     subdomain: slugSchema.optional(),
     cpuLimit: z.number().min(0.1).max(16).optional(),
     memoryLimitMb: z.number().int().min(64).max(32768).optional(),
@@ -437,6 +438,17 @@ export interface SystemStatusDto {
   /** null = noch keine Basisdomain festgelegt; die Adressen sind dann nip.io-Namen. */
   baseDomain: string | null
   serverLanIp: string | null
+  /** Netz des Servers: erkannt vom Host (stündlich) oder aus .env (Docker Desktop) */
+  network: {
+    mode: 'detected' | 'env'
+    checkedAt: string | null
+    lanIp: string | null
+    lanCidr: string
+    lanDev: string | null
+    tailscaleIp: string | null
+    tailscaleSource: 'eingetragen' | 'erkannt' | null
+    detectedTailscaleIp: string | null
+  }
   nipioEnabled: boolean
   /** Kopierfertiger Block für /etc/hosts; null ohne Basisdomain (nicht nötig). */
   hostsBlock: string | null
@@ -508,6 +520,8 @@ export interface CfStatusDto {
   baseDomain: string | null
   defaultZone: string | null
   tailscaleIp: string | null
+  /** Vom Host erkannt (Vorschlag für Schritt 3) */
+  detectedTailscaleIp: string | null
   accessEmail: string | null
   acmeEmail: string | null
   tunnel: {

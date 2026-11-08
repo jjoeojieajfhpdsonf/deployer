@@ -106,6 +106,8 @@ Pro Projekt lassen sich die Ziele frei kombinieren. Standard für neue Projekte 
 | LAN | `projekt.int.deinedomain.ch` | Lokaler DNS (Router, AdGuard oder Pi-hole) zeigt `*.int.deinedomain.ch` auf die LAN-IP des Servers |
 | Tailnet | `projekt.int.deinedomain.ch` (dieselbe Adresse) | Cloudflare-DNS-Eintrag `*.int.deinedomain.ch` (nicht proxied) auf die Tailscale-IP des Servers |
 
+**Tailscale ist die Hauptadresse des Servers;** eine feste LAN-IP gibt es nicht. Neue Projekte sind standardmässig nur im Tailnet erreichbar, «LAN» ist wählbar (für eigene Namen mit lokalem DNS). nip.io-Namen bilden sich aus der Tailscale-IP, sonst aus der LAN-IP. deployer liest LAN-IP, LAN-Netz und Tailscale-IP beim Start und stündlich vom Host und zieht IP-Filter und Adressen ohne Zutun nach (siehe INSTALL.md).
+
 Damit gilt im Heimnetz und unterwegs dieselbe interne Adresse. Caddy holt dafür ein Wildcard-Zertifikat von Let's Encrypt über die DNS-Challenge bei Cloudflare, also gültiges HTTPS ohne Warnungen. Caddy beantwortet interne Hostnamen nur für Anfragen aus dem LAN-Subnetz und aus dem Tailscale-Bereich `100.64.0.0/10`.
 
 ### Cloudflare verbinden

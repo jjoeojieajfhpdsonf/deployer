@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile, chmod } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
 import type { CfStatusDto, CfTokenCheckDto, CfPermissionCheck, CfTlsPhase } from '@deployer/shared'
-import { config, setCfRuntime, cf, type CfRuntime } from '../config.js'
+import { config, setCfRuntime, cf, net, type CfRuntime } from '../config.js'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import { Cloudflare, CloudflareError } from '../drivers/cloudflare.js'
@@ -298,7 +298,7 @@ export async function saveDomains(input: DomainChoice, actor: string): Promise<v
     if (stored.tls && stored.tls.phase !== 'off') await save({ ...stored, tls: { ...stored.tls, phase: 'off', steps: [] } })
     log.info('Basisdomain geändert', { baseDomain, moved })
   }
-  if (cf.tailscaleIp()) {
+  if (net.tailscaleIp()) {
     const { ensureTailnetDns } = await import('./tailnet.js')
     await ensureTailnetDns(actor).catch((err) => log.warn('Tailnet-Eintrag nicht gesetzt', { err: (err as Error).message }))
   }
@@ -532,6 +532,7 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
     baseDomain: base,
     defaultZone: zones.find((z) => z.isDefault)?.name ?? null,
     tailscaleIp: cf.tailscaleIp(),
+    detectedTailscaleIp: net.detected().tailscaleIp,
     accessEmail: cf.accessEmail(),
     acmeEmail: cf.acmeEmail(),
     tunnel: tunnelId

@@ -41,6 +41,9 @@ export function NewProject() {
   const [healthcheckPath, setHealthcheckPath] = useState('/')
   const [file, setFile] = useState<File | null>(null)
   const [env, setEnv] = useState<EnvRow[]>([])
+  // Tailscale ist die Hauptadresse des Servers; LAN nur auf Wunsch
+  const [tailnet, setTailnet] = useState(true)
+  const [lan, setLan] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,7 +71,7 @@ export function NewProject() {
       ...(needsPort ? { port: port.trim() === '' ? undefined : Number(port) } : {}),
       healthcheckPath,
       env: env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
-      targets: ['lan', 'tailnet'],
+      targets: [...(tailnet ? ['tailnet' as const] : []), ...(lan ? ['lan' as const] : [])],
       deploy: true,
     }
   }
@@ -228,9 +231,20 @@ export function NewProject() {
         <fieldset className="field-group">
           <legend>Erreichbarkeit</legend>
           <label className="choice">
-            <input type="checkbox" checked readOnly />
-            <span>Im Heimnetz und im Tailnet (interne Adresse)</span>
+            <input type="checkbox" checked={tailnet} onChange={(x) => setTailnet(x.target.checked)} />
+            <span>
+              Tailnet
+              <small>Über Tailscale, im Heimnetz und unterwegs – die Hauptadresse des Servers</small>
+            </span>
           </label>
+          <label className="choice">
+            <input type="checkbox" checked={lan} onChange={(x) => setLan(x.target.checked)} />
+            <span>
+              Heimnetz (LAN) ohne Tailscale
+              <small>Für die eigene interne Adresse braucht es einen lokalen DNS (Router, AdGuard, Pi-hole), der sie auf die LAN-IP des Servers zeigt; sonst geht es nur über die nip.io-Adresse mit der LAN-IP, die sich ändern kann</small>
+            </span>
+          </label>
+          {!tailnet && !lan && <p className="hint">Ohne Weg ist das Projekt nirgends erreichbar; das lässt sich später unter Einstellungen → Erreichbarkeit ändern.</p>}
           <label className="choice choice-disabled">
             <input type="checkbox" disabled />
             <span>

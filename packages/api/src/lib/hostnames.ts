@@ -5,7 +5,10 @@
  * Die primaere Adresse ist immer die, die tatsaechlich erreichbar ist:
  *
  *   Basisdomain gesetzt        -> <label>.<basisdomain>, nip.io als Alias
- *   keine Basisdomain, LAN-IP  -> <label>.<ip-mit-bindestrichen>.nip.io
+ *   keine Basisdomain          -> <label>.<ip-mit-bindestrichen>.nip.io, mit
+ *                                 der Tailscale-IP, sonst der LAN-IP. Gibt es
+ *                                 beide, ist der LAN-Name ein Alias (der
+ *                                 IP-Filter entscheidet, wer durchkommt).
  *   weder noch                 -> <label>.int.invalid (reserviert, loest nie
  *                                 auf; der Start warnt laut)
  *
@@ -17,14 +20,26 @@ export interface HostSettings {
   /** z.B. "int.meinedomain.ch"; null = noch nicht festgelegt */
   baseDomain: string | null
   lanIp: string | null
+  /** Tailscale ist die Hauptadresse des Servers: nip.io zuerst darauf. */
+  tailscaleIp?: string | null
   nipio: boolean
   /** M4: HTTPS mit Wildcard-Zertifikat für Namen unter der Basisdomain. */
   tls?: boolean
 }
 
+const nipFor = (label: string, ip: string) => `${label}.${ip.replace(/\./g, '-')}.nip.io`
+
+/** Der nip.io-Name: auf der Tailscale-IP, wenn bekannt, sonst auf der LAN-IP. */
 export function nipHost(label: string, s: HostSettings): string | null {
-  if (!s.nipio || !s.lanIp) return null
-  return `${label}.${s.lanIp.replace(/\./g, '-')}.nip.io`
+  const ip = s.tailscaleIp || s.lanIp
+  if (!s.nipio || !ip) return null
+  return nipFor(label, ip)
+}
+
+/** nip.io-Name mit der LAN-IP, wenn die Hauptadresse die Tailscale-IP ist. */
+export function lanNipHost(label: string, s: HostSettings): string | null {
+  if (!s.nipio || !s.lanIp || !s.tailscaleIp || s.lanIp === s.tailscaleIp) return null
+  return nipFor(label, s.lanIp)
 }
 
 export function primaryHost(label: string, s: HostSettings): string {
@@ -32,11 +47,20 @@ export function primaryHost(label: string, s: HostSettings): string {
   return nipHost(label, s) ?? `${label}.int.invalid`
 }
 
-/** Weitere Namen derselben Route. Nur mit Basisdomain ist nip.io ein Alias. */
+/**
+ * Weitere Namen derselben Route: mit Basisdomain der nip.io-Name; dazu der
+ * nip.io-Name mit der LAN-IP, wenn Tailscale die Hauptadresse ist – so geht
+ * «LAN» auch ohne lokalen DNS.
+ */
 export function aliasHosts(label: string, s: HostSettings): string[] {
-  if (!s.baseDomain) return []
-  const nip = nipHost(label, s)
-  return nip ? [nip] : []
+  const out: string[] = []
+  if (s.baseDomain) {
+    const nip = nipHost(label, s)
+    if (nip) out.push(nip)
+  }
+  const lan = lanNipHost(label, s)
+  if (lan) out.push(lan)
+  return out
 }
 
 /** Das Projekt-Label eines gespeicherten Hostnamens: alles vor dem ersten Punkt. */

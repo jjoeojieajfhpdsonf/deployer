@@ -67,12 +67,12 @@ export function Reachability({ p }: { p: ProjectDto }) {
     <fieldset className="field-group">
       <legend>Erreichbarkeit</legend>
       <label className="choice">
-        <input type="checkbox" checked={want.has('lan')} onChange={() => toggle('lan')} />
-        <span>Heimnetz (LAN)</span>
+        <input type="checkbox" checked={want.has('tailnet')} onChange={() => toggle('tailnet')} />
+        <span>Tailnet <small>über Tailscale, im Heimnetz und unterwegs – die Hauptadresse des Servers</small></span>
       </label>
       <label className="choice">
-        <input type="checkbox" checked={want.has('tailnet')} onChange={() => toggle('tailnet')} />
-        <span>Tailnet <small>dieselbe Adresse, unterwegs über Tailscale</small></span>
+        <input type="checkbox" checked={want.has('lan')} onChange={() => toggle('lan')} />
+        <span>Heimnetz (LAN) ohne Tailscale <small>für die eigene interne Adresse braucht es einen lokalen DNS, der sie auf die LAN-IP zeigt; sonst nur über die nip.io-Adresse mit der LAN-IP</small></span>
       </label>
       <label className={publicEnabled ? 'choice' : 'choice choice-disabled'}>
         <input type="checkbox" disabled={!publicEnabled} checked={want.has('public')} onChange={() => toggle('public')} />

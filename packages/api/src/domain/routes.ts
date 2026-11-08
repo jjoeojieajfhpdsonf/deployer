@@ -1,6 +1,6 @@
 import { eq, and, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { cf, config, primaryHost, aliasHosts, urlForHost } from '../config.js'
+import { cf, config, net, primaryHost, aliasHosts, urlForHost } from '../config.js'
 import { caddyTlsOptions } from './cloudflare-settings.js'
 import * as caddy from '../drivers/caddy.js'
 import * as docker from '../drivers/docker.js'
@@ -214,7 +214,7 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     const isPublic = r.target === 'public'
     if (isPublic && edgeCidrs.length === 0) continue
     const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
-    const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, config.LAN_CIDR, config.tailnetCidr)
+    const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
     if (r.sourceType === 'static') {
       specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs })
     } else if (r.port && r.deploymentId) {
@@ -307,7 +307,7 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   // dann eine Anfrage verlieren.
   const build = caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
-      cidrs: [config.LAN_CIDR, config.tailnetCidr, '127.0.0.0/8', '::1/128'],
+      cidrs: [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128'],
       adminSocket: config.CADDY_ADMIN_SOCKET,
       // Datenbank (Cloudflare verbinden) oder alte Einrichtung über .env
       tls: caddyTlsOptions(),

@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
@@ -68,6 +68,9 @@ export function System() {
         <li><span className="check-name">Platte</span><span className="check-detail">{formatBytes(s.diskFreeBytes)}</span></li>
         <li><span className="check-name">Version</span><span className="check-detail">{s.version}</span></li>
       </ul>
+
+      <h2>Netz des Servers</h2>
+      <NetworkSection s={s} />
 
       <h2>Erreichbarkeit</h2>
       <p className="hint">
@@ -167,6 +170,48 @@ function TlsSection({ s }: { s: SystemStatusDto }) {
         <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
         denselben Namen auf die Tailscale-IP auf.
       </p>
+    </>
+  )
+}
+
+/** Tailscale als Hauptadresse; LAN-IP und -Netz werden vom Host gelesen (stündlich). */
+function NetworkSection({ s }: { s: SystemStatusDto }) {
+  const qc = useQueryClient()
+  const n = s.network
+  const check = useMutation({ mutationFn: api.checkNetwork, onSuccess: () => void qc.invalidateQueries({ queryKey: ['system'] }) })
+  return (
+    <>
+      <ul className="check-list">
+        <li className={n.tailscaleIp ? 'check-ok' : 'check-fail'}>
+          <span className="check-name">Tailscale (Hauptadresse)</span>
+          <span className="check-detail">
+            {n.tailscaleIp
+              ? <><code>{n.tailscaleIp}</code> <span className="muted">· {n.tailscaleSource}</span>{n.detectedTailscaleIp && n.detectedTailscaleIp !== n.tailscaleIp ? <span className="warn"> · erkannt wird {n.detectedTailscaleIp}</span> : null}</>
+              : 'keine Tailscale-IP – neue Projekte (Standard: nur Tailnet) sind so nicht erreichbar. Tailscale auf dem Server einrichten (docs/INSTALL.md) oder beim Projekt «LAN» wählen.'}
+          </span>
+        </li>
+        <li className={n.lanIp ? 'check-ok' : 'check-none'}>
+          <span className="check-name">LAN</span>
+          <span className="check-detail">
+            {n.lanIp ? <><code>{n.lanIp}</code> im Netz <code>{n.lanCidr}</code>{n.lanDev ? <span className="muted"> ({n.lanDev})</span> : null}</> : <>unbekannt · Filter für «LAN» <code>{n.lanCidr}</code></>}
+          </span>
+        </li>
+        <li className="check-none">
+          <span className="check-name">Prüfung</span>
+          <span className="check-detail">
+            {n.mode === 'detected'
+              ? <>vom Server gelesen {n.checkedAt ? new Date(n.checkedAt).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) : ''}, stündlich erneut – Adressen und Caddy-Filter ziehen bei einer Änderung selbst nach</>
+              : <>Docker Desktop: keine Erkennung, Werte aus <code>.env</code> (SERVER_LAN_IP, LAN_CIDR)</>}
+          </span>
+        </li>
+      </ul>
+      {n.mode === 'detected' && (
+        <div className="form-actions">
+          <button type="button" onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending ? 'Prüft…' : 'Jetzt prüfen'}</button>
+          {check.data && <span className="hint" role="status">{check.data.changed ? 'Geändert – Adressen und Filter nachgezogen.' : 'Unverändert.'}</span>}
+        </div>
+      )}
+      {check.isError && <p role="alert" className="error">{(check.error as Error).message}</p>}
     </>
   )
 }

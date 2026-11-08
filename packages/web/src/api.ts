@@ -152,6 +152,7 @@ export const api = {
   cloudflareDisconnect: () => call<CfStatusDto>('/system/cloudflare', { method: 'DELETE' }),
 
   /* System */
+  checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),
   system: () => call<SystemStatusDto>('/system/status'),
   tailnetDns: () => call<{ record: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string } }>('/system/tailnet-dns', { method: 'POST' }),
   audit: (limit = 100, targetId?: string) => call<{ events: AuditEventDto[] }>(`/audit?limit=${limit}${targetId ? `&targetId=${targetId}` : ''}`),

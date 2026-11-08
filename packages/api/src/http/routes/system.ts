@@ -4,7 +4,8 @@ import { cpus, totalmem, freemem } from 'node:os'
 import { scanQueueLength } from '../../security/scan.js'
 import { asc, ne } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
-import { cf, config, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
+import { cf, config, net, nipioEnabled, nipioHost, primaryHost, urlForHost } from '../../config.js'
+import { networkState, checkNetwork } from '../../domain/network.js'
 import { currentCert, certProblemNow } from '../../jobs/cert.js'
 import { daysLeftOf } from '../../lib/cert.js'
 import { ensureTailnetDns, tailnetDnsConfigured } from '../../domain/tailnet.js'
@@ -37,14 +38,15 @@ async function check(name: string, fn: () => Promise<string>): Promise<{ name: s
  */
 export async function hostsBlock(): Promise<string | null> {
   if (!cf.baseDomain()) return null
-  const ip = config.SERVER_LAN_IP
+  // Tailscale ist die Hauptadresse: dieselbe IP gilt im LAN und unterwegs (mit Tailscale)
+  const ip = net.tailscaleIp() ?? net.lanIp()
   const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(ne(schema.routes.target, 'public')).orderBy(asc(schema.routes.hostname))
   // Ohne Doppel (LAN und Tailnet teilen sich den Namen), ohne öffentliche Namen.
   const names = [...new Set([primaryHost('deployer'), ...rows.map((r) => r.hostname)])]
   if (!ip) {
     return [
-      '# SERVER_LAN_IP ist nicht gesetzt.',
-      '# Auf dem Server "pnpm ip" ausführen und den Wert in .env eintragen.',
+      '# Keine IP des Servers bekannt (weder Tailscale noch LAN).',
+      '# Tailscale einrichten, siehe docs/INSTALL.md.',
       `# <IP-des-Servers>  ${names.join(' ')}`,
     ].join('\n')
   }
@@ -124,8 +126,12 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       diskFreeBytes,
       ipFilterEnabled: config.CADDY_IP_FILTER,
       baseDomain: cf.baseDomain(),
-      serverLanIp: config.SERVER_LAN_IP,
-      nipioEnabled,
+      serverLanIp: net.lanIp(),
+      network: (() => {
+        const n = networkState()
+        return { mode: n.mode, checkedAt: n.checkedAt, lanIp: net.lanIp(), lanCidr: net.lanCidr(), lanDev: n.lanDev, tailscaleIp: net.tailscaleIp(), tailscaleSource: cf.tailscaleIp() ? 'eingetragen' as const : n.tailscaleIp ? 'erkannt' as const : null, detectedTailscaleIp: n.tailscaleIp }
+      })(),
+      nipioEnabled: nipioEnabled(),
       hostsBlock: await hostsBlock(),
       server: {
         name: config.SERVER_NAME || 'deployer',
@@ -153,7 +159,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
         base
           ? { way: 'dns', label: `Interner Name (deployer.${base})`, url: `${urlForHost(`deployer.${base}`)}/health` }
           : { way: 'dns', label: 'Interner Name (keine Basisdomain gesetzt)', url: null },
-        { way: 'nipio', label: nip ? `nip.io (${nip})` : 'nip.io (SERVER_LAN_IP fehlt)', url: nip ? `http://${nip}/health` : null },
+        { way: 'nipio', label: nip ? `nip.io (${nip})` : 'nip.io (keine IP des Servers bekannt)', url: nip ? `http://${nip}/health` : null },
       ],
     }
   })
@@ -169,6 +175,12 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
       throw err
     }
+  })
+
+  /** Netz des Servers sofort neu lesen (sonst stündlich). */
+  app.post('/system/network/check', async (request) => {
+    const changed = await checkNetwork(actorFor(request))
+    return { changed, network: networkState() }
   })
 
   /* --- Cloudflare verbinden (nur mit Anmeldung, siehe auth.ts) ------------------ */

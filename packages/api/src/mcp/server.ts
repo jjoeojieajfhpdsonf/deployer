@@ -206,13 +206,13 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
 
   /* --- Anlegen und Dateien --------------------------------------------------- */
 
-  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}].', {
+  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}]. Standard-Erreichbarkeit: nur Tailnet (Tailscale ist die Hauptadresse); "lan" auf Wunsch dazu.', {
     name: z.string().min(1).max(120),
     source: z.record(z.unknown()).describe('z.B. {type:"files"}, {type:"image", image:"nginx:alpine"}, {type:"dockerfile", repoUrl}'),
     files: z.array(fileInputSchema).max(2000).optional(),
     port: z.number().int().min(1).max(65535).optional().describe('Port im Container; nötig bei Image, Dockerfile, Compose'),
     env: z.array(envEntryInputSchema).max(200).optional(),
-    targets: z.array(z.enum(routeTargets)).default(['lan']),
+    targets: z.array(z.enum(routeTargets)).default(['tailnet']),
     subdomain: z.string().optional(),
     wait,
   }, async (a) => {

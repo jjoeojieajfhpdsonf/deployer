@@ -77,3 +77,28 @@ describe('urlFor (M4)', () => {
     assert.equal(urlFor('solar.192-168-1-10.nip.io', { baseDomain: null, lanIp: '192.168.1.10', nipio: true, tls: true }), 'http://solar.192-168-1-10.nip.io')
   })
 })
+
+describe('Tailscale als Hauptadresse', () => {
+  const ts = '100.101.102.103'
+  test('nip.io auf der Tailscale-IP, wenn gesetzt', () => {
+    const s = { baseDomain: null, lanIp: ip, tailscaleIp: ts, nipio: true }
+    assert.equal(primaryHost('app', s), 'app.100-101-102-103.nip.io')
+  })
+  test('der LAN-Name bleibt als Alias (für «LAN» ohne lokalen DNS)', () => {
+    const s = { baseDomain: null, lanIp: ip, tailscaleIp: ts, nipio: true }
+    assert.deepEqual(aliasHosts('app', s), ['app.192-168-0-63.nip.io'])
+  })
+  test('mit Basisdomain: nip.io (Tailscale) und LAN-Name als Aliase', () => {
+    const s = { baseDomain: 'int.example.ch', lanIp: ip, tailscaleIp: ts, nipio: true }
+    assert.equal(primaryHost('app', s), 'app.int.example.ch')
+    assert.deepEqual(aliasHosts('app', s), ['app.100-101-102-103.nip.io', 'app.192-168-0-63.nip.io'])
+  })
+  test('nur Tailscale, keine LAN-IP', () => {
+    const s = { baseDomain: null, lanIp: null, tailscaleIp: ts, nipio: true }
+    assert.equal(primaryHost('app', s), 'app.100-101-102-103.nip.io')
+    assert.deepEqual(aliasHosts('app', s), [])
+  })
+  test('ohne Tailscale wie bisher über die LAN-IP', () => {
+    assert.equal(nipHost('app', { baseDomain: null, lanIp: ip, tailscaleIp: null, nipio: true }), 'app.192-168-0-63.nip.io')
+  })
+})

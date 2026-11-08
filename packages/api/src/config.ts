@@ -201,12 +201,37 @@ export const cf = {
 /** Das Cloudflare-Token (nie in der Umgebung oder in Logs). */
 export const cloudflareToken = (): string | null => cf.token()
 
-export function hostSettings(): HostSettings {
-  return { baseDomain: cf.baseDomain(), lanIp: config.SERVER_LAN_IP, nipio: config.NIPIO_FALLBACK, tls: cf.tls() }
+/* --- Netz des Servers zur Laufzeit ------------------------------------------------
+ * LAN-IP und LAN-Netz ändern sich (DHCP, anderer Router); der deployer liest
+ * sie beim Start und stündlich vom Host (domain/network.ts). Erkanntes gilt
+ * vor .env. Die Tailscale-IP kommt aus der Cloudflare-Einrichtung oder .env,
+ * sonst aus der Erkennung.
+ * --------------------------------------------------------------------------- */
+
+export interface NetRuntime { lanIp: string | null; lanCidr: string | null; tailscaleIp: string | null }
+let netRt: NetRuntime = { lanIp: null, lanCidr: null, tailscaleIp: null }
+
+/** Nur domain/network.ts ruft das auf. */
+export function setNetRuntime(r: NetRuntime): void {
+  netRt = r
 }
 
-/** nip.io ist nur nutzbar, wenn die LAN-IP bekannt ist. */
-export const nipioEnabled = nipHost('x', hostSettings()) !== null
+export const net = {
+  /** LAN-IP: erkannt, sonst SERVER_LAN_IP */
+  lanIp: (): string | null => netRt.lanIp ?? config.SERVER_LAN_IP,
+  /** LAN-Netz für den IP-Filter: erkannt, sonst LAN_CIDR */
+  lanCidr: (): string => netRt.lanCidr ?? config.LAN_CIDR,
+  /** Tailscale-IP: eingetragen (Oberfläche/.env), sonst erkannt */
+  tailscaleIp: (): string | null => cf.tailscaleIp() ?? netRt.tailscaleIp,
+  detected: (): NetRuntime => netRt,
+}
+
+export function hostSettings(): HostSettings {
+  return { baseDomain: cf.baseDomain(), lanIp: net.lanIp(), tailscaleIp: net.tailscaleIp(), nipio: config.NIPIO_FALLBACK, tls: cf.tls() }
+}
+
+/** nip.io ist nur nutzbar, wenn Tailscale- oder LAN-IP bekannt ist. */
+export const nipioEnabled = (): boolean => nipHost('x', hostSettings()) !== null
 
 export const nipioHost = (label: string) => nipHost(label, hostSettings())
 
