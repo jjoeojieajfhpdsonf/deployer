@@ -460,7 +460,7 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .field-error svg { flex: none; margin-top: 2px; }
 .env-row .field-error { grid-column: 1 / -1; margin-top: 0; }
 
-.search { position: relative; width: min(320px, 100%); }
+.search { position: relative; flex: none; width: 320px; max-width: 100%; }
 .search input { padding-left: 38px; border-radius: var(--r-md); border-color: transparent; box-shadow: var(--sh-card); }
 .search input:hover { border-color: transparent; }
 .search input:focus { border-color: var(--ink); }

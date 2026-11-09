@@ -31,12 +31,13 @@ export function ExternalTargets() {
 
   return (
     <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele" />
-      <p className="lede">
-        Eigene Websites, die nicht über den deployer laufen, lassen sich mit denselben
-        passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
-        die Domain dir gehört.
-      </p>
+      <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele">
+        <p className="lede">
+          Eigene Websites, die nicht über den deployer laufen, lassen sich mit denselben
+          passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
+          die Domain dir gehört.
+        </p>
+      </PageHead>
 
       <form
         className="inline-form"

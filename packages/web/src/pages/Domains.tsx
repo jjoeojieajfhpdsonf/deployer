@@ -54,9 +54,10 @@ export function Domains() {
         <div className="state state-empty">
           <h2>Cloudflare Tunnel nicht eingerichtet</h2>
           <p>
-            Projekte sind nur im LAN und im Tailnet erreichbar. Öffentlich schalten geht mit{' '}
-            <code>compose.public.yaml</code>: Tunnel, Konto-ID und Token – Schritte in docs/MILESTONE-5.md.
+            Projekte sind nur im LAN und im Tailnet erreichbar. Öffentlich schalten geht, sobald der
+            Tunnel steht – eingerichtet wird er unter System.
           </p>
+          <Link className="button" to="/system/cloudflare">Cloudflare &amp; HTTPS öffnen</Link>
         </div>
       ) : (
         <>
