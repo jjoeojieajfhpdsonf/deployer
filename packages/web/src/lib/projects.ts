@@ -1,22 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
-import { useLocation } from 'react-router-dom'
 import type { ProjectDto } from '@deployer/shared'
 import { api } from '../api.js'
-import { demoProjects } from './demo.js'
 
 /**
- * Alle Projekte, gemeinsam für Seitenleiste, Übersicht und Security. Mit
- * ?demo=leer|viele|lang in der Adresse kommen Testdaten statt der echten
- * (break-ui: Extremfälle ansehen, ohne Projekte anzulegen).
+ * Alle Projekte, gemeinsam für Seitenleiste, Übersicht und Security.
+ * (Extremfälle zeigen jetzt die Screenshot-Fixtures in design-shots/,
+ * nicht mehr eine Testdaten-Weiche in der App.)
  */
 export function useProjects() {
-  // Nur in der Entwicklung: im gebauten Bundle gibt es keine Testdaten-Weiche.
-  const { search } = useLocation()
-  const demo = import.meta.env.DEV ? new URLSearchParams(search).get('demo') : null
   return useQuery({
-    queryKey: ['projects', demo],
-    queryFn: async () => (demo ? { projects: demoProjects(demo) } : api.listProjects()),
-    refetchInterval: demo ? false : 5_000,
+    queryKey: ['projects'],
+    queryFn: api.listProjects,
+    refetchInterval: 5_000,
   })
 }
 

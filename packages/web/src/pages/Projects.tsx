@@ -424,8 +424,7 @@ function SecurityCell({ p }: { p: ProjectDto }) {
 /* --- Unterer Bereich ------------------------------------------------------------------ */
 
 function Activity({ projects }: { projects: ProjectDto[] }) {
-  const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')
-  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: 10_000, enabled: !demo })
+  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: 10_000 })
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login').slice(0, 6)
 

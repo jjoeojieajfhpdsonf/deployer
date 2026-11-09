@@ -16,10 +16,7 @@ import { Domains } from './pages/Domains.js'
 import { useSystem } from './components/ServerName.js'
 import { useProjects } from './lib/projects.js'
 import { Account } from './pages/Account.js'
-import { DemoToggle } from './components/DemoToggle.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
-import { isPrototype } from './prototype/flag.js'
-import { ProtoBar } from './prototype/ProtoBar.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
 
@@ -60,11 +57,7 @@ export function App() {
       <main className="main">
         <div className="topbar">
           <Crumbs />
-          {isPrototype() ? (
-            <div className="topbar-end"><ProtoBar /><ProfileMenu me={me.data} /></div>
-          ) : (
-            <ProfileMenu me={me.data} />
-          )}
+          <ProfileMenu me={me.data} />
         </div>
         <Routes>
           <Route path="/" element={<Navigate to="/projekte" replace />} />
@@ -83,7 +76,6 @@ export function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <DemoToggle />
     </div>
     </CrumbsProvider>
   )

@@ -3,7 +3,7 @@
  * cal.com-Ausschnitt (rechts), je Hell und Dunkel, 1440 px breit.
  * Erwartet die Bilder von shoot.ts und reference.ts in docs/prototype-cal.
  *
- *   pnpm --filter @deployer/web exec tsx prototype-shots/compare.ts
+ *   pnpm --filter @deployer/web exec tsx design-shots/compare.ts
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

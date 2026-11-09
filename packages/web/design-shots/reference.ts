@@ -3,7 +3,7 @@
  * Feature-Karten und Preisbereich (nur zum Vergleich in docs, nicht in der
  * App) und die berechneten Styles der Bauteile als JSON.
  *
- *   pnpm --filter @deployer/web exec tsx prototype-shots/reference.ts
+ *   pnpm --filter @deployer/web exec tsx design-shots/reference.ts
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'

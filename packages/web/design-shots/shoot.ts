@@ -3,10 +3,9 @@
  * Startet Vite selbst; die API kommt aus fixtures.ts (page.route), externe
  * Adressen antworten leer.
  *
- *   pnpm --filter @deployer/web exec tsx prototype-shots/shoot.ts --out docs/design-cal/3a-shell --only shell,login
+ *   pnpm --filter @deployer/web exec tsx design-shots/shoot.ts --out docs/design-cal/3a-shell --only shell,login
  *
- *   --out    Zielordner relativ zum Repo (Standard docs/prototype-cal)
- *   --base   Pfad-Präfix, z. B. /prototype (Standard leer)
+ *   --out    Zielordner relativ zum Repo (Standard docs/design-cal/aktuell)
  *   --only   Komma-Liste von Gruppen oder Namen (Standard: alle)
  */
 import { mkdirSync } from 'node:fs'
@@ -17,12 +16,11 @@ import { createServer } from 'vite'
 import { chromium, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
 
-const { values: args } = parseArgs({ options: { out: { type: 'string' }, base: { type: 'string' }, only: { type: 'string' } } })
+const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
 const repo = resolve(webRoot, '../..')
-const outDir = resolve(repo, args.out ?? 'docs/prototype-cal')
-const base = args.base ?? ''
+const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
 mkdirSync(outDir, { recursive: true })
 
 const PORT = 5199
@@ -153,12 +151,8 @@ try {
         return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, body: '' })
       })
       const page = await ctx.newPage()
-      const sep = s.path.includes('?') ? '&' : '?'
-      const themeParam = base ? `${sep}theme=${t}` : ''
-      await page.goto(`http://localhost:${PORT}${base}${s.path}${themeParam}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
+      await page.goto(`http://localhost:${PORT}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
-      // Der Testdaten-Umschalter des Dev-Servers gehört nicht ins Bild
-      await page.addStyleTag({ content: '[aria-label="Testdaten (nur Entwicklung)"]{display:none!important}' })
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)
