@@ -885,6 +885,7 @@ details > summary:hover { color: var(--ink); }
 .login-form { width: min(380px, 100%); padding: var(--sp-8); }
 .login-form .brand { padding: 0; margin-bottom: var(--sp-6); }
 .login-form h1 { font-size: var(--fs-30); margin-bottom: var(--sp-1); }
+.login-lede { margin: 0 0 var(--sp-2); font-size: var(--fs-14); }
 .login-form button[type='submit'] { width: 100%; margin-top: var(--sp-6); min-height: 40px; border-radius: var(--r-md); }
 
 /* --- Projekt-Karten (Raster) --------------------------------------------------------- */

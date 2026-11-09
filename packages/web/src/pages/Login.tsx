@@ -38,9 +38,10 @@ export function Login({ onDone }: { onDone: () => void }) {
           <span className="brand-mark" aria-hidden="true">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
           </span>
-          deployer
+          <span className="brand-name">deployer</span>
         </div>
-        <h1 className="visually-hidden">Anmelden bei deployer</h1>
+        <h1>Anmelden</h1>
+        <p className="muted login-lede">Mit dem Admin-Passwort dieses Servers.</p>
         <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
           <input
             {...form.field('password')}
