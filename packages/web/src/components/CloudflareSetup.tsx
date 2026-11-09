@@ -278,7 +278,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
         <Field id={v.idFor('accessEmail')} label="E-Mail für Cloudflare Access" optional error={e.accessEmail} hint="Wer sich bei Projekten hinter Access anmelden darf.">
           <input {...v.field('accessEmail', `${v.idFor('accessEmail')}-hint`)} value={accessEmail} onChange={(x) => setAccessEmail(x.target.value)} type="email" placeholder="joel@deine-domain.ch" spellCheck={false} />
         </Field>
-        <Field id={v.idFor('acmeEmail')} label="E-Mail für Let's Encrypt" optional error={e.acmeEmail} hint="Warnungen, falls ein Zertifikat nicht erneuert werden kann.">
+        <Field id={v.idFor('acmeEmail')} label="E-Mail für Let's Encrypt" optional error={e.acmeEmail} hint="Kontakt beim ACME-Konto. Let's Encrypt verschickt seit Juni 2025 keine Ablauf-Warnungen mehr; die kommen von deployer (System → Benachrichtigungen).">
           <input {...v.field('acmeEmail', `${v.idFor('acmeEmail')}-hint`)} value={acmeEmail} onChange={(x) => setAcmeEmail(x.target.value)} type="email" placeholder="joel@deine-domain.ch" spellCheck={false} />
         </Field>
       </details>

@@ -12,6 +12,51 @@ export interface CertInfo {
   validTo: string | null
   daysLeft: number | null
   error: string | null
+  /** Namen aus subjectAltName (DNS:…), sonst leer */
+  sans?: string[]
+  validFrom?: string | null
+}
+
+/** Aussteller der Staging-CA von Let's Encrypt: «(STAGING) Let's Encrypt – (STAGING) …» */
+export const isStagingIssuer = (issuer: string | null | undefined) => /staging/i.test(issuer ?? '')
+
+/** Deckt `pattern` (Name oder *.wildcard, eine Ebene) den Namen `host`? */
+export function nameCovers(pattern: string, host: string): boolean {
+  const p = pattern.toLowerCase()
+  const h = host.toLowerCase()
+  if (p === h) return true
+  if (!p.startsWith('*.')) return false
+  const rest = p.slice(1) // ".int.example.ch"
+  return h.endsWith(rest) && !h.slice(0, -rest.length).includes('.') && h.length > rest.length
+}
+
+export type CertVerdict = { ready: true } | { ready: false; reason: string }
+
+/**
+ * Ist das ausgelieferte Zertifikat das erwartete Wildcard-Zertifikat?
+ * - staging: OHNE Prüfung der Kette (die Staging-CA ist absichtlich nicht
+ *   vertrauenswürdig). Geprüft: Aussteller ist die Staging-CA, der Name
+ *   *.<basis> steht im Zertifikat, es ist jetzt gültig.
+ * - production: zusätzlich vertrauenswürdige Kette, und nicht mehr Staging.
+ */
+export function checkIssuedCert(c: CertInfo, o: { base: string; phase: 'staging' | 'production'; now?: Date }): CertVerdict {
+  const now = o.now ?? new Date()
+  const wildcard = `*.${o.base}`
+  if (!c.validTo) return { ready: false, reason: c.error ?? 'kein Zertifikat ausgeliefert' }
+  if (/caddy local authority/i.test(c.issuer ?? '')) return { ready: false, reason: `Caddy liefert noch sein eigenes Zertifikat aus (${c.issuer})` }
+  const names = c.sans?.length ? c.sans : c.subject ? [c.subject] : []
+  if (!names.some((n) => n.toLowerCase() === wildcard.toLowerCase())) {
+    return { ready: false, reason: `ausgeliefertes Zertifikat gilt für ${names.join(', ') || 'keinen Namen'}, nicht für ${wildcard} (Aussteller ${c.issuer ?? 'unbekannt'})` }
+  }
+  if (c.validFrom && Date.parse(c.validFrom) > now.getTime()) return { ready: false, reason: `Zertifikat erst gültig ab ${c.validFrom}` }
+  if (Date.parse(c.validTo) <= now.getTime()) return { ready: false, reason: `Zertifikat abgelaufen am ${c.validTo}` }
+  const staging = isStagingIssuer(c.issuer)
+  if (o.phase === 'staging') {
+    return staging ? { ready: true } : { ready: false, reason: `Aussteller ist nicht die Staging-CA: ${c.issuer ?? 'unbekannt'}` }
+  }
+  if (staging) return { ready: false, reason: `noch das Staging-Zertifikat (${c.issuer})` }
+  if (!c.ok) return { ready: false, reason: `Kette nicht vertrauenswürdig: ${c.error ?? 'unbekannter Fehler'}` }
+  return { ready: true }
 }
 
 export const WARN_DAYS = 14
@@ -45,6 +90,11 @@ export function describeCert(cert: PeerCertificate, authorized: boolean, authErr
     return Array.isArray(v) ? v[0] ?? null : v ?? null
   }
   const issuerO = (cert.issuer as unknown as Record<string, string> | undefined)?.O
+  const sans = (cert.subjectaltname ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith('DNS:'))
+    .map((s) => s.slice(4))
   return {
     ok: authorized,
     subject: cn(cert.subject),
@@ -52,6 +102,8 @@ export function describeCert(cert: PeerCertificate, authorized: boolean, authErr
     validTo,
     daysLeft,
     error: authorized ? null : authError,
+    sans,
+    validFrom: cert.valid_from ? new Date(cert.valid_from).toISOString() : null,
   }
 }
 

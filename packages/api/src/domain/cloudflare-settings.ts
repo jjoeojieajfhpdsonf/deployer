@@ -13,7 +13,9 @@ import {
 } from '../drivers/cloudflared.js'
 import { TUNNEL_SERVICE, CATCH_ALL } from '../lib/public-hosts.js'
 import type { TlsOptions } from '../drivers/caddy-config.js'
-import { probeCert } from '../lib/cert.js'
+import { probeCert, checkIssuedCert } from '../lib/cert.js'
+import { parseCaddyTlsLog } from '../lib/caddy-tls-log.js'
+import { tlsOptionsFor } from '../lib/tls-options.js'
 import * as docker from '../drivers/docker.js'
 import { audit } from './audit.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
@@ -138,14 +140,16 @@ export async function loadCloudflareSettings(): Promise<void> {
 
 /** cloudflared wieder hochfahren, falls deployer ihn verwaltet (beim Start, im Hintergrund). */
 export async function ensureManagedTunnelOnBoot(): Promise<void> {
-  if (!stored.tunnel) return
-  try {
-    const r = await ensureCloudflaredRunning(dec(stored.tunnel.tokenEnc), cloudflaredImage())
-    if (r !== 'running') log.info('cloudflared gestartet', { how: r })
-  } catch (err) {
-    log.warn('cloudflared nicht gestartet', { err: (err as Error).message })
+  if (stored.tunnel) {
+    try {
+      const r = await ensureCloudflaredRunning(dec(stored.tunnel.tokenEnc), cloudflaredImage())
+      if (r !== 'running') log.info('cloudflared gestartet', { how: r })
+    } catch (err) {
+      log.warn('cloudflared nicht gestartet', { err: (err as Error).message })
+    }
   }
-  // Eine unterbrochene Zertifikats-Einrichtung weiterführen
+  // Eine unterbrochene Zertifikats-Einrichtung weiterführen – auch ohne Tunnel
+  // («Später einrichten»); früher brach das hier mit dem Tunnel-Check ab.
   if (stored.tls && (stored.tls.phase === 'staging' || stored.tls.phase === 'production')) void runTls('system')
 }
 
@@ -155,14 +159,17 @@ export async function ensureManagedTunnelOnBoot(): Promise<void> {
  * die alte Einrichtung über .env.
  */
 export function caddyTlsOptions(): (TlsOptions & { redirect: boolean }) | null {
-  const base = cf.baseDomain()
-  if (stored.tls) {
-    if (!base || !stored.tokenEnc || stored.tls.phase === 'off' || stored.tls.phase === 'failed') return null
-    return { baseDomain: base, acmeCa: stored.tls.ca, email: cf.acmeEmail(), tokenFile: caddyTokenPath(), redirect: stored.tls.phase === 'done' }
-  }
-  if (config.TLS_MODE === 'cloudflare' && base) return { baseDomain: base, acmeCa: config.ACME_CA, email: config.ACME_EMAIL, tokenFile: null, redirect: true }
-  return null
+  return tlsOptionsFor(stored.tls, {
+    baseDomain: cf.baseDomain(),
+    hasToken: Boolean(stored.tokenEnc),
+    tokenFile: caddyTokenPath(),
+    email: cf.acmeEmail(),
+    legacy: { enabled: config.TLS_MODE === 'cloudflare', acmeCa: config.ACME_CA, email: config.ACME_EMAIL },
+  })
 }
+
+/** Phase der Zertifikats-Einrichtung, für Log-Meldungen beim Caddy-Abgleich. */
+export const tlsPhase = (): CfTlsPhase | null => stored.tls?.phase ?? null
 
 const client = (token?: string) => {
   const t = token ?? cf.token()
@@ -451,15 +458,17 @@ function runTls(actor: string): Promise<void> {
       if (stored.tls?.phase !== 'production') {
         await setPhase('staging', 'staging')
         await step(`Probelauf: Zertifikat für *.${base} bei der Staging-CA von Let's Encrypt anfordern (DNS-Challenge über Cloudflare)`)
+        const t0 = Date.now()
         await reloadCaddy(true)
-        const s = await waitForCert(base, true)
+        const s = await waitForCert(base, true, t0)
         if (!s.ok) throw new Error(s.error)
         await step(`Probelauf erfolgreich: ${s.issuer}`, 'ok')
       }
       await setPhase('production', 'production')
       await step(`Echtes Zertifikat für *.${base} bei Let's Encrypt anfordern`)
+      const t1 = Date.now()
       await reloadCaddy(true)
-      const p = await waitForCert(base, false)
+      const p = await waitForCert(base, false, t1)
       if (!p.ok) throw new Error(p.error)
       await setPhase('done', 'production')
       await step(`Zertifikat aktiv: ${p.issuer}, gültig bis ${p.validTo ? new Date(p.validTo).toLocaleDateString('de-CH') : '–'}. Interne Adressen laufen jetzt über https.`, 'ok')
@@ -478,36 +487,59 @@ function runTls(actor: string): Promise<void> {
   return tlsRun
 }
 
-async function waitForCert(base: string, staging: boolean): Promise<{ ok: true; issuer: string | null; validTo: string | null } | { ok: false; error: string }> {
+type CertWait = { ok: true; issuer: string | null; validTo: string | null } | { ok: false; error: string }
+
+/**
+ * Warten, bis Caddy das Wildcard-Zertifikat hat. Zwei Quellen:
+ * - TLS-Prüfung gegen Caddy (SNI deployer.<basis>): Staging ohne Prüfung der
+ *   Kette, Produktion voll (checkIssuedCert).
+ * - Caddys Log: «certificate obtained successfully» für *.<basis>. In der
+ *   Staging-Phase genügt das, wenn die TLS-Prüfung es nach 30 s noch nicht
+ *   sieht; die volle Prüfung kommt in der Produktionsphase.
+ * Bei Zeitüberschreitung: was die TLS-Prüfung zuletzt sah und was Caddy
+ * zuletzt meldete.
+ */
+async function waitForCert(base: string, staging: boolean, sinceMs: number): Promise<CertWait> {
+  const phase = staging ? 'staging' : 'production'
+  const wildcard = `*.${base}`
   const deadline = Date.now() + TLS_TIMEOUT_MS
-  let lastHint = ''
+  let lastError = ''
+  let lastReason = ''
+  let lastLine: string | null = null
+  let obtainedSeen: number | null = null
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5_000))
     const c = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
-    const isStaging = /staging/i.test(c.issuer ?? '')
-    if (staging && c.validTo && isStaging) return { ok: true, issuer: c.issuer, validTo: c.validTo }
-    if (!staging && c.ok && !isStaging) return { ok: true, issuer: c.issuer, validTo: c.validTo }
-    const hint = await caddyAcmeHint()
-    if (hint && hint !== lastHint) {
-      lastHint = hint
-      await step(`Caddy meldet: ${hint}`, 'bad')
+    const v = checkIssuedCert(c, { base, phase })
+    if (v.ready) return { ok: true, issuer: c.issuer, validTo: c.validTo }
+    lastReason = v.reason
+
+    const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 400 }).catch(() => '')
+    const ev = parseCaddyTlsLog(logs, wildcard, sinceMs)
+    lastLine = ev.lastLine ?? lastLine
+    if (ev.obtained && ev.obtained.staging === staging) {
+      if (obtainedSeen === null) {
+        obtainedSeen = Date.now()
+        await step(`Caddy meldet: Zertifikat für ${wildcard} bezogen (${ev.obtained.issuer || 'ACME'})`, 'ok')
+      }
+      if (staging && Date.now() - obtainedSeen >= 30_000) {
+        await step(`Hinweis: Die TLS-Prüfung sieht es noch nicht (${v.reason}). Weiter mit Produktion, dort wird voll geprüft.`, 'info')
+        return { ok: true, issuer: ev.obtained.issuer || null, validTo: c.validTo }
+      }
+    }
+    if (ev.lastError && ev.lastError !== lastError) {
+      lastError = ev.lastError
+      await step(`Caddy meldet: ${lastError}`, 'bad')
     }
   }
-  return { ok: false, error: `Nach ${TLS_TIMEOUT_MS / 60_000} Minuten kein ${staging ? 'Staging-' : ''}Zertifikat.${lastHint ? ` Letzte Meldung von Caddy: ${lastHint}` : ' Caddy-Log prüfen (docker logs deployer-caddy).'}` }
-}
-
-/** Letzter ACME-Fehler aus Caddys Log, ohne Token (das steht dort nie – nur der Platzhalter). */
-async function caddyAcmeHint(): Promise<string | null> {
-  const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 80 }).catch(() => '')
-  const lines = logs.split('\n').filter((l) => /"level":"error"/.test(l) && /acme|challenge|obtain|certificate|dns/i.test(l))
-  const last = lines.at(-1)
-  if (!last) return null
-  try {
-    const j = JSON.parse(last) as { msg?: string; error?: string }
-    return [j.msg, j.error].filter(Boolean).join(': ').slice(0, 500)
-  } catch {
-    return last.slice(0, 500)
-  }
+  const what = staging ? 'Staging-Zertifikat' : 'vertrauenswürdiges Zertifikat'
+  const parts = [
+    `Nach ${TLS_TIMEOUT_MS / 60_000} Minuten kein ${what} für ${wildcard}.`,
+    obtainedSeen !== null ? 'Caddy hat es laut Log bezogen, liefert es aber nicht aus.' : null,
+    `TLS-Prüfung von deployer.${base}: ${lastReason || 'keine Antwort'}.`,
+    `Letzte Meldung von Caddy zum Zertifikat: ${lastLine ?? 'keine (docker logs deployer-caddy prüfen)'}`,
+  ]
+  return { ok: false, error: parts.filter(Boolean).join(' ') }
 }
 
 /* --- Trennen ------------------------------------------------------------------- */

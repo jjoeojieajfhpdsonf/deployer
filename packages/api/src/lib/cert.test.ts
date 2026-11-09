@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AddressInfo } from 'node:net'
-import { certProblem, probeCert, daysLeftOf, WARN_DAYS, type CertInfo } from './cert.js'
+import { certProblem, probeCert, daysLeftOf, checkIssuedCert, nameCovers, WARN_DAYS, type CertInfo } from './cert.js'
 
 const base: CertInfo = { ok: true, subject: '*.int.example.ch', issuer: "Let's Encrypt – R11", validTo: null, daysLeft: 60, error: null }
 
@@ -73,5 +73,89 @@ describe('Review M4', () => {
     certProblem(c, now)
     assert.equal(c.daysLeft, null)
     assert.equal(daysLeftOf(c, now), 3)
+  })
+})
+
+/* --- Staging ohne Trust-Prüfung, Produktion voll ---------------------------- */
+
+const hasOpenssl = (() => {
+  try { execFileSync('openssl', ['version']); return true } catch { return false }
+})()
+
+/** Selbst signiertes Zertifikat, Aussteller «(STAGING) Let's Encrypt» wie bei der Staging-CA. */
+async function serveSelfSigned(subj: string, san: string, days: number, fn: (port: number) => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'cert-'))
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', String(days), '-subj', subj,
+      '-addext', `subjectAltName=${san}`, '-keyout', join(dir, 'k.pem'), '-out', join(dir, 'c.pem')], { stdio: 'ignore' })
+    const srv = createServer({ key: readFileSync(join(dir, 'k.pem')), cert: readFileSync(join(dir, 'c.pem')) }, (s) => s.end())
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    try {
+      await fn((srv.address() as AddressInfo).port)
+    } finally {
+      srv.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('checkIssuedCert mit echtem TLS-Server (selbst signiertes «Staging»-Zertifikat)', () => {
+  const BASE = 'int.jherren.com'
+
+  test('Staging: erkannt ohne Trust-Prüfung (Aussteller, SAN, Gültigkeit); Produktion: nicht', async (t) => {
+    if (!hasOpenssl) return t.skip('openssl fehlt')
+    await serveSelfSigned(`/O=(STAGING) Let's Encrypt/CN=*.${BASE}`, `DNS:*.${BASE}`, 80, async (port) => {
+      const c = await probeCert('127.0.0.1', port, `deployer.${BASE}`)
+      assert.equal(c.ok, false, 'Kette ist nicht vertrauenswürdig')
+      assert.deepEqual(c.sans, [`*.${BASE}`])
+      assert.ok(c.validFrom && c.validTo)
+      assert.deepEqual(checkIssuedCert(c, { base: BASE, phase: 'staging' }), { ready: true })
+      const prod = checkIssuedCert(c, { base: BASE, phase: 'production' })
+      assert.equal(prod.ready, false)
+      assert.match((prod as { reason: string }).reason, /Staging/)
+    })
+  })
+
+  test('Staging: falscher Name wird nicht akzeptiert', async (t) => {
+    if (!hasOpenssl) return t.skip('openssl fehlt')
+    await serveSelfSigned("/O=(STAGING) Let's Encrypt/CN=*.anders.ch", 'DNS:*.anders.ch', 80, async (port) => {
+      const v = checkIssuedCert(await probeCert('127.0.0.1', port, `deployer.${BASE}`), { base: BASE, phase: 'staging' })
+      assert.equal(v.ready, false)
+      assert.match((v as { reason: string }).reason, /nicht für \*\.int\.jherren\.com/)
+    })
+  })
+
+  test('Staging: beliebiges selbst signiertes Zertifikat (nicht Staging-CA) zählt nicht', async (t) => {
+    if (!hasOpenssl) return t.skip('openssl fehlt')
+    await serveSelfSigned(`/O=Irgendwer/CN=*.${BASE}`, `DNS:*.${BASE}`, 80, async (port) => {
+      const v = checkIssuedCert(await probeCert('127.0.0.1', port, `deployer.${BASE}`), { base: BASE, phase: 'staging' })
+      assert.equal(v.ready, false)
+      assert.match((v as { reason: string }).reason, /nicht die Staging-CA/)
+    })
+  })
+
+  test('kein Server: Grund statt Absturz', async () => {
+    const v = checkIssuedCert(await probeCert('127.0.0.1', 1, `deployer.${BASE}`, 1000), { base: BASE, phase: 'staging' })
+    assert.equal(v.ready, false)
+  })
+
+  test('Produktion: vertrauenswürdig, richtiger Name, gültig → bereit', () => {
+    const now = new Date('2026-11-09T00:00:00Z')
+    const c: CertInfo = { ok: true, subject: `*.${BASE}`, issuer: "Let's Encrypt – R12", validTo: '2027-02-07T00:00:00Z', validFrom: '2026-11-09T00:00:00Z', daysLeft: 90, error: null, sans: [`*.${BASE}`] }
+    assert.deepEqual(checkIssuedCert(c, { base: BASE, phase: 'production', now }), { ready: true })
+    const untrusted = checkIssuedCert({ ...c, ok: false, error: 'unable to get local issuer certificate' }, { base: BASE, phase: 'production', now })
+    assert.match((untrusted as { reason: string }).reason, /nicht vertrauenswürdig/)
+    const expired = checkIssuedCert(c, { base: BASE, phase: 'production', now: new Date('2027-03-01T00:00:00Z') })
+    assert.match((expired as { reason: string }).reason, /abgelaufen/)
+    const caddyOwn = checkIssuedCert({ ...c, issuer: 'Caddy Local Authority - ECC Intermediate' }, { base: BASE, phase: 'staging', now })
+    assert.match((caddyOwn as { reason: string }).reason, /eigenes Zertifikat/)
+  })
+
+  test('nameCovers: eine Ebene unter der Wildcard', () => {
+    assert.equal(nameCovers(`*.${BASE}`, `deployer.${BASE}`), true)
+    assert.equal(nameCovers(`*.${BASE}`, `a.b.${BASE}`), false)
+    assert.equal(nameCovers(`*.${BASE}`, BASE), false)
+    assert.equal(nameCovers('deployer.x.ch', 'DEPLOYER.x.ch'), true)
   })
 })

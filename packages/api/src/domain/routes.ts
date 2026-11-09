@@ -1,7 +1,7 @@
 import { eq, and, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { cf, config, net, primaryHost, aliasHosts, urlForHost } from '../config.js'
-import { caddyTlsOptions } from './cloudflare-settings.js'
+import { caddyTlsOptions, tlsPhase } from './cloudflare-settings.js'
 import * as caddy from '../drivers/caddy.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
@@ -297,6 +297,8 @@ export function reconcileCaddy(o: { force?: boolean } = {}): Promise<void> {
   return next
 }
 
+let lastBuildHadTls = false
+
 async function reconcileCaddyNow(force: boolean): Promise<void> {
   await syncCaddyNetworks()
   const edge = await cloudflaredCidrs()
@@ -314,6 +316,12 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       // M5: nur wenn es öffentliche Routen geben kann
       trustedProxies: edge,
     })
+  // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
+  const withTls = Boolean((build as { apps?: { tls?: unknown } }).apps?.tls)
+  if (lastBuildHadTls && !withTls) {
+    log.warn('Caddy-Konfiguration ohne TLS (:443 und Wildcard-Policy fallen weg)', { tlsPhase: tlsPhase(), baseDomain: cf.baseDomain() })
+  }
+  lastBuildHadTls = withTls
   // force: das Token in der Datei hat sich geändert – Caddy liest es nur beim Laden
   const changed = force ? (await caddy.loadConfig(build), true) : await caddy.loadConfigIfChanged(build)
   await caddy.assertAdminOnUnixSocket()
