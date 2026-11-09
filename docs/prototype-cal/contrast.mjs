@@ -7,7 +7,7 @@ const cr = (a, b) => { const [x, y] = [L(a), L(b)].sort((p, q) => q - p); return
 const themes = {
   light: {
     // Werte nach der Messung auf cal.com (referenz/stil.md): Tinte #242424, Grau #f3f4f6
-    grounds: { bg: '#f3f4f6', surface: '#ffffff', 'surface-2 (Pillen)': '#f3f4f6', 'surface-3': '#e5e7eb', code: '#f6f7f8' },
+    grounds: { bg: '#ffffff', surface: '#ffffff', 'surface-2 (Pillen)': '#f3f4f6', 'surface-3': '#e5e7eb', code: '#f6f7f8' },
     text: { ink: ['#242424', 7], 'ink-dim': ['#374151', 7], muted: ['#5f636c', 4.5] },
     status: { ok: '#13753a', warn: '#8a5300', bad: '#c0281a', info: '#1d58c2' },
     tint: { ok: '#e8f5ec', warn: '#fcf1de', bad: '#fdecea', info: '#eaf1fd' },

@@ -67,7 +67,9 @@ export function App() {
           <Route path="/security" element={<SecurityOverview />} />
           <Route path="/domains" element={<Domains />} />
           <Route path="/extern" element={<ExternalTargets />} />
-          <Route path="/system" element={<System />} />
+          <Route path="/system" element={<System section="uebersicht" />} />
+          <Route path="/system/cloudflare" element={<System section="cloudflare" />} />
+          <Route path="/system/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/tokens" element={<Tokens />} />
           <Route path="/konto" element={<Account />} />

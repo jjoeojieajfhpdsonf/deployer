@@ -18,8 +18,9 @@
    ========================================================================= */
 
 :root[data-proto='cal'] {
-  --bg: #f3f4f6;
-  --rail: #f3f4f6;
+  /* Grund weiss wie gemessen; Karten nur über Ring + Schatten abgesetzt */
+  --bg: #ffffff;
+  --rail: #ffffff;
   --surface: #ffffff;
   --surface-2: #f3f4f6;      /* Pillen, eingelassene Felder auf Weiss */
   --surface-3: #e5e7eb;      /* aktiv */
@@ -247,11 +248,11 @@
   transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 [data-proto='cal'] .rail-nav a:hover { background: var(--hover); color: var(--ink); }
-[data-proto='cal'] .rail-nav a.active { background: var(--surface); color: var(--ink); box-shadow: var(--sh-card); }
+[data-proto='cal'] .rail-nav a.active { background: var(--surface-2); color: var(--ink); }
 [data-proto='cal'] .rail-item { gap: 12px; }
 [data-proto='cal'] .rail-item svg { color: var(--muted); }
 [data-proto='cal'] .rail-count { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface-3); border-radius: 999px; min-width: 22px; height: 20px; padding: 0 7px; display: inline-grid; place-items: center; }
-[data-proto='cal'] .rail-nav a.active .rail-count { background: var(--surface-2); }
+[data-proto='cal'] .rail-nav a.active .rail-count { background: var(--surface); }
 [data-proto='cal'] .rail-count-bad { color: var(--bad); background: var(--bad-bg) !important; }
 [data-proto='cal'] .rail-count-warn { color: var(--warn); background: var(--warn-bg) !important; }
 [data-proto='cal'] .rail-foot { border-top: none; padding: 16px 12px 0; font-size: 13px; color: var(--muted); gap: 4px; }
@@ -432,19 +433,19 @@
 [data-proto='cal'] .stat-value { margin-top: 18px; font-family: var(--display); font-weight: 400; font-size: 44px; line-height: 1; letter-spacing: -0.01em; font-variant-numeric: normal; }
 [data-proto='cal'] .stat-value small { font-family: var(--font); font-size: 16px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
 [data-proto='cal'] .stat-sub { margin-top: 10px; font-size: 13px; color: var(--muted); }
-/* Die Kennzahl mit Befund bekommt die dunkle Fläche – wie die hervorgehobene Preiskarte */
-[data-proto='cal'] .stat:has(.stat-value.tone-bad) { background: var(--primary); box-shadow: none; }
-[data-proto='cal'] .stat:has(.stat-value.tone-bad) .label,
-[data-proto='cal'] .stat:has(.stat-value.tone-bad) .stat-sub { color: color-mix(in srgb, var(--primary-ink) 72%, transparent); }
-[data-proto='cal'] .stat:has(.stat-value.tone-bad) .stat-value { color: var(--primary-ink); }
-[data-proto='cal'] .stat:has(.stat-value.tone-bad) .stat-value::before {
+/* Kennzahl mit Befund: helle Karte, Zahl in der Zustandsfarbe mit Statuspunkt
+   (Punkt + Wort «kritisch»/«hoch» – nie nur Farbe) */
+[data-proto='cal'] .stat-value.tone-bad { color: var(--bad); }
+[data-proto='cal'] .stat-value.tone-warn { color: var(--warn); }
+[data-proto='cal'] .stat-value.tone-bad::before,
+[data-proto='cal'] .stat-value.tone-warn::before {
   content: '';
   display: inline-block;
   width: 10px;
   height: 10px;
   margin: 0 10px 0 0;
   border-radius: 50%;
-  background: #f47a70;
+  background: currentColor;
   vertical-align: 0.32em;
 }
 
@@ -460,7 +461,9 @@
 
 /* Segmentierte Auswahl und Reiter: graue Schiene, weisses Feld */
 [data-proto='cal'] .segmented,
-[data-proto='cal'] .tabs { display: inline-flex; gap: 2px; padding: 3px; border: none; border-radius: var(--r-md); background: var(--surface-3); width: fit-content; max-width: 100%; }
+[data-proto='cal'] .tabs { display: inline-flex; gap: 2px; padding: 3px; border: none; border-radius: var(--r-md); background: var(--surface-2); width: fit-content; max-width: 100%; }
+[data-proto='cal'] a.tab { display: inline-flex; align-items: center; text-decoration: none; font-size: 14px; }
+[data-proto='cal'] .lede-tight { margin: -12px 0 24px; }
 [data-proto='cal'] .tabs { margin-bottom: 32px; }
 [data-proto='cal'] .segmented button,
 [data-proto='cal'] .tab { min-height: 32px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 500; box-shadow: none; }
@@ -595,6 +598,19 @@
 [data-proto='cal'] .tl { padding: 12px 0; }
 [data-proto='cal'] .pact { padding: 6px 0; }
 
+/* Security-Ergebnis als Bento */
+[data-proto='cal'] .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+[data-proto='cal'] .bento-card { padding: 24px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--sh-card); min-width: 0; }
+[data-proto='cal'] .bento-wide { grid-column: 1 / -1; }
+[data-proto='cal'] .bento-label { margin: 0; font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+[data-proto='cal'] .bento-value { margin: 18px 0 0; }
+[data-proto='cal'] .bento-text { font-family: var(--display); font-size: 30px; line-height: 1.1; letter-spacing: -0.01em; color: var(--ink); }
+[data-proto='cal'] .bento-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+[data-proto='cal'] .bento .grade-line .grade { min-width: 44px; height: 44px; font-size: 20px; border-radius: var(--r-md); }
+[data-proto='cal'] .bento .grade-score strong { font-size: 30px; }
+[data-proto='cal'] .bento-wide .stages { margin-top: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); display: grid; gap: 4px 32px; }
+[data-proto='cal'] .bento-wide .stage { grid-template-columns: 16px minmax(120px, 180px) minmax(0, 1fr); }
+
 /* Befunde: je eine Karte statt einer Liste mit Linien */
 [data-proto='cal'] .finding-list { display: grid; gap: 12px; border: none; background: none; box-shadow: none; }
 [data-proto='cal'] .finding { padding: 22px 24px; border-top: none; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--sh-card); }
@@ -680,8 +696,11 @@
 /* --- Cloudflare-Assistent: jeder Schritt eine Karte -------------------------------- */
 
 [data-proto='cal'] .cf-steps { display: grid; gap: 10px; border: none; background: none; box-shadow: none; }
-[data-proto='cal'] .cf-step { padding: 20px 24px; border-top: none; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--sh-card); }
+/* Wie die Feature-Liste von cal.com: erledigt/gesperrt grau gefüllt, der aktuelle weiss und erhöht */
+[data-proto='cal'] .cf-step { padding: 20px 24px; border-top: none; border-radius: var(--r-lg); background: var(--surface-2); box-shadow: none; }
 [data-proto='cal'] .cf-step-locked { background: transparent; box-shadow: inset 0 0 0 1px var(--ring); }
+[data-proto='cal'] .cf-step-current { background: var(--surface); }
+[data-proto='cal'] .cf-step-done .cf-step-n { background: var(--surface); }
 [data-proto='cal'] .cf-step-current { box-shadow: var(--sh-card-hover); padding: 24px 28px 28px; }
 [data-proto='cal'] .cf-step-head { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 14px; }
 [data-proto='cal'] .cf-step-n { width: 28px; height: 28px; border: none; background: var(--surface-2); font-weight: 600; font-size: 13px; color: var(--muted); }

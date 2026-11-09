@@ -7,7 +7,7 @@
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, RouteDto, ScanReportDto, SystemStatusDto,
 } from '@deployer/shared'
-import type { DomainDto, MeDto, NotifySettingsDto } from '../src/api.js'
+import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto } from '../src/api.js'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -271,6 +271,29 @@ export const notifications: NotifySettingsDto = {
     weekly_summary: { push: false, email: false },
   },
 }
+
+export const failedLog = [
+  '[22:31:02] Quelle holen: ghcr.io/example/wetterstation:2.0.1',
+  '[22:31:09] Container starten, Healthcheck /health',
+  '[22:31:10] wetterstation  | Traceback (most recent call last):',
+  '[22:31:10] wetterstation  |   File "/app/main.py", line 12, in <module>',
+  '[22:31:10] wetterstation  | KeyError: \'SENSOR_URL\'',
+  '[22:32:10] Healthcheck /health antwortet nicht (Verbindung abgelehnt auf Port 8080 nach 60 s)',
+  '[22:32:10] Deploy fehlgeschlagen – Version a3f9c21 läuft unverändert weiter',
+].join('\n')
+
+export const tokens: ApiTokenDto[] = [
+  { id: 't1', name: 'Claude (MacBook)', createdAt: ago(30 * DAY), lastUsedAt: ago(5 * HOUR), revokedAt: null },
+  { id: 't2', name: 'Backup-Skript', createdAt: ago(80 * DAY), lastUsedAt: ago(26 * HOUR), revokedAt: null },
+  { id: 't3', name: 'Altes Notebook', createdAt: ago(200 * DAY), lastUsedAt: ago(120 * DAY), revokedAt: ago(90 * DAY) },
+]
+
+export const externalTargets: ExternalTargetDto[] = [
+  { id: 'e1', hostname: 'blog.example.ch', verified: true, verifiedAt: ago(12 * DAY), lastCheckAt: ago(6 * HOUR), scanInterval: 'weekly', txt: { name: '_deployer-verify.blog.example.ch', value: 'dpl-verify=7f3a9c21e04d' } },
+  { id: 'e2', hostname: 'shop.example.ch', verified: false, verifiedAt: null, lastCheckAt: null, scanInterval: 'off', txt: { name: '_deployer-verify.shop.example.ch', value: 'dpl-verify=51c0aa8e2d93' } },
+]
+
+export const externalScan: ScanReportDto | null = null
 
 export function env(id: string) {
   return id === detailProjectId
