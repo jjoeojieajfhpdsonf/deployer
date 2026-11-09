@@ -367,6 +367,8 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .lede-tight { margin: -12px 0 var(--sp-6); }
 
 .page > h2 { margin: var(--sp-14) 0 var(--sp-2); }
+/* Direkt unter Reitern beginnt der Inhalt ohne zweiten Abstand */
+.page > .tabs + h2, .page > .tabs + .banner + h2 { margin-top: 0; }
 .page > h2 + .hint { margin-bottom: var(--sp-5); }
 .page > h3 { margin: var(--sp-8) 0 var(--sp-2); }
 .page > .hint + .check-list { margin-top: var(--sp-2); }

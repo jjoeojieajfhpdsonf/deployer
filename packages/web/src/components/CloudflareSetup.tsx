@@ -495,8 +495,8 @@ function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (
         </div>
         {confirm ? (
           <span className="confirm-inline" role="group" aria-label="Trennen bestätigen">
-            <button type="button" className="button-danger" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} autoFocus>{disconnect.isPending ? 'Trennt…' : 'Ja, trennen'}</button>
             <button type="button" onClick={() => setConfirm(false)}>Abbrechen</button>
+            <button type="button" className="button-danger-solid" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} autoFocus>{disconnect.isPending ? 'Trennt…' : 'Ja, trennen'}</button>
           </span>
         ) : (
           <button type="button" className="button-danger" onClick={() => setConfirm(true)} disabled={s.publicProjects > 0}>Trennen …</button>
