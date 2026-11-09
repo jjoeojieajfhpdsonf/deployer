@@ -1,90 +1,86 @@
-# Prototyp «cal» – helles Schwarz-Weiss-Theme
+# Prototyp «cal» – Formensprache der cal.com-Startseite
 
 Branch `design/cal-prototype`. Dieselbe App mit echten Komponenten unter `/prototype/…`
 (z. B. `http://localhost:5173/prototype/projekte`), Umschalter Hell/Dunkel oben rechts,
-«Original» führt zurück. Das Midnight-Design unter allen anderen Pfaden ist unverändert.
+«Original» führt zurück. Das Midnight-Design unter allen anderen Pfaden ist unverändert
+(Ausnahme: der Fehler in den «…»-Knöpfen ist überall behoben, siehe unten).
 
-## Analyse des bestehenden Frontends
+**Version 2** (nach Rückmeldung «altes Layout mit neuen Farben»): Vorbild ist jetzt die
+Startseite cal.com, gemessen statt geschätzt, und das Layout ist mit umgebaut.
 
-| | Befund |
+## 1. Referenz
+
+- Screenshots in `referenz/`: `cal-hero.png`, `cal-features.png`, `cal-preise.png`
+  (die Startseite hat keinen Preisbereich mehr; die Preiskarten stammen von `cal.com/pricing`).
+- Gemessene Styles: `referenz/stil.md` (Tabelle), Rohdaten `referenz/styles.json`.
+- Skript: `pnpm --filter @deployer/web exec tsx prototype-shots/reference.ts`.
+- Übernommen ist nur die Formensprache; kein Logo, kein Text, keine Bilder oder Illustrationen.
+
+Die wichtigsten Messwerte und was daraus wurde:
+
+| cal.com (gemessen) | deployer-Prototyp |
 |---|---|
-| Organisation | Eine Datei `packages/web/src/styles.css` (1250 Zeilen), Tokens in `:root`, 517 `var()`-Bezüge |
-| Feste Farben in CSS | 39 ausserhalb `:root`; meist rgba-Abstufungen der Statusfarben für Rahmen (`rgba(244,116,116,.35)` …), dazu `#07090b` (Log/Code), `#ffffff` (Hover des Primärbuttons), `rgba(255,255,255,.03)` (Zeilen-Hover), 6 Graustufen für Hover-Rahmen |
-| Feste Farben in Komponenten | 4, alle im Entwickler-Umschalter `DemoToggle.tsx` (nur Dev); sonst keine Inline-Farben |
-| Radien | Zentral (`--r-sm/--r/--r-lg`, 42 Bezüge); 8 Ausreisser (2, 3, 5 px, 50 %, 999px) |
-| Schatten | 3, alle fest (Menü, Feld-Fehler, Diagramm-Punkt) |
-| Schriften | Zentral (`--font`, `--mono`); Mono 36× genutzt, oft für Beschriftungen in Versalien |
-| Schriftgrössen | Verstreut: 13 verschiedene feste Werte (13px 61×, 12px 34×, 14px 15× …), keine Tokens |
+| Karten weiss, Radius 20, Ring `inset 0 0 0 1px rgba(15,35,75,.07)`, Polster 24 | genau so; dazu ein sehr weicher Schatten, damit Karten auf der grauen Fläche stehen |
+| Buttons Radius 10 (36 hoch) bzw. 12 (gross), Primär `#242424` mit Lichtkante | genau so; Hauptaktion der Seite und des Formulars in der grossen Variante |
+| Badges Radius 8, 24 hoch, Polster 4/10, Fläche statt Rahmen | Chips (LAN/Tailnet), Befund-Zähler, Schwere, Status-Pille |
+| Titel Cal Sans, −1 % Laufweite | Cal Sans nur ab 24 px: Seitentitel 40, Abschnitte 24, Kennzahlen 44, aktueller Assistenten-Schritt 24 |
+| Fliesstext Cal Sans (eigene Variante) | Inter (Vorgabe); Monospace nur noch für Logs, Commit-Hashes, Code |
+| Eine dunkle hervorgehobene Karte (Preis «Organizations») | die Kennzahl mit offenem Befund als dunkle Bento-Karte |
+| Feature-Liste: eine aktive weisse Karte, übrige zurückgenommen | Cloudflare-Assistent: jeder Schritt eine Karte, der aktuelle erhöht mit Cal-Sans-Titel |
 
-## Aufwand für die komplette Umstellung
+**Abweichung vom Auftrag, bewusst:** «Pillen-Buttons wie auf cal.com» – gemessen sind die
+Buttons auf cal.com *keine* Pillen (Radius 10–12 px). Der Prototyp folgt der Messung; auf
+Pille umstellen ist ein Token (`--r` / `--r-md` auf 999px).
 
-Der Prototyp deckt die Token-Ebene und die meisten Komponenten schon ab; die Umstellung
-heisst vor allem, `prototype-cal.css` in `styles.css` zu überführen und die nicht gezeigten
-Seiten nachzuziehen.
+## 2. Umbau
 
-| Variante | Aufwand | Darin |
+- **Projektübersicht:** keine Tabelle mehr, sondern Projekt-Karten im Raster (Name als Link über die ganze Karte, Status-Badge, Adresse, Erreichbarkeit als Pillen, Security-Note und letzter Deploy in eingelassenen Feldern, «Öffnen» und «…»). Kennzahlen oben als Bento-Karten. Die Karte nutzt dieselben Bausteine wie die Tabellenzeile; das Aktionsmenü ist dafür eine eigene Komponente (`ProjectMenu`) geworden, die Zeile und Karte teilen.
+- **Weniger Linien:** Listen (Aktivität, Dienste, Eckdaten, Deployments, Assistent, Verwaltung) ohne Trennlinie zwischen jeder Zeile; Befunde und Assistenten-Schritte als einzelne Karten; Pillen ohne Rahmen.
+- **Seitenleiste und Kopf:** breiter (256 px), ohne Trennlinie, Einträge 40 hoch, aktiver Eintrag als weisse Karte, Zähler als Pillen; Kopf mit mehr Luft, Suche als Karte.
+- **Mehr Weissraum:** Abschnitte 56 px auseinander, Kartenpolster 24–28 px, Seitenkopf 40 px Abstand.
+- **Fehler behoben:** Die «…»-Knöpfe waren leer – die drei Punkte waren Linien der Länge 0,01, bei 16 px kaum 2 px gross. Jetzt gefüllte Kreise (`components/Icons.tsx`, gilt auch im Original).
+
+Bewegung nach Emil: Druck-Feedback auf Buttons (`scale(.97)`, 160 ms), Menüs klappen von der
+Auslöser-Ecke auf (150 ms), Karten reagieren auf Hover nur mit dem Schatten – nichts bewegt sich,
+weil Projektkarten dutzendfach am Tag angefahren werden. Theme-Wechsel nicht animiert.
+
+**Kontrast** (`node docs/prototype-cal/contrast.mjs`, alle Ziele erfüllt): Text 14–15 : 1,
+grauer Text ≥ 5,5 : 1 (cal.com nutzt für Unterzeilen `#858993` mit 3,6 : 1 – für kleinen Text
+nicht zulässig, deshalb hier `#5f636c`), Statusfarben ≥ 4,7 : 1 auf jeder Fläche und eigener
+Tönung, Feldrahmen ≥ 3 : 1. Dunkel: alles ≥ 5,6 : 1.
+
+## 3. Vergleich
+
+`vergleich-<seite>-<hell|dunkel>.png`: links der Prototyp, rechts der passende cal.com-Ausschnitt
+(`prototype-shots/compare.ts`). cal.com hat auf der Startseite kein Dunkel; die dunklen Vergleiche
+stellen den Prototyp neben dieselbe helle Referenz.
+
+| Seite | Referenz | Wo es noch abweicht |
 |---|---|---|
-| (a) nur Hell | **1,5–2 Tage** | Tokens tauschen; 39 feste Farben durch Tokens ersetzen (neue `--ok-line` …, `--code`, `--hover`, `--primary-hover`); Schriften; Beschriftungen von Mono-Versalien auf Inter; Button-/Link-Rückstellungen; restliche Seiten prüfen; Critique |
-| (b) Hell + Dunkel umschaltbar | **2,5–3 Tage** | wie (a), dazu Theme-Mechanik (`data-theme`, `prefers-color-scheme`, Wahl im Profilmenü gespeichert), zweiter Kontrast-Durchgang, Logs/Code/Diagramme in beiden Varianten, Screenshots beider Varianten |
-
-Die dunkle Variante kostet wenig Zusatzaufwand, weil die Farben schon jetzt als Tokens
-angelegt sind und der Prototyp beide Sätze geprüft enthält.
-
-## Stellen mit besonderer Arbeit
-
-- **Statusfarben:** Rahmen und Flächen sind heute feste rgba-Werte auf dunklem Grund; auf Weiss brauchen sie eigene, dunklere Töne. Im Prototyp: `--ok/--warn/--bad/--info` je mit `-bg` und `-line`, Text ≥ 4,5:1 auf jeder Fläche **und** der eigenen Tönung (siehe unten). Jeder Zustand steht weiter als Wort oder Zeichen da, nie nur als Farbe.
-- **Logs und Code:** `#07090b` fest im CSS; neu `--code` (hell: eingelassenes Grau, dunkel: fast Schwarz).
-- **Diagramme (CPU/RAM):** Linie war Link-Blau; neu Tinte, Warnung und Fehler bleiben farbig.
-- **Beschriftungen:** Spaltenköpfe, Eckdaten und Legenden waren 11px Mono-Versalien; neu 13px/500 Inter in Satzschreibung.
-- **Buttons, die keine sind:** Textlinks, Icon-Knöpfe, Marke und Profil sind `<button>`; eine Grundregel für Buttons braucht für sie Rückstellungen (im Prototyp vorhanden).
-- **Feldrahmen:** Die zarten Grautöne üblicher heller Oberflächen liegen unter 3:1 (WCAG 1.4.11); Felder haben einen eigenen, kräftigeren Rahmen (`--field-line`).
-- **Schriftgrössen:** ohne Tokens verstreut; für die Umstellung lohnt eine kleine Skala (12/13/14/15/18/30).
-
-## Was übernommen wurde
-
-- Graue Fläche, weisse Karten mit Haarlinie und weichem Schatten, eine Radius-Skala 6/8/12.
-- Fast schwarze Tinte (`#111113`, nie `#000`), schwarzer Primär-Button ohne Schatten, ein Sekundär-Stil.
-- Cal Sans (OFL, `@fontsource/cal-sans`) für Seitentitel, Abschnitte und Kennzahlen; Inter für Text; Geist Mono bleibt für Adressen, Versionen, Logs. Alle Schriften lokal gebündelt, nur im Prototyp geladen.
-- Seitenleiste mit weissem aktivem Eintrag, Kopf mit Profil-Icon (Initiale auf Tinte).
-- Reiter und Filter als eine Steuerung: graue Schiene, weisses Feld.
-- Links mit Haarlinie (nicht nur Farbe).
-- Dunkel im gleichen Stil, fast nur Schwarz und Grau; Primär-Button wird weiss.
-- Kein Logo und kein Markenelement von cal.com.
-
-**Bewegung (nach Emil):** nur Druck-Feedback auf Buttons (`scale(.97)`, 160 ms, `cubic-bezier(.23,1,.32,1)`) und das Aufklappen der Menüs von der Auslöser-Ecke (`@starting-style`, Opacity + `scale(.97)`, 150 ms). Hover nur als Farbwechsel. Der Theme-Wechsel ist bewusst nicht animiert. Unter «weniger Bewegung» bleibt nur der Farbwechsel.
-
-**Kontrast** (`node docs/prototype-cal/contrast.mjs`, alle Werte erfüllt):
-
-| | Hell | Dunkel |
-|---|---|---|
-| Text auf Karte | 18,9 : 1 | 16,5 : 1 |
-| Grauer Text (muted) | 5,4–5,9 : 1 | 6,7–7,2 : 1 |
-| ok / Warnung / Fehler / Info, schlechteste Fläche | 4,7 / 5,2 / 4,8 / 5,3 : 1 | 7,2 / 7,7 / 5,7 / 6,4 : 1 |
-| Feldrahmen | 3,2–3,4 : 1 | 3,5–3,8 : 1 |
-
-Impeccable (nur als Gutachter): Detektor ohne Befund; Critique-Befunde behoben
-(Rahmen im Profilmenü, kaum sichtbare Zeilenmenü-Punkte, Gruppentitel als Kerbe in der Kartenkante).
+| Projektübersicht | Preiskarten | cal.com hat weissen Grund und Karten mit Haarlinie; deployer graue Fläche mit weissen Karten (Vorgabe). Die Preiskarten tragen Buttons über die ganze Breite; die Projekt-Karten kompakte Aktionen rechts, weil die ganze Karte schon klickbar ist. Kennzahlen 44 px statt der 56–80 px der Marketing-Titel. |
+| Projektdetail | Feature-Karten | Die Seite bleibt zweispaltig mit vielen Karten; cal.com zeigt pro Abschnitt eine grosse Aussage und ein Bild. Diagramme (CPU/RAM) haben bei cal.com kein Gegenstück. |
+| Security | Preiskarten | Befund-Karten sind textlastig und tragen je einen Button; die Häkchen-Listen von cal.com sind leichter. Der Ergebnis-Block ist noch eine Beschriftung/Wert-Liste statt Bento. |
+| System / Assistent | Feature-Karten | Zurückgenommene Schritte sind auf cal.com grau gefüllte Karten auf Weiss; auf der grauen deployer-Fläche wären sie unsichtbar – deshalb weiss (erledigt) bzw. nur Ring (gesperrt). Die Seite ist lang (Benachrichtigungen, Netz); cal.com hält jeden Abschnitt auf einem Bildschirm. |
+| Formular | Hero | Felder haben einen dunkleren Rahmen als bei cal.com (WCAG 1.4.11, mindestens 3 : 1). Die gewählte Quelle hat einen 2-px-Ring in Tinte; dafür gibt es bei cal.com kein Vorbild. |
+| Kopf und Profilmenü | Hero (Navigation) | cal.com hat oben eine graue Navigationsleiste in einer abgerundeten Fläche; deployer behält die Seitenleiste (App mit sieben Bereichen). Profilmenü als Karte mit Schatten wie die Dropdowns von cal.com. |
+| Dunkel (alle) | – | Ohne Vorbild auf cal.com; eigene Ableitung in Schwarz und Grau, die hervorgehobene Karte kehrt sich zur hellen um. |
 
 ## Screenshots
 
 `pnpm --filter @deployer/web exec tsx prototype-shots/shoot.ts` – startet Vite selbst, Daten aus
-`packages/web/prototype-shots/fixtures.ts` (typisiert gegen die echten DTOs, erfundene Projekte).
-Nur Desktop (1440 px); deployer ist kein Werkzeug fürs Handy.
+`prototype-shots/fixtures.ts` (typisiert gegen die echten DTOs, erfundene Projekte), nur Desktop
+(1440 px). Dateien `01-…` bis `06-…` je `hell` und `dunkel`.
 
-| Seite | Hell | Dunkel |
+## Aufwand für die komplette Umstellung (aktualisiert)
+
+| Variante | Aufwand | Darin |
 |---|---|---|
-| Projektübersicht | `01-projekte-hell-desktop.png` | `01-projekte-dunkel-desktop.png` |
-| Projektdetail | `02-projekt-uebersicht-hell-desktop.png` | `02-projekt-uebersicht-dunkel-desktop.png` |
-| Security-Reiter | `03-projekt-security-hell-desktop.png` | `03-projekt-security-dunkel-desktop.png` |
-| System mit Cloudflare-/Zertifikats-Assistent | `04-system-cloudflare-hell-desktop.png` | `04-system-cloudflare-dunkel-desktop.png` |
-| Formular mit Validierung | `05-formular-validierung-hell-desktop.png` | `05-formular-validierung-dunkel-desktop.png` |
-| Profilmenü offen | `06-profilmenue-hell-desktop.png` | `06-profilmenue-dunkel-desktop.png` |
+| (a) nur Hell | **3–4 Tage** | wie Version 1 (Tokens, 39 feste Farben, Schriften, Beschriftungen) plus das Layout: Projekt-Karten statt Tabelle, Listen ohne Linien, Befunde und Assistent als Karten, Seitenleiste; die restlichen Seiten (Domains, Externe Ziele, Tokens, Audit, Konto, Anmeldung, Reiter Deployments/Logs/Einstellungen) im gleichen Stil |
+| (b) Hell + Dunkel umschaltbar | **4–5 Tage** | wie (a), dazu Theme-Mechanik (Profilmenü, `prefers-color-scheme`), zweiter Kontrast- und Screenshot-Durchgang |
 
 ## Offen
 
-- Nicht im Prototyp geprüft: Domains, Externe Ziele, Tokens, Audit, Konto, Anmeldung, die Reiter Deployments/Logs/Einstellungen. Sie erben die Tokens, sind aber nicht angesehen.
-- Schmale Fenster: nicht bearbeitet (bewusst, kein Handy-Werkzeug); die bestehenden Umbrüche gelten weiter.
-- Inter setzt den Bindestrich zwischen Grossbuchstaben etwas höher («Kontoauszug-Reader»); unauffällig, bei Bedarf über `font-feature-settings`.
-- Cal Sans hat nur einen Schnitt; deshalb nur für Titel und Kennzahlen, nie für Text.
-- Kein PRODUCT.md/DESIGN.md: vor der Umstellung lohnt `impeccable init`, damit spätere Gutachten den neuen Stil als Massstab haben.
-- Theme-Wahl im Prototyp liegt im Browser (`localStorage`); in der Umstellung ins Profilmenü und ggf. pro Benutzer.
+- Nicht im Prototyp angesehen: Domains, Externe Ziele, Tokens, Audit, Konto, Anmeldung, Reiter Deployments/Logs/Einstellungen.
+- Security-Ergebnis als Bento-Karten und leichtere Befund-Karten (siehe Vergleich).
+- Systemseite in kürzere Abschnitte teilen (Benachrichtigungen eigene Seite?).
+- Kein PRODUCT.md/DESIGN.md: vor der Umstellung `impeccable init`, damit spätere Gutachten den neuen Stil als Massstab haben.

@@ -6,12 +6,13 @@ const cr = (a, b) => { const [x, y] = [L(a), L(b)].sort((p, q) => q - p); return
 
 const themes = {
   light: {
-    grounds: { bg: '#f6f6f7', surface: '#ffffff', 'surface-2': '#f1f1f3', 'surface-3': '#e8e8eb', code: '#f3f3f5' },
-    text: { ink: ['#111113', 7], 'ink-dim': ['#3d3d42', 7], muted: ['#64646b', 4.5] },
+    // Werte nach der Messung auf cal.com (referenz/stil.md): Tinte #242424, Grau #f3f4f6
+    grounds: { bg: '#f3f4f6', surface: '#ffffff', 'surface-2 (Pillen)': '#f3f4f6', 'surface-3': '#e5e7eb', code: '#f6f7f8' },
+    text: { ink: ['#242424', 7], 'ink-dim': ['#374151', 7], muted: ['#5f636c', 4.5] },
     status: { ok: '#13753a', warn: '#8a5300', bad: '#c0281a', info: '#1d58c2' },
-    tint: { ok: '#eaf6ee', warn: '#fcf3e2', bad: '#fdeeec', info: '#ecf2fd' },
-    line: { 'field-line (Rahmen von Feldern)': ['#8a8a92', 3] },
-    primary: { fill: '#111113', label: '#ffffff' },
+    tint: { ok: '#e8f5ec', warn: '#fcf1de', bad: '#fdecea', info: '#eaf1fd' },
+    line: { 'field-line (Rahmen von Feldern)': ['#8a8d95', 3] },
+    primary: { fill: '#242424', label: '#ffffff' },
   },
   dark: {
     grounds: { bg: '#0a0a0b', surface: '#141415', 'surface-2': '#1c1c1e', 'surface-3': '#26262a', code: '#0f0f10' },

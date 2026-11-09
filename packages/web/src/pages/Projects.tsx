@@ -11,6 +11,8 @@ import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
 import { relativeTime, since, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 
+import { isPrototype } from '../prototype/flag.js'
+
 type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
 
 export function Projects() {
@@ -77,6 +79,7 @@ export function Projects() {
   }, [list, filter, query])
 
   const failed = list.filter((p) => p.lastDeployment?.status === 'failed')
+  const proto = isPrototype()
 
   return (
     <section className="page">
@@ -149,6 +152,21 @@ export function Projects() {
               </div>
             </div>
 
+            {/* Prototyp «cal»: Projekte als Karten im Raster statt als Tabelle */}
+            {proto ? (
+              <>
+                <ul className="pcards" aria-label="Projekte">
+                  {shown.map((p) => (
+                    <ProjectCard key={p.id} p={p} onAct={(what) => act.mutate({ id: p.id, what })} busy={act.isPending} />
+                  ))}
+                </ul>
+                {shown.length === 0 && (
+                  <p className="empty-inline">
+                    {query ? <>Kein Projekt passt zu «{query}».</> : filter === 'aufmerksamkeit' ? 'Nichts zu tun – alles in Ordnung.' : 'Keine Projekte in dieser Ansicht.'}
+                  </p>
+                )}
+              </>
+            ) : (
             <div className="table-scroll">
               <table className="table projects-table">
                 <thead>
@@ -173,6 +191,7 @@ export function Projects() {
                 </p>
               )}
             </div>
+            )}
           </div>
         </>
       )}
@@ -286,7 +305,6 @@ const STEP: Record<string, { n: number; label: string }> = {
 
 function ProjectRow({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
   const navigate = useNavigate()
-  const [confirmStop, setConfirmStop] = useState(false)
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
   const host = url?.replace(/^https?:\/\//, '')
   const d = p.lastDeployment
@@ -316,20 +334,7 @@ function ProjectRow({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' 
       </td>
 
       <td>
-        {p.routes.length === 0 ? (
-          <span className="muted">nirgends</span>
-        ) : (
-          <div className="chips">
-            {isPublic(p) && (
-              <span className="chip chip-public">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" /></svg>
-                Öffentlich
-              </span>
-            )}
-            {p.routes.some((r) => (r.targets ?? [r.target]).includes('lan')) && <span className="chip">LAN</span>}
-            {p.routes.some((r) => (r.targets ?? [r.target]).includes('tailnet')) && <span className="chip">Tailnet</span>}
-          </div>
-        )}
+        <Reach p={p} className="chips" />
       </td>
 
       <td><SecurityCell p={p} /></td>
@@ -345,32 +350,106 @@ function ProjectRow({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' 
       </td>
 
       <td>
-        <RowMenu label={`Aktionen für ${p.name}`}>
-          {(close) => (
-            <>
-              {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}
-              <Link role="menuitem" to={`/projekte/${p.id}?tab=logs`} onClick={close}>Logs</Link>
-              <Link role="menuitem" to={`/projekte/${p.id}?tab=deployments`} onClick={close}>Deployments</Link>
-              <div className="menu-sep" />
-              <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
-              {p.desiredState === 'running' ? (
-                confirmStop ? (
-                  <>
-                    <div className="menu-confirm">! {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
-                    <button role="menuitem" className="menu-danger" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
-                    <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
-                  </>
-                ) : (
-                  <button role="menuitem" disabled={busy} onClick={() => setConfirmStop(true)}>Stoppen …</button>
-                )
-              ) : (
-                <button role="menuitem" disabled={busy} onClick={() => { close(); onAct('start') }}>Starten</button>
-              )}
-            </>
-          )}
-        </RowMenu>
+        <ProjectMenu p={p} url={url} onAct={onAct} busy={busy} />
       </td>
     </tr>
+  )
+}
+
+/** Menü «…» eines Projekts – in der Tabellenzeile und in der Karte (Prototyp) dasselbe. */
+function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | undefined; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
+  const [confirmStop, setConfirmStop] = useState(false)
+  return (
+    <RowMenu label={`Aktionen für ${p.name}`}>
+      {(close) => (
+        <>
+          {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}
+          <Link role="menuitem" to={`/projekte/${p.id}?tab=logs`} onClick={close}>Logs</Link>
+          <Link role="menuitem" to={`/projekte/${p.id}?tab=deployments`} onClick={close}>Deployments</Link>
+          <div className="menu-sep" />
+          <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
+          {p.desiredState === 'running' ? (
+            confirmStop ? (
+              <>
+                <div className="menu-confirm">! {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
+                <button role="menuitem" className="menu-danger" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
+                <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
+              </>
+            ) : (
+              <button role="menuitem" disabled={busy} onClick={() => setConfirmStop(true)}>Stoppen …</button>
+            )
+          ) : (
+            <button role="menuitem" disabled={busy} onClick={() => { close(); onAct('start') }}>Starten</button>
+          )}
+        </>
+      )}
+    </RowMenu>
+  )
+}
+
+/** Erreichbarkeit als dezente Pillen (Öffentlich hebt sich mit Zeichen ab). */
+function Reach({ p, className }: { p: ProjectDto; className: string }) {
+  if (p.routes.length === 0) return <span className="muted">nirgends</span>
+  return (
+    <div className={className}>
+      {isPublic(p) && (
+        <span className="chip chip-public">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" /></svg>
+          Öffentlich
+        </span>
+      )}
+      {p.routes.some((r) => (r.targets ?? [r.target]).includes('lan')) && <span className="chip">LAN</span>}
+      {p.routes.some((r) => (r.targets ?? [r.target]).includes('tailnet')) && <span className="chip">Tailnet</span>}
+    </div>
+  )
+}
+
+/* --- Projekt-Karte (Prototyp «cal») ------------------------------------------------- */
+
+function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
+  const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
+  const host = url?.replace(/^https?:\/\//, '')
+  const d = p.lastDeployment
+  const kind = KIND_LABEL[p.sourceType] ?? p.sourceType
+  const version = shortVersion(d?.version ?? p.activeDeployment?.version)
+  const rt = runtimeStatus(p)
+  return (
+    <li className={`pcard${rt.deployFailed || rt.status === 'failed' ? ' pcard-bad' : ''}`}>
+      <div className="pcard-head">
+        <div className="pcard-title">
+          {/* Der Name ist der Link; ::after macht die ganze Karte klickbar */}
+          <h3><Link className="pcard-link" to={`/projekte/${p.id}`}>{p.name}</Link></h3>
+          {host ? <span className="pcard-host" title={host}>{host}</span> : <span className="pcard-host">keine Adresse</span>}
+        </div>
+        <StatusBadge status={rt.status} />
+      </div>
+
+      <div className="pcard-state">
+        <StatusSub p={p} />
+        <Reach p={p} className="chips" />
+      </div>
+
+      <dl className="pcard-facts">
+        <div>
+          <dt>Security</dt>
+          <dd><SecurityCell p={p} /></dd>
+        </div>
+        <div>
+          <dt>Letzter Deploy</dt>
+          <dd>
+            {p.status === 'deploying' ? 'läuft gerade' : relativeTime(d?.startedAt)}
+            <span className="pcard-kind">{kind} <span className="version">{version}</span></span>
+          </dd>
+        </div>
+      </dl>
+
+      <div className="pcard-foot">
+        <div className="pcard-actions">
+          {url && <a className="button button-small" href={url} target="_blank" rel="noreferrer">Öffnen</a>}
+          <ProjectMenu p={p} url={url} onAct={onAct} busy={busy} />
+        </div>
+      </div>
+    </li>
   )
 }
 
