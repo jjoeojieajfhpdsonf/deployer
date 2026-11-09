@@ -82,7 +82,7 @@ export function Audit() {
             </thead>
             <tbody>
               {list.map((e) => (
-                <tr key={e.id} className={e.result === 'error' ? 'row-error' : undefined}>
+                <tr key={e.id}>
                   <td className="num nowrap">{new Date(e.at).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                   <td>
                     <div>{describeAudit(e, byId)}</div>

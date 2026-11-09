@@ -252,14 +252,19 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
           </thead>
           <tbody>
             {rows.map((d) => (
-              <tr key={d.id} className={d.status === 'failed' ? 'row-error' : undefined}>
+              <tr key={d.id}>
                 <td>
                   {new Date(d.startedAt).toLocaleString('de-CH')}
                   {d.trigger === 'rollback' && <span className="muted"> · Rollback</span>}
                 </td>
                 <td><code className="version" title={d.version ?? undefined}>{shortVersion(d.version)}</code></td>
                 <td>{duration(d.durationMs)}</td>
-                <td>{DEPLOY_STATUS[d.status] ?? d.status}</td>
+                <td>
+                  {/* Ergebnis als Pille: Punkt + Wort, Farbe nur für aktiv und fehlgeschlagen */}
+                  <span className={`status ${d.status === 'active' ? 'status-running' : d.status === 'failed' ? 'status-failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'status-deploying' : 'status-stopped'}`}>
+                    <span className="status-dot" aria-hidden="true" />{DEPLOY_STATUS[d.status] ?? d.status}
+                  </span>
+                </td>
                 <td className="row-actions">
                   <button onClick={() => setOpen(open === d.id ? null : d.id)}>
                     {open === d.id ? 'Log schliessen' : 'Log'}

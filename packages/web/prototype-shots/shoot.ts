@@ -40,7 +40,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.projects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
   if ((m = p.match(/^\/deployments\/([^/]+)$/))) {
-    const d = fx.projects.flatMap((x) => fx.deployments(x.id)).find((x) => x.id === m![1])
+    const d = fx.projects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
     return { body: { deployment: d, log: d?.status === 'failed' ? fx.failedLog : fx.deployLog } }
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }

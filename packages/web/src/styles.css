@@ -577,7 +577,6 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .table tbody tr:hover { background: var(--hover); }
 .table td.row-actions { text-align: right; white-space: nowrap; }
 .table td.row-actions > * + * { margin-left: var(--sp-2); }
-.row-error td { background: var(--bad-bg); }
 .row-muted td { color: var(--muted); }
 .cell-main { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; hyphens: auto; }
 .cell-main a { color: inherit; text-decoration: none; }
