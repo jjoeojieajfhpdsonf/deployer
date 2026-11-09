@@ -64,6 +64,8 @@ export function CloudflareSetup() {
   const hasToken = ui
   const hasDomains = ui && Boolean(s.baseDomain)
   const hasTunnel = ui && Boolean(s.tunnel?.managed)
+  // Ohne Tunnel geht es trotzdem weiter: Das Zertifikat braucht nur das Token.
+  const tunnelSkipped = ui && !hasTunnel && s.tunnelSkipped
   const tlsDone = s.tls.phase === 'done'
 
   const st = (done: boolean, ready: boolean, key?: 'token' | 'domains'): StepState => (key && editing === key ? 'current' : done ? 'done' : ready ? 'current' : 'locked')
@@ -94,11 +96,12 @@ export function CloudflareSetup() {
           <DomainsStep s={s} onSaved={(st2) => { set(st2); setEditing(null) }} onCancel={hasDomains ? () => setEditing(null) : undefined} />
         </Step>
 
-        <Step n={4} title="Tunnel anlegen" state={hasDomains ? st(hasTunnel, true) : 'locked'} summary={<TunnelSummary s={s} onChanged={set} />}>
+        <Step n={4} title={tunnelSkipped ? 'Tunnel (später)' : 'Tunnel anlegen'} state={hasDomains ? st(hasTunnel || tunnelSkipped, true) : 'locked'}
+          summary={tunnelSkipped ? <TunnelSkippedSummary onDone={set} /> : <TunnelSummary s={s} onChanged={set} />}>
           <TunnelStep onDone={set} />
         </Step>
 
-        <Step n={5} title="Zertifikat einrichten" state={hasTunnel ? (tlsDone ? 'done' : 'current') : 'locked'} summary={<CertSummary s={s} />}>
+        <Step n={5} title="Zertifikat einrichten" state={hasTunnel || tunnelSkipped ? (tlsDone ? 'done' : 'current') : 'locked'} summary={<CertSummary s={s} />}>
           <TlsStep s={s} onStarted={set} />
         </Step>
       </ol>
@@ -296,15 +299,31 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
 
 function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
   const run = useMutation({ mutationFn: api.cloudflareTunnel, onSuccess: onDone })
+  const skip = useMutation({ mutationFn: api.cloudflareTunnelSkip, onSuccess: onDone })
   return (
     <>
       <p className="cf-lead">deployer legt bei Cloudflare einen Tunnel an und startet <code>cloudflared</code> als eigenen Container. Er baut die Verbindung nach aussen auf – am Router bleibt jeder Port zu. Öffentlich wird dadurch noch nichts.</p>
+      <p className="cf-meta">Nur für öffentliche Projekte nötig. Das Zertifikat für interne Adressen geht auch ohne Tunnel.</p>
       <div className="form-actions">
-        <button type="button" className="button-primary" onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel anlegen und starten'}</button>
+        <button type="button" className="button-primary" onClick={() => run.mutate()} disabled={run.isPending || skip.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel anlegen und starten'}</button>
+        <button type="button" onClick={() => skip.mutate()} disabled={run.isPending || skip.isPending}>Später einrichten</button>
       </div>
+      {skip.isError && <p role="alert" className="error">{(skip.error as Error).message}</p>}
       {run.isPending && <p className="cf-meta" aria-live="polite">Image holen, Container starten – das dauert beim ersten Mal bis zu einer Minute.</p>}
       {run.isError && <p role="alert" className="error">{(run.error as Error).message}</p>}
     </>
+  )
+}
+
+function TunnelSkippedSummary({ onDone }: { onDone: (s: CfStatusDto) => void }) {
+  const run = useMutation({ mutationFn: api.cloudflareTunnel, onSuccess: onDone })
+  return (
+    <div className="cf-rows">
+      <span className="cf-meta"><IconOptional /> Kein Tunnel: Projekte sind nur intern erreichbar, «Öffentlich» bleibt aus.</span>
+      <button type="button" className="button-small" onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel jetzt anlegen'}</button>
+      {run.isPending && <span className="cf-meta" aria-live="polite">Image holen, Container starten – das dauert beim ersten Mal bis zu einer Minute.</span>}
+      {run.isError && <span role="alert" className="error-inline">{(run.error as Error).message}</span>}
+    </div>
   )
 }
 

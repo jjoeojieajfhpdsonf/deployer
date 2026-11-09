@@ -539,6 +539,8 @@ export interface CfStatusDto {
     foreignIngress: { hostname: string | null; service: string }[]
     ingressError: string | null
   } | null
+  /** Tunnel-Schritt mit «Später einrichten» übersprungen (kein Tunnel vorhanden) */
+  tunnelSkipped: boolean
   tls: {
     enabled: boolean
     phase: CfTlsPhase

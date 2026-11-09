@@ -17,12 +17,29 @@ import { securityRoutes } from './routes/security.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 
+/**
+ * Leerer Body mit Content-Type application/json gilt als {} statt als Fehler
+ * (Fastify lehnt ihn sonst mit FST_ERR_CTP_EMPTY_JSON_BODY ab). Gilt für alle
+ * Endpunkte, auch für API-Clients, die den Header immer mitschicken. Nicht
+ * leere Bodies gehen weiter durch Fastifys Parser (Schutz vor __proto__).
+ */
+export function acceptEmptyJson(app: FastifyInstance): void {
+  const defaultJson = app.getDefaultJsonParser('error', 'ignore')
+  app.removeContentTypeParser('application/json')
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, raw, done) => {
+    if ((raw as string).trim() === '') return done(null, {})
+    defaultJson(req, raw as string, done)
+  })
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: config.NODE_ENV === 'production' ? 'info' : 'debug' },
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
   })
+
+  acceptEmptyJson(app)
 
   await app.register(cookie, { secret: await sessionSecret() })
   await app.register(multipart, { limits: { fileSize: DEFAULT_LIMITS.maxArchiveBytes, files: 1 } })

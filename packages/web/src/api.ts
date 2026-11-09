@@ -51,7 +51,9 @@ export class ApiError extends Error {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     credentials: 'same-origin',
-    headers: init.body instanceof FormData ? {} : { 'content-type': 'application/json' },
+    // Content-Type nur bei einem JSON-Body: Ohne Body würde der Server
+    // «Body cannot be empty when content-type is set to 'application/json'» melden.
+    headers: typeof init.body === 'string' ? { 'content-type': 'application/json' } : {},
     ...init,
   })
   if (res.status === 204) return undefined as T
@@ -146,6 +148,7 @@ export const api = {
   cloudflareToken: (token: string) => call<{ check: CfTokenCheckDto; status: CfStatusDto }>('/system/cloudflare/token', { method: 'PUT', body: body({ token }) }),
   cloudflareDomains: (d: unknown) => call<CfStatusDto>('/system/cloudflare/domains', { method: 'PUT', body: body(d) }),
   cloudflareTunnel: () => call<CfStatusDto>('/system/cloudflare/tunnel', { method: 'POST' }),
+  cloudflareTunnelSkip: () => call<CfStatusDto>('/system/cloudflare/tunnel/skip', { method: 'POST' }),
   cloudflareTunnelRestart: () => call<CfStatusDto>('/system/cloudflare/tunnel/restart', { method: 'POST' }),
   cloudflareTunnelUpdate: () => call<CfStatusDto>('/system/cloudflare/tunnel/update', { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>('/system/cloudflare/tls', { method: 'POST' }),

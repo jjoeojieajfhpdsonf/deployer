@@ -20,7 +20,7 @@ import { listAudit } from '../../domain/audit.js'
 import type { SystemStatusDto } from '@deployer/shared'
 import { cfTokenSchema, cfDomainsSchema } from '@deployer/shared'
 import {
-  cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
+  cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, skipTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
 } from '../../domain/cloudflare-settings.js'
 
 async function check(name: string, fn: () => Promise<string>): Promise<{ name: string; ok: boolean; detail: string }> {
@@ -205,6 +205,11 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/system/cloudflare/tunnel', async (request) => {
     await setupTunnel(actorFor(request))
+    return cloudflareStatus()
+  })
+
+  app.post('/system/cloudflare/tunnel/skip', async (request) => {
+    await skipTunnel(actorFor(request))
     return cloudflareStatus()
   })
 

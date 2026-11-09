@@ -45,6 +45,8 @@ interface Stored {
   accessEmail?: string | null
   acmeEmail?: string | null
   tunnel?: { id: string; name: string; tokenEnc: string }
+  /** Schritt 4 «Später einrichten»: ohne Tunnel weiter zum Zertifikat */
+  tunnelSkipped?: boolean
   /** Festgelegtes cloudflared-Image (nach einem Update per Knopf) */
   cloudflaredImage?: string
   tls?: { phase: CfTlsPhase; ca: 'production' | 'staging'; startedAt: string; steps: Step[] }
@@ -319,13 +321,25 @@ export async function setupTunnel(actor: string): Promise<void> {
   } catch (err) {
     wrapCf(err)
   }
-  await save({ ...stored, tunnel: { id: tunnel.id, name: tunnel.name, tokenEnc: enc(token) } })
+  await save({ ...stored, tunnel: { id: tunnel.id, name: tunnel.name, tokenEnc: enc(token) }, tunnelSkipped: false })
   await startCloudflared(token, cloudflaredImage())
   const { reconcileTunnel, syncDomains } = await import('./public.js')
   await syncDomains(c).catch(() => {})
   await reconcileTunnel(c).catch((err) => log.warn('Tunnel-Regeln nicht gesetzt', { err: String(err) }))
   await reloadCaddy()
   await audit({ actor, action: 'cloudflare.tunnel', targetType: 'system', targetId: tunnel.id, params: { name: tunnel.name }, result: 'ok' })
+}
+
+/**
+ * Schritt 4 überspringen: Das Zertifikat für interne Adressen braucht keinen
+ * Tunnel (DNS-Challenge über das Token). Ohne Tunnel bleibt nur «Öffentlich» aus.
+ */
+export async function skipTunnel(actor: string): Promise<void> {
+  if (!stored.tokenEnc) throw badRequest('Zuerst das Token speichern')
+  if (!cf.baseDomain()) throw badRequest('Zuerst die interne Basisdomain wählen')
+  if (stored.tunnel) return
+  await save({ ...stored, tunnelSkipped: true })
+  await audit({ actor, action: 'cloudflare.tunnel.skip', targetType: 'system', targetId: 'cloudflare', params: {}, result: 'ok' })
 }
 
 /** cloudflared neu starten (gleicher Tunnel, frisches Token). */
@@ -550,6 +564,7 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
           ingressError: ingress.error,
         }
       : null,
+    tunnelSkipped: !tunnelId && Boolean(stored.tunnelSkipped),
     tls: {
       enabled: Boolean(tls) || phase === 'done',
       phase,

@@ -78,7 +78,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
         <input type="checkbox" disabled={!publicEnabled} checked={want.has('public')} onChange={() => toggle('public')} />
         <span>
           Öffentlich im Internet{' '}
-          <small>{publicEnabled ? 'über Cloudflare Tunnel; nur mit abgeschlossenem Scan ohne kritischen Befund' : 'nicht eingerichtet (Cloudflare-Tunnel fehlt)'}</small>
+          <small>{publicEnabled ? 'über Cloudflare Tunnel; nur mit abgeschlossenem Scan ohne kritischen Befund' : 'braucht einen Cloudflare-Tunnel – unter System → Cloudflare verbinden einrichten'}</small>
         </span>
       </label>
 
