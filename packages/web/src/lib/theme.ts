@@ -1,0 +1,54 @@
+import type { ThemePref } from '@deployer/shared'
+
+/**
+ * Darstellung Hell/Dunkel. Die Wahl liegt auf dem Server (Profilmenü, gilt
+ * auf jedem Gerät); localStorage hält nur eine Kopie, damit index.html sie
+ * vor dem ersten Bild setzen kann und nichts aufblitzt. «system» folgt
+ * prefers-color-scheme und wechselt mit, wenn das Gerät umschaltet.
+ */
+export const THEME_KEY = 'deployer.theme'
+
+const media = () => (typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null)
+
+export function resolveTheme(pref: ThemePref): 'light' | 'dark' {
+  if (pref === 'light' || pref === 'dark') return pref
+  return media()?.matches ? 'dark' : 'light'
+}
+
+export function readLocalTheme(): ThemePref {
+  try {
+    const v = localStorage.getItem(THEME_KEY)
+    return v === 'light' || v === 'dark' || v === 'system' ? v : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+let current: ThemePref = 'system'
+let listening = false
+
+function paint(): void {
+  const t = resolveTheme(current)
+  const root = document.documentElement
+  root.dataset.theme = t
+  root.style.colorScheme = t
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t === 'dark' ? '#0a0a0b' : '#ffffff')
+}
+
+/** Wahl anwenden (ohne Übergang – ein Farbwechsel aller Flächen hat keinen Zweck) und lokal merken. */
+export function applyTheme(pref: ThemePref): void {
+  current = pref
+  try {
+    localStorage.setItem(THEME_KEY, pref)
+  } catch {
+    /* privat: nur für diese Sitzung */
+  }
+  paint()
+  const m = media()
+  if (m && !listening) {
+    m.addEventListener('change', () => { if (current === 'system') paint() })
+    listening = true
+  }
+}
+
+export const THEME_LABEL: Record<ThemePref, string> = { light: 'Hell', dark: 'Dunkel', system: 'Wie das Gerät' }

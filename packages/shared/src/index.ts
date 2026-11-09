@@ -625,6 +625,14 @@ export const externalHostnameSchema = z
 
 export const addExternalTargetSchema = z.object({ hostname: externalHostnameSchema })
 
+/* --- Darstellung (Profilmenü) -------------------------------------------- */
+
+/** system: folgt prefers-color-scheme des Geräts */
+export const themePrefs = ['light', 'dark', 'system'] as const
+export type ThemePref = (typeof themePrefs)[number]
+export const uiPrefsSchema = z.object({ theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }) })
+export type UiPrefs = z.infer<typeof uiPrefsSchema>
+
 export const PASSWORD_MIN = 12
 
 export const passwordChangeSchema = z.object({

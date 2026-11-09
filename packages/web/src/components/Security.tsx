@@ -146,7 +146,7 @@ export function ScanReport({
                     <span className="stage-icon">
                       {state === 'clean' || state === 'accepted' ? <IconClean /> : state === 'found' ? <IconFound /> : state === 'failed' ? <IconFailed /> : <IconSkipped />}
                     </span>
-                    <span className="stage-name">{STAGE_LABEL[k.split(' ')[0]!] ?? k}{k.includes(' ') ? <span className="muted mono"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
+                    <span className="stage-name">{STAGE_LABEL[k.split(' ')[0]!] ?? k}{k.includes(' ') ? <span className="muted"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
                     <span className="stage-state">
                       {state === 'clean' && 'keine Befunde'}
                       {state === 'found' && (<>

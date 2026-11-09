@@ -85,7 +85,7 @@ export function Domains() {
                 <tbody>
                   {(d.data?.domains ?? []).map((dom) => (
                     <tr key={dom.id}>
-                      <td className="mono">{dom.name}</td>
+                      <td>{dom.name}</td>
                       <td>{dom.isDefault ? <span className="status status-running"><span className="status-dot" aria-hidden="true" />Standard</span> : <span className="muted">–</span>}</td>
                       <td className="row-actions">
                         {!dom.isDefault && <button className="button-small" onClick={() => setDefault.mutate(dom.name)} disabled={setDefault.isPending}>Als Standard</button>}

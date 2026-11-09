@@ -1,6 +1,6 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto,
+  SystemStatusDto, Source, RouteTarget, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
 } from '@deployer/shared'
 
 export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto }
@@ -30,6 +30,8 @@ export interface MeDto {
   viaHttps?: boolean
   passwordChangedAt?: string | null
   passwordSource?: 'env' | 'ui' | null
+  /** Darstellung, auf dem Server gespeichert (Profilmenü) */
+  theme?: ThemePref | null
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -74,6 +76,7 @@ export const api = {
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
   login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
+  setPreferences: (prefs: UiPrefs) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>('/projects'),

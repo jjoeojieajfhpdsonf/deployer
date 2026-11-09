@@ -341,7 +341,7 @@ function ProjectRow({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' 
 
       <td>
         <div>{p.status === 'deploying' ? 'läuft gerade' : relativeTime(d?.startedAt)}</div>
-        <div className="cell-sub mono" title={deployLine}>
+        <div className="cell-sub" title={deployLine}>
           {kind}
           {p.sourceType === 'files' && p.runtimeKind !== 'static' ? ` · ${KIND_LABEL[p.runtimeKind]}` : ''}
           {' · '}
@@ -461,7 +461,7 @@ function StatusSub({ p }: { p: ProjectDto }) {
       <>
         <div className="progress" aria-label={`Schritt ${step.n} von 4`}>
           <div className="progress-track"><div className="progress-fill" style={{ width: `${(step.n / 4) * 100}%` }} /></div>
-          <span className="mono">{step.n}/4</span>
+          <span className="num">{step.n}/4</span>
         </div>
         <div className="cell-sub">{step.label}</div>
       </>
@@ -551,7 +551,7 @@ function ServerPanel({ s }: { s: SystemStatusDto | undefined }) {
       <div className="meters">
         {rows.map((r) => (
           <div key={r.label}>
-            <div className="meter-head"><span>{r.label}</span><span className="mono">{r.value}</span></div>
+            <div className="meter-head"><span>{r.label}</span><span className="num">{r.value}</span></div>
             <div className="meter-track" role="progressbar" aria-label={r.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r.p ?? undefined}>
               <div className={`meter-fill${r.p !== null && r.p >= 90 ? ' tone-bad' : r.p !== null && r.p >= 75 ? ' tone-warn' : ''}`} style={{ width: `${r.p ?? 0}%` }} />
             </div>

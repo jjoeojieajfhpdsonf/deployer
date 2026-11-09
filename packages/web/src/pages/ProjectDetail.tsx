@@ -110,7 +110,7 @@ export function ProjectDetail() {
           </>
         }
       >
-        <p className="lede mono">{KIND_LABEL[p.sourceType] ?? p.sourceType} · {shortVersion(p.activeDeployment?.version)}{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
+        <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
       </PageHead>
 
       {notice && <p role="status" className="notice notice-ok">{notice}</p>}

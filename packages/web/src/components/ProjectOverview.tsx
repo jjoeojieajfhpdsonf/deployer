@@ -95,7 +95,7 @@ export function ProjectOverview({
                 </button>
                 {env.some((e) => e.isSecret) && <span className="muted">, davon {env.filter((e) => e.isSecret).length} geheim</span>}
               </dd>
-              {p.port !== null && <><dt>Port</dt><dd className="mono">{p.port}{p.healthcheckPath ? <span className="muted"> · Healthcheck {p.healthcheckPath}</span> : null}</dd></>}
+              {p.port !== null && <><dt>Port</dt><dd className="num">{p.port}{p.healthcheckPath ? <span className="muted"> · Healthcheck {p.healthcheckPath}</span> : null}</dd></>}
               {p.sourceType === 'files' && (
                 <><dt>Ablauf</dt><dd>{p.keep ? 'läuft nicht ab' : p.expiresAt ? `stoppt am ${new Date(p.expiresAt).toLocaleDateString('de-CH')}, wenn sich nichts ändert` : '–'}{' '}<button type="button" className="link-button" onClick={onToggleKeep}>{p.keep ? 'Ablauf einschalten' : 'Behalten'}</button></dd></>
               )}

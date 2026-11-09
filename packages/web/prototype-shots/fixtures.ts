@@ -93,7 +93,7 @@ export const projects: ProjectDto[] = [
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'
 
-export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui' }
+export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system' }
 
 export function deployments(id: string): DeploymentDto[] {
   const p = projects.find((x) => x.id === id)!

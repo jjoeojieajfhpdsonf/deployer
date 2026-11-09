@@ -6,20 +6,27 @@ import { App } from './App.js'
 
 // Lokal gebündelt über @fontsource, nicht von Google Fonts: im LAN soll der
 // Aufruf der Oberfläche nichts von aussen nachladen.
-import '@fontsource/geist/400.css'
-import '@fontsource/geist/500.css'
-import '@fontsource/geist/600.css'
-import '@fontsource/geist/700.css'
+// Cal Sans (OFL) für Titel und Kennzahlen, Inter für Text, Geist Mono für
+// Logs, Hashes und Code.
+import '@fontsource/cal-sans/400.css'
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
 import '@fontsource/geist-mono/400.css'
 import '@fontsource/geist-mono/500.css'
 
 import './styles.css'
+import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { PROTO_BASE, isPrototype } from './prototype/flag.js'
 
 // Prototyp «cal» (Branch design/cal-prototype): dieselbe App unter /prototype,
 // eigenes Stylesheet und eigene Schriften nur dort. Das Midnight-Design bleibt
 // unter allen anderen Pfaden unverändert.
 const proto = isPrototype()
+
+// index.html hat das Theme schon gesetzt; hier kommt der Wechsel mit dem Gerät dazu («Wie das Gerät»)
+applyTheme(readLocalTheme())
 
 const queryClient = new QueryClient({
   defaultOptions: {
