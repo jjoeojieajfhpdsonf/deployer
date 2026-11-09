@@ -38,8 +38,8 @@ export function Domains() {
           <span className="check-name">HTTPS</span>
           <span className="check-detail">
             {s?.tls.mode === 'cloudflare'
-              ? s.tls.cert?.problem ?? `Wildcard-Zertifikat, noch ${s.tls.cert?.daysLeft ?? '–'} Tage gültig`
-              : 'aus – nur HTTP im LAN (compose.tls.yaml)'}
+              ? s.tls.cert?.problem ?? (s.tls.cert?.daysLeft != null ? `Wildcard-Zertifikat, noch ${s.tls.cert.daysLeft} Tage gültig` : 'Wildcard-Zertifikat eingerichtet, Laufzeit noch nicht geprüft')
+              : <>aus – nur HTTP; einrichten unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link></>}
           </span>
         </li>
         <li className={s?.tls.tailscaleIp ? 'check-ok' : 'check-none'}>

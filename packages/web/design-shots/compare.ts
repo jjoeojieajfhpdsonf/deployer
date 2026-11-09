@@ -1,7 +1,7 @@
 /**
- * Vergleichsbilder: Prototyp-Screenshot (links) neben dem passenden
- * cal.com-Ausschnitt (rechts), je Hell und Dunkel, 1440 px breit.
- * Erwartet die Bilder von shoot.ts und reference.ts in docs/prototype-cal.
+ * Vergleichsbilder: deployer (links) neben dem passenden cal.com-Ausschnitt
+ * (rechts), je Hell und Dunkel, 1440 px breit. Erwartet die Bilder von
+ * shoot.ts (--out docs/design-cal/aktuell) und reference.ts (docs/prototype-cal/referenz).
  *
  *   pnpm --filter @deployer/web exec tsx design-shots/compare.ts
  */
@@ -11,17 +11,20 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
-const docs = resolve(here, '../../../docs/prototype-cal')
-const img = (f: string) => `data:image/png;base64,${readFileSync(resolve(docs, f)).toString('base64')}`
+const repo = resolve(here, '../../..')
+const shots = resolve(repo, 'docs/design-cal/aktuell')
+const refs = resolve(repo, 'docs/prototype-cal/referenz')
+const out = resolve(repo, 'docs/design-cal')
+const img = (p: string) => `data:image/png;base64,${readFileSync(p).toString('base64')}`
 
-/** Welche Prototyp-Seite neben welchem cal.com-Ausschnitt – und worauf es dabei ankommt */
-const pairs: { key: string; proto: string; ref: string; what: string }[] = [
-  { key: 'projekte', proto: '01-projekte', ref: 'cal-preise.png', what: 'Karten im Raster, eine dunkle hervorgehobene Karte, Buttons' },
-  { key: 'projektdetail', proto: '02-projekt-uebersicht', ref: 'cal-features.png', what: 'grosse weisse Karten, eingelassene Felder, Titel' },
-  { key: 'security', proto: '03-projekt-security', ref: 'cal-preise.png', what: 'Karten pro Eintrag, Pillen statt Rahmen' },
-  { key: 'system', proto: '04-system-cloudflare', ref: 'cal-features.png', what: 'Schritte als Karten: eine aktive weisse, die übrigen zurückgenommen' },
-  { key: 'formular', proto: '05-formular-validierung', ref: 'cal-hero.png', what: 'Buttons, Felder, Titel' },
-  { key: 'kopf', proto: '06-profilmenue', ref: 'cal-hero.png', what: 'Kopfzeile, Navigation, Primär-Button' },
+/** Welche Seite neben welchem cal.com-Ausschnitt – und worauf es dabei ankommt */
+const pairs: { key: string; shot: string; ref: string; what: string }[] = [
+  { key: 'projekte', shot: 'projekte', ref: 'cal-preise.png', what: 'Karten im Raster, Bento-Kennzahlen, Buttons' },
+  { key: 'projektdetail', shot: 'projekt-uebersicht', ref: 'cal-features.png', what: 'grosse weisse Karten, eingelassene Felder' },
+  { key: 'security', shot: 'projekt-security', ref: 'cal-preise.png', what: 'Bento-Ergebnis, Pillen statt Rahmen' },
+  { key: 'system', shot: 'system-cloudflare', ref: 'cal-features.png', what: 'Schritte als Karten: aktiv weiss, erledigt grau' },
+  { key: 'formular', shot: 'neues-projekt-validierung', ref: 'cal-hero.png', what: 'Buttons, Felder, Titel' },
+  { key: 'kopf', shot: 'shell-profilmenue', ref: 'cal-hero.png', what: 'Kopfzeile, Navigation, Menü' },
 ]
 
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
@@ -29,16 +32,15 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, dev
 for (const p of pairs) {
   for (const theme of ['hell', 'dunkel'] as const) {
     const dark = theme === 'dunkel'
-    await page.setContent(`<!doctype html><html><body style="margin:0;background:${dark ? '#0a0a0b' : '#e5e7eb'};font:500 14px/1.4 system-ui;color:${dark ? '#c4c4c8' : '#374151'}">
+    await page.setContent(`<!doctype html><html><body style="margin:0;background:${dark ? '#0a0a0b' : '#f3f4f6'};font:500 14px/1.4 system-ui;color:${dark ? '#c4c4c8' : '#374151'}">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px">
-        <figure style="margin:0"><figcaption style="margin:0 0 8px">deployer · Prototyp «cal» · ${theme}</figcaption>
-          <div style="height:1100px;overflow:hidden;border-radius:12px;box-shadow:0 0 0 1px rgba(127,127,127,.25)"><img src="${img(`${p.proto}-${theme}-desktop.png`)}" style="width:100%;display:block"></div></figure>
+        <figure style="margin:0"><figcaption style="margin:0 0 8px">deployer · ${theme}</figcaption>
+          <div style="height:1100px;overflow:hidden;border-radius:12px;box-shadow:0 0 0 1px rgba(127,127,127,.25)"><img src="${img(resolve(shots, `${p.shot}-${theme}.png`))}" style="width:100%;display:block"></div></figure>
         <figure style="margin:0"><figcaption style="margin:0 0 8px">Referenz cal.com · ${p.what}</figcaption>
-          <div style="height:1100px;overflow:hidden;border-radius:12px;background:#fff;box-shadow:0 0 0 1px rgba(127,127,127,.25)"><img src="${img(`referenz/${p.ref}`)}" style="width:100%;display:block"></div></figure>
+          <div style="height:1100px;overflow:hidden;border-radius:12px;background:#fff;box-shadow:0 0 0 1px rgba(127,127,127,.25)"><img src="${img(resolve(refs, p.ref))}" style="width:100%;display:block"></div></figure>
       </div></body></html>`)
     await page.waitForTimeout(100)
-    const file = resolve(docs, `vergleich-${p.key}-${theme}.png`)
-    await page.screenshot({ path: file, fullPage: true })
+    await page.screenshot({ path: resolve(out, `vergleich-${p.key}-${theme}.png`), fullPage: true })
     console.log(`✓ vergleich-${p.key}-${theme}.png`)
   }
 }
