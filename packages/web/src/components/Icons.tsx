@@ -12,7 +12,8 @@ export const IconAlert = ({ size = 20, className }: P) => (
   <svg {...base(size)} viewBox="0 0 16 16" className={className}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.6M8 10.9v.1" /></svg>
 )
 export const IconMore = ({ size, className }: P) => (
-  <svg {...base(size)} className={className}><path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth={2.4} /></svg>
+  // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer
+  <svg {...base(size)} className={className}><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.35" /><circle cx="8" cy="8" r="1.35" /><circle cx="12.5" cy="8" r="1.35" /></g></svg>
 )
 export const IconChevron = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
