@@ -58,7 +58,20 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   return { body: {} }
 }
 
-type Shot = { name: string; group: string; path: string; loggedIn?: boolean; full?: boolean; prepare?: (page: Page) => Promise<void> }
+type Shot = {
+  name: string
+  group: string
+  path: string
+  loggedIn?: boolean
+  full?: boolean
+  /** Leere Daten (keine Projekte, kein Audit) */
+  empty?: boolean
+  /** API nicht erreichbar (/auth/me antwortet mit 502) */
+  offline?: boolean
+  /** Diese API-Pfade antworten nie (Ladezustand) */
+  hang?: string[]
+  prepare?: (page: Page) => Promise<void>
+}
 const P = fx.detailProjectId
 const S = fx.securityProjectId
 const W = 'p-wetter'
@@ -91,8 +104,20 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: /^Stoppen/ }).first().click(); await pg.waitForTimeout(250) },
   },
   {
-    group: 'zustaende', name: 'menue-zeile', path: '/projekte', full: false,
-    prepare: async (pg) => { await pg.locator('.button-icon[aria-haspopup="menu"]').first().click(); await pg.waitForTimeout(250) },
+    group: 'zustaende', name: 'menue-zeile-bestaetigung', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.locator('.button-icon[aria-haspopup="menu"]').nth(2).click()
+      await pg.waitForTimeout(200)
+      await pg.getByRole('menuitem', { name: /^Stoppen/ }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
+  { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
+  { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
+  {
+    group: 'zustaende', name: 'rueckmeldung-deploy', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Erneut deployen' }).first().click(); await pg.waitForTimeout(400); await pg.evaluate(() => window.scrollTo(0, 0)) },
   },
 ]
 
@@ -114,6 +139,10 @@ try {
         const url = new URL(route.request().url())
         if ((url.port === String(PORT) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
           if (url.pathname.startsWith('/api/')) {
+            if (s.hang?.some((h) => url.pathname === h)) return // nie beantwortet: Ladezustand
+            if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
+            if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t)
             return json(route, r.body, r.status)
           }
@@ -126,7 +155,8 @@ try {
       const page = await ctx.newPage()
       const sep = s.path.includes('?') ? '&' : '?'
       const themeParam = base ? `${sep}theme=${t}` : ''
-      await page.goto(`http://localhost:${PORT}${base}${s.path}${themeParam}`, { waitUntil: 'networkidle' })
+      await page.goto(`http://localhost:${PORT}${base}${s.path}${themeParam}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
+      if (s.hang) await page.waitForTimeout(800)
       // Der Testdaten-Umschalter des Dev-Servers gehört nicht ins Bild
       await page.addStyleTag({ content: '[aria-label="Testdaten (nur Entwicklung)"]{display:none!important}' })
       await page.evaluate(() => document.fonts.ready)

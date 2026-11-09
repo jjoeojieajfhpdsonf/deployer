@@ -288,7 +288,7 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
             confirmStop ? (
               <>
                 <div className="menu-confirm"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
-                <button role="menuitem" className="menu-danger" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
+                <button role="menuitem" className="menu-danger-solid" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
                 <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
               </>
             ) : (

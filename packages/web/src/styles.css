@@ -685,7 +685,9 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
   transition: background-color 150ms ease;
 }
 .menu-list button:hover:not(:disabled), .menu-list a:hover { background: var(--surface-2); }
-.menu-list .menu-danger { color: var(--bad); }
+/* Bestätigung im Menü: wie überall der rot gefüllte Knopf */
+.menu-list button.menu-danger-solid { background: var(--bad); color: var(--bg); font-weight: 500; }
+.menu-list button.menu-danger-solid:hover:not(:disabled) { background: var(--bad); filter: brightness(0.94); }
 .menu-sep { height: 1px; margin: 6px var(--sp-1); background: var(--line); }
 .menu-confirm, .confirm-note { display: flex; align-items: flex-start; gap: 6px; font-size: var(--fs-13); font-weight: 500; color: var(--warn); }
 .menu-confirm svg, .confirm-note svg { flex: none; margin-top: 2px; }
@@ -727,7 +729,7 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .state-empty h2 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); margin-bottom: var(--sp-2); }
 .state-empty p { margin: 0 auto 18px; color: var(--muted); }
 .page-medium > .state-empty, .page-narrow > .state-empty { margin-top: var(--sp-5); }
-.state-offline { max-width: 460px; margin: 18vh auto; text-align: center; padding: 0 var(--sp-4); }
+.state-offline { max-width: 620px; margin: 18vh auto; text-align: center; padding: 0 var(--sp-4); }
 .state-offline h1 { margin-bottom: var(--sp-2); }
 .state-offline p { margin: 0 auto var(--sp-5); color: var(--muted); }
 
@@ -924,6 +926,8 @@ details > summary:hover { color: var(--ink); }
 .pcard-kind { display: block; margin-top: 2px; font-size: var(--fs-12); color: var(--muted); }
 .pcard-foot { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
 .pcard-actions, .pcard .chips { position: relative; z-index: 1; }
+/* Offenes Menü liegt über den Nachbarkarten (sonst schieben sich deren Pillen darüber) */
+.pcard:has(.menu-list) { z-index: 10; }
 .pcard-actions { display: flex; gap: 6px; align-items: center; }
 
 /* --- Projekt-Übersicht: Zustand statt Konfiguration ---------------------------------- */
