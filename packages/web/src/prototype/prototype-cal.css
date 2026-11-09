@@ -1,0 +1,585 @@
+/* =========================================================================
+   Prototyp «cal» – helles Schwarz-Weiss-Theme (Branch design/cal-prototype)
+
+   Nur unter /prototype geladen und nur unter html[data-proto='cal'] wirksam:
+   das Midnight-Design (styles.css) bleibt überall sonst unverändert.
+
+   Richtung: App-Oberfläche in Schwarz-Weiss, angelehnt an die Anmutung
+   heutiger Scheduling-Apps – graue Fläche, weisse Karten mit Haarlinie und
+   weichem Schatten, eine fast schwarze Tinte (nie #000), schwarzer
+   Primär-Button, Cal Sans (OFL) für Überschriften, Inter für Text. Kein
+   Logo und kein Markenelement eines Dritten.
+
+   Regeln (Taste-Skill, «System»):
+   - 90–95 % neutral; Farbe nur für Zustände, jeder Zustand zusätzlich als
+     Wort oder Zeichen (wie bisher).
+   - Ein gefüllter Button je Ansicht, ein Sekundär-Stil, keine Schatten auf
+     Buttons, eine Radius-Skala (6 / 8 / 12).
+   - Beschriftungen 13px/500 in Satzschreibung, keine gesperrten Versalien.
+   - Kontrast (geprüft, docs/prototype-cal/contrast.mjs): Text ≥ 7:1,
+     muted ≥ 4.5:1, Statusfarben ≥ 4.5:1 auf jeder Fläche und ihrer eigenen
+     Tönung, Feldrahmen ≥ 3:1 – in Hell und Dunkel.
+   Bewegung (Emil): nur Druck-Feedback und das Aufklappen von Menüs; der
+   Theme-Wechsel ist nicht animiert.
+   ========================================================================= */
+
+:root[data-proto='cal'] {
+  /* Flächen */
+  --bg: #f6f6f7;
+  --rail: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #f1f1f3;
+  --surface-3: #e8e8eb;
+  --inset: #f8f8f9;
+  --code: #f3f3f5;
+  --hover: rgba(17, 17, 19, 0.035);
+
+  /* Linien */
+  --line: #e6e6e9;
+  --line-strong: #d6d6da;
+  --field-line: #8a8a92;
+  --field-line-hover: #6f6f77;
+
+  /* Tinte */
+  --ink: #111113;
+  --ink-dim: #3d3d42;
+  --muted: #64646b;
+  --faint: #8e8e95;
+  --link: var(--ink);
+  --primary-hover: #2c2c30;
+  --ring: rgba(17, 17, 19, 0.14);
+
+  /* Zustände: Text ≥ 4.5:1 auf allen Flächen und der eigenen Tönung */
+  --ok: #13753a;
+  --warn: #8a5300;
+  --bad: #c0281a;
+  --info: #1d58c2;
+  --ok-bg: #eaf6ee;
+  --warn-bg: #fcf3e2;
+  --bad-bg: #fdeeec;
+  --info-bg: #ecf2fd;
+  --ok-line: #b6dcc2;
+  --warn-line: #ecd39f;
+  --bad-line: #f1bdb6;
+  --info-line: #bed0f3;
+
+  /* Schatten: weich, nur auf Karten und Menüs, nie auf Buttons */
+  --shadow-xs: 0 1px 2px rgba(17, 17, 19, 0.06);
+  --shadow-card: 0 1px 2px rgba(17, 17, 19, 0.04), 0 2px 6px -2px rgba(17, 17, 19, 0.05);
+  --shadow-pop: 0 12px 32px -10px rgba(17, 17, 19, 0.22), 0 2px 6px rgba(17, 17, 19, 0.06);
+
+  /* Schrift */
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --display: 'Cal Sans', 'Inter', system-ui, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Eine Radius-Skala */
+  --r-sm: 6px;
+  --r: 8px;
+  --r-lg: 12px;
+  --r-md: 8px;
+
+  /* Bewegung (Emil) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --rail-w: 240px;
+  color-scheme: light;
+}
+
+/* Dunkel im gleichen Stil: fast nur Schwarz und Grau */
+:root[data-proto='cal'][data-proto-theme='dark'] {
+  --bg: #0a0a0b;
+  --rail: #0a0a0b;
+  --surface: #141415;
+  --surface-2: #1c1c1e;
+  --surface-3: #26262a;
+  --inset: #0f0f10;
+  --code: #0f0f10;
+  --hover: rgba(255, 255, 255, 0.03);
+
+  --line: #232326;
+  --line-strong: #333337;
+  --field-line: #6c6c74;
+  --field-line-hover: #8a8a92;
+
+  --ink: #f2f2f3;
+  --ink-dim: #c4c4c8;
+  --muted: #9b9ba2;
+  --faint: #6e6e75;
+  --primary-hover: #d9d9dc;
+  --ring: rgba(242, 242, 243, 0.18);
+
+  --ok: #4fc985;
+  --warn: #e8b04e;
+  --bad: #f47a70;
+  --info: #7eaaf5;
+  --ok-bg: #10241a;
+  --warn-bg: #2a2010;
+  --bad-bg: #2d1615;
+  --info-bg: #121d31;
+  --ok-line: #1f4a30;
+  --warn-line: #5a4318;
+  --bad-line: #5c2722;
+  --info-line: #26406b;
+
+  --shadow-xs: none;
+  --shadow-card: none;
+  --shadow-pop: 0 16px 40px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color-scheme: dark;
+}
+
+/* --- Grundlagen ------------------------------------------------------------- */
+
+[data-proto='cal'] body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+}
+
+[data-proto='cal'] h1,
+[data-proto='cal'] h2 {
+  font-family: var(--display);
+  font-weight: 400; /* Cal Sans hat einen Schnitt */
+  letter-spacing: 0;
+}
+[data-proto='cal'] h1 { font-size: 30px; line-height: 1.12; }
+[data-proto='cal'] h2 { font-size: 18px; line-height: 1.25; }
+[data-proto='cal'] h3 { font-family: var(--font); font-weight: 600; font-size: 14px; letter-spacing: -0.006em; }
+
+/* Lesetext eine Stufe grösser als die dichten Tabellen */
+[data-proto='cal'] .lede,
+[data-proto='cal'] .cf-lead,
+[data-proto='cal'] .failure-cause { font-size: 15px; line-height: 1.6; }
+[data-proto='cal'] .lede { color: var(--muted); }
+
+[data-proto='cal'] code { color: var(--ink-dim); }
+
+/* Links: Tinte mit Haarlinie, die Linie wird beim Hover zur Tinte –
+   unterscheidbar nicht nur über Farbe */
+[data-proto='cal'] a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms ease, color 150ms ease;
+}
+[data-proto='cal'] a:hover { text-decoration-color: currentColor; }
+[data-proto='cal'] .rail a,
+[data-proto='cal'] .brand-name,
+[data-proto='cal'] .menu-list a,
+[data-proto='cal'] a.button,
+[data-proto='cal'] .cell-main a,
+[data-proto='cal'] .grade-link,
+[data-proto='cal'] .proto-exit { text-decoration: none; }
+[data-proto='cal'] .cell-main a:hover { text-decoration: underline; text-decoration-color: currentColor; }
+[data-proto='cal'] .cell-url { color: var(--ink-dim); text-decoration: none; }
+[data-proto='cal'] .cell-url:hover { color: var(--ink); text-decoration: underline; }
+
+[data-proto='cal'] :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[data-proto='cal'] ::selection { background: var(--ring); color: var(--ink); }
+[data-proto='cal'] { caret-color: var(--ink); }
+[data-proto='cal'] input,
+[data-proto='cal'] textarea { caret-color: var(--ink); }
+
+/* Beschriftungen: 13px/500 in Satzschreibung statt Mono-Versalien */
+[data-proto='cal'] .label,
+[data-proto='cal'] .table th,
+[data-proto='cal'] .facts dt,
+[data-proto='cal'] .field-group legend,
+[data-proto='cal'] .notify-form legend {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+[data-proto='cal'] .crumbs { font-family: var(--font); font-size: 13px; }
+[data-proto='cal'] .crumbs a { color: var(--muted); text-decoration: none; }
+[data-proto='cal'] .crumbs a:hover { color: var(--ink); }
+[data-proto='cal'] .rail-count,
+[data-proto='cal'] .count,
+[data-proto='cal'] .findings-count,
+[data-proto='cal'] .segmented .num { font-family: var(--font); font-variant-numeric: tabular-nums; }
+
+/* --- Rahmen: Seitenleiste und Kopf ----------------------------------------------- */
+
+[data-proto='cal'] .rail { background: var(--rail); border-right-color: var(--line); gap: 20px; }
+[data-proto='cal'] .brand-name { font-family: var(--display); font-weight: 400; font-size: 19px; letter-spacing: 0; color: var(--ink); }
+[data-proto='cal'] .brand-name:hover { color: var(--ink); }
+[data-proto='cal'] .brand-mark { border-radius: var(--r-sm); }
+[data-proto='cal'] button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
+
+[data-proto='cal'] .rail-nav { gap: 1px; }
+[data-proto='cal'] .rail-nav a {
+  padding: 7px 10px;
+  border-radius: var(--r);
+  color: var(--ink-dim);
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+[data-proto='cal'] .rail-nav a:hover { background: var(--hover); color: var(--ink); }
+[data-proto='cal'] .rail-nav a.active {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: var(--shadow-xs);
+  color: var(--ink);
+  font-weight: 500;
+}
+[data-proto='cal'][data-proto-theme='dark'] .rail-nav a.active { background: var(--surface-2); }
+[data-proto='cal'] .rail-item svg { color: var(--muted); }
+[data-proto='cal'] .rail-foot { border-top-color: var(--line); }
+
+[data-proto='cal'] .main { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+[data-proto='cal'] .topbar { min-height: 48px; margin-bottom: 20px; }
+[data-proto='cal'] .topbar-end { display: flex; align-items: center; gap: 12px; flex: none; }
+
+[data-proto='cal'] .profile-trigger { border-radius: 999px; color: var(--muted); }
+[data-proto='cal'] .profile-trigger:hover:not(:disabled),
+[data-proto='cal'] .profile-trigger[aria-expanded='true'] { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-xs); color: var(--ink); }
+[data-proto='cal'] .avatar {
+  width: 30px;
+  height: 30px;
+  background: var(--ink);
+  border: none;
+  color: var(--surface);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+/* Prototyp-Leiste (nicht Teil des späteren Designs) */
+.proto-bar { display: flex; align-items: center; gap: 12px; }
+.proto-theme { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); }
+[data-proto='cal'] .proto-theme button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-proto='cal'] .proto-theme button:hover:not(:disabled) { background: transparent; color: var(--ink); border-color: transparent; }
+[data-proto='cal'] .proto-theme button[aria-pressed='true'] { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-xs); color: var(--ink); }
+[data-proto='cal'][data-proto-theme='dark'] .proto-theme button[aria-pressed='true'] { background: var(--surface-3); }
+.proto-exit { font-size: 13px; color: var(--muted) !important; }
+.proto-exit:hover { color: var(--ink) !important; text-decoration: underline !important; }
+
+/* --- Bedienelemente ----------------------------------------------------------- */
+
+[data-proto='cal'] button,
+[data-proto='cal'] .button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 14px/1 var(--font);
+  letter-spacing: -0.003em;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 160ms var(--ease-out);
+}
+[data-proto='cal'] button:hover:not(:disabled),
+[data-proto='cal'] .button:hover { background: var(--surface-2); border-color: var(--field-line); }
+[data-proto='cal'] button:disabled,
+[data-proto='cal'] button:disabled:hover { background: var(--surface-2); border-color: var(--line); color: var(--faint); }
+
+/* Druck: Rückmeldung, 160 ms, nur Buttons mit Fläche (nicht Menüeinträge, Reiter, Textlinks) */
+[data-proto='cal'] button:active:not(:disabled):not(.link-button):not(.tab):not([role='menuitem']):not([role='tab']),
+[data-proto='cal'] a.button:active { transform: scale(0.97); }
+
+/* Der eine gefüllte Button */
+[data-proto='cal'] .button-primary,
+[data-proto='cal'] button.button-primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+[data-proto='cal'] .button-primary:hover:not(:disabled),
+[data-proto='cal'] a.button-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+[data-proto='cal'] .button-danger,
+[data-proto='cal'] button.button-danger { color: var(--bad); border-color: var(--bad-line); background: var(--surface); }
+[data-proto='cal'] .button-danger:hover:not(:disabled) { background: var(--bad-bg); border-color: var(--bad); }
+[data-proto='cal'] .button-warn { color: var(--warn); border-color: var(--warn-line); background: var(--surface); }
+[data-proto='cal'] .button-warn:hover:not(:disabled) { background: var(--warn-bg); border-color: var(--warn); }
+[data-proto='cal'] .button-ghost { background: transparent; border-color: transparent; color: var(--ink-dim); }
+[data-proto='cal'] .button-ghost:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
+[data-proto='cal'] .button-small { min-height: 30px; padding: 0 10px; font-size: 13px; }
+[data-proto='cal'] .button-icon { width: 36px; color: var(--ink-dim); }
+/* Die drei Punkte des Zeilenmenüs: kräftiger, sonst kaum zu sehen */
+[data-proto='cal'] .button-icon svg path { stroke-width: 3.2; }
+
+/* Buttons, die keine Buttons sind: Textlinks, Icon-Knöpfe, Marke, Profil –
+   die Grundregel oben darf ihnen keine Fläche und keine Höhe geben */
+[data-proto='cal'] .link-button {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-weight: 400;
+  color: var(--ink-dim);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+[data-proto='cal'] .link-button:hover:not(:disabled) { background: none; border: none; color: var(--ink); text-decoration-color: currentColor; }
+[data-proto='cal'] .stage-link { padding-block: 6px; color: inherit; text-decoration-color: currentColor; }
+[data-proto='cal'] .stage-critical .stage-link,
+[data-proto='cal'] .stage-high .stage-link { color: var(--bad); }
+[data-proto='cal'] .stage-medium .stage-link { color: var(--warn); }
+[data-proto='cal'] .icon-button { width: 30px; height: 30px; min-height: 0; padding: 0; border-color: transparent; background: transparent; color: var(--ink-dim); }
+[data-proto='cal'] .icon-button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line); color: var(--ink); }
+[data-proto='cal'] button.brand-mark { width: 24px; height: 24px; min-height: 0; padding: 0; border: none; background: var(--ink); color: var(--surface); }
+[data-proto='cal'] .profile-trigger { min-height: 36px; padding: 0 8px 0 3px; border-color: transparent; background: transparent; }
+
+[data-proto='cal'] input,
+[data-proto='cal'] select,
+[data-proto='cal'] textarea {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  border-color: var(--field-line);
+  background: var(--surface);
+  font: 14px/1.4 var(--font);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+[data-proto='cal'][data-proto-theme='dark'] input,
+[data-proto='cal'][data-proto-theme='dark'] select,
+[data-proto='cal'][data-proto-theme='dark'] textarea { background: var(--inset); }
+[data-proto='cal'] input::placeholder,
+[data-proto='cal'] textarea::placeholder { color: var(--muted); }
+[data-proto='cal'] input:hover,
+[data-proto='cal'] select:hover { border-color: var(--field-line-hover); }
+[data-proto='cal'] input:focus,
+[data-proto='cal'] select:focus,
+[data-proto='cal'] textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--ring); }
+/* Felder zeigen den Fokus mit Rahmen und Ring, ohne zusätzlichen Umriss
+   (sonst doppelt: roter Rahmen plus schwarzer Umriss bei einem Fehler) */
+[data-proto='cal'] input:focus-visible,
+[data-proto='cal'] select:focus-visible,
+[data-proto='cal'] textarea:focus-visible { outline: none; }
+[data-proto='cal'] input[type='checkbox']:focus-visible,
+[data-proto='cal'] input[type='radio']:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Suchfeld: Platz für die Lupe */
+[data-proto='cal'] .search input { padding-left: 36px; }
+[data-proto='cal'] .search svg { left: 12px; color: var(--muted); }
+[data-proto='cal'] input[type='checkbox'],
+[data-proto='cal'] input[type='radio'] { min-height: 0; padding: 0; box-shadow: none; accent-color: var(--ink); }
+
+[data-proto='cal'] label { font-size: 13px; font-weight: 500; color: var(--ink); }
+[data-proto='cal'] .field-optional { font-weight: 400; color: var(--muted); }
+[data-proto='cal'] input[aria-invalid='true'],
+[data-proto='cal'] select[aria-invalid='true'],
+[data-proto='cal'] textarea[aria-invalid='true'] { border-color: var(--bad); }
+[data-proto='cal'] input[aria-invalid='true']:focus,
+[data-proto='cal'] select[aria-invalid='true']:focus { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }
+[data-proto='cal'] .field-error { font-weight: 500; }
+
+/* --- Flächen: weisse Karten auf grauem Grund ----------------------------------- */
+
+[data-proto='cal'] .panel,
+[data-proto='cal'] .stats,
+[data-proto='cal'] .table-scroll,
+[data-proto='cal'] .check-list,
+[data-proto='cal'] .finding-list,
+[data-proto='cal'] .cf-steps,
+[data-proto='cal'] .cf-manage,
+[data-proto='cal'] .target,
+[data-proto='cal'] .field-group,
+[data-proto='cal'] .notify-form fieldset,
+[data-proto='cal'] .state-empty,
+[data-proto='cal'] .login-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+/* Gruppentitel als Titel in der Karte, nicht als Kerbe in der Kante
+   (Critique: zu schwach als Abschnittstitel, Kerbe passt nicht zur Karte mit Schatten) */
+[data-proto='cal'] .field-group legend,
+[data-proto='cal'] .notify-form legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+[data-proto='cal'] .field-group legend + *,
+[data-proto='cal'] .notify-form legend + * { clear: both; }
+[data-proto='cal'] .field-group,
+[data-proto='cal'] .notify-form fieldset { padding: 18px 22px 20px; }
+
+/* Keine Karte in der Karte */
+[data-proto='cal'] .notify-form .table-scroll { box-shadow: none; border: none; }
+
+/* Innere Felder: eine Stufe eingelassen statt eigener Karte */
+[data-proto='cal'] .addr,
+[data-proto='cal'] .cf-perms li,
+[data-proto='cal'] .cf-phase,
+[data-proto='cal'] .txt-instructions,
+[data-proto='cal'] .kind-card { background: var(--inset); border-color: var(--line); border-radius: var(--r); }
+[data-proto='cal'] .kind-card:hover { border-color: var(--field-line); }
+[data-proto='cal'] .kind-card:has(input:checked) { border-color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--ink); }
+
+[data-proto='cal'] .stat { border-left-color: var(--line); }
+/* Cal Sans ohne Tabellenziffern: sonst steht «9 , 1» auseinander */
+[data-proto='cal'] .stat-value { font-family: var(--display); font-weight: 400; font-size: 30px; letter-spacing: 0; font-variant-numeric: normal; }
+[data-proto='cal'] .stat-value small { font-family: var(--font); font-weight: 500; }
+
+[data-proto='cal'] .alert { border-radius: var(--r-lg); border-color: var(--bad-line); background: var(--bad-bg); }
+[data-proto='cal'] .alert-warn { border-color: var(--warn-line); background: var(--warn-bg); }
+[data-proto='cal'] .alert-body span { color: var(--ink-dim); }
+[data-proto='cal'] .banner-warn { border-color: var(--warn-line); background: var(--warn-bg); color: var(--ink); }
+[data-proto='cal'] .banner-info { border-color: var(--info-line); background: var(--info-bg); color: var(--ink); }
+[data-proto='cal'] .error { border-color: var(--bad-line); background: var(--bad-bg); border-radius: var(--r); }
+[data-proto='cal'] .notice { background: var(--surface); border-color: var(--line); border-radius: var(--r); box-shadow: var(--shadow-xs); color: var(--ink-dim); }
+
+/* Segmentierte Auswahl und Reiter: eine Steuerung, graue Schiene, weisses Feld */
+[data-proto='cal'] .segmented { background: var(--surface-2); border-color: var(--line); border-radius: var(--r); padding: 2px; }
+[data-proto='cal'] .segmented button { min-height: 30px; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--muted); font-weight: 500; background: transparent; }
+[data-proto='cal'] .segmented button:hover:not(:disabled) { background: transparent; color: var(--ink); border-color: transparent; }
+[data-proto='cal'] .segmented button[aria-pressed='true'] { background: var(--surface); border-color: var(--line); color: var(--ink); box-shadow: var(--shadow-xs); }
+[data-proto='cal'][data-proto-theme='dark'] .segmented button[aria-pressed='true'] { background: var(--surface-3); }
+
+[data-proto='cal'] .tabs { gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); width: fit-content; max-width: 100%; }
+[data-proto='cal'] .tab { min-height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--muted); font-weight: 500; background: transparent; }
+[data-proto='cal'] .tab:hover:not(:disabled) { color: var(--ink); background: transparent; border-color: transparent; }
+[data-proto='cal'] .tab-active,
+[data-proto='cal'] .tab[aria-selected='true'] { background: var(--surface); border-color: var(--line); border-bottom-color: var(--line); color: var(--ink); box-shadow: var(--shadow-xs); }
+[data-proto='cal'][data-proto-theme='dark'] .tab-active,
+[data-proto='cal'][data-proto-theme='dark'] .tab[aria-selected='true'] { background: var(--surface-3); }
+
+/* --- Tabellen ------------------------------------------------------------------- */
+
+[data-proto='cal'] .table th { padding: 12px 16px; background: var(--surface); border-bottom-color: var(--line); }
+[data-proto='cal'] .table td { border-bottom-color: var(--line); }
+[data-proto='cal'] .table tbody tr { transition: background-color 150ms ease; }
+[data-proto='cal'] .table tbody tr:hover { background: var(--hover); }
+[data-proto='cal'] .row-error td { background: color-mix(in srgb, var(--bad-bg) 55%, transparent); }
+[data-proto='cal'] .cell-main { font-weight: 600; }
+
+/* --- Zustände, Chips, Noten ------------------------------------------------------- */
+
+[data-proto='cal'] .chip { font-family: var(--font); font-weight: 500; border-color: var(--line-strong); border-radius: var(--r-sm); color: var(--ink-dim); background: var(--surface); }
+[data-proto='cal'] .chip-strong { border-color: var(--field-line); color: var(--ink); }
+[data-proto='cal'] .chip-public { border-color: var(--field-line); color: var(--ink); }
+[data-proto='cal'] .chip-public svg { color: var(--ink); }
+
+[data-proto='cal'] .grade { border-radius: var(--r); font-family: var(--display); font-weight: 400; }
+[data-proto='cal'] .grade-A { border-color: var(--ok-line); }
+[data-proto='cal'] .grade-B { border-color: var(--info-line); }
+[data-proto='cal'] .grade-C { border-color: var(--warn-line); }
+[data-proto='cal'] .grade-D { border-color: var(--bad-line); }
+[data-proto='cal'] .grade-cell, [data-proto='cal'] .grade-link { font-family: var(--font); }
+[data-proto='cal'] .grade-score { font-family: var(--font); }
+
+[data-proto='cal'] .badge,
+[data-proto='cal'] .sev { font-family: var(--font); font-weight: 500; border-radius: var(--r-sm); }
+[data-proto='cal'] .badge-ok { border-color: var(--ok-line); }
+[data-proto='cal'] .badge-warn { border-color: var(--warn-line); }
+[data-proto='cal'] .badge-bad { border-color: var(--bad-line); }
+[data-proto='cal'] .sev-critical,
+[data-proto='cal'] .sev-high { border-color: var(--bad-line); }
+[data-proto='cal'] .sev-medium { border-color: var(--warn-line); }
+[data-proto='cal'] .sev-low { border-color: var(--line-strong); }
+
+[data-proto='cal'] .sev-chip { border-radius: var(--r); background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-xs); }
+[data-proto='cal'] .sev-chip-n { font-family: var(--font); font-weight: 600; }
+[data-proto='cal'] .sev-chip-critical,
+[data-proto='cal'] .sev-chip-high { border-color: var(--bad-line); background: var(--bad-bg); }
+[data-proto='cal'] .sev-chip-medium { border-color: var(--warn-line); background: var(--warn-bg); }
+[data-proto='cal'] .sev-chip-low { border-color: var(--line-strong); }
+
+[data-proto='cal'] .step { border-radius: var(--r); background: var(--surface); }
+[data-proto='cal'] .step-current { border-color: var(--info-line); }
+[data-proto='cal'] .step-failed { border-color: var(--bad-line); }
+[data-proto='cal'] .progress-track,
+[data-proto='cal'] .meter-track { background: var(--surface-3); }
+[data-proto='cal'] .meter-fill { background: var(--ink); }
+
+/* Menüs: weisse Fläche, weicher Schatten, klappen von der Auslöser-Ecke auf */
+[data-proto='cal'] .menu-list {
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  transform-origin: top right;
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out);
+}
+@starting-style {
+  [data-proto='cal'] .menu-list { opacity: 0; transform: scale(0.97); }
+}
+[data-proto='cal'] .menu-list button,
+[data-proto='cal'] .menu-list a { border: none; border-radius: var(--r-sm); background: transparent; font-weight: 400; font-size: 14px; min-height: 34px; padding: 0 10px; transition: background-color 150ms ease; }
+[data-proto='cal'] .menu-list button:hover:not(:disabled),
+[data-proto='cal'] .menu-list a:hover { background: var(--surface-2); }
+[data-proto='cal'] .menu-sep { background: var(--line); }
+
+/* --- Logs, Code, Diagramme ------------------------------------------------------- */
+
+[data-proto='cal'] .log,
+[data-proto='cal'] pre.code-block,
+[data-proto='cal'] .cf-log,
+[data-proto='cal'] .log-failure { background: var(--code); border-color: var(--line); color: var(--ink-dim); }
+[data-proto='cal'] .log { border-radius: var(--r-lg); }
+[data-proto='cal'] .cf-log { border-radius: var(--r); }
+
+[data-proto='cal'] .ov-meter-line { stroke: var(--ink); stroke-width: 1.75; }
+[data-proto='cal'] .ov-meter-area { fill: var(--ink); opacity: 0.06; }
+[data-proto='cal'] .ov-meter-dot { background: var(--ink); }
+[data-proto='cal'] .ov-meter-limit { stroke: var(--faint); }
+[data-proto='cal'] .ov-meter-tip { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-pop); border-radius: var(--r-sm); }
+[data-proto='cal'] .ov-title { font-family: var(--display); font-weight: 400; font-size: 16px; }
+
+/* Fehlerblock und Gefahrenzone */
+[data-proto='cal'] .failure { border-color: var(--bad-line); background: var(--bad-bg); border-radius: var(--r-lg); }
+[data-proto='cal'] .failure h2 { font-size: 18px; }
+[data-proto='cal'] .log-failure { background: var(--surface); }
+[data-proto='cal'] .danger-zone { border-color: var(--bad-line); background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); }
+
+/* --- Cloudflare-Assistent ------------------------------------------------------- */
+
+[data-proto='cal'] .cf-step { padding: 18px 22px; }
+[data-proto='cal'] .cf-step-n { width: 26px; height: 26px; font-family: var(--font); font-weight: 600; border-color: var(--line-strong); }
+[data-proto='cal'] .cf-step-current .cf-step-n { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+[data-proto='cal'] .cf-step-title { font-family: var(--display); font-weight: 400; font-size: 16px; }
+[data-proto='cal'] .cf-step-locked .cf-step-title { font-family: var(--font); font-weight: 500; font-size: 14px; }
+[data-proto='cal'] .cf-step-summary,
+[data-proto='cal'] .cf-step-body { margin-left: 38px; }
+[data-proto='cal'] .cf-tag { border-color: var(--line-strong); }
+[data-proto='cal'] .cf-phase-now { border-color: var(--info-line); }
+[data-proto='cal'] .cf-phase-bad { border-color: var(--bad-line); }
+[data-proto='cal'] .cf-ingress-warn { border-color: var(--bad-line); background: var(--bad-bg); }
+[data-proto='cal'] .cf-perm-label,
+[data-proto='cal'] .cf-check-label { font-family: var(--font); font-weight: 500; }
+
+/* --- Schmale Fenster ----------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  [data-proto='cal'] .rail { border-bottom-color: var(--line); }
+  [data-proto='cal'] .rail-nav a.active { box-shadow: none; }
+  [data-proto='cal'] h1 { font-size: 26px; }
+  [data-proto='cal'] .topbar { margin-bottom: 12px; }
+}
+@media (max-width: 640px) {
+  [data-proto='cal'] .proto-theme span { display: none; }
+  [data-proto='cal'] .proto-exit { display: none; }
+  [data-proto='cal'] .stat-value { font-size: 24px; }
+  [data-proto='cal'] .cf-step-summary,
+  [data-proto='cal'] .cf-step-body { margin-left: 0; }
+}
+
+/* Bewegung reduziert: Farbe und Deckkraft bleiben, keine Skalierung */
+@media (prefers-reduced-motion: reduce) {
+  [data-proto='cal'] button:active:not(:disabled),
+  [data-proto='cal'] a.button:active { transform: none; }
+  [data-proto='cal'] .menu-list { transform: none; }
+  @starting-style {
+    [data-proto='cal'] .menu-list { transform: none; }
+  }
+}
