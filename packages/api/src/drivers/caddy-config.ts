@@ -69,6 +69,7 @@ export const CF_TOKEN_PLACEHOLDER = '{env.CF_API_TOKEN}'
 /** Platzhalter für das Token aus einer Datei – nie das Token selbst. */
 export const tokenPlaceholder = (tls: TlsOptions) => (tls.tokenFile ? `{file.${tls.tokenFile}}` : CF_TOKEN_PLACEHOLDER)
 export const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
+export const ACME_PRODUCTION = 'https://acme-v02.api.letsencrypt.org/directory'
 
 export { coveredByWildcard }
 
@@ -184,7 +185,10 @@ export function buildCaddyConfig(
           subjects: [wildcard],
           issuers: [{
             module: 'acme',
-            ...(tls.acmeCa === 'staging' ? { ca: ACME_STAGING } : {}),
+            // CA immer ausdrücklich, auch für Produktion: genau ein Issuer
+            // (acme) mit fester URL – kein Rückfall auf Caddys Standard-Issuer
+            // (Let's Encrypt + ZeroSSL), wenn die Liste leer wäre.
+            ca: tls.acmeCa === 'staging' ? ACME_STAGING : ACME_PRODUCTION,
             ...(tls.email ? { email: tls.email } : {}),
             challenges: {
               dns: {

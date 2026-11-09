@@ -26,7 +26,13 @@ interface Line {
   identifiers?: string[]
 }
 
-const RELEVANT = /acme|challenge|obtain|certificate|dns|solver|tls/i
+/**
+ * Nur Zertifikats-Zeilen: Logger «tls», «tls.obtain», «tls.issuance…»
+ * (nicht «http» mit «HTTP/3 skipped because it requires TLS») und ohne das
+ * Aufräumen des Speichers.
+ */
+const isCertLine = (j: Line) =>
+  (j.logger === 'tls' || /^tls\.(obtain|issuance)/.test(j.logger ?? '')) && !/storage/i.test(j.msg ?? '')
 
 function tsMs(ts: Line['ts']): number | null {
   if (typeof ts === 'number') return ts > 1e12 ? ts : ts * 1000
@@ -57,8 +63,7 @@ export function parseCaddyTlsLog(text: string, wildcard: string, sinceMs: number
     }
     const at = tsMs(j.ts)
     if (at !== null && at < since) continue
-    const relevant = RELEVANT.test(`${j.logger ?? ''} ${j.msg ?? ''}`)
-    if (!relevant) continue
+    if (!isCertLine(j)) continue
     out.lastLine = summary(j)
     if (j.level === 'error') out.lastError = [j.msg, j.error].filter(Boolean).join(': ').slice(0, 500)
     const forWildcard = (j.identifier ?? '').toLowerCase() === wildcard.toLowerCase()

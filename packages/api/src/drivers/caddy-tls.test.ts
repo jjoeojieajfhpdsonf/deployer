@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildCaddyConfig, coveredByWildcard, CF_TOKEN_PLACEHOLDER, ACME_STAGING, type RouteSpec, type CaddyBuildOptions } from './caddy-config.js'
+import { buildCaddyConfig, coveredByWildcard, CF_TOKEN_PLACEHOLDER, ACME_STAGING, ACME_PRODUCTION, type RouteSpec, type CaddyBuildOptions } from './caddy-config.js'
 
 /** M4: Konfigurationsbau mit HTTPS (Wildcard per DNS-01 bei Cloudflare). */
 
@@ -80,7 +80,9 @@ describe('Caddy mit TLS', () => {
     assert.deepEqual(p.subjects, ['*.int.example.ch'])
     const issuer = p.issuers[0]
     assert.equal(issuer.module, 'acme')
-    assert.equal(issuer.ca, undefined, 'Produktion = Standard-CA von Caddy (Let\'s Encrypt)')
+    // Produktion ausdrücklich, nie Caddys Standard-Issuer (Let's Encrypt + ZeroSSL)
+    assert.equal(issuer.ca, ACME_PRODUCTION)
+    assert.equal(p.issuers.length, 1)
     assert.equal(issuer.challenges.dns.provider.name, 'cloudflare')
     assert.equal(issuer.challenges.dns.provider.api_token, CF_TOKEN_PLACEHOLDER)
     assert.deepEqual(issuer.challenges.dns.resolvers, ['1.1.1.1', '1.0.0.1'])

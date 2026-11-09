@@ -13,7 +13,8 @@ import {
 } from '../drivers/cloudflared.js'
 import { TUNNEL_SERVICE, CATCH_ALL } from '../lib/public-hosts.js'
 import type { TlsOptions } from '../drivers/caddy-config.js'
-import { probeCert, checkIssuedCert } from '../lib/cert.js'
+import { probeCert, checkIssuedCert, productionIssued, type CertInfo } from '../lib/cert.js'
+import { planTlsStart, mayOrderProduction, prodCertUsable, nextProdAttemptAt, clock, PROD_LOG_ASSUMED_MS, type ProdState } from '../lib/tls-plan.js'
 import { parseCaddyTlsLog } from '../lib/caddy-tls-log.js'
 import { tlsOptionsFor } from '../lib/tls-options.js'
 import * as docker from '../drivers/docker.js'
@@ -52,7 +53,8 @@ interface Stored {
   tunnelSkipped?: boolean
   /** Festgelegtes cloudflared-Image (nach einem Update per Knopf) */
   cloudflaredImage?: string
-  tls?: { phase: CfTlsPhase; ca: 'production' | 'staging'; startedAt: string; steps: Step[] }
+  /** prodAttemptAt/prodCert: Rate-Limit-Schutz, siehe lib/tls-plan.ts */
+  tls?: { phase: CfTlsPhase; ca: 'production' | 'staging'; startedAt: string; steps: Step[] } & ProdState
 }
 
 let stored: Stored = {}
@@ -150,7 +152,10 @@ export async function ensureManagedTunnelOnBoot(): Promise<void> {
   }
   // Eine unterbrochene Zertifikats-Einrichtung weiterführen – auch ohne Tunnel
   // («Später einrichten»); früher brach das hier mit dem Tunnel-Check ab.
-  if (stored.tls && (stored.tls.phase === 'staging' || stored.tls.phase === 'production')) void runTls('system')
+  // In der Produktionsphase ist die Bestellung schon gezählt: nicht neu prüfen.
+  if (stored.tls && (stored.tls.phase === 'staging' || stored.tls.phase === 'production')) {
+    void runTls('system', { resume: stored.tls.phase === 'production' })
+  }
 }
 
 /**
@@ -162,6 +167,7 @@ export function caddyTlsOptions(): (TlsOptions & { redirect: boolean }) | null {
   return tlsOptionsFor(stored.tls, {
     baseDomain: cf.baseDomain(),
     hasToken: Boolean(stored.tokenEnc),
+    prodUsable: prodCertUsable(prodState()),
     tokenFile: caddyTokenPath(),
     email: cf.acmeEmail(),
     legacy: { enabled: config.TLS_MODE === 'cloudflare', acmeCa: config.ACME_CA, email: config.ACME_EMAIL },
@@ -322,7 +328,8 @@ export async function saveDomains(input: DomainChoice, actor: string): Promise<v
     // Bestehende Projekte ziehen auf die neue Basisdomain um; ein Zertifikat für die alte gilt nicht mehr
     const { rehostRoutes } = await import('./routes.js')
     const moved = await rehostRoutes()
-    if (stored.tls && stored.tls.phase !== 'off') await save({ ...stored, tls: { ...stored.tls, phase: 'off', steps: [] } })
+    // Das vorhandene Zertifikat gilt für die alte Basisdomain: vergessen
+    if (stored.tls && stored.tls.phase !== 'off') await save({ ...stored, tls: { ...stored.tls, phase: 'off', steps: [], prodCert: undefined } })
     log.info('Basisdomain geändert', { baseDomain, moved })
   }
   if (net.tailscaleIp()) {
@@ -447,33 +454,99 @@ export async function startTls(actor: string): Promise<void> {
   if (!stored.tokenEnc) throw badRequest('Zuerst das Token speichern')
   if (!cf.baseDomain()) throw badRequest('Zuerst die interne Basisdomain wählen')
   if (tlsRun) throw conflict('Die Einrichtung des Zertifikats läuft schon')
-  await save({ ...stored, tls: { phase: 'staging', ca: 'staging', startedAt: new Date().toISOString(), steps: [] } })
+  // Rate-Limit-Schutz: vorhandenes Zertifikat wiederverwenden, sonst höchstens
+  // ein produktiver Versuch pro Stunde (lib/tls-plan.ts)
+  const plan = planTlsStart(prodState())
+  if (plan.kind === 'wait') {
+    throw new AppError('rate_limited', `Nächster Versuch ab ${clock(plan.until)} Uhr: höchstens ein produktiver Versuch pro Stunde, damit Let's Encrypt nicht sperrt.`, 429)
+  }
+  const phase: CfTlsPhase = plan.kind === 'reuse' ? 'production' : 'staging'
+  await save({
+    ...stored,
+    tls: { prodAttemptAt: stored.tls?.prodAttemptAt, prodCert: stored.tls?.prodCert, phase, ca: phase === 'production' ? 'production' : 'staging', startedAt: new Date().toISOString(), steps: [] },
+  })
   void runTls(actor)
 }
 
-function runTls(actor: string): Promise<void> {
+const prodState = (): ProdState => ({ prodAttemptAt: stored.tls?.prodAttemptAt, prodCert: stored.tls?.prodCert })
+const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('de-CH') : '–')
+
+/** Produktives Zertifikat gesehen (TLS-Prüfung): merken, damit es nie neu bestellt wird. */
+async function rememberProdCert(c: CertInfo | null, base: string): Promise<void> {
+  if (!c || !stored.tls || !productionIssued(c, base)) return
+  const prev = stored.tls.prodCert
+  if (prev?.source === 'probe' && prev.validTo === c.validTo && prev.trusted === c.ok) return
+  await save({ ...stored, tls: { ...stored.tls, prodCert: { validTo: c.validTo!, issuer: c.issuer, seenAt: new Date().toISOString(), source: 'probe', trusted: c.ok } } })
+}
+
+/** Laut Caddy-Log produktiv bezogen: merken (Ablauf geschätzt), falls die TLS-Prüfung es nicht sieht. */
+async function rememberProdFromLog(at: number, issuer: string): Promise<void> {
+  if (!stored.tls) return
+  const prev = stored.tls.prodCert
+  if (prev && Date.parse(prev.seenAt) >= at) return
+  if (prev?.source === 'probe' && Date.parse(prev.validTo) > at + PROD_LOG_ASSUMED_MS) return
+  await save({ ...stored, tls: { ...stored.tls, prodCert: { validTo: new Date(at + PROD_LOG_ASSUMED_MS).toISOString(), issuer, seenAt: new Date(at).toISOString(), source: 'log', trusted: null } } })
+}
+
+async function finishDone(actor: string, base: string, issuer: string | null, validTo: string | null, how: string): Promise<void> {
+  await setPhase('done', 'production')
+  await step(`Zertifikat aktiv: ${issuer ?? "Let's Encrypt"}, gültig bis ${day(validTo)}${how ? ` (${how})` : ''}. Interne Adressen laufen jetzt über https.`, 'ok')
+  await reloadCaddy()
+  await audit({ actor, action: 'cloudflare.tls', targetType: 'system', targetId: 'cloudflare', params: { baseDomain: base, how }, result: 'ok' })
+}
+
+/**
+ * Ablauf: (0) liefert Caddy schon ein vertrauenswürdiges produktives
+ * Zertifikat? → fertig, ohne Bezug. (1) Probelauf bei Staging; sieht er dabei
+ * ein produktives → fertig. (2) Produktion: vorhandenes laden oder – höchstens
+ * einmal pro Stunde – neu bestellen lassen.
+ * resume: nach einem Neustart in der Produktionsphase; die Bestellung ist
+ * schon gezählt und läuft in Caddy weiter.
+ */
+function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
   tlsRun ??= (async () => {
     const base = cf.baseDomain()!
     try {
+      const first = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
+      await rememberProdCert(first, base)
+      if (checkIssuedCert(first, { base, phase: 'production' }).ready) {
+        await finishDone(actor, base, first.issuer, first.validTo, 'Caddy liefert es schon aus, kein neuer Bezug')
+        return
+      }
+
       if (stored.tls?.phase !== 'production') {
         await setPhase('staging', 'staging')
         await step(`Probelauf: Zertifikat für *.${base} bei der Staging-CA von Let's Encrypt anfordern (DNS-Challenge über Cloudflare)`)
         const t0 = Date.now()
         await reloadCaddy(true)
-        const s = await waitForCert(base, true, t0)
+        const s = await waitForCert(base, 'staging', t0)
         if (!s.ok) throw new Error(s.error)
+        if (s.production) {
+          await finishDone(actor, base, s.issuer, s.validTo, 'produktives Zertifikat schon vorhanden, kein neuer Bezug')
+          return
+        }
         await step(`Probelauf erfolgreich: ${s.issuer}`, 'ok')
       }
+
+      if (!o.resume) {
+        const gate = mayOrderProduction(prodState())
+        if (!gate.ok) {
+          throw new Error(`Kein neuer produktiver Versuch vor ${clock(gate.until)} Uhr: höchstens einer pro Stunde, damit Let's Encrypt nicht sperrt.`)
+        }
+        if (gate.reuse) {
+          const pc = stored.tls!.prodCert!
+          await step(`Vorhandenes Zertifikat (${pc.issuer ?? "Let's Encrypt"}, gültig bis ${day(pc.validTo)}) aus Caddys Speicher laden – kein neuer Bezug`)
+        } else {
+          await save({ ...stored, tls: { ...stored.tls!, prodAttemptAt: new Date().toISOString() } })
+          await step(`Echtes Zertifikat für *.${base} bei Let's Encrypt anfordern`)
+        }
+      }
       await setPhase('production', 'production')
-      await step(`Echtes Zertifikat für *.${base} bei Let's Encrypt anfordern`)
       const t1 = Date.now()
       await reloadCaddy(true)
-      const p = await waitForCert(base, false, t1)
+      const p = await waitForCert(base, 'production', t1)
       if (!p.ok) throw new Error(p.error)
-      await setPhase('done', 'production')
-      await step(`Zertifikat aktiv: ${p.issuer}, gültig bis ${p.validTo ? new Date(p.validTo).toLocaleDateString('de-CH') : '–'}. Interne Adressen laufen jetzt über https.`, 'ok')
-      await reloadCaddy()
-      await audit({ actor, action: 'cloudflare.tls', targetType: 'system', targetId: 'cloudflare', params: { baseDomain: base }, result: 'ok' })
+      await finishDone(actor, base, p.issuer, p.validTo, '')
     } catch (err) {
       const message = (err as Error).message
       await step(message, 'bad')
@@ -487,7 +560,11 @@ function runTls(actor: string): Promise<void> {
   return tlsRun
 }
 
-type CertWait = { ok: true; issuer: string | null; validTo: string | null } | { ok: false; error: string }
+/** production: ein vertrauenswürdiges produktives Zertifikat wurde gesehen (in jeder Phase) → fertig */
+type CertWait = { ok: true; issuer: string | null; validTo: string | null; production: boolean } | { ok: false; error: string }
+
+/** In der Produktionsphase: so lange darf ein ausgeliefertes, aber nicht vertrauenswürdiges Zertifikat bestehen, bevor abgebrochen wird */
+const UNTRUSTED_GRACE_MS = 60_000
 
 /**
  * Warten, bis Caddy das Wildcard-Zertifikat hat. Zwei Quellen:
@@ -499,24 +576,42 @@ type CertWait = { ok: true; issuer: string | null; validTo: string | null } | { 
  * Bei Zeitüberschreitung: was die TLS-Prüfung zuletzt sah und was Caddy
  * zuletzt meldete.
  */
-async function waitForCert(base: string, staging: boolean, sinceMs: number): Promise<CertWait> {
-  const phase = staging ? 'staging' : 'production'
+async function waitForCert(base: string, phase: 'staging' | 'production', sinceMs: number): Promise<CertWait> {
+  const staging = phase === 'staging'
   const wildcard = `*.${base}`
   const deadline = Date.now() + TLS_TIMEOUT_MS
   let lastError = ''
   let lastReason = ''
   let lastLine: string | null = null
   let obtainedSeen: number | null = null
+  let untrustedSince: number | null = null
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5_000))
     const c = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
+    await rememberProdCert(c, base)
+    // In jeder Phase: ein vertrauenswürdiges produktives Zertifikat beendet die Einrichtung
+    if (checkIssuedCert(c, { base, phase: 'production' }).ready) return { ok: true, issuer: c.issuer, validTo: c.validTo, production: true }
     const v = checkIssuedCert(c, { base, phase })
-    if (v.ready) return { ok: true, issuer: c.issuer, validTo: c.validTo }
+    if (v.ready) return { ok: true, issuer: c.issuer, validTo: c.validTo, production: false }
     lastReason = v.reason
+
+    // Produktion: ausgeliefert, aber Node vertraut der Kette nicht → nicht 6 Minuten warten
+    if (!staging && productionIssued(c, base) && !c.ok) {
+      untrustedSince ??= Date.now()
+      if (Date.now() - untrustedSince >= UNTRUSTED_GRACE_MS) {
+        return {
+          ok: false,
+          error: `Caddy liefert das produktive Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}, gültig bis ${day(c.validTo)}), aber deployer vertraut der Kette nicht: ${c.error ?? 'unbekannter Fehler'}. Es bleibt gespeichert und wird nicht neu bestellt.`,
+        }
+      }
+    } else {
+      untrustedSince = null
+    }
 
     const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 400 }).catch(() => '')
     const ev = parseCaddyTlsLog(logs, wildcard, sinceMs)
     lastLine = ev.lastLine ?? lastLine
+    if (ev.obtained && !ev.obtained.staging) await rememberProdFromLog(ev.obtained.at, ev.obtained.issuer)
     if (ev.obtained && ev.obtained.staging === staging) {
       if (obtainedSeen === null) {
         obtainedSeen = Date.now()
@@ -524,7 +619,7 @@ async function waitForCert(base: string, staging: boolean, sinceMs: number): Pro
       }
       if (staging && Date.now() - obtainedSeen >= 30_000) {
         await step(`Hinweis: Die TLS-Prüfung sieht es noch nicht (${v.reason}). Weiter mit Produktion, dort wird voll geprüft.`, 'info')
-        return { ok: true, issuer: ev.obtained.issuer || null, validTo: c.validTo }
+        return { ok: true, issuer: ev.obtained.issuer || null, validTo: c.validTo, production: false }
       }
     }
     if (ev.lastError && ev.lastError !== lastError) {
@@ -584,9 +679,20 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
   const latest = tunnelId ? await latestCloudflaredVersion() : { version: null, error: null }
   const currentVersion = versionOf(runningImage)
   const tls = caddyTlsOptions()
-  const phase: CfTlsPhase = stored.tls?.phase ?? (config.TLS_MODE === 'cloudflare' ? 'done' : 'off')
   const base = cf.baseDomain()
-  const cert = base && (tls || phase === 'done') ? await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`, 3000).catch(() => null) : null
+  const cert = base && (tls || (stored.tls?.phase ?? (config.TLS_MODE === 'cloudflare' ? 'done' : 'off')) === 'done')
+    ? await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`, 3000).catch(() => null)
+    : null
+  // Nach einem Fehlschlag: liefert Caddy inzwischen ein vertrauenswürdiges
+  // produktives Zertifikat aus, ist HTTPS aktiv – ohne neuen Bezug.
+  if (cert && base && stored.tls) {
+    await rememberProdCert(cert, base)
+    if (stored.tls.phase === 'failed' && !tlsRun && checkIssuedCert(cert, { base, phase: 'production' }).ready) {
+      await finishDone('system', base, cert.issuer, cert.validTo, 'nach dem Fehlschlag von Caddy ausgeliefert erkannt')
+    }
+  }
+  const phase: CfTlsPhase = stored.tls?.phase ?? (config.TLS_MODE === 'cloudflare' ? 'done' : 'off')
+  const retryAt = stored.tls && phase !== 'done' && !tlsRun ? nextProdAttemptAt(prodState()) : null
   const publicProjects = (await db.select({ id: schema.routes.id }).from(schema.routes).where(eq(schema.routes.target, 'public'))).length
   // Letzte Sicherung: Schritte, cloudflared-Log, Zertifikats- und Ingress-
   // Fehler stammen aus fremden Meldungen und können Tokens enthalten.
@@ -623,6 +729,8 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
       ca: stored.tls?.ca ?? config.ACME_CA,
       startedAt: stored.tls?.startedAt ?? null,
       steps: stored.tls?.steps ?? [],
+      retryAt: retryAt ? retryAt.toISOString() : null,
+      reusesCert: prodCertUsable(prodState()) && phase !== 'done',
       cert: cert ? { issuer: cert.issuer, validTo: cert.validTo, daysLeft: cert.daysLeft, ok: cert.ok, error: cert.error } : null,
     },
     tokenTemplateUrl: tokenTemplateUrl(),

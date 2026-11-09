@@ -547,6 +547,10 @@ export interface CfStatusDto {
     ca: 'production' | 'staging'
     startedAt: string | null
     steps: { at: string; text: string; tone: 'info' | 'ok' | 'bad' }[]
+    /** Rate-Limit-Schutz: frühester nächster Versuch (höchstens ein produktiver pro Stunde) */
+    retryAt: string | null
+    /** Ein gültiges produktives Zertifikat liegt vor; ein neuer Versuch lädt es, ohne neu zu bestellen */
+    reusesCert: boolean
     cert: { issuer: string | null; validTo: string | null; daysLeft: number | null; ok: boolean; error: string | null } | null
   }
   /** Link zur Token-Seite bei Cloudflare mit vorausgefüllten Rechten */

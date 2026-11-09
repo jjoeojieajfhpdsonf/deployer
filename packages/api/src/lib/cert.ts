@@ -33,6 +33,21 @@ export function nameCovers(pattern: string, host: string): boolean {
 export type CertVerdict = { ready: true } | { ready: false; reason: string }
 
 /**
+ * Liefert Caddy ein produktives Zertifikat für *.<basis> aus (nicht Staging,
+ * nicht Caddys eigenes, jetzt gültig)? Ohne Vertrauensprüfung – dafür
+ * checkIssuedCert(phase: 'production'). Dient dem Rate-Limit-Schutz: ein
+ * solches Zertifikat liegt in Caddys Speicher und wird nicht neu bestellt.
+ */
+export function productionIssued(c: CertInfo, base: string, now = new Date()): boolean {
+  if (!c.validTo) return false
+  if (isStagingIssuer(c.issuer) || /caddy local authority/i.test(c.issuer ?? '')) return false
+  const names = c.sans?.length ? c.sans : c.subject ? [c.subject] : []
+  if (!names.some((n) => n.toLowerCase() === `*.${base}`.toLowerCase())) return false
+  if (c.validFrom && Date.parse(c.validFrom) > now.getTime()) return false
+  return Date.parse(c.validTo) > now.getTime()
+}
+
+/**
  * Ist das ausgelieferte Zertifikat das erwartete Wildcard-Zertifikat?
  * - staging: OHNE Prüfung der Kette (die Staging-CA ist absichtlich nicht
  *   vertrauenswürdig). Geprüft: Aussteller ist die Staging-CA, der Name
@@ -52,7 +67,15 @@ export function checkIssuedCert(c: CertInfo, o: { base: string; phase: 'staging'
   if (Date.parse(c.validTo) <= now.getTime()) return { ready: false, reason: `Zertifikat abgelaufen am ${c.validTo}` }
   const staging = isStagingIssuer(c.issuer)
   if (o.phase === 'staging') {
-    return staging ? { ready: true } : { ready: false, reason: `Aussteller ist nicht die Staging-CA: ${c.issuer ?? 'unbekannt'}` }
+    if (staging) return { ready: true }
+    // Häufig: ein produktives Zertifikat aus einem früheren Lauf – Caddys
+    // Zertifikats-Cache überlebt das Neuladen der Konfiguration.
+    return {
+      ready: false,
+      reason: c.ok
+        ? `Caddy liefert schon ein produktives Zertifikat aus (${c.issuer ?? 'unbekannt'})`
+        : `Aussteller ist nicht die Staging-CA: ${c.issuer ?? 'unbekannt'}; produktiv, aber Kette nicht vertrauenswürdig: ${c.error ?? 'unbekannter Fehler'}`,
+    }
   }
   if (staging) return { ready: false, reason: `noch das Staging-Zertifikat (${c.issuer})` }
   if (!c.ok) return { ready: false, reason: `Kette nicht vertrauenswürdig: ${c.error ?? 'unbekannter Fehler'}` }

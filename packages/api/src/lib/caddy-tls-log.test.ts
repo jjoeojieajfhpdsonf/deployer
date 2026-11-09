@@ -38,13 +38,32 @@ describe('parseCaddyTlsLog', () => {
   })
 
   test('Abruf für einen anderen Namen zählt nicht', () => {
-    const r = parseCaddyTlsLog(line({ level: 'info', ts: at(5), msg: 'certificate obtained successfully', identifier: 'deployer.int.jherren.com', issuer: 'acme-staging' }), W, T0)
+    const r = parseCaddyTlsLog(line({ level: 'info', ts: at(5), logger: 'tls.obtain', msg: 'certificate obtained successfully', identifier: 'deployer.int.jherren.com', issuer: 'acme-staging' }), W, T0)
     assert.equal(r.obtained, null)
   })
 
   test('Produktion wird als nicht-Staging erkannt', () => {
-    const r = parseCaddyTlsLog(line({ level: 'info', ts: at(5), msg: 'certificate obtained successfully', identifier: W, issuer: 'acme-v02.api.letsencrypt.org-directory' }), W, T0)
+    const r = parseCaddyTlsLog(line({ level: 'info', ts: at(5), logger: 'tls.obtain', msg: 'certificate obtained successfully', identifier: W, issuer: 'acme-v02.api.letsencrypt.org-directory' }), W, T0)
     assert.equal(r.obtained?.staging, false)
+  })
+
+  test('nur Zertifikats-Zeilen: kein «HTTP/3 skipped», kein Aufräumen des Speichers', () => {
+    const noise = [
+      line({ level: 'warn', ts: at(1), logger: 'http', msg: 'HTTP/3 skipped because it requires TLS', network: 'tcp', addr: ':80' }),
+      line({ level: 'warn', ts: at(1), logger: 'http', msg: 'HTTP/2 skipped because it requires TLS', network: 'tcp', addr: ':80' }),
+      line({ level: 'info', ts: at(2), logger: 'tls', msg: 'cleaning storage unit', storage: 'FileStorage:/data/caddy' }),
+      line({ level: 'info', ts: at(2), logger: 'tls.cache.maintenance', msg: 'started background certificate maintenance' }),
+      line({ level: 'error', ts: at(3), logger: 'http.log.error', msg: 'dial tcp: connection refused' }),
+    ].join('\n')
+    assert.deepEqual(parseCaddyTlsLog(noise, W, T0), { obtained: null, lastError: null, lastLine: null })
+    // Mit einer echten Zertifikats-Zeile dahinter: nur diese zählt
+    const r = parseCaddyTlsLog(noise + '\n' + line({ level: 'info', ts: at(4), logger: 'tls.obtain', msg: 'obtaining certificate', identifier: W }), W, T0)
+    assert.match(r.lastLine!, /obtaining certificate/)
+  })
+
+  test('Logger «tls» (z.B. OCSP) zählt als Zertifikats-Zeile', () => {
+    const r = parseCaddyTlsLog(line({ level: 'warn', ts: at(5), logger: 'tls', msg: 'stapling OCSP', identifiers: [W] }), W, T0)
+    assert.match(r.lastLine!, /stapling OCSP/)
   })
 
   test('leerer Log', () => {

@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AddressInfo } from 'node:net'
-import { certProblem, probeCert, daysLeftOf, checkIssuedCert, nameCovers, WARN_DAYS, type CertInfo } from './cert.js'
+import { certProblem, probeCert, daysLeftOf, checkIssuedCert, nameCovers, productionIssued, WARN_DAYS, type CertInfo } from './cert.js'
 
 const base: CertInfo = { ok: true, subject: '*.int.example.ch', issuer: "Let's Encrypt – R11", validTo: null, daysLeft: 60, error: null }
 
@@ -133,6 +133,29 @@ describe('checkIssuedCert mit echtem TLS-Server (selbst signiertes «Staging»-Z
       assert.equal(v.ready, false)
       assert.match((v as { reason: string }).reason, /nicht die Staging-CA/)
     })
+  })
+
+  test('Probelauf sieht ein produktives Zertifikat (Caddys Cache aus früherem Lauf): klarer Grund, als produktiv erkannt', async (t) => {
+    if (!hasOpenssl) return t.skip('openssl fehlt')
+    // Wie auf dem Server: Aussteller «Let's Encrypt – YE2», Node vertraut der Kette nicht
+    await serveSelfSigned(`/O=Let's Encrypt/CN=*.${BASE}`, `DNS:*.${BASE}`, 80, async (port) => {
+      const c = await probeCert('127.0.0.1', port, `deployer.${BASE}`)
+      const v = checkIssuedCert(c, { base: BASE, phase: 'staging' })
+      assert.equal(v.ready, false)
+      assert.match((v as { reason: string }).reason, /nicht die Staging-CA.*produktiv, aber Kette nicht vertrauenswürdig/)
+      assert.equal(productionIssued(c, BASE), true, 'als produktiv ausgestellt erkannt (für den Rate-Limit-Schutz)')
+      assert.equal(checkIssuedCert(c, { base: BASE, phase: 'production' }).ready, false, 'ohne vertrauenswürdige Kette nicht «aktiv»')
+    })
+  })
+
+  test('vertrauenswürdiges produktives Zertifikat im Probelauf: produktionsbereit (→ direkt «HTTPS aktiv»)', () => {
+    const now = new Date('2026-11-09T21:10:00Z')
+    const c: CertInfo = { ok: true, subject: `*.${BASE}`, issuer: "Let's Encrypt – YE2", validTo: '2027-02-07T20:09:18Z', validFrom: '2026-11-09T20:09:19Z', daysLeft: 89, error: null, sans: [`*.${BASE}`] }
+    assert.deepEqual(checkIssuedCert(c, { base: BASE, phase: 'production', now }), { ready: true })
+    assert.match((checkIssuedCert(c, { base: BASE, phase: 'staging', now }) as { reason: string }).reason, /schon ein produktives/)
+    assert.equal(productionIssued(c, BASE, now), true)
+    assert.equal(productionIssued({ ...c, issuer: "(STAGING) Let's Encrypt – (STAGING) Ersatz" }, BASE, now), false)
+    assert.equal(productionIssued({ ...c, sans: ['*.anders.ch'], subject: '*.anders.ch' }, BASE, now), false)
   })
 
   test('kein Server: Grund statt Absturz', async () => {

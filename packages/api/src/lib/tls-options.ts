@@ -21,6 +21,19 @@ export interface StoredTls {
   ca: 'production' | 'staging'
 }
 
+/**
+ * CA je Phase – ausdrücklich, nie aus einem gespeicherten Feld geerbt:
+ * staging → Staging; production/done → Produktion; failed → Produktion nur
+ * mit gültigem produktivem Zertifikat (Caddy liefert es aus und erneuert
+ * es), sonst Staging: So bestellt Caddy nach einem Fehlschlag nicht im
+ * Hintergrund weiter produktiv (Rate-Limit), und :443 bleibt trotzdem da.
+ */
+export function caFor(phase: CfTlsPhase, prodUsable: boolean): 'staging' | 'production' {
+  if (phase === 'production' || phase === 'done') return 'production'
+  if (phase === 'failed') return prodUsable ? 'production' : 'staging'
+  return 'staging'
+}
+
 export function tlsOptionsFor(
   tls: StoredTls | undefined,
   o: {
@@ -28,6 +41,8 @@ export function tlsOptionsFor(
     hasToken: boolean
     tokenFile: string
     email: string | null
+    /** Gültiges produktives Zertifikat bekannt (lib/tls-plan.ts) */
+    prodUsable?: boolean
     /** Alte Einrichtung über .env (compose.tls.yaml), nur ohne gespeicherten Stand */
     legacy?: { enabled: boolean; acmeCa: 'production' | 'staging'; email: string | null }
   },
@@ -36,7 +51,7 @@ export function tlsOptionsFor(
     if (!o.baseDomain || !o.hasToken || tls.phase === 'off') return null
     return {
       baseDomain: o.baseDomain,
-      acmeCa: tls.ca,
+      acmeCa: caFor(tls.phase, Boolean(o.prodUsable)),
       email: o.email,
       tokenFile: o.tokenFile,
       // http → https erst mit dem echten Zertifikat

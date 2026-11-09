@@ -405,6 +405,8 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
   const phase = s.tls.phase
   const running = phase === 'staging' || phase === 'production'
   const idx = phase === 'done' ? 2 : phase === 'production' ? 1 : phase === 'staging' ? 0 : -1
+  const retryAt = s.tls.retryAt ? new Date(s.tls.retryAt) : null
+  const waiting = useUntil(retryAt)
   return (
     <>
       {phase === 'off' && <p className="cf-lead">Caddy holt ein Wildcard-Zertifikat für <code>*.{s.baseDomain}</code> bei Let's Encrypt, per DNS-Challenge über Cloudflare. Erst ein Probelauf bei der Staging-CA (ohne Risiko, ins Rate-Limit zu laufen), dann das echte. Dauert meist zwei bis vier Minuten.</p>}
@@ -435,13 +437,31 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
       )}
       {!running && phase !== 'done' && (
         <div className="form-actions">
-          <button type="button" className="button-primary" onClick={() => start.mutate()} disabled={start.isPending}>{phase === 'failed' ? 'Nochmals versuchen' : 'Zertifikat einrichten'}</button>
+          <button type="button" className="button-primary" onClick={() => start.mutate()} disabled={start.isPending || waiting}>{phase === 'failed' ? 'Nochmals versuchen' : 'Zertifikat einrichten'}</button>
         </div>
+      )}
+      {!running && phase !== 'done' && retryAt && waiting && (
+        <p className="cf-meta" aria-live="polite">Nächster Versuch ab {retryAt.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} Uhr. Höchstens ein Versuch pro Stunde bei Let's Encrypt, sonst sperrt es neue Zertifikate für diesen Namen.</p>
+      )}
+      {!running && phase !== 'done' && s.tls.reusesCert && (
+        <p className="cf-meta">Ein gültiges Zertifikat liegt schon bei Caddy. Ein neuer Versuch lädt es, ohne neu zu bestellen.</p>
       )}
       {phase === 'failed' && <p className="cf-meta">Häufig: dem Token fehlt das DNS-Recht für diese Zone, oder ein lokaler DNS fängt <code>_acme-challenge</code> ab. Interne Adressen laufen bis dahin weiter über http.</p>}
       {start.isError && <p role="alert" className="error">{(start.error as Error).message}</p>}
     </>
   )
+}
+
+/** true, solange `until` in der Zukunft liegt; schaltet von selbst um. */
+function useUntil(until: Date | null): boolean {
+  const ms = until ? until.getTime() - Date.now() : 0
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (ms <= 0) return
+    const t = window.setTimeout(() => tick((n) => n + 1), Math.min(ms + 500, 2 ** 31 - 1))
+    return () => window.clearTimeout(t)
+  }, [ms > 0, until?.getTime()])
+  return ms > 0
 }
 
 function CertSummary({ s }: { s: CfStatusDto }) {

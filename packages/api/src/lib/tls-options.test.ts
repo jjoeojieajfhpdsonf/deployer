@@ -1,8 +1,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { CfTlsPhase } from '@deployer/shared'
-import { tlsOptionsFor, type StoredTls } from './tls-options.js'
-import { buildCaddyConfig, ACME_STAGING } from '../drivers/caddy-config.js'
+import { tlsOptionsFor, caFor, type StoredTls } from './tls-options.js'
+import { buildCaddyConfig, ACME_STAGING, ACME_PRODUCTION } from '../drivers/caddy-config.js'
 
 /**
  * Stellt den Ablauf der Zertifikats-Einrichtung nach (runTls): jede Phase
@@ -21,8 +21,8 @@ type Cfg = {
   }
 }
 
-function rebuild(tls: StoredTls | undefined): Cfg {
-  const opts = tlsOptionsFor(tls, { baseDomain: BASE, hasToken: true, tokenFile: TOKEN_FILE, email: null })
+function rebuild(tls: StoredTls | undefined, prodUsable = false): Cfg {
+  const opts = tlsOptionsFor(tls, { baseDomain: BASE, hasToken: true, tokenFile: TOKEN_FILE, email: null, prodUsable })
   return buildCaddyConfig([], {
     ipFilter: true,
     cidrs: ['192.168.1.0/24', '100.64.0.0/10'],
@@ -44,8 +44,11 @@ function assertTls(cfg: Cfg, ca: 'staging' | 'production', when: string): void {
   assert.equal(issuer.module, 'acme')
   assert.equal(issuer.challenges.dns.provider.name, 'cloudflare')
   assert.equal(issuer.challenges.dns.provider.api_token, `{file.${TOKEN_FILE}}`, `${when}: Token nicht als Datei-Platzhalter`)
-  if (ca === 'staging') assert.equal(issuer.ca, ACME_STAGING, `${when}: nicht die Staging-CA`)
-  else assert.equal(issuer.ca, undefined, `${when}: nicht die Produktions-CA`)
+  // Jede Phase setzt die CA ausdrücklich; genau ein Issuer, kein ZeroSSL-Rückfall
+  assert.equal(policy.issuers.length, 1, `${when}: mehr als ein Issuer`)
+  assert.ok(!JSON.stringify(cfg).includes('zerossl'), `${when}: ZeroSSL in der Konfiguration`)
+  assert.equal(issuer.ca, ca === 'staging' ? ACME_STAGING : ACME_PRODUCTION, `${when}: falsche CA`)
+  assert.equal(cfg.apps.tls.automation.policies.length, 1, `${when}: mehr als eine Policy`)
 }
 
 const hasRedirect = (cfg: Cfg) =>
@@ -70,10 +73,20 @@ describe('Zertifikats-Einrichtung: jeder Neubau behält :443 und die Wildcard-Po
     }
   })
 
-  test('Fehlschlag in staging oder production: :443 bleibt (Zertifikat wird weiter ausgeliefert)', () => {
+  test('Fehlschlag: :443 bleibt; Produktions-CA nur mit gültigem produktivem Zertifikat (sonst bestellt Caddy im Hintergrund nach)', () => {
     assertTls(rebuild({ phase: 'failed', ca: 'staging' }), 'staging', 'failed nach staging')
-    assertTls(rebuild({ phase: 'failed', ca: 'production' }), 'production', 'failed nach production')
-    assert.equal(hasRedirect(rebuild({ phase: 'failed', ca: 'production' })), false)
+    // Früher: ca aus dem gespeicherten Feld → Caddy bestellte nach dem Fehlschlag weiter produktiv
+    assertTls(rebuild({ phase: 'failed', ca: 'production' }), 'staging', 'failed nach production, kein Zertifikat')
+    assertTls(rebuild({ phase: 'failed', ca: 'production' }, true), 'production', 'failed, gültiges Zertifikat vorhanden')
+    assert.equal(hasRedirect(rebuild({ phase: 'failed', ca: 'production' }, true)), false)
+  })
+
+  test('die CA hängt nur an der Phase, nicht am gespeicherten Feld', () => {
+    // Ein «staging» mit ca=production (alter Stand) bestellt trotzdem bei Staging
+    assertTls(rebuild({ phase: 'staging', ca: 'production' }), 'staging', 'staging mit altem ca-Feld')
+    assertTls(rebuild({ phase: 'done', ca: 'staging' }), 'production', 'done mit altem ca-Feld')
+    assert.equal(caFor('production', false), 'production')
+    assert.equal(caFor('staging', true), 'staging')
   })
 
   test('nur «off», fehlende Basisdomain oder fehlendes Token bauen ohne TLS', () => {
