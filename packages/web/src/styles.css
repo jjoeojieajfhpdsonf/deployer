@@ -597,6 +597,7 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .status-running { color: var(--ok); background: var(--ok-bg); }
 .status-deploying { color: var(--info); background: var(--info-bg); }
 .status-failed { color: var(--bad); background: var(--bad-bg); }
+.status-warn { color: var(--warn); background: var(--warn-bg); }
 .status-stopped, .status-created { color: var(--muted); }
 .deploy-failed { color: var(--bad); }
 .title-line .deploy-failed { font-size: var(--fs-13); font-weight: 500; }
@@ -734,6 +735,9 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .form-actions { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-7); flex-wrap: wrap; }
 .form-actions input { flex: 1; min-width: 200px; width: auto; }
 .form-actions .hint { margin: 0; }
+/* Beschriftete Auswahl in einer Aktionszeile (z. B. «Regelmässig scannen») */
+.form-actions label { display: inline-flex; align-items: center; gap: var(--sp-2); margin: 0; }
+.form-actions label select { width: auto; min-height: 36px; }
 .form-panel label:first-of-type { margin-top: 10px; }
 /* Gruppen: Titel in der Karte, nicht als Kerbe in der Kante */
 .field-group, .notify-form fieldset { padding: 26px var(--sp-7) var(--sp-7); margin: 0 0 var(--sp-4); }

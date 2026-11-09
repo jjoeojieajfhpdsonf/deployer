@@ -284,8 +284,8 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
           </button>
         ) : (
           <span className="confirm-inline" role="group" aria-label="Aktiven Scan bestätigen">
-            <button className="button-danger" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
             <button onClick={() => setConfirmActive(false)}>Abbrechen</button>
+            <button className="button-danger-solid" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
           </span>
         )}
         <p className="scan-actions-hint">

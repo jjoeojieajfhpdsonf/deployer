@@ -112,8 +112,8 @@ function Target({ t }: { t: ExternalTargetDto }) {
     <li className="target">
       <div className="target-head">
         <strong>{t.hostname}</strong>
-        <span className={t.verified ? 'badge badge-ok' : 'badge badge-warn'}>
-          {t.verified ? '✓ verifiziert' : '! nicht verifiziert'}
+        <span className={t.verified ? 'status status-running' : 'status status-warn'}>
+          <span className="status-dot" aria-hidden="true" />{t.verified ? 'verifiziert' : 'nicht verifiziert'}
         </span>
         {t.lastCheckAt && <span className="muted">geprüft {relativeTime(t.lastCheckAt)}</span>}
       </div>
@@ -153,8 +153,8 @@ function Target({ t }: { t: ExternalTargetDto }) {
           <button onClick={() => setConfirmDelete(true)}>Entfernen …</button>
         ) : (
           <>
-            <button className="button-danger" onClick={() => del.mutate()}>Ja, entfernen</button>
             <button onClick={() => setConfirmDelete(false)}>Abbrechen</button>
+            <button className="button-danger-solid" onClick={() => del.mutate()}>Ja, entfernen</button>
           </>
         )}
       </div>
