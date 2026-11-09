@@ -6,7 +6,7 @@ import { api, ApiError } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
-import { IconAlert, IconPlus, IconSearch } from '../components/Icons.js'
+import { IconAlert, IconPlus, IconSearch, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
 import { relativeTime, since, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
@@ -287,7 +287,7 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
           {p.desiredState === 'running' ? (
             confirmStop ? (
               <>
-                <div className="menu-confirm">! {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
+                <div className="menu-confirm"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
                 <button role="menuitem" className="menu-danger" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
                 <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
               </>

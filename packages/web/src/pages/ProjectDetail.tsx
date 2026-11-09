@@ -9,6 +9,7 @@ import { ProjectSecurity } from '../components/Security.js'
 import { Reachability } from '../components/Reachability.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
+import { IconWarn } from '../components/Icons.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { putEnvSchema } from '@deployer/shared'
@@ -94,9 +95,10 @@ export function ProjectDetail() {
             {p.desiredState === 'running' ? (
               confirmStop ? (
                 <span className="confirm-inline" role="group" aria-label="Stoppen bestätigen">
-                  <span className="warn">! {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}danach offline.</span>
-                  <button className="button-danger" onClick={() => act.mutate('stop')} disabled={act.isPending} autoFocus>Ja, stoppen</button>
+                  <span className="confirm-note"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}danach offline.</span>
                   <button onClick={() => setConfirmStop(false)}>Abbrechen</button>
+                  {/* Während der Bestätigung ist «Ja, stoppen» der eine gefüllte Knopf */}
+                  <button className="button-danger-solid" onClick={() => act.mutate('stop')} disabled={act.isPending} autoFocus>Ja, stoppen</button>
                 </span>
               ) : (
                 <button onClick={() => setConfirmStop(true)} disabled={act.isPending}>Stoppen …</button>
@@ -104,7 +106,7 @@ export function ProjectDetail() {
             ) : (
               <button onClick={() => act.mutate('start')} disabled={act.isPending}>Starten</button>
             )}
-            <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
+            <button className={confirmStop ? undefined : 'button-primary'} onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
               Neu deployen
             </button>
           </>
@@ -430,7 +432,7 @@ function Settings({
               <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small>
             </span>
           </label>
-          <button type="submit" className="button-danger" disabled={remove.isPending}>
+          <button type="submit" className="button-danger-solid" disabled={remove.isPending}>
             {remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}
           </button>
         </form>

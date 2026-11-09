@@ -684,9 +684,11 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .menu-list button:hover:not(:disabled), .menu-list a:hover { background: var(--surface-2); }
 .menu-list .menu-danger { color: var(--bad); }
 .menu-sep { height: 1px; margin: 6px var(--sp-1); background: var(--line); }
-.menu-confirm { padding: var(--sp-2) var(--sp-3) var(--sp-1); font-size: var(--fs-13); color: var(--warn); max-width: 240px; white-space: normal; }
+.menu-confirm, .confirm-note { display: flex; align-items: flex-start; gap: 6px; font-size: var(--fs-13); font-weight: 500; color: var(--warn); }
+.menu-confirm svg, .confirm-note svg { flex: none; margin-top: 2px; }
+.menu-confirm { padding: var(--sp-2) var(--sp-3) var(--sp-1); max-width: 240px; white-space: normal; }
 .confirm-inline { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.confirm-inline .warn { font-size: var(--fs-13); }
+.confirm-note { margin-right: var(--sp-1); }
 
 /* --- Unterer Bereich der Übersicht --------------------------------------------------- */
 

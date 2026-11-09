@@ -31,6 +31,8 @@ const checks = [
   ['ink-dim', grounds, 7, 'Lesetext'],
   ['muted', [...grounds, 'surface-3'], 4.5, 'Text'],
   ['primary-ink', ['primary'], 4.5, 'Text auf Primär-Button'],
+  // Roter gefüllter Knopf (Bestätigung): Hell weisse Schrift (= bg), Dunkel Schrift in der Grundfarbe
+  ['bg', ['bad'], 4.5, 'Text auf rotem Bestätigungs-Knopf'],
   ...['ok', 'warn', 'bad', 'info'].map((s) => [s, [...grounds, 'surface-3', `${s}-bg`], 4.5, 'Statustext und -zeichen']),
   ['field-line', ['bg', 'surface', 'inset'], 3, 'Feldrahmen'],
   ['primary', ['bg', 'surface'], 3, 'Primärfläche'],
