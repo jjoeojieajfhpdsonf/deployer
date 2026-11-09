@@ -1,7 +1,8 @@
-import { desc, lt, and, eq, type SQL } from 'drizzle-orm'
+import { desc, lt, and, eq, sql, type SQL } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
 import { log } from '../lib/log.js'
+import { redactDeep, redactSecrets } from '../lib/redact.js'
 import type { AuditEventDto } from '@deployer/shared'
 
 /**
@@ -26,9 +27,10 @@ export async function audit(entry: AuditInput): Promise<void> {
       action: entry.action,
       targetType: entry.targetType ?? null,
       targetId: entry.targetId ?? null,
-      paramsMasked: (maskParams(entry.params ?? {}) ?? {}) as Record<string, unknown>,
+      paramsMasked: redactDeep((maskParams(entry.params ?? {}) ?? {}) as Record<string, unknown>),
       result: entry.result,
-      error: entry.error ?? null,
+      // Fehlertexte von Caddy/Cloudflare/cloudflared können Tokens enthalten
+      error: redactSecrets(entry.error) ?? null,
     })
   } catch (err) {
     // Ein kaputtes Audit-Log darf die eigentliche Aktion nicht umwerfen,
@@ -73,8 +75,31 @@ export async function listAudit(opts: { limit?: number; before?: string; action?
     action: r.action,
     targetType: r.targetType,
     targetId: r.targetId,
-    paramsMasked: r.paramsMasked,
+    paramsMasked: redactDeep(r.paramsMasked),
     result: r.result,
-    error: r.error,
+    error: redactSecrets(r.error) ?? null,
   }))
+}
+
+/**
+ * Beim Start: Tokens aus bestehenden Einträgen entfernen (vor dem Schwärzen
+ * geschrieben, z.B. «API token 'cfut_…' appears invalid»). Nach
+ * loadCloudflareSettings aufrufen, damit das bekannte Token registriert ist.
+ * Vorfilter in SQL grob, das genaue Schwärzen in redactSecrets.
+ */
+export async function scrubAuditSecrets(): Promise<number> {
+  const candidates = await db
+    .select({ id: schema.auditEvents.id, error: schema.auditEvents.error, params: schema.auditEvents.paramsMasked })
+    .from(schema.auditEvents)
+    .where(sql`${schema.auditEvents.error} ~ '[A-Za-z0-9_-]{16,}' OR ${schema.auditEvents.paramsMasked}::text ~ '[A-Za-z0-9_-]{16,}'`)
+  let changed = 0
+  for (const r of candidates) {
+    const error = redactSecrets(r.error) ?? null
+    const params = redactDeep(r.params)
+    if (error === r.error && JSON.stringify(params) === JSON.stringify(r.params)) continue
+    await db.update(schema.auditEvents).set({ error, paramsMasked: params as Record<string, unknown> }).where(eq(schema.auditEvents.id, r.id))
+    changed++
+  }
+  if (changed) log.warn('Tokens aus Audit-Einträgen entfernt', { einträge: changed })
+  return changed
 }

@@ -18,6 +18,7 @@ import * as docker from '../drivers/docker.js'
 import { audit } from './audit.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { redactSecrets, redactDeep, registerSecret } from '../lib/redact.js'
 
 /**
  * «Cloudflare verbinden» (Systemseite): Token, Konto, Zonen, Tunnel und
@@ -78,8 +79,16 @@ async function applyRuntime(): Promise<void> {
   if (stored.tokenEnc) {
     try {
       r.token = dec(stored.tokenEnc)
+      registerSecret(r.token)
     } catch (err) {
       log.error('Cloudflare-Token nicht entschlüsselbar (Schlüsseldatei getauscht?)', { err: String(err) })
+    }
+  }
+  if (stored.tunnel) {
+    try {
+      registerSecret(dec(stored.tunnel.tokenEnc))
+    } catch {
+      /* Meldung oben genügt */
     }
   }
   if (stored.accountId) r.accountId = stored.accountId
@@ -116,6 +125,15 @@ async function writeCaddyToken(token: string | null): Promise<void> {
 export async function loadCloudflareSettings(): Promise<void> {
   stored = await load()
   await applyRuntime()
+  // Aufräumen: Schritte aus der Zeit vor dem Schwärzen können ein Token enthalten
+  // (caddy-dns/cloudflare v0.2.1: «API token '…' appears invalid»).
+  if (stored.tls?.steps.length) {
+    const steps = redactDeep(stored.tls.steps)
+    if (JSON.stringify(steps) !== JSON.stringify(stored.tls.steps)) {
+      await save({ ...stored, tls: { ...stored.tls, steps } })
+      log.warn('Token aus gespeicherten Zertifikats-Schritten entfernt')
+    }
+  }
 }
 
 /** cloudflared wieder hochfahren, falls deployer ihn verwaltet (beim Start, im Hintergrund). */
@@ -153,7 +171,7 @@ const client = (token?: string) => {
 }
 
 function wrapCf(err: unknown): never {
-  if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
+  if (err instanceof CloudflareError) throw new AppError('cloudflare', redactSecrets(err.message),err.status >= 400 && err.status < 500 ? 400 : 502)
   throw err
 }
 
@@ -410,7 +428,7 @@ const TLS_TIMEOUT_MS = 6 * 60_000
 
 async function step(text: string, tone: Step['tone'] = 'info'): Promise<void> {
   if (!stored.tls) return
-  await save({ ...stored, tls: { ...stored.tls, steps: [...stored.tls.steps, { at: new Date().toISOString(), text, tone }].slice(-30) } })
+  await save({ ...stored, tls: { ...stored.tls, steps: [...stored.tls.steps, { at: new Date().toISOString(), text: redactSecrets(text), tone }].slice(-30) } })
 }
 
 async function setPhase(phase: CfTlsPhase, ca: 'production' | 'staging'): Promise<void> {
@@ -538,7 +556,9 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
   const base = cf.baseDomain()
   const cert = base && (tls || phase === 'done') ? await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`, 3000).catch(() => null) : null
   const publicProjects = (await db.select({ id: schema.routes.id }).from(schema.routes).where(eq(schema.routes.target, 'public'))).length
-  return {
+  // Letzte Sicherung: Schritte, cloudflared-Log, Zertifikats- und Ingress-
+  // Fehler stammen aus fremden Meldungen und können Tokens enthalten.
+  return redactDeep<CfStatusDto>({
     source: stored.tokenEnc ? 'ui' : cf.tokenSource() === 'env' ? 'env' : null,
     token: { present: Boolean(cf.token()), source: cf.tokenSource(), savedAt: stored.tokenSavedAt ?? null, lastCheck: stored.lastCheck ?? null },
     account: cf.accountId() ? { id: cf.accountId()!, name: stored.accountName ?? null } : null,
@@ -576,7 +596,7 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
     tokenTemplateUrl: tokenTemplateUrl(),
     requiredPermissions: REQUIRED_PERMISSIONS.map(({ label, required, why }) => ({ label, required, why })),
     publicProjects,
-  }
+  })
 }
 
 /** Liegt das gemeinsame Volume für Caddy bereit? (alter Stack ohne caddy_secrets) */

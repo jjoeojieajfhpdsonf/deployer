@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { readFileSync } from 'node:fs'
+import { registerSecret } from './lib/redact.js'
 import { isIPv4 } from 'node:net'
 import {
   parseBaseDomain, nipHost, primaryHost as primaryHostFor, aliasHosts as aliasHostsFor, urlFor as urlForFn,
@@ -151,6 +152,7 @@ function fileToken(): string | null {
     v = null
   }
   tokenCache = { at: Date.now(), v }
+  registerSecret(v)
   return v
 }
 

@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from '../config.js'
+import { redactSecrets } from '../lib/redact.js'
 import type { DeploymentStatus } from '@deployer/shared'
 
 /**
@@ -34,7 +36,9 @@ export function logPathFor(deploymentId: string): string {
   return join(logDir(), `${deploymentId}.log`)
 }
 
-export function appendLine(deploymentId: string, line: string): void {
+export function appendLine(deploymentId: string, rawLine: string): void {
+  // z.B. Caddy-Fehler nach dem Deploy: können ein Cloudflare-Token enthalten
+  const line = redactSecrets(rawLine)
   const stamped = `[${new Date().toISOString()}] ${line}\n`
   try {
     appendFileSync(logPathFor(deploymentId), stamped)
@@ -61,6 +65,27 @@ export function readLog(deploymentId: string): string {
   } catch {
     return ''
   }
+}
+
+/**
+ * Beim Start: Tokens aus bestehenden Deploy-Logs entfernen (vor dem Schwärzen
+ * geschrieben). Nur Dateien, die sich ändern, werden neu geschrieben.
+ */
+export async function scrubDeploymentLogs(): Promise<number> {
+  const dir = logDir()
+  let changed = 0
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith('.log')) continue
+    const p = join(dir, name)
+    const text = await readFile(p, 'utf8').catch(() => null)
+    if (text === null) continue
+    const clean = redactSecrets(text)
+    if (clean !== text) {
+      await writeFile(p, clean)
+      changed++
+    }
+  }
+  return changed
 }
 
 export function subscribe(deploymentId: string, fn: (e: JournalEvent) => void): () => void {

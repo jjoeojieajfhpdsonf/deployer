@@ -16,6 +16,7 @@ import { tokenRoutes } from './routes/tokens.js'
 import { securityRoutes } from './routes/security.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
+import { redactSecrets, redactDeep } from '../lib/redact.js'
 
 /**
  * Leerer Body mit Content-Type application/json gilt als {} statt als Fehler
@@ -32,9 +33,25 @@ export function acceptEmptyJson(app: FastifyInstance): void {
   })
 }
 
+/** Fehler fürs Fastify-Log, mit geschwärzter Meldung und Stack. */
+function serializeErr(raw: unknown): { [key: string]: unknown; type: string; message: string; stack: string } {
+  const e = raw as (Error & { code?: string; statusCode?: number }) | null
+  return {
+    type: e?.constructor?.name ?? 'Error',
+    message: redactSecrets(e?.message ?? String(raw)),
+    stack: redactSecrets(e?.stack ?? ''),
+    ...(e?.code ? { code: e.code } : {}),
+    ...(e?.statusCode ? { statusCode: e.statusCode } : {}),
+  }
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: config.NODE_ENV === 'production' ? 'info' : 'debug' },
+    logger: {
+      level: config.NODE_ENV === 'production' ? 'info' : 'debug',
+      // Fehler von Caddy, Cloudflare und cloudflared können Tokens enthalten
+      serializers: { err: serializeErr },
+    },
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
   })
@@ -59,7 +76,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     if (err instanceof AppError) {
       reply.code(err.status).send({
-        error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) },
+        error: { code: err.code, message: redactSecrets(err.message), ...(err.details ? { details: redactDeep(err.details) } : {}) },
       })
       return
     }
@@ -69,7 +86,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (status && status < 500) {
       reply
         .code(status)
-        .send({ error: { code: 'bad_request', message: fastifyErr.message ?? 'Eingabe nicht gültig' } })
+        .send({ error: { code: 'bad_request', message: redactSecrets(fastifyErr.message) ?? 'Eingabe nicht gültig' } })
       return
     }
     request.log.error({ err }, 'Unbehandelter Fehler')

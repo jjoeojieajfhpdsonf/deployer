@@ -3,7 +3,7 @@
 ARG CADDY_VERSION=2.10.0
 
 FROM caddy:${CADDY_VERSION}-builder-alpine AS build
-ARG CF_MODULE_VERSION=v0.2.1
+ARG CF_MODULE_VERSION=v0.2.4
 RUN xcaddy build --with github.com/caddy-dns/cloudflare@${CF_MODULE_VERSION}
 
 FROM caddy:${CADDY_VERSION}-alpine

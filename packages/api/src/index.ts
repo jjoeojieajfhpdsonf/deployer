@@ -13,6 +13,8 @@ import { startCertJob } from './jobs/cert.js'
 import { startMonitorJob } from './jobs/monitor.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
 import { startNetworkWatch } from './domain/network.js'
+import { scrubAuditSecrets } from './domain/audit.js'
+import { scrubDeploymentLogs } from './deploy/journal.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
 import { reconcilePublicOnBoot } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
@@ -27,6 +29,11 @@ async function main(): Promise<void> {
   await ensureAdminPassword()
   // Cloudflare aus der Datenbank (Systemseite), vor allem, was Adressen braucht
   await loadCloudflareSettings()
+  // Tokens aus alten Audit-Einträgen entfernen (bekanntes Token ist jetzt registriert)
+  await scrubAuditSecrets().catch((err) => log.warn('Audit-Einträge nicht bereinigt', { err: String(err) }))
+  void scrubDeploymentLogs()
+    .then((n) => n && log.warn('Tokens aus Deploy-Logs entfernt', { dateien: n }))
+    .catch((err) => log.warn('Deploy-Logs nicht bereinigt', { err: String(err) }))
   // LAN-IP, LAN-Netz und Tailscale-IP vom Host (stündlich erneut), vor allem, was Adressen braucht
   await startNetworkWatch()
 

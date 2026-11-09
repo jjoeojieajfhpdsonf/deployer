@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { CloudflareError } from '../../drivers/cloudflare.js'
 import { actorFor } from '../auth.js'
 import { badRequest, AppError } from '../../lib/errors.js'
+import { redactDeep } from '../../lib/redact.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
@@ -120,7 +121,8 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     const nip = nipioHost('deployer')
     const cert = await currentCert().catch(() => null)
 
-    return {
+    // Prüfungen und Zertifikatsfehler stammen aus fremden Meldungen (Caddy, Cloudflare)
+    return redactDeep<SystemStatusDto>({
       version: config.version,
       checks,
       diskFreeBytes,
@@ -161,7 +163,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
           : { way: 'dns', label: 'Interner Name (keine Basisdomain gesetzt)', url: null },
         { way: 'nipio', label: nip ? `nip.io (${nip})` : 'nip.io (keine IP des Servers bekannt)', url: nip ? `http://${nip}/health` : null },
       ],
-    }
+    })
   })
 
   // M4: Tailnet-Eintrag bei Cloudflare von Hand anstossen (nur mit Anmeldung, siehe auth.ts).
