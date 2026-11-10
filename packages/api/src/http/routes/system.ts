@@ -182,11 +182,13 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   // M4: Tailnet-Eintrag bei Cloudflare von Hand anstossen (nur mit Anmeldung, siehe auth.ts).
   app.post('/system/tailnet-dns', async (request) => {
-    if (!tailnetDnsConfigured()) {
-      throw badRequest('Tailnet-DNS braucht TLS_MODE=cloudflare, INTERNAL_BASE_DOMAIN und TAILSCALE_IP')
+    if (!(await tailnetDnsConfigured())) {
+      throw badRequest('Tailnet-DNS braucht eine Umgebung mit Basisdomain und Cloudflare-Token sowie die Tailscale-IP')
     }
     try {
-      return { record: await ensureTailnetDns(actorFor(request)) }
+      // M9: ein Eintrag je Umgebung; «record» bleibt der der Standard-Umgebung (erste)
+      const records = await ensureTailnetDns(actorFor(request))
+      return { record: records[0] ?? null, records }
     } catch (err) {
       if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
       throw err
@@ -252,7 +254,10 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   /* --- M5: Domains und Cloudflare --------------------------------------------- */
 
   // M9: Zonen der Umgebung (Pfad /environments/:env/domains oder ?environment=)
-  const listZones = async (request: FastifyRequest) => ({ domains: await listDomains(listScopeFor(request)), publicEnabled: publicEnabled() })
+  const listZones = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
+    return { domains: await listDomains(scope), publicEnabled: publicEnabled(scope.envId) }
+  }
   app.get('/domains', listZones)
   app.get('/environments/:env/domains', listZones)
 

@@ -1,4 +1,4 @@
-import { cf as settings, config, net, cloudflareToken } from '../config.js'
+import { config, net, cloudflareToken } from '../config.js'
 import { Cloudflare, zoneFor, upsertManagedRecord, CloudflareError } from '../drivers/cloudflare.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
@@ -9,6 +9,9 @@ import { log } from '../lib/log.js'
  * 100.x-Adressen ohnehin nicht erreichen; der Eintrag dient nur der
  * Namensauflösung unterwegs. Im LAN beantwortet der lokale DNS dieselben
  * Namen mit der LAN-IP.
+ *
+ * M9: ein Eintrag je Umgebung (in ihrer Hauptzone, mit ihrem Token). Die
+ * Tailscale-IP ist serverweit; ändert sie sich, zieht Airlock alle nach.
  */
 
 export interface TailnetDnsResult {
@@ -16,24 +19,54 @@ export interface TailnetDnsResult {
   content: string
   action: 'created' | 'updated' | 'unchanged'
   zone: string
+  /** M9: Umgebung (Slug) */
+  environment?: string
 }
 
-/** Client mit dem Token aus der Secret-Datei; null, wenn keins da ist. */
+/** Client mit dem Token der Standard-Umgebung; null, wenn keins da ist. */
 export function cloudflareClient(): Cloudflare | null {
   const token = cloudflareToken()
   return token ? new Cloudflare({ token, base: config.CLOUDFLARE_API_BASE }) : null
 }
 
-export function tailnetDnsConfigured(): boolean {
-  return Boolean(settings.token() && settings.baseDomain() && net.tailscaleIp())
+/** Basen mit Token, je Umgebung (aus den Cloudflare-Einstellungen). */
+async function targets(): Promise<{ env: string; base: string; token: string }[]> {
+  const { allEnvironments } = await import('./environments.js')
+  const { cloudflareFor } = await import('./cloudflare-settings.js')
+  return allEnvironments().flatMap((e) => {
+    const c = cloudflareFor(e.id)
+    return c.baseDomain && c.token ? [{ env: e.slug, base: c.baseDomain, token: c.token }] : []
+  })
 }
 
-export async function ensureTailnetDns(actor: string, cf = cloudflareClient()): Promise<TailnetDnsResult> {
-  const base = settings.baseDomain()
+export async function tailnetDnsConfigured(): Promise<boolean> {
+  return Boolean(net.tailscaleIp()) && (await targets()).length > 0
+}
+
+/** Einträge aller Umgebungen setzen. Ein Fehler in einer Umgebung hält die anderen nicht auf; er kommt am Ende. */
+export async function ensureTailnetDns(actor: string): Promise<TailnetDnsResult[]> {
   const ip = net.tailscaleIp()
-  if (!base || !ip) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (System → Cloudflare)', 400)
-  if (!cf) throw new CloudflareError('Kein Cloudflare-Token (System → Cloudflare verbinden)', 400)
-  return ensureWildcardRecord(cf, base, ip, actor)
+  const list = await targets()
+  if (!ip || !list.length) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (Einstellungen → Cloudflare & HTTPS)', 400)
+  const out: TailnetDnsResult[] = []
+  const errors: string[] = []
+  for (const t of list) {
+    try {
+      out.push({ ...(await ensureTailnetDnsFor(t.base, t.token, actor)), environment: t.env })
+    } catch (err) {
+      errors.push(`${t.env}: ${(err as Error).message}`)
+    }
+  }
+  if (errors.length && !out.length) throw new CloudflareError(errors.join('; '), 502)
+  if (errors.length) log.warn('Tailnet-Eintrag nicht in allen Umgebungen gesetzt', { fehler: errors })
+  return out
+}
+
+/** Eintrag *.<basis> einer Umgebung mit ihrem Token. */
+export async function ensureTailnetDnsFor(base: string, token: string, actor: string): Promise<TailnetDnsResult> {
+  const ip = net.tailscaleIp()
+  if (!ip) throw new CloudflareError('Keine Tailscale-IP bekannt', 400)
+  return ensureWildcardRecord(new Cloudflare({ token, base: config.CLOUDFLARE_API_BASE }), base, ip, actor)
 }
 
 /** Kern ohne config – testbar mit der Cloudflare-Attrappe. */
@@ -49,9 +82,9 @@ export async function ensureWildcardRecord(cf: Cloudflare, baseDomain: string, i
   return { name, content: ip, action: r.action, zone: zone.name }
 }
 
-/** Beim Start: Eintrag sicherstellen, Fehler nur melden (der Start geht weiter). */
+/** Beim Start und nach einem IP-Wechsel: Einträge aller Umgebungen sicherstellen, Fehler nur melden. */
 export async function ensureTailnetDnsOnBoot(): Promise<void> {
-  if (!tailnetDnsConfigured()) return
+  if (!(await tailnetDnsConfigured())) return
   try {
     await ensureTailnetDns('system')
   } catch (err) {

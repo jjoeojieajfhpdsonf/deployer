@@ -207,7 +207,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   })
 
   tool('list_domains', 'Domains (Zonen bei Cloudflare) für öffentliche Projekte und welche Standard ist', {}, async () => {
-    if (!publicEnabled()) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
+    if (!publicEnabled(scope.envId)) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
     const domains = await listDomains(scope).then((d) => (d.length ? d : syncDomains(undefined, scope.envId)))
     return ok({ domains: domains.map((d) => ({ name: d.name, default: d.isDefault })) })
   })
@@ -228,7 +228,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     wait,
   }, async (a) => {
     const wantsPublic = a.targets.includes('public')
-    if (wantsPublic && !publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen. Projekt ohne "public" anlegen.')
+    if (wantsPublic && !publicEnabled(scope.envId)) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen. Projekt ohne "public" anlegen.')
     const internal = a.targets.filter((t) => t !== 'public')
     const input = createProjectSchema.parse({
       name: a.name, source: sourceSchema.parse(a.source), files: a.files, port: a.port,
@@ -465,7 +465,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       if (!c.go) return c.result
     }
     if (wantsPublic) {
-      if (!publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
+      if (!publicEnabled(scope.envId)) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
       // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
       // scheitert – oder ein Teil (interne Ziele) wäre schon umgestellt.
       try {

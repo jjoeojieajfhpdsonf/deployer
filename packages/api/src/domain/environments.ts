@@ -1,6 +1,7 @@
 import { asc, eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { config } from '../config.js'
+import { config, cf, net } from '../config.js'
+import { primaryHost as primaryHostFor, aliasHosts as aliasHostsFor, urlFor as urlForFn, type HostSettings } from '../lib/hostnames.js'
 import { log } from '../lib/log.js'
 
 /**
@@ -110,6 +111,70 @@ export function environmentById(id: string): EnvRuntime | null {
 
 export function environmentBySlug(slug: string): EnvRuntime | null {
   return [...registry.values()].find((e) => e.slug === slug) ?? null
+}
+
+/* --- Anlegen -------------------------------------------------------------------- */
+
+export interface CreateEnvironmentInput {
+  name: string
+  slug: string
+  short: string
+  /** Cloudflare-Token einer bestehenden Umgebung mitbenutzen (ihr Konto, ihr Tunnel) */
+  shareAccountOf?: string | null
+  /** Präfix der internen Basis (Standard «int») */
+  internalPrefix?: string
+}
+
+/**
+ * Neue Umgebung, noch ohne Hauptzone. Zone, Token, Zertifikat und Tunnel
+ * folgen über die Cloudflare-Schritte (withCloudflareEnv).
+ */
+export async function createEnvironment(input: CreateEnvironmentInput): Promise<EnvRuntime> {
+  const shareFrom = input.shareAccountOf ? environmentById(input.shareAccountOf) : null
+  if (input.shareAccountOf && !shareFrom?.account) throw new Error('Diese Umgebung hat kein Cloudflare-Token zum Mitbenutzen')
+  const [row] = await db.insert(schema.environments).values({
+    name: input.name.trim(),
+    slug: input.slug,
+    short: input.short.toUpperCase(),
+    internalPrefix: input.internalPrefix ?? 'int',
+    cloudflareAccountId: shareFrom?.account?.id ?? null,
+    legacyImportedAt: new Date(),
+  }).returning()
+  await reloadEnvironments()
+  return environmentById(row!.id)!
+}
+
+/* --- Adressen pro Umgebung ------------------------------------------------------ */
+
+/**
+ * Einstellungen für die Adressen einer Umgebung (lib/hostnames.ts). Die
+ * Standard-Umgebung wie bisher über config.ts (mit Rückfall auf .env);
+ * weitere Umgebungen aus ihrer eigenen Basis und ihrem eigenen Zertifikat.
+ * LAN-/Tailscale-IP und nip.io sind serverweit.
+ */
+export function hostSettingsFor(envId: string): HostSettings {
+  const env = environmentById(envId) ?? defaultEnvironment()
+  return {
+    baseDomain: env.isDefault ? cf.baseDomain() : env.baseDomain,
+    lanIp: net.lanIp(),
+    tailscaleIp: net.tailscaleIp(),
+    nipio: config.NIPIO_FALLBACK,
+    tls: env.isDefault ? cf.tls() : env.row.tlsState?.phase === 'done',
+  }
+}
+
+/** Erreichbare Adresse eines Namens in einer Umgebung. */
+export const primaryHostIn = (envId: string, label: string) => primaryHostFor(label, hostSettingsFor(envId))
+export const aliasHostsIn = (envId: string, label: string) => aliasHostsFor(label, hostSettingsFor(envId))
+export const urlForHostIn = (envId: string, host: string) => urlForFn(host, hostSettingsFor(envId))
+
+/** Umgebung, deren interne Basis einen Namen abdeckt (Standard-Umgebung, wenn keine). */
+export function environmentForHost(host: string): EnvRuntime {
+  const h = host.toLowerCase()
+  return allEnvironments().find((e) => {
+    const base = hostSettingsFor(e.id).baseDomain
+    return base && (h === base || h.endsWith(`.${base}`))
+  }) ?? defaultEnvironment()
 }
 
 /** Nur für Tests: Register ohne Datenbank setzen. */

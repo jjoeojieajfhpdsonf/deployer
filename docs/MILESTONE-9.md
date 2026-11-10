@@ -119,6 +119,29 @@ Jede Etappe: `pnpm typecheck`, `pnpm test`, `pnpm build`, Screenshots hell/dunke
 - MCP: Scope aus dem Token für jedes Werkzeug; MCP-Aufrufe stehen im Audit der Umgebung des Tokens.
 - Audit-Liste: Einträge der Umgebung plus Server-Ereignisse (`server: true`), nie Einträge anderer Umgebungen.
 
-**Bewusste Grenze:** Slugs und Hostnamen externer Ziele sind serverweit eindeutig (Entscheidung 3). Wer in B einen Slug oder Hostnamen anlegen will, den A schon nutzt, bekommt «schon vergeben» – das verrät nur, dass der Name belegt ist, keinen Inhalt.
+**Bewusste Grenze (Etappe 2):** Slugs und Hostnamen externer Ziele sind serverweit eindeutig (Entscheidung 3). Wer in B einen Slug oder Hostnamen anlegen will, den A schon nutzt, bekommt «schon vergeben» – das verrät nur, dass der Name belegt ist, keinen Inhalt.
 
 **Geprüft** (Stand 10.11.2026): Typecheck, 607 Unit-Tests (4 neu: Scope), Build. `scripts/m9-scope-e2e.ts` gegen ein Wegwerf-Postgres mit zwei Umgebungen: **21 von 21 Prüfungen** – alle 64 REST-Pfade mit Objekt (aus der Liste der registrierten Routen, nicht von Hand) antworten dem Token aus B für Objekte aus A byte-gleich wie für ein unbekanntes Objekt; jeder Pfad mit Objekt fällt unter die zentrale Prüfung; alle 22 MCP-Werkzeuge mit Projekt oder Hostname (aus `tools/list`) ebenso; Listen (Projekte, externe Ziele, Domains, Audit, `list_projects`) zeigen nur B; nichts in A verändert; MCP-Audit in B. Migrationstest weiter 25 von 25.
+
+### Etappe 3 – Caddy, Zertifikate, DNS, Tunnel
+
+- **Cloudflare-Einstellungen pro Umgebung** (`domain/cloudflare-settings.ts`): ein Stand je Umgebung; `withCloudflareEnv(envId, fn)` bestimmt die Umgebung über `AsyncLocalStorage`, auch für die minutenlange Zertifikats-Einrichtung im Hintergrund. Ohne Angabe die Standard-Umgebung – die bisherigen Endpunkte unter `/system/cloudflare` arbeiten unverändert für sie. Einrichtung, Sperre und Rate-Limit-Schutz je Umgebung (`tlsRuns`), Audit in der Umgebung.
+- **Caddy** (`drivers/caddy-config.ts`): `tls` ist eine Liste; je Basis eine Automatisierungsregel mit eigener CA und eigener Token-Datei, eigene http→https-Weiterleitung, HSTS je Basis. Cache leeren je Basis. Neue Route-Art `redirect` (308) für die Weiterleitung nach dem Verschieben (`route_redirects`).
+- **Token-Dateien:** `cloudflare_token` für das Konto der Standard-Umgebung (wie vorher), `cloudflare_token_<konto-id>` für weitere; nicht mehr gebrauchte werden entfernt.
+- **Adressen:** `hostSettingsFor(envId)`, `primaryHostIn`, `aliasHostsIn`, `urlForHostIn`; Routen, Aliase, URLs, Pause-Vorlage und Probe-Adresse nach der Umgebung des Projekts. `rehostRoutes(envId)` nur für die geänderte Umgebung.
+- **Tailnet:** ein Eintrag `*.int.<hauptzone>` je Umgebung mit ihrem Token; bei einem Wechsel der Tailscale-IP werden alle nachgezogen (`domain/network.ts`).
+- **Tunnel:** einer pro Konto (Befund in Abschnitt 2). Ingress eines Tunnels aus den öffentlichen Namen aller Umgebungen dieses Kontos; CNAME, Access-Apps und DNS mit Token und Konto der Projekt-Umgebung; Zustand je Tunnel; cloudflared-Container `airlock-cloudflared` für das Konto der Standard-Umgebung, sonst `airlock-cloudflared-<kurz-id>`. Trennen einer Umgebung mit geteiltem Konto lässt Tunnel und Token stehen.
+- **Zonen:** gespiegelt in die Umgebung, deren Token abgeglichen wird; aufgeräumt nur unter Umgebungen desselben Kontos. Eine Zone desselben Kontos wechselt beim Wählen als Hauptzone in die Umgebung (`claimZone`), ausser sie ist anderswo Hauptzone oder öffentlich benutzt.
+- Eine noch unbenannte Standard-Umgebung (frische Installation) bekommt beim Wählen der Hauptzone Name, Slug und Kürzel daraus – wie bei der Übernahme.
+
+**Befund unterwegs – ein Token kann alle Umgebungen lahmlegen.** `caddy-dns/cloudflare` prüft das Format des Tokens beim Laden; lehnt es ein Token ab («API token … appears invalid»), lädt Caddy die **ganze** Konfiguration nicht – auch die Zertifikate aller anderen Basen (im Test gegen echtes Caddy nachgestellt). Airlock prüfte beim Speichern bisher nur «30–200 Zeichen» und hätte z. B. ein 31-Zeichen-Token angenommen. Jetzt:
+- `lib/cf-token-format.ts` prüft genau wie das Modul (altes Format 35–50 Zeichen, neues `cfut_`/`cfat_` mit 32–256);
+- «Token speichern» lehnt alles andere ab;
+- der Caddy-Abgleich lässt eine Basis mit unbrauchbarem Token weg (Warnung im Log), statt alle mitzureissen.
+
+**Geprüft** (Stand 10.11.2026): Typecheck, 617 Unit-Tests (10 neu: Caddy mit zwei Basen, Token-Format), Build.
+- `scripts/m9-caddy-two-bases-e2e.ts` gegen **echtes Caddy** (Image aus `caddy/Dockerfile`): **13 von 13** – Gegenprobe: ein abgelehntes Token in B verhindert das Laden ganz, mit dem Filter von Airlock lädt Caddy und liefert A aus; B mit falschem Token (gültiges Format) scheitert beim Bezug laut Log, A liefert dabei, nach erneutem Laden, während eines Probelaufs von B und ohne Regel für B weiter das eigene produktive Zertifikat; mit Zertifikat für B laufen beide. B nutzt die Staging-CA, damit der fehlschlagende Bezug keinen Auftrag bei der Produktions-CA erzeugt.
+- `scripts/m9-cloudflare-e2e.ts` gegen zwei Cloudflare-Attrappen (zwei Konten) und ein Wegwerf-Postgres: **19 von 19** – Zonen je Umgebung, Tailnet-Eintrag in jeder Hauptzone und nach IP-Wechsel überall nachgezogen, ein Tunnel je Konto (A und C teilen, B eigener), Container-Namen, Ingress je Tunnel nur mit den Namen seines Kontos, CNAME von B in der Zone von B auf den Tunnel von B, Offline in B ohne Wirkung auf Konto 1, Trennen von C ohne Wirkung auf A, Token-Dateien und TLS-Optionen je Konto bzw. Basis.
+- Die bestehenden Prüfungen gegen echtes Caddy (`caddy-tls-e2e.ts`, `caddy-headers-e2e.ts`) bestehen weiter; Migrationstest 25/25, Scope-Test 21/21.
+
+**Nicht geprüft:** echter Bezug bei Let's Encrypt (kein Netz zur Produktions-CA im Test), echte cloudflared-Container (kein Docker-Socket im Test), Cloudflare selbst.
