@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@deployer/shared'
 import { toast } from 'sonner'
-import { PausePageEditor, pausePageErrors, samePage, toLocalInput, fromLocalInput, type PausePageErrors } from './PausePageEditor.js'
+import { PausePageDialog, pageKind } from './PausePageEditor.js'
 import { api } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { usePublicActions } from '../lib/public.js'
@@ -256,20 +256,17 @@ function PrivateState({ p, s, actions, defaultZone }: { p: ProjectDto; s: Public
 
 /* --- Öffentlich -------------------------------------------------------------------- */
 
-function Facts({ s, paused }: { s: PublicStatusDto; paused: boolean }) {
+function Facts({ p, s, paused }: { p: ProjectDto; s: PublicStatusDto; paused: boolean }) {
   return (
     <dl className="facts publication-facts">
       <dt>Adresse</dt>
       <dd>
         <a href={s.url!} target="_blank" rel="noreferrer" className="publication-url">{s.hostname} <IconExternal /></a>
-        {paused && <span className="muted"> · zeigt die Pause-Seite «{(s.pause.page ?? s.pause.template).title}» (HTTP 503{s.pause.page ? (s.pause.page.mode === 'code' ? ', eigener Code' : ', eigener Text') : ', Vorlage'})</span>}
+        {paused && <span className="muted"> · zeigt die Pause-Seite (HTTP 503)</span>}
       </dd>
-      {paused && s.pause.backAt && (<>
-        <dt>Voraussichtlich zurück</dt>
-        <dd>{when(s.pause.backAt)} <span className="muted">· als Retry-After gesendet</span></dd>
-      </>)}
       <dt>{paused ? 'Pausiert seit' : 'Öffentlich seit'}</dt>
       <dd>{when(s.since)} <span className="muted">· {relativeTime(s.since)}</span></dd>
+      <PausePageRow p={p} s={s} paused={paused} />
       <dt>Cloudflare Access</dt>
       <dd>{s.accessProtected ? <>An <span className="muted">· Login per E-Mail-Code</span></> : <>Aus <span className="muted">· ohne Login</span></>}</dd>
       <dt>Intern</dt>
@@ -278,50 +275,49 @@ function Facts({ s, paused }: { s: PublicStatusDto; paused: boolean }) {
   )
 }
 
-type OfflineMode = 'pause' | 'unpublish'
-
 /**
- * Pause-Seite beim Pausieren bzw. während der Pause: Felder vorbefüllt
- * (eigener Text des Projekts, sonst Vorlage), «Wie Vorlage» setzt zurück;
- * dazu «Voraussichtlich zurück». Ergibt PauseOptions (page null = Vorlage).
+ * Pause-Seite des Projekts – auch einstellbar, solange es live ist (gilt dann
+ * beim nächsten Pausieren). «Voraussichtlich zurück» nur während der Pause.
+ * Gespeichert wird sofort; pausiert sehen Besucher die Änderung gleich.
  */
-function usePauseDraft(s: PublicStatusDto) {
-  const template = s.pause.template
-  const [page, setPage] = useState<PausePage>(s.pause.page ?? template)
-  const [backAt, setBackAt] = useState(toLocalInput(s.pause.backAt))
-  const [errors, setErrors] = useState<PausePageErrors>({})
-  const custom = !samePage(page, template)
-  const backIso = fromLocalInput(backAt)
-  const backErr = backIso && new Date(backIso).getTime() <= Date.now() ? 'Liegt in der Vergangenheit' : undefined
-  return {
-    page, setPage, backAt, setBackAt, errors, custom, backIso, backErr,
-    reset: () => { setPage(template); setErrors({}) },
-    /** Prüfen; bei Fehlern null und Fokus aufs erste Feld */
-    validate: (prefix: string): PauseOptions | null => {
-      const errs = custom ? pausePageErrors(page) : {}
-      setErrors(errs)
-      const first = Object.keys(errs)[0]
-      if (first) { document.getElementById(`${prefix}-${first}`)?.focus(); return null }
-      if (backErr) { document.getElementById(`${prefix}-back`)?.focus(); return null }
-      return { page: custom ? page : null, backAt: backIso }
+function PausePageRow({ p, s, paused }: { p: ProjectDto; s: PublicStatusDto; paused: boolean }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const save = useMutation({
+    mutationFn: (r: { page: PausePage | null; backAt: string | null }) => api.putPausePage(p.id, paused ? r : { page: r.page }),
+    onSuccess: (r) => {
+      qc.setQueryData(['public', p.id], r.status)
+      setOpen(false)
+      toast.success('Pause-Seite gespeichert', { description: paused ? `Besucher von ${s.hostname} sehen sie sofort.` : 'Sie erscheint, sobald das Projekt pausiert wird.' })
     },
-  }
+  })
+  return (
+    <>
+      <dt>Pause-Seite</dt>
+      <dd className="pause-fact">
+        <span>«{(s.pause.page ?? s.pause.template).title}» <span className="muted">· {pageKind(s.pause.page)}{paused && s.pause.backAt ? ` · zurück ${when(s.pause.backAt)}` : ''}</span></span>
+        <button type="button" className="button-small" onClick={() => setOpen(true)}>Anpassen …</button>
+        <PausePageDialog open={open} title={`Pause-Seite für «${p.name}»`} initial={s.pause.page} template={s.pause.template} initialBackAt={s.pause.backAt}
+          withBackAt={paused} saveLabel={paused ? 'Speichern – wirkt sofort' : 'Speichern'}
+          note={paused ? undefined : 'Besucher sehen diese Seite erst, wenn das Projekt pausiert ist.'}
+          saving={save.isPending} error={save.isError ? (save.error as Error).message : null}
+          onCancel={() => { setOpen(false); save.reset() }} onSave={(r) => save.mutate(r)} />
+      </dd>
+    </>
+  )
 }
 
-function PauseDraftFields({ d, prefix }: { d: ReturnType<typeof usePauseDraft>; prefix: string }) {
+type OfflineMode = 'pause' | 'unpublish'
+
+/** Eine Zeile: welche Pause-Seite Besucher sehen, mit «Anpassen …». */
+function PausePageSummary({ page, template, backAt, onEdit }: { page: PausePage | null; template: PausePage; backAt: string | null; onEdit: () => void }) {
   return (
-    <div className="pause-draft">
-      <div className="pause-draft-head">
-        <h3>Pause-Seite</h3>
-        <span className="hint">{d.custom ? 'Eigene Seite für dieses Projekt' : 'Wie Vorlage (System → Veröffentlichung)'}</span>
-        {d.custom && <button type="button" className="button-small" onClick={d.reset}>Wie Vorlage</button>}
-      </div>
-      <PausePageEditor value={d.page} onChange={d.setPage} errors={d.errors} backAt={d.backErr ? null : d.backIso} idPrefix={prefix} />
-      <Field id={`${prefix}-back`} label="Voraussichtlich zurück" optional error={d.backErr}
-        hint="Erscheint auf der Seite und als Retry-After-Header.">
-        <input id={`${prefix}-back`} type="datetime-local" value={d.backAt} onChange={(e) => d.setBackAt(e.target.value)}
-          {...(d.backErr ? { 'aria-invalid': true, 'aria-describedby': `${prefix}-back-error` } : {})} />
-      </Field>
+    <div className="pause-summary">
+      <span className="pause-summary-text">
+        <span className="pause-summary-label">Pause-Seite</span>
+        «{(page ?? template).title}» <span className="muted">· {pageKind(page)}{backAt ? ` · zurück ${when(backAt)}` : ''}</span>
+      </span>
+      <button type="button" className="button-small" onClick={onEdit}>Anpassen …</button>
     </div>
   )
 }
@@ -332,8 +328,9 @@ export function OfflineConfirm({ s, name, busy, onCancel, onGo, only }: {
 }) {
   const [mode, setMode] = useState<OfflineMode>(only ?? 'pause')
   const group = useId()
-  const draft = usePauseDraft(s)
-  const prefix = `${group}-pause`.replace(/:/g, '')
+  // Pause-Seite für diesen Lauf: vorbelegt mit der des Projekts, angepasst im Dialog
+  const [draft, setDraft] = useState<{ page: PausePage | null; backAt: string | null }>({ page: s.pause.page, backAt: s.pause.backAt })
+  const [dialog, setDialog] = useState(false)
   return (
     <div className="publication-offline" role="group" aria-label="Offline nehmen bestätigen">
       {!only && (
@@ -348,7 +345,13 @@ export function OfflineConfirm({ s, name, busy, onCancel, onGo, only }: {
           </label>
         </div>
       )}
-      {mode === 'pause' && <PauseDraftFields d={draft} prefix={prefix} />}
+      {mode === 'pause' && (
+        <>
+          <PausePageSummary page={draft.page} template={s.pause.template} backAt={draft.backAt} onEdit={() => setDialog(true)} />
+          <PausePageDialog open={dialog} title={`Pause-Seite für «${name}»`} initial={draft.page} template={s.pause.template} initialBackAt={draft.backAt}
+            saveLabel="Übernehmen" onCancel={() => setDialog(false)} onSave={(r) => { setDraft(r); setDialog(false) }} />
+        </>
+      )}
       <p className="confirm-note publication-offline-note">
         <IconWarn />
         <span>
@@ -357,11 +360,7 @@ export function OfflineConfirm({ s, name, busy, onCancel, onGo, only }: {
       </p>
       <span className="confirm-inline">
         <button onClick={onCancel}>Abbrechen</button>
-        <button className="button-danger-solid" disabled={busy} onClick={() => {
-          if (mode !== 'pause') return onGo(mode)
-          const opts = draft.validate(prefix)
-          if (opts) onGo(mode, opts)
-        }}>
+        <button className="button-danger-solid" disabled={busy} onClick={() => (mode === 'pause' ? onGo(mode, draft) : onGo(mode))}>
           {mode === 'pause' ? 'Ja, pausieren' : 'Ja, ganz offline nehmen'}
         </button>
       </span>
@@ -374,7 +373,7 @@ function LiveState({ p, s, actions }: { p: ProjectDto; s: PublicStatusDto; actio
   const [accessConfirm, setAccessConfirm] = useState(false)
   return (
     <>
-      <Facts s={s} paused={false} />
+      <Facts p={p} s={s} paused={false} />
       <div className="form-actions publication-actions">
         {!offline && !accessConfirm && (
           <>
@@ -405,56 +404,24 @@ function LiveState({ p, s, actions }: { p: ProjectDto; s: PublicStatusDto; actio
 
 /* --- Pausiert ---------------------------------------------------------------------- */
 
-/** Pause-Seite während der Pause ändern; wirkt sofort für Besucher. */
-function PausePageEdit({ p, s, onDone }: { p: ProjectDto; s: PublicStatusDto; onDone: () => void }) {
-  const qc = useQueryClient()
-  const d = usePauseDraft(s)
-  const prefix = `pause-edit-${p.id}`
-  const save = useMutation({
-    mutationFn: (opts: PauseOptions) => api.putPausePage(p.id, opts),
-    onSuccess: (r) => {
-      qc.setQueryData(['public', p.id], r.status)
-      toast.success('Pause-Seite gespeichert', { description: `Besucher von ${s.hostname} sehen sie sofort.` })
-      onDone()
-    },
-  })
-  return (
-    <form className="publication-offline" noValidate onSubmit={(e) => {
-      e.preventDefault()
-      const opts = d.validate(prefix)
-      if (opts) save.mutate(opts)
-    }}>
-      <PauseDraftFields d={d} prefix={prefix} />
-      <span className="confirm-inline">
-        <button type="button" onClick={onDone}>Abbrechen</button>
-        <button type="submit" className="button-primary" disabled={save.isPending}>{save.isPending ? 'Wird gespeichert…' : 'Pause-Seite speichern'}</button>
-      </span>
-      {save.isError && <p role="alert" className="error-inline">{(save.error as Error).message}</p>}
-    </form>
-  )
-}
-
 function PausedState({ p, s, actions }: { p: ProjectDto; s: PublicStatusDto; actions: Actions }) {
   const [offline, setOffline] = useState(false)
-  const [editing, setEditing] = useState(false)
   const blockedId = useId()
   return (
     <>
-      <Facts s={s} paused />
+      <Facts p={p} s={s} paused />
       <Blocked s={s} id={blockedId} />
       <div className="form-actions publication-actions">
-        {!offline && !editing && (
+        {!offline && (
           <>
             <button className="button-primary" disabled={!s.publishable.ok || actions.pending} aria-describedby={!s.publishable.ok ? blockedId : undefined}
               onClick={() => actions.run({ op: 'resume' })}>
               {actions.pending && actions.current?.op === 'resume' ? 'Wird fortgesetzt…' : 'Wieder online'}
             </button>
-            <button onClick={() => setEditing(true)} disabled={actions.pending}>Pause-Seite bearbeiten …</button>
             <button onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen …</button>
           </>
         )}
       </div>
-      {editing && <PausePageEdit p={p} s={s} onDone={() => setEditing(false)} />}
       {offline && (
         <OfflineConfirm s={s} name={p.name} busy={actions.pending} only="unpublish" onCancel={() => setOffline(false)}
           onGo={() => { setOffline(false); actions.run({ op: 'unpublish' }) }} />

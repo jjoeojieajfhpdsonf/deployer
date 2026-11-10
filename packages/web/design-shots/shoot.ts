@@ -201,33 +201,50 @@ const shots: Shot[] = [
     group: 'pauseseite', name: 'pauseseite-vorlage-vorschau-dunkel', path: '/system/veroeffentlichung', full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Dunkel' }).click(); await pg.waitForTimeout(200) },
   },
+  // Karte: die Pause-Seite ist eine Zeile mit «Anpassen …», auch solange das Projekt live ist
+  { group: 'pauseseite', name: 'pauseseite-karte-live', path: `/projekte/${L}?tab=einstellungen`, full: false },
   {
-    group: 'pauseseite', name: 'pauseseite-pausieren', path: `/projekte/${L}?tab=einstellungen`,
+    // Live: Seite schon vorab einstellen (ohne «Voraussichtlich zurück»)
+    group: 'pauseseite', name: 'pauseseite-dialog-live', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
-      await pg.waitForTimeout(150)
-      await pg.locator('.pause-draft input[id$="-title"]').fill('Wartung am Haushaltsbuch')
-      await pg.locator('.pause-draft textarea').fill('Wir spielen ein **Update** ein.\n\nFragen? Schreib an [hallo@example.ch](mailto:hallo@example.ch).')
-      await pg.locator('.pause-draft input[type="datetime-local"]').fill('2026-12-01T08:00')
-      await pg.waitForTimeout(200)
-    },
-  },
-  {
-    // Nicht ganzseitig: beim Vergrössern für fullPage malt Chrome das iframe der Vorschau nur halb
-    group: 'pauseseite', name: 'pauseseite-bearbeiten', path: `/projekte/${Z}?tab=einstellungen`, full: false,
-    prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Pause-Seite bearbeiten …' }).click()
-      await pg.locator('.pause-preview').scrollIntoViewIfNeeded()
+      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.locator('.pause-dialog input[id$="-title"]').fill('Wartung am Haushaltsbuch')
+      await pg.locator('.pause-dialog textarea').fill('Wir spielen ein **Update** ein.\n\nFragen? Schreib an [hallo@example.ch](mailto:hallo@example.ch).')
       await pg.waitForTimeout(300)
     },
   },
   {
-    // Eigener Code, Vorschau dunkel: prefers-color-scheme im iframe folgt color-scheme am iframe
+    // Offline nehmen → Pausieren: Zusammenfassung der Seite statt Formular in der Karte
+    group: 'pauseseite', name: 'pauseseite-pausieren', path: `/projekte/${L}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.locator('.pause-summary').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    // Pausiert mit eigenem Code: Dialog mit «Voraussichtlich zurück»
+    group: 'pauseseite', name: 'pauseseite-dialog-pausiert', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Eigener Code, Vorschau dunkel (Media-Queries für die Vorschau umgeschrieben)
     group: 'pauseseite', name: 'pauseseite-code-dunkel', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Pause-Seite bearbeiten …' }).click()
-      await pg.getByRole('button', { name: 'Dunkel' }).click()
-      await pg.locator('.pause-preview').scrollIntoViewIfNeeded()
+      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Dunkel' }).click()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Formular im Dialog: Felder im Raster
+    group: 'pauseseite', name: 'pauseseite-dialog-formular', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
       await pg.waitForTimeout(300)
     },
   },

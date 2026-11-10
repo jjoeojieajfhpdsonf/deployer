@@ -50,7 +50,7 @@ export function PausePageSettings() {
     >
       <h2>Pause-Seite</h2>
       <p className="hint">
-        Das sehen Besucher eines pausierten öffentlichen Projekts. Jedes Projekt kann beim Pausieren einen eigenen Text setzen; sonst gilt diese Vorlage.
+        Das sehen Besucher eines pausierten öffentlichen Projekts. Jedes Projekt kann in seiner Karte «Veröffentlichung» eine eigene Seite setzen – auch solange es live ist; sonst gilt diese Vorlage.
       </p>
       <PausePageEditor value={page} onChange={(p) => { setPage(p); if (Object.keys(errors).length) setErrors(pausePageErrors(p)) }} errors={errors} idPrefix="pause-tpl" />
       <div className="form-actions">
