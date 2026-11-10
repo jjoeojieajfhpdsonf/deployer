@@ -196,6 +196,7 @@ export function ProjectDetail() {
             deploying={act.isPending || p.status === 'deploying'}
             onRollback={(depId) => setWatching(depId)}
             onToggleKeep={() => keep.mutate(!p.keep)}
+            keepBusy={keep.isPending}
           />
         </div>
       )}

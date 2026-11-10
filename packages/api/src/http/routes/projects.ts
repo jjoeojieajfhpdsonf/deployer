@@ -15,7 +15,7 @@ import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject, restartProject } from '../../domain/lifecycle.js'
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
-import { audit } from '../../domain/audit.js'
+import { audit, createdBy } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
@@ -58,6 +58,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams }>('/projects/:id', async (request) => {
     const project = await findProject(request.params.id)
     const dto = await toDto(project)
+    // Projektseite, Eckdaten «Quelle: Chat über <Token>»
+    dto.createdBy = await createdBy(project.id, project.sourceType)
 
     // Hinweis, ob der Container als root laeuft. Kein Fehler, nur sichtbar.
     const active = await activeDeployment(project.id)

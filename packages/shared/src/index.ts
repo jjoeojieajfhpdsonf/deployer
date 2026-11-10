@@ -591,6 +591,10 @@ export interface ProjectDto {
   lastChangeAt: string
   /** M3: wann ein Chat-Projekt ohne Änderung gestoppt wird; null = läuft nicht ab. */
   expiresAt: string | null
+  /** Projektseite: Frist der Chat-Projekte in Tagen (System-Einstellungen); null bei anderen Quellen */
+  expiryDays?: number | null
+  /** Projektseite (nur GET /projects/:id): wer das Projekt angelegt hat, z. B. «mcp:claude-code-mac» */
+  createdBy?: string | null
   /** M6: letzter Scan in Kurzform. */
   security: {
     scanId: string

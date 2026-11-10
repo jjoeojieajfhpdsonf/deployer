@@ -19,6 +19,7 @@ import { assessClientIps, parseAccessLog } from '../../lib/client-ips.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
+import { expiryInfo, setChatExpiryDays } from '../../domain/expiry-settings.js'
 import type { SystemStatusDto } from '@airlock/shared'
 import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME } from '@airlock/shared'
 import {
@@ -90,6 +91,13 @@ async function cpuPercent(): Promise<number | null> {
 }
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
+  /** Projektseite: Frist der Chat-Projekte (Tage ohne Änderung bis zum Stopp) */
+  app.get('/system/expiry', async () => expiryInfo())
+  app.put('/system/expiry', async (request) => {
+    const { days } = z.object({ days: z.number() }).parse(request.body ?? {})
+    return setChatExpiryDays(days, actorFor(request))
+  })
+
   app.get('/system/status', async (): Promise<SystemStatusDto> => {
     const checks = await Promise.all([
       check('Datenbank', async () => {

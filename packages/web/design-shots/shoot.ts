@@ -48,7 +48,8 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
-  if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
+  if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
   // M8: Fix-Assistent
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
@@ -94,6 +95,8 @@ type Shot = {
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
   legacy?: boolean
+  /** Projekt patchen (GET /projects/:id), z. B. Ablauf in 5 Tagen */
+  patch?: Partial<import('@airlock/shared').ProjectDto>
   prepare?: (page: Page) => Promise<void>
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
@@ -382,6 +385,15 @@ const shots: Shot[] = [
     group: 'p3', name: '3-audit-log-projekt-details', path: `/audit?projekt=${H}`, count: 7, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Details' }).nth(2).click(); await pg.waitForTimeout(200) },
   },
+  { group: 'p4', name: '4-eckdaten-statisch', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]' },
+  { group: 'p4', name: '4-eckdaten-container', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-facts"]' },
+  { group: 'p4', name: '4-eckdaten-ablauf-bald', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]', patch: { expiresAt: new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString() } },
+  { group: 'p4', name: '4-eckdaten-unbegrenzt', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]', patch: { keep: true, expiresAt: null } },
+  {
+    group: 'p4', name: '4-eckdaten-dateien', path: `/projekte/${H}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Dateien ansehen' }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'p4', name: '4-system-frist', path: '/system', el: '.expiry-settings' },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -423,6 +435,10 @@ try {
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
               const b = r.body as { project: object }
               return json(route, { ...b, project: { ...b.project, legacyContainers: true } })
+            }
+            if (s.patch && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
+              const b = r.body as { project: object }
+              return json(route, { ...b, project: { ...b.project, ...s.patch } })
             }
             return json(route, r.body, r.status)
           }

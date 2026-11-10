@@ -8,6 +8,7 @@ import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { GithubSetup } from '../components/GithubSetup.js'
 import { PausePageSettings } from '../components/PausePageSettings.js'
+import { ExpirySettings } from '../components/ExpirySettings.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -186,6 +187,8 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
           </button>
         </>
       )}
+
+      <ExpirySettings />
     </>
   )
 }

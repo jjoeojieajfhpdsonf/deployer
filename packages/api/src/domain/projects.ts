@@ -10,6 +10,7 @@ import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
 import { expiresAt } from '../jobs/expiry-rule.js'
+import { chatExpiryDays } from './expiry-settings.js'
 import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
 import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
@@ -44,7 +45,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     runtimeKind: effectiveKind(r.sourceType, active?.artifact),
     filesKind: active?.artifact?.filesKind ?? null,
     lastChangeAt: r.lastChangeAt.toISOString(),
-    expiresAt: expiresAt(r, config.CHAT_EXPIRY_DAYS)?.toISOString() ?? null,
+    expiresAt: expiresAt(r, chatExpiryDays())?.toISOString() ?? null,
+    expiryDays: r.sourceType === 'files' ? chatExpiryDays() : null,
     security: await securitySummary(r.id),
     lastDeployment: await lastDeploymentDto(r.id),
     // Stand vom letzten Blick auf Docker (Abgleich, Deploy); kein Docker-Aufruf je DTO

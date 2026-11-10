@@ -11,6 +11,7 @@ import { explainDeployFailure, logTail } from '../lib/failure.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
+import { KeyFacts } from './KeyFacts.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -32,7 +33,7 @@ export function useProjectHealth(p: ProjectDto) {
 }
 
 export function ProjectOverview({
-  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep,
+  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy,
 }: {
   p: ProjectDto
   env: EnvEntryDto[]
@@ -41,6 +42,7 @@ export function ProjectOverview({
   deploying: boolean
   onRollback: (deploymentId: string) => void
   onToggleKeep: () => void
+  keepBusy?: boolean
 }) {
   const running = p.desiredState === 'running' && Boolean(p.activeDeployment)
   const health = useProjectHealth(p)
@@ -75,33 +77,7 @@ export function ProjectOverview({
 
         <aside className="overview-side" aria-label="Eckdaten">
           <Addresses p={p} down={containerDown} />
-          <section className="panel panel-pad ov-section">
-            <h2 className="ov-title">Eckdaten</h2>
-            <dl className="side-facts">
-              <dt>Quelle</dt>
-              <dd><SourceLine p={p} /></dd>
-              <dt>Version</dt>
-              <dd>
-                {p.activeDeployment
-                  ? <><code className="version" title={p.activeDeployment.version ?? undefined}>{shortVersion(p.activeDeployment.version)}</code> <span className="muted">{relativeTime(p.activeDeployment.startedAt)}</span></>
-                  : <span className="muted">keine aktive Fassung</span>}
-              </dd>
-              <dt>Grenzen</dt>
-              <dd>{fmtCpu(p.cpuLimit)} CPU · {p.memoryLimitMb.toLocaleString('de-CH')} MB RAM</dd>
-              <dt>Umgebung</dt>
-              <dd>
-                <button type="button" className="link-button" onClick={() => onTab('einstellungen')}>
-                  {env.length === 0 ? 'keine Variablen' : `${env.length} ${env.length === 1 ? 'Variable' : 'Variablen'}`}
-                </button>
-                {env.some((e) => e.isSecret) && <span className="muted">, davon {env.filter((e) => e.isSecret).length} geheim</span>}
-              </dd>
-              {p.port !== null && <><dt>Port</dt><dd className="num">{p.port}{p.healthcheckPath ? <span className="muted"> · Healthcheck {p.healthcheckPath}</span> : null}</dd></>}
-              {p.sourceType === 'files' && (
-                <><dt>Ablauf</dt><dd>{p.keep ? 'läuft nicht ab' : p.expiresAt ? `stoppt am ${new Date(p.expiresAt).toLocaleDateString('de-CH')}, wenn sich nichts ändert` : '–'}{' '}<button type="button" className="link-button" onClick={onToggleKeep}>{p.keep ? 'Ablauf einschalten' : 'Behalten'}</button></dd></>
-              )}
-            </dl>
-            {p.runsAsRoot && <p className="side-note"><IconWarn /> Der Container läuft als root. Erlaubt, aber vermeidbar.</p>}
-          </section>
+          <KeyFacts p={p} env={env} health={h ?? null} onTab={onTab} onToggleKeep={onToggleKeep} keepBusy={keepBusy} />
         </aside>
       </div>
     </div>
@@ -420,20 +396,3 @@ function AddressRow({ projectId, url, ways, access, live, idle }: { projectId: s
   )
 }
 
-/* --- Quelle ----------------------------------------------------------------- */
-
-const FILES_KIND: Record<string, string> = { compose: 'Docker Compose', dockerfile: 'Dockerfile', 'static-build': 'statische Seite mit Build', static: 'statische Seite' }
-
-export function SourceLine({ p }: { p: ProjectDto }) {
-  const s = (p.source ?? {}) as Record<string, string | undefined>
-  switch (p.sourceType) {
-    case 'image': return <><span className="muted">Image </span><code>{s.image ?? '–'}</code></>
-    case 'dockerfile': return <><span className="muted">Dockerfile aus </span><code>{s.repoUrl}</code>{s.ref ? <span className="muted"> ({s.ref})</span> : null}</>
-    case 'compose': return s.repoUrl
-      ? <><span className="muted">Compose aus </span><code>{s.repoUrl}</code><span className="muted">, Dienst </span><code>{s.webService}</code></>
-      : <><span className="muted">hochgeladene compose.yaml, Dienst </span><code>{s.webService}</code></>
-    case 'static': return s.repoUrl ? <><span className="muted">statische Seite aus </span><code>{s.repoUrl}</code></> : <>statische Seite (ZIP)</>
-    case 'files': return <>Chat-Projekt{p.filesKind ? <span className="muted">, erkannt als {FILES_KIND[p.filesKind]}</span> : null}</>
-    default: return <>{p.sourceType}</>
-  }
-}

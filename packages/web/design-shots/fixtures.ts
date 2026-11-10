@@ -106,10 +106,12 @@ export const projects: ProjectDto[] = [
 const halloWelt = project({
   id: 'p-hallo', name: 'hallo-welt', slug: 'hallo-welt', sourceType: 'files', runtimeKind: 'static', filesKind: 'static',
   source: { type: 'files' } as ProjectDto['source'], keep: false, expiresAt: new Date(Date.now() + 30 * DAY - HOUR).toISOString(), port: 80,
+  expiryDays: 30, createdBy: 'mcp:claude-code-mac',
   routes: [route(['tailnet', 'lan'], `hallo-welt.${BASE}`), route(['public'], 'hallo-welt.example.ch')],
   security: { scanId: 'p-hallo-s', status: 'done', score: 96, grade: 'A', finishedAt: ago(48 * MIN), open: { critical: 0, high: 0, medium: 1, low: 0 } },
-  lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(25 * MIN), finishedAt: ago(25 * MIN - 9_000), durationMs: 9_000 }),
+  lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(57 * MIN), finishedAt: ago(57 * MIN - 400), durationMs: 400 }),
 })
+halloWelt.activeDeployment = halloWelt.lastDeployment
 
 /**
  * Projektliste mit fester Anzahl (0 bis 7) für die Screenshots der Übersicht.
@@ -704,6 +706,12 @@ export const externalTargets: ExternalTargetDto[] = [
 ]
 
 export const externalScan: ScanReportDto | null = null
+
+/** Dateien eines Chat-Projekts (Eckdaten «Inhalt», Dialog «Dateien ansehen») */
+export function files(id: string): { commit: string | null; files: { path: string; size: number }[] } {
+  if (id !== 'p-hallo') return { commit: null, files: [] }
+  return { commit: '5a19cd4e8b21', files: [{ path: 'index.html', size: 1_840 }, { path: 'style.css', size: 1_310 }, { path: 'app.js', size: 912 }] }
+}
 
 export function env(id: string) {
   return id === detailProjectId

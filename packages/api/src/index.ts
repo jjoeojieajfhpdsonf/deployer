@@ -12,6 +12,7 @@ import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startMonitorJob } from './jobs/monitor.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
+import { loadExpirySetting } from './domain/expiry-settings.js'
 import { startNetworkWatch } from './domain/network.js'
 import { scrubAuditSecrets } from './domain/audit.js'
 import { scrubDeploymentLogs } from './deploy/journal.js'
@@ -31,6 +32,8 @@ async function main(): Promise<void> {
   await ensureAdminPassword()
   // Cloudflare aus der Datenbank (Systemseite), vor allem, was Adressen braucht
   await loadCloudflareSettings()
+  // Frist der Chat-Projekte (System-Einstellungen, sonst CHAT_EXPIRY_DAYS)
+  await loadExpirySetting()
   // Tokens aus alten Audit-Einträgen entfernen (bekanntes Token ist jetzt registriert)
   await scrubAuditSecrets().catch((err) => log.warn('Audit-Einträge nicht bereinigt', { err: String(err) }))
   void scrubDeploymentLogs()

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { config } from '../config.js'
+import { chatExpiryDays } from '../domain/expiry-settings.js'
 import { stopProject } from '../domain/lifecycle.js'
 import { audit } from '../domain/audit.js'
 import { log } from '../lib/log.js'
@@ -24,22 +24,22 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
   const stopped: string[] = []
 
   for (const p of projects) {
-    const decision = expiryDecision(p, now, config.CHAT_EXPIRY_DAYS)
+    const decision = expiryDecision(p, now, chatExpiryDays())
     if (decision === 'warn') {
       await db.update(schema.projects).set({ expiryWarnedAt: now }).where(eq(schema.projects.id, p.id))
       await audit({
         actor: 'system', action: 'project.expiry_warning', targetType: 'project', targetId: p.id,
-        params: { slug: p.slug, expiresAt: expiresAt(p, config.CHAT_EXPIRY_DAYS)?.toISOString() }, result: 'ok',
+        params: { slug: p.slug, expiresAt: expiresAt(p, chatExpiryDays())?.toISOString() }, result: 'ok',
       })
-      await notify('expiry', { project: p.name, date: expiresAt(p, config.CHAT_EXPIRY_DAYS)?.toLocaleDateString('de-CH') ?? '' })
+      await notify('expiry', { project: p.name, date: expiresAt(p, chatExpiryDays())?.toLocaleDateString('de-CH') ?? '' })
       warned.push(p.slug)
     } else if (decision === 'stop') {
       await stopProject(p.id, 'system')
       await audit({
         actor: 'system', action: 'project.expired', targetType: 'project', targetId: p.id,
-        params: { slug: p.slug, days: config.CHAT_EXPIRY_DAYS }, result: 'ok',
+        params: { slug: p.slug, days: chatExpiryDays() }, result: 'ok',
       })
-      await notify('expiry', { project: p.name, stopped: true, days: config.CHAT_EXPIRY_DAYS })
+      await notify('expiry', { project: p.name, stopped: true, days: chatExpiryDays() })
       stopped.push(p.slug)
     }
   }

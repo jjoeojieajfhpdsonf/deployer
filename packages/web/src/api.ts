@@ -36,6 +36,9 @@ export interface NotifySettingsDto {
   matrix: Record<NotifyEvent, { push: boolean; email: boolean }>
 }
 
+/** Frist der Chat-Projekte; fromEnv = CHAT_EXPIRY_DAYS, changed = in den Einstellungen geändert */
+export interface ExpirySettingDto { days: number; fromEnv: number; changed: boolean }
+
 export interface MeDto {
   loggedIn: boolean
   name?: string
@@ -209,6 +212,9 @@ export const api = {
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
 
   /* Cloudflare verbinden */
+  /** Frist der Chat-Projekte (Tage ohne Änderung bis zum Stopp) */
+  expiry: () => call<ExpirySettingDto>('/system/expiry'),
+  setExpiry: (days: number) => call<ExpirySettingDto>('/system/expiry', { method: 'PUT', body: body({ days }) }),
   cloudflare: () => call<CfStatusDto>('/system/cloudflare'),
   cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>('/system/cloudflare/check', { method: 'POST', body: body({ token }) }),
   cloudflareToken: (token: string) => call<{ check: CfTokenCheckDto; status: CfStatusDto }>('/system/cloudflare/token', { method: 'PUT', body: body({ token }) }),

@@ -1240,7 +1240,7 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 /* --- Projekt-Übersicht: Zustand statt Konfiguration ---------------------------------- */
 
 .overview, .overview-main, .overview-side { display: grid; gap: var(--sp-4); min-width: 0; }
-.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: var(--sp-4); align-items: start; }
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: var(--sp-4); align-items: start; }
 .ov-section { padding: var(--sp-7); }
 .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-5); }
 /* Kartentitel der Projektseite in Cal Sans (ab 24 px) */
@@ -1466,11 +1466,57 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .addr-more > summary { font-size: var(--fs-14); }
 .addr-more .hint { margin: var(--sp-2) 0; }
 
-.side-facts { display: grid; gap: var(--sp-1); margin: 0; }
-.side-facts dt { font-size: var(--fs-12); color: var(--muted); margin-top: var(--sp-3); }
-.side-facts dt:first-child { margin-top: 0; }
-.side-facts dd { margin: 0; font-size: var(--fs-14); min-width: 0; overflow-wrap: anywhere; }
-.side-facts .link-button { font-size: var(--fs-14); }
+/* Eckdaten: zweispaltige Zeilen mit Trennlinien */
+.kf { margin: 0; display: grid; }
+.kf-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: var(--sp-3); align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.kf-row:first-child { padding-top: 0; }
+.kf-row:last-child { border-bottom: none; padding-bottom: 0; }
+.kf-row dt { font-size: var(--fs-13); color: var(--muted); }
+.kf-row dd { margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); min-width: 0; font-size: var(--fs-14); }
+.kf-value { min-width: 0; overflow-wrap: anywhere; }
+.kf-action { flex: none; }
+/* Umbruch nur zwischen den Angaben, nicht mitten im Wort */
+.kf-strong { color: var(--ink); white-space: nowrap; }
+.kf-strong.kf-repo { white-space: normal; overflow-wrap: anywhere; }
+.kf-dim { color: var(--muted); white-space: nowrap; }
+.kf-usage .kf-strong, .kf-usage .kf-dim { white-space: nowrap; }
+.kf-code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.kf-link { font-size: var(--fs-13) !important; color: var(--muted) !important; }
+.kf-icon { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 7px; vertical-align: -5px; border-radius: var(--r-xs); background: var(--surface-2); color: var(--ink-dim); }
+.kf-icon-claude { background: var(--claude-bg); color: var(--claude); }
+.kf-usage { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 var(--sp-1); }
+.kf-bar { display: inline-block; width: 72px; height: 6px; margin-right: var(--sp-2); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.kf-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ink); }
+.kf-bar-warn > span { background: var(--warn); }
+.kf-bar-bad > span { background: var(--bad); }
+.kf-tone { display: inline-flex; align-items: center; gap: 4px; margin-left: var(--sp-2); font-size: var(--fs-12); font-weight: 500; }
+.kf-tone svg { width: 12px; height: 12px; }
+.kf-tone-warn { color: var(--warn); }
+.kf-tone-bad { color: var(--bad); }
+.kf-files { list-style: none; margin: var(--sp-4) 0 0; padding: 0; max-height: 50vh; overflow: auto; display: grid; }
+.kf-files li { display: flex; justify-content: space-between; gap: var(--sp-3); padding: 7px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-13); }
+.kf-files code { font-family: var(--mono); font-weight: 400; overflow-wrap: anywhere; }
+.kf-files .num { color: var(--muted); flex: none; }
+
+/* System → Übersicht: Frist der Chat-Projekte */
+.expiry-settings { margin-top: var(--sp-8); }
+.expiry-form { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
+.expiry-form .field { margin: 0; width: 160px; }
+.expiry-saved { align-self: center; font-size: var(--fs-13); color: var(--ok); }
+
+/* Ablauf eines Chat-Projekts: neutral, ab 7 Tagen vorher Warnfarbe */
+.kf-expiry { margin-top: var(--sp-5); padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }
+.kf-expiry-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.kf-expiry-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
+.kf-expiry-head .kf-expiry-title { white-space: nowrap; }
+.kf-expiry p { margin: 0; }
+.kf-expiry-title { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-15); font-weight: 600; color: var(--ink); }
+.kf-expiry-warn .kf-expiry-title, .kf-expiry-warn .kf-expiry-text { color: var(--warn); }
+.kf-expiry-text { margin-top: var(--sp-1) !important; font-size: var(--fs-13); color: var(--muted); }
+.kf-expiry .button-small { background: var(--surface); }
+.kf-expiry-bar { display: block; height: 4px; margin-top: var(--sp-3); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.kf-expiry-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ink-dim); }
+.kf-expiry-warn .kf-expiry-bar > span { background: var(--warn); }
 .side-note { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 14px 0 0; font-size: var(--fs-13); color: var(--warn); }
 .side-note svg { flex: none; margin-top: 1px; }
 
