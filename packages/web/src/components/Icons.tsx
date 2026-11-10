@@ -49,7 +49,15 @@ export const IconShield = ({ size, className }: P) => (
 export const IconGlobe = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" /></svg>
 )
-export const IconTarget = ({ size, className }: P) => (
+/** Pausiert: zwei Balken – immer mit dem Wort «Pausiert» */
+export const IconPause = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><path d="M6.5 5.8v4.4M9.5 5.8v4.4" /></svg>
+)
+/** Privat: Schloss – immer mit dem Wort «Privat» */
+export const IconLock = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" /><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" /></svg>
+)
+export const IconTarget =({ size, className }: P) => (
   <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.5" /></svg>
 )
 export const IconKey = ({ size, className }: P) => (

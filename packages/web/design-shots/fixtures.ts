@@ -5,9 +5,9 @@
  * und Werte, keine echten Server- oder Zugangsdaten.
  */
 import type {
-  AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, RouteDto, ScanReportDto, SystemStatusDto,
+  AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
 } from '@deployer/shared'
-import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto } from '../src/api.js'
+import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -71,7 +71,7 @@ export const projects: ProjectDto[] = [
   project({ id: 'p-foto', name: 'Fotoalbum', slug: 'fotoalbum', runtimeKind: 'compose', sourceType: 'compose', source: { type: 'compose', repoUrl: 'https://github.com/example/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as ProjectDto['source'], memoryLimitMb: 1024 }),
   project({
     id: 'p-haushalt', name: 'Haushaltsbuch', slug: 'haushaltsbuch',
-    routes: [route(['tailnet', 'lan'], `haushaltsbuch.${BASE}`), { ...route(['public'], 'haushalt.example.ch'), accessProtected: true }],
+    routes: [route(['tailnet', 'lan'], `haushaltsbuch.${BASE}`), { ...route(['public'], 'haushalt.example.ch'), accessProtected: true, since: ago(12 * DAY), pausedAt: null }],
     security: { scanId: 'p-haushalt-s', status: 'done', score: 84, grade: 'B', finishedAt: ago(5 * HOUR), open: { critical: 0, high: 0, medium: 2, low: 3 } },
   }),
   project({
@@ -87,6 +87,11 @@ export const projects: ProjectDto[] = [
   project({
     id: 'p-kontoauszug', name: 'Kontoauszug-Reader', slug: 'kontoauszug-reader', runtimeKind: 'compose', memoryLimitMb: 768,
     security: { scanId: 'p-konto-s', status: 'done', score: 38, grade: 'D', finishedAt: ago(3 * HOUR), open: { critical: 1, high: 1, medium: 3, low: 4 } },
+  }),
+  project({
+    id: 'p-verein', name: 'Vereinsseite', slug: 'vereinsseite', runtimeKind: 'static', sourceType: 'files', source: { type: 'files' } as ProjectDto['source'], keep: true,
+    routes: [route(['tailnet'], `vereinsseite.${BASE}`), { ...route(['public'], 'verein.example.ch'), since: ago(60 * DAY), pausedAt: ago(3 * HOUR) }],
+    security: { scanId: 'p-verein-s', status: 'done', score: 92, grade: 'A', finishedAt: ago(2 * DAY), open: { critical: 0, high: 0, medium: 1, low: 2 } },
   }),
 ]
 
@@ -109,6 +114,59 @@ export function projectsFor(count: number): ProjectDto[] {
 }
 /** Alle Projekte, die irgendeine Variante zeigt (für Detail-Anfragen) */
 export const allProjects: ProjectDto[] = [...projects, halloWelt]
+
+/* --- Veröffentlichung: Privat, Öffentlich, Pausiert ------------------------------------ */
+
+export const liveProjectId = 'p-haushalt'
+export const pausedProjectId = 'p-verein'
+
+export function publicStatus(id: string): PublicStatusDto {
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const pub = p.routes.find((r) => r.target === 'public')
+  const internal = p.routes.find((r) => r.target !== 'public')
+  const critical = (p.security?.open.critical ?? 0) > 0
+  return {
+    state: !pub ? 'private' : pub.pausedAt ? 'paused' : 'live',
+    enabled: true,
+    hostname: pub?.hostname ?? null,
+    url: pub ? `https://${pub.hostname}` : null,
+    since: pub ? pub.pausedAt ?? pub.since ?? null : null,
+    accessProtected: Boolean(pub?.accessProtected),
+    internalUrl: internal?.urls[0] ?? null,
+    publishable: critical
+      ? { ok: false, why: 'critical', reason: 'Offene kritische Befunde: SQL-Injection in /api/suche. Beheben oder mit Begründung akzeptieren.' }
+      : !p.security ? { ok: false, why: 'no_scan', reason: 'Es liegt noch kein abgeschlossener Scan vor' } : { ok: true },
+    pendingRequest: null,
+    progress: null,
+  }
+}
+
+/** Fortschritt mitten im Veröffentlichen (Tunnel-Regel läuft). */
+export function publishProgress(id: string): PublicProgressDto {
+  const p = allProjects.find((x) => x.id === id)!
+  return {
+    op: 'publish', hostname: `${p.slug}.example.ch`, startedAt: ago(4_000), finishedAt: null, ok: null,
+    steps: [
+      { key: 'check', label: 'Schwelle und Name prüfen', state: 'done', detail: `Scan bestanden · ${p.slug}.example.ch` },
+      { key: 'dns', label: 'DNS-Eintrag', state: 'done', detail: `CNAME ${p.slug}.example.ch auf den Tunnel angelegt` },
+      { key: 'tunnel', label: 'Tunnel-Regel', state: 'current' },
+      { key: 'caddy', label: 'Caddy-Route', state: 'todo' },
+      { key: 'outside', label: 'Prüfung von aussen über Cloudflare', state: 'todo' },
+    ],
+  }
+}
+
+/** Antwort auf «Pausieren» (für den Toast mit «Rückgängig»). */
+export function pauseResult(id: string): PublicFlowResult {
+  const p = allProjects.find((x) => x.id === id)!
+  const pub = p.routes.find((r) => r.target === 'public')!
+  const after: ProjectDto = { ...p, routes: p.routes.map((r) => (r.target === 'public' ? { ...r, pausedAt: new Date().toISOString() } : r)) }
+  return {
+    hostname: pub.hostname, changed: true, project: after,
+    check: { ok: true, status: 503, viaCloudflare: true, message: 'Besucher sehen die Wartungsseite (HTTP 503).' },
+    status: { ...publicStatus(id), state: 'paused', since: new Date().toISOString() },
+  }
+}
 
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'

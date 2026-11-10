@@ -337,7 +337,96 @@ export interface RouteDto {
   /** Zusätzliche Namen, über die dieselbe Route erreichbar ist (nip.io). */
   aliases: string[]
   urls: string[]
+  /** Öffentlich: seit wann der Name besteht (ISO). */
+  since?: string
+  /** Öffentlich pausiert seit (ISO); null/fehlend = live. */
+  pausedAt?: string | null
 }
+
+/* --- Veröffentlichung ------------------------------------------------------ */
+
+/**
+ * Privat: keine öffentliche Route. Live: Cloudflare liefert das Projekt aus.
+ * Pausiert: Name, DNS und Tunnel-Regel bleiben, Caddy antwortet mit einer
+ * neutralen Wartungsseite (503).
+ */
+export type PublicState = 'private' | 'live' | 'paused'
+
+export function publicStateOf(routes: RouteDto[]): PublicState {
+  const r = routes.find((x) => x.target === 'public')
+  if (!r) return 'private'
+  return r.pausedAt ? 'paused' : 'live'
+}
+
+/** Übergänge der Karte «Veröffentlichung»; access = nur Cloudflare Access an/aus. */
+export type PublicOp = 'publish' | 'pause' | 'resume' | 'unpublish' | 'access'
+
+export type PublicStepState = 'todo' | 'current' | 'done' | 'failed' | 'warn' | 'skipped'
+
+export interface PublicStepDto {
+  key: 'check' | 'dns' | 'access' | 'tunnel' | 'caddy' | 'outside'
+  label: string
+  state: PublicStepState
+  /** Ergebnis oder Grund in einem Satz (bei warn/failed immer gesetzt). */
+  detail?: string
+}
+
+export interface PublicProgressDto {
+  op: PublicOp
+  hostname: string | null
+  steps: PublicStepDto[]
+  startedAt: string
+  finishedAt: string | null
+  /** null solange es läuft */
+  ok: boolean | null
+  error?: string
+}
+
+/** Prüfung eines öffentlichen Namens von aussen (über Cloudflare). */
+export interface OutsideCheckDto {
+  ok: boolean
+  status: number | null
+  viaCloudflare: boolean
+  message: string
+}
+
+export interface PublicStatusDto {
+  state: PublicState
+  /** Cloudflare-Tunnel eingerichtet? Sonst lässt sich nichts veröffentlichen. */
+  enabled: boolean
+  hostname: string | null
+  url: string | null
+  /** Live: seit wann öffentlich; pausiert: seit wann pausiert. */
+  since: string | null
+  accessProtected: boolean
+  /** Interne Adresse, die unabhängig davon weiter funktioniert. */
+  internalUrl: string | null
+  /**
+   * Lässt sich das Projekt jetzt veröffentlichen (bzw. fortsetzen)? why:
+   * no_scan, scan_running, critical (offener kritischer Befund), disabled.
+   */
+  publishable: { ok: true } | { ok: false; why: 'no_scan' | 'scan_running' | 'critical' | 'disabled'; reason: string }
+  /**
+   * Vorgemerkte Öffentlich-Anfrage (etwa von MCP create_project), die nach
+   * bestandenem Scan wirksam werden soll. Platzhalter: null, bis die
+   * Vormerkung gebaut ist.
+   */
+  pendingRequest: { requestedAt: string; actor: string; hostname: string | null; accessProtected: boolean } | null
+  /** Letzter oder laufender Übergang (nur im Speicher des Servers). */
+  progress: PublicProgressDto | null
+}
+
+export const publishPublicSchema = z.object({
+  publicSubdomain: slugSchema.optional(),
+  publicHostname: publicHostnameSchema.optional(),
+  accessProtected: z.boolean().optional(),
+})
+
+/** Tailnet und LAN allein speichern, ohne die öffentliche Route anzufassen. */
+export const putInternalRoutesSchema = z.object({
+  targets: z.array(z.enum(['lan', 'tailnet'])),
+  subdomain: slugSchema.optional(),
+})
 
 /* --- Adressen-Prüfung ------------------------------------------------------ */
 

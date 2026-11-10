@@ -5,7 +5,10 @@ import { listProjects, findProject, toDto, createProject, deleteProject, updateP
 import { listDeployments, getDeployment, activeDeployment } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
-import { planPublic, applyPublic, removePublic, publicEnabled, listDomains, syncDomains } from '../domain/public.js'
+import {
+  planPublic, applyPublic, removePublic, publicEnabled, listDomains, syncDomains,
+  publicRoute, publicStatus, publishability, pauseFlow, resumeFlow, unpublishFlow,
+} from '../domain/public.js'
 import { startProject, stopProject } from '../domain/lifecycle.js'
 import { checkSourceEarly } from '../domain/source-checks.js'
 import {
@@ -97,7 +100,8 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       instructions:
         'deployer bringt Projekte auf den Homeserver. Für eine Seite aus dem Chat: create_project mit ' +
         'source {type: "files"} und den Dateien; spätere Änderungen mit update_files. Löschen und Rollback ' +
-        'verlangen eine Bestätigung.',
+        'verlangen eine Bestätigung, ebenso öffentlich pausieren (pause_public), fortsetzen (resume_public) ' +
+        'und ganz offline nehmen (unpublish).',
     },
   )
 
@@ -436,6 +440,13 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const p = await findProject(a.project)
     const wantsPublic = a.targets.includes('public')
     let plan: Awaited<ReturnType<typeof planPublic>> | null = null
+    // Ohne "public", aber gerade öffentlich: das ist «ganz offline nehmen» – mit Rückfrage
+    const current = wantsPublic ? null : await publicRoute(p.id)
+    if (current) {
+      const c = await confirm('set_targets', { project: p.id, targets: [...a.targets].sort(), confirmation_token: a.confirmation_token },
+        `"${p.name}" GANZ OFFLINE nehmen: Tunnel-Regel und DNS-Eintrag für ${current.hostname} werden entfernt, der Name ist danach frei. Zum vorübergehenden Abschalten gibt es pause_public.`)
+      if (!c.go) return c.result
+    }
     if (wantsPublic) {
       if (!publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
       // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
@@ -458,6 +469,58 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       await reconcileCaddy()
     }
     return ok(summarize(await toDto(await findProject(p.id))))
+  })
+
+  /* --- Veröffentlichung: pausieren, fortsetzen, ganz offline ----------------------- */
+
+  const internalNote = async (id: string) => {
+    const s = await publicStatus(await findProject(id))
+    return s.internalUrl ? `Intern bleibt es unter ${s.internalUrl} erreichbar.` : 'Eine interne Adresse hat das Projekt nicht.'
+  }
+  const publicResult = async (id: string, r: { hostname: string | null; check: unknown; changed: boolean }) => {
+    const s = await publicStatus(await findProject(id))
+    return ok({ project: (await findProject(id)).slug, public: s.state, hostname: s.hostname, access: s.accessProtected, changed: r.changed, check_from_outside: r.check, internal_url: s.internalUrl })
+  }
+
+  tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine neutrale Wartungsseite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Verlangt Bestätigung.', {
+    project, confirmation_token: z.string().optional(),
+  }, async (a) => {
+    const p = await findProject(a.project)
+    const route = await publicRoute(p.id)
+    if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
+    if (route.pausedAt) return publicResult(p.id, { hostname: route.hostname, check: null, changed: false })
+    const c = await confirm('pause_public', { project: p.id, confirmation_token: a.confirmation_token },
+      `"${p.name}" pausieren? Unter ${route.hostname} erscheint eine Wartungsseite (503), DNS und Name bleiben. ${await internalNote(p.id)}`)
+    if (!c.go) return c.result
+    return publicResult(p.id, await pauseFlow(p, actor))
+  })
+
+  tool('resume_public', 'Pausiertes öffentliches Projekt wieder online schalten (nur mit abgeschlossenem Scan ohne offenen kritischen Befund). Verlangt Bestätigung.', {
+    project, confirmation_token: z.string().optional(),
+  }, async (a) => {
+    const p = await findProject(a.project)
+    const route = await publicRoute(p.id)
+    if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
+    if (!route.pausedAt) return publicResult(p.id, { hostname: route.hostname, check: null, changed: false })
+    // Erst prüfen, dann fragen – bestätigt wird nur, was auch gehen kann.
+    const pub = await publishability(p.id)
+    if (!pub.ok) return fail(`Nicht fortsetzbar: ${pub.reason}`)
+    const c = await confirm('resume_public', { project: p.id, confirmation_token: a.confirmation_token },
+      `"${p.name}" wieder ÖFFENTLICH unter ${route.hostname}${route.accessProtected ? ' (hinter Cloudflare Access)' : ' (ohne Login)'}?`)
+    if (!c.go) return c.result
+    return publicResult(p.id, await resumeFlow(p, actor))
+  })
+
+  tool('unpublish', 'Öffentliches Projekt ganz offline nehmen: Tunnel-Regel, DNS-Eintrag und Access-App werden entfernt, der Name ist frei. Interne Ziele bleiben. Verlangt Bestätigung.', {
+    project, confirmation_token: z.string().optional(),
+  }, async (a) => {
+    const p = await findProject(a.project)
+    const route = await publicRoute(p.id)
+    if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
+    const c = await confirm('unpublish', { project: p.id, confirmation_token: a.confirmation_token },
+      `"${p.name}" GANZ OFFLINE nehmen? Tunnel-Regel und DNS-Eintrag für ${route.hostname} werden entfernt, der Name ist danach frei. ${await internalNote(p.id)}`)
+    if (!c.go) return c.result
+    return publicResult(p.id, await unpublishFlow(p, actor))
   })
 
   return server

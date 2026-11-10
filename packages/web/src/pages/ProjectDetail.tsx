@@ -7,6 +7,7 @@ import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { Reachability } from '../components/Reachability.js'
+import { Publication, PublicPillFor } from '../components/Publication.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
@@ -88,7 +89,7 @@ export function ProjectDetail() {
     <section className="page page-project">
       <PageHead
         crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
-        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
+        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} /><PublicPillFor p={p} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
         actions={
           <>
             {url && rt.status === 'running' && <a className="button button-ghost" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
@@ -195,6 +196,7 @@ export function ProjectDetail() {
       )}
       {tab === 'logs' && <LiveLogs projectId={id} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} />}
+      {tab === 'einstellungen' && <Publication p={p} />}
       {tab === 'einstellungen' && <Reachability p={p} />}
       {tab === 'einstellungen' && (
         <Settings

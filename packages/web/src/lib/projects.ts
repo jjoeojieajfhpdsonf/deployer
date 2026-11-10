@@ -26,7 +26,10 @@ export function attention(p: ProjectDto): Attention | null {
   return null
 }
 
-export const isPublic = (p: ProjectDto) => p.routes.some((r) => r.target === 'public')
+/** Gerade öffentlich erreichbar (live, nicht pausiert). */
+export const isPublic = (p: ProjectDto) => p.routes.some((r) => r.target === 'public' && !r.pausedAt)
+/** Hat einen öffentlichen Namen, live oder pausiert. */
+export const hasPublicName = (p: ProjectDto) => p.routes.some((r) => r.target === 'public')
 
 /**
  * Laufzustand getrennt vom Ergebnis des letzten Deploys (Critique P1): Ist

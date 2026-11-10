@@ -1,9 +1,18 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
+  PublicStatusDto, PublicProgressDto, OutsideCheckDto,
 } from '@deployer/shared'
 
-export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto }
+export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto }
+
+export interface PublicFlowResult {
+  hostname: string | null
+  check: OutsideCheckDto | null
+  changed: boolean
+  project: ProjectDto
+  status: PublicStatusDto
+}
 
 export interface ExternalTargetDto {
   id: string
@@ -97,6 +106,18 @@ export const api = {
     call<{ env: EnvEntryDto[] }>(`/projects/${id}/env`, { method: 'PUT', body: body({ entries }) }),
   putRoutes: (id: string, targets: RouteTarget[], subdomain?: string, pub?: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
     call<{ project: ProjectDto }>(`/projects/${id}/routes`, { method: 'PUT', body: body({ targets, subdomain, ...(pub ?? {}) }) }),
+  /** Nur Tailnet/LAN; die öffentliche Route bleibt, wie sie ist. */
+  putInternalRoutes: (id: string, targets: ('lan' | 'tailnet')[], subdomain?: string) =>
+    call<{ project: ProjectDto }>(`/projects/${id}/routes/internal`, { method: 'PUT', body: body({ targets, subdomain }) }),
+
+  /* Veröffentlichung (Karte) */
+  publicStatus: (id: string) => call<PublicStatusDto>(`/projects/${id}/public`),
+  publicProgress: (id: string) => call<{ progress: PublicProgressDto | null }>(`/projects/${id}/public/progress`),
+  publish: (id: string, pub: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
+    call<PublicFlowResult>(`/projects/${id}/public`, { method: 'POST', body: body(pub) }),
+  pausePublic: (id: string) => call<PublicFlowResult>(`/projects/${id}/public/pause`, { method: 'POST' }),
+  resumePublic: (id: string) => call<PublicFlowResult>(`/projects/${id}/public/resume`, { method: 'POST' }),
+  unpublish: (id: string) => call<PublicFlowResult & { removed: { hostname: string; accessProtected: boolean } }>(`/projects/${id}/public`, { method: 'DELETE' }),
 
   /* Domains (M5) */
   domains: () => call<{ domains: DomainDto[]; publicEnabled: boolean }>('/domains'),

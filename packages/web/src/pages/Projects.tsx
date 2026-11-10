@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import type { ProjectDto, SystemStatusDto } from '@deployer/shared'
+import { publicStateOf, type ProjectDto, type SystemStatusDto } from '@deployer/shared'
+import { PublicPillFor } from '../components/Publication.js'
+import { usePublicActions } from '../lib/public.js'
 import { api, ApiError } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
@@ -399,6 +401,11 @@ const STEP: Record<string, { n: number; label: string }> = {
 /** Menü «…» eines Projekts. */
 function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | undefined; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
   const [confirmStop, setConfirmStop] = useState(false)
+  const [confirmOffline, setConfirmOffline] = useState(false)
+  const pub = usePublicActions(p)
+  const state = publicStateOf(p.routes)
+  const host = p.routes.find((r) => r.target === 'public')?.hostname
+  const internal = p.routes.find((r) => r.target !== 'public')?.urls[0]?.replace(/^https?:\/\//, '')
   return (
     <RowMenu label={`Aktionen für ${p.name}`}>
       {(close) => (
@@ -408,6 +415,26 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
           <Link role="menuitem" to={`/projekte/${p.id}?tab=deployments`} onClick={close}>Deployments</Link>
           <div className="menu-sep" />
           <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
+          {state !== 'private' && (
+            confirmOffline ? (
+              <>
+                <div className="menu-confirm">
+                  <IconWarn />
+                  <span>
+                    {state === 'live' ? <>Pausieren: Wartungsseite unter {host}. Ganz offline: der Name wird frei.</> : <>Der Name {host} wird frei.</>}
+                    {internal ? <> Intern weiter: {internal}</> : null}
+                  </span>
+                </div>
+                {state === 'live' && (
+                  <button role="menuitem" className="menu-danger-solid" disabled={pub.pending} onClick={() => { close(); setConfirmOffline(false); pub.run({ op: 'pause' }) }}>Ja, pausieren</button>
+                )}
+                <button role="menuitem" className={state === 'live' ? 'menu-danger' : 'menu-danger-solid'} disabled={pub.pending} onClick={() => { close(); setConfirmOffline(false); pub.run({ op: 'unpublish' }) }}>Ja, ganz offline nehmen</button>
+                <button role="menuitem" onClick={() => setConfirmOffline(false)}>Abbrechen</button>
+              </>
+            ) : (
+              <button role="menuitem" disabled={pub.pending} onClick={() => { setConfirmStop(false); setConfirmOffline(true) }}>{state === 'live' ? 'Offline nehmen …' : 'Ganz offline nehmen …'}</button>
+            )
+          )}
           {p.desiredState === 'running' ? (
             confirmStop ? (
               <>
@@ -416,7 +443,7 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
                 <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
               </>
             ) : (
-              <button role="menuitem" disabled={busy} onClick={() => setConfirmStop(true)}>Stoppen …</button>
+              <button role="menuitem" disabled={busy} onClick={() => { setConfirmOffline(false); setConfirmStop(true) }}>Stoppen …</button>
             )
           ) : (
             <button role="menuitem" disabled={busy} onClick={() => { close(); onAct('start') }}>Starten</button>
@@ -432,12 +459,7 @@ function Reach({ p, className }: { p: ProjectDto; className: string }) {
   if (p.routes.length === 0) return <span className="muted">nirgends</span>
   return (
     <div className={className}>
-      {isPublic(p) && (
-        <span className="chip chip-public">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" /></svg>
-          Öffentlich
-        </span>
-      )}
+      <PublicPillFor p={p} />
       {p.routes.some((r) => (r.targets ?? [r.target]).includes('lan')) && <span className="chip">LAN</span>}
       {p.routes.some((r) => (r.targets ?? [r.target]).includes('tailnet')) && <span className="chip">Tailnet</span>}
     </div>

@@ -99,6 +99,8 @@ export const routes = pgTable(
     accessProtected: boolean('access_protected').notNull().default(false),
     // M5
     cfAccessAppId: text('cf_access_app_id'),
+    // Öffentlich pausiert (Migration 0009): Wartungsseite statt Projekt; NULL = live
+    pausedAt: timestamp('paused_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

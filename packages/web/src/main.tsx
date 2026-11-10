@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { App } from './App.js'
 
 // Lokal gebündelt über @fontsource, nicht von Google Fonts: im LAN soll der
@@ -34,6 +35,8 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <App />
       </BrowserRouter>
+      {/* Einmal, an der Wurzel. Farben aus den eigenen Tokens (styles.css), daher hell und dunkel ohne theme-Prop. */}
+      <Toaster position="bottom-right" duration={10_000} gap={8} containerAriaLabel="Meldungen" />
     </QueryClientProvider>
   </StrictMode>,
 )

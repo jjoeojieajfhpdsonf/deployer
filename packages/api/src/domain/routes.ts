@@ -47,7 +47,10 @@ export async function routeDtosFor(projectId: string, _slug: string): Promise<Ro
     }
     if (r.target === 'public') {
       // M5: TLS macht Cloudflare; kein nip.io-Alias für öffentliche Namen.
-      byHost.set(r.hostname, { target: r.target, targets: [r.target], hostname: r.hostname, aliases: [], urls: [`https://${r.hostname}`], accessProtected: r.accessProtected })
+      byHost.set(r.hostname, {
+        target: r.target, targets: [r.target], hostname: r.hostname, aliases: [], urls: [`https://${r.hostname}`], accessProtected: r.accessProtected,
+        since: r.createdAt.toISOString(), pausedAt: r.pausedAt?.toISOString() ?? null,
+      })
       continue
     }
     const aliases = aliasesForHost(r.hostname)
@@ -128,6 +131,8 @@ interface RouteRow {
   deploymentId: string | null
   /** compose: Name des Web-Containers aus dem Artefakt */
   webContainer: string | null
+  /** Öffentlich pausiert: Wartungsseite statt Projekt */
+  paused: boolean
 }
 
 async function currentRouteRows(): Promise<RouteRow[]> {
@@ -142,6 +147,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       desiredState: schema.projects.desiredState,
       deploymentId: schema.deployments.id,
       artifact: schema.deployments.artifact,
+      pausedAt: schema.routes.pausedAt,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -152,10 +158,13 @@ async function currentRouteRows(): Promise<RouteRow[]> {
 
   // Nur Projekte mit aktivem Deployment bekommen eine Route. Ein gestopptes
   // Projekt verschwindet damit aus Caddy, statt in einen toten Upstream zu
-  // zeigen.
+  // zeigen. Ausnahme: ein pausierter öffentlicher Name zeigt die
+  // Wartungsseite, ob das Projekt läuft oder nicht.
+  const paused = (r: (typeof rows)[number]) => r.target === 'public' && r.pausedAt !== null
   return rows
-    .filter((r) => r.deploymentId !== null && r.desiredState === 'running')
+    .filter((r) => paused(r) || (r.deploymentId !== null && r.desiredState === 'running'))
     .map((r) => ({
+      paused: paused(r),
       slug: r.slug,
       hostname: r.hostname,
       target: r.target as string,
@@ -216,7 +225,9 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     if (isPublic && edgeCidrs.length === 0) continue
     const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
     const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
-    if (r.sourceType === 'static') {
+    if (r.paused) {
+      specs.push({ hosts, kind: 'maintenance', cidrs })
+    } else if (r.sourceType === 'static') {
       specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs })
     } else if (r.port && r.deploymentId) {
       specs.push({
@@ -238,7 +249,8 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
 export async function syncCaddyNetworks(): Promise<void> {
   const rows = await currentRouteRows()
   const needed = new Set(
-    rows.filter((r) => r.sourceType !== 'static').map((r) => docker.projectNetworkName(r.slug)),
+    // Die Wartungsseite braucht kein Projekt-Netz.
+    rows.filter((r) => r.sourceType !== 'static' && !r.paused).map((r) => docker.projectNetworkName(r.slug)),
   )
   const current = await docker.networksOfContainer(config.CADDY_CONTAINER)
 

@@ -5,8 +5,11 @@ import { RESERVED_SLUGS } from '@deployer/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, MANAGED_COMMENT, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { cloudflareClient } from './tailnet.js'
-import { assertPublishable } from '../security/scan.js'
-import { reconcileCaddy } from './routes.js'
+import { assertPublishable, latestScan } from '../security/scan.js'
+import { reconcileCaddy, routeDtosFor } from './routes.js'
+import { Progress, withProgress, stepsFor, progressOf } from './public-progress.js'
+import { checkFromOutside, type Expect } from '../lib/outside-probe.js'
+import type { OutsideCheckDto, PublicStatusDto } from '@deployer/shared'
 import { audit } from './audit.js'
 import { notify } from '../notify/send.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
@@ -157,17 +160,21 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
  * Aufrufer. Scheitert ein Schritt, wird zurückgenommen, was dieser Aufruf
  * bei Cloudflare neu angelegt hat.
  */
-export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ hostname: string }> {
+export async function applyPublic(plan: PublicPlan, actor: string, progress?: Progress): Promise<{ hostname: string }> {
   const cf = client()
   const { project, hostname, zone, before } = plan
   const created: { recordId?: string; accessId?: string } = {}
+  const sameName = before?.hostname === hostname
   try {
     // 1. DNS: CNAME proxied auf den Tunnel; fremde Einträge bleiben unangetastet.
+    progress?.start('dns')
     const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(settings.tunnelId()!), proxied: true })
     if (rec.action === 'created') created.recordId = rec.record.id
+    progress?.set('dns', 'done', rec.action === 'created' ? `CNAME ${hostname} auf den Tunnel angelegt` : `CNAME ${hostname} zeigt auf den Tunnel`)
 
     // 2. Access
-    let accessAppId = before?.hostname === hostname ? before.cfAccessAppId : null
+    progress?.start('access')
+    let accessAppId = sameName ? before.cfAccessAppId : null
     if (plan.access && !accessAppId) {
       accessAppId = (await cf.createAccessApp(settings.accountId()!, { name: `deployer: ${project.name}`, domain: hostname, email: settings.accessEmail()! })).id
       created.accessId = accessAppId
@@ -182,6 +189,8 @@ export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ ho
       await tx.insert(schema.routes).values({
         projectId: project.id, target: 'public', hostname, cfDnsRecordId: rec.record.id,
         accessProtected: Boolean(accessAppId) && plan.access, cfAccessAppId: plan.access ? accessAppId : null,
+        // Gleicher Name: «seit» und eine Pause bleiben (nur Access geändert)
+        ...(sameName ? { createdAt: before.createdAt, pausedAt: before.pausedAt } : {}),
       })
     })
     created.recordId = undefined
@@ -189,14 +198,19 @@ export async function applyPublic(plan: PublicPlan, actor: string): Promise<{ ho
 
     // 4. Access abgeschaltet: App weg (erst nach dem Speichern, dann ist der Stand konsistent)
     if (!plan.access && accessAppId) await cf.deleteAccessApp(settings.accountId()!, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
+    progress?.set('access', 'done', plan.access ? 'Login per E-Mail-Code vorgeschaltet' : 'ohne Login')
 
     // 5. Alter Name (bei Umbenennung) aus DNS und Access entfernen
     if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
 
     // 6. Tunnel aus der Datenbank (Caddy gleicht der Aufrufer ab)
+    progress?.start('tunnel')
     await reconcileTunnel(cf)
+    progress?.set('tunnel', 'done', `${hostname} → Caddy`)
 
-    await audit({ actor, action: 'project.public', targetType: 'project', targetId: project.id, params: { hostname, accessProtected: plan.access }, result: 'ok' })
+    // Welcher Übergang: neu, umbenannt oder nur Access an/aus (Audit-Log)
+    const action = !before ? 'project.public' : !sameName ? 'project.public.rename' : before.accessProtected !== plan.access ? 'project.public.access' : 'project.public.change'
+    await audit({ actor, action, targetType: 'project', targetId: project.id, params: { hostname, accessProtected: plan.access, ...(before && !sameName ? { before: before.hostname } : {}) }, result: 'ok' })
     if (!before) await notify('project_public', { project: project.name, url: `https://${hostname}` }, project.id)
     return { hostname }
   } catch (err) {
@@ -213,24 +227,43 @@ export async function setPublic(project: Project, input: PublicInput, actor: str
 }
 
 /** Öffentliche Route entfernen: CNAME, Access, Ingress, Caddy. */
-export async function removePublic(project: { id: string; slug: string }, actor: string, opts: { strict?: boolean; skipCaddy?: boolean } = {}): Promise<boolean> {
+export async function removePublic(project: { id: string; slug: string }, actor: string, opts: { strict?: boolean; skipCaddy?: boolean; progress?: Progress } = {}): Promise<boolean> {
   const route = await publicRoute(project.id)
   if (!route) return false
   const cf = cloudflareClient()
+  const pr = opts.progress
   const problems: string[] = []
   if (cf && settings.accountId()) {
-    await dropCloudflareObjects(cf, route).catch((e) => problems.push(String((e as Error).message)))
+    pr?.start('dns')
+    await dropCloudflareObjects(cf, route, pr).catch((e) => {
+      problems.push(String((e as Error).message))
+      pr?.set(pr.dto.steps.find((s) => s.state === 'current')?.key ?? 'dns', 'warn', (e as Error).message)
+    })
   } else {
     problems.push('kein Cloudflare-Token: DNS-Eintrag und Access-App bleiben bei Cloudflare stehen')
+    pr?.set('dns', 'warn', 'Kein Cloudflare-Token: der DNS-Eintrag bleibt stehen')
   }
   await db.delete(schema.routes).where(eq(schema.routes.id, route.id))
   if (cf && settings.accountId() && settings.tunnelId()) {
-    await reconcileTunnel(cf).catch((e) => problems.push(`Tunnel: ${(e as Error).message}`))
+    pr?.start('tunnel')
+    await reconcileTunnel(cf).then(
+      () => pr?.set('tunnel', 'done', `Regel für ${route.hostname} entfernt`),
+      (e) => {
+        problems.push(`Tunnel: ${(e as Error).message}`)
+        pr?.set('tunnel', 'warn', (e as Error).message)
+      },
+    )
   }
   // Ein Fehler hier (etwa ein schon entferntes Projekt-Netz beim Löschen)
   // darf Audit und Meldung nicht verhindern (Review M5).
-  if (!opts.skipCaddy) await reconcileCaddy().catch((e) => log.warn('Caddy-Abgleich nach Entfernen fehlgeschlagen', { err: String(e) }))
-  await audit({ actor, action: 'project.public.remove', targetType: 'project', targetId: project.id, params: { hostname: route.hostname }, result: problems.length ? 'error' : 'ok', error: problems.join('; ') || undefined })
+  if (!opts.skipCaddy) {
+    pr?.start('caddy')
+    await reconcileCaddy().then(() => pr?.set('caddy', 'done'), (e) => {
+      log.warn('Caddy-Abgleich nach Entfernen fehlgeschlagen', { err: String(e) })
+      pr?.set('caddy', 'warn', String((e as Error).message))
+    })
+  }
+  await audit({ actor, action: 'project.public.remove', targetType: 'project', targetId: project.id, params: { hostname: route.hostname, wasPaused: route.pausedAt !== null }, result: problems.length ? 'error' : 'ok', error: problems.join('; ') || undefined })
   if (problems.length) {
     // Löschen soll nicht an Cloudflare scheitern; Reste melden (SPEC M5).
     await notify('infra_problem', { what: 'Cloudflare-Aufräumen', detail: `${route.hostname}: ${problems.join('; ')}` })
@@ -239,7 +272,7 @@ export async function removePublic(project: { id: string; slug: string }, actor:
   return true
 }
 
-async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }): Promise<void> {
+async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }, pr?: Progress): Promise<void> {
   const domains = await listDomains()
   const zone = domains.find((d) => route.hostname === d.name || route.hostname.endsWith(`.${d.name}`))
   if (route.cfDnsRecordId && !zone) throw new Error(`Zone von ${route.hostname} unbekannt; DNS-Eintrag bitte in Cloudflare von Hand entfernen`)
@@ -248,8 +281,177 @@ async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; 
     const recs = await cf.listRecords(zone.zoneId, route.hostname)
     const mine = recs.find((r) => r.id === route.cfDnsRecordId && r.comment === MANAGED_COMMENT)
     if (mine) await cf.deleteRecord(zone.zoneId, mine.id)
+    pr?.set('dns', 'done', mine ? `CNAME ${route.hostname} entfernt` : 'kein eigener Eintrag mehr vorhanden')
+  } else {
+    pr?.set('dns', 'done', 'kein eigener Eintrag')
   }
+  pr?.start('access')
   if (route.cfAccessAppId) await cf.deleteAccessApp(settings.accountId()!, route.cfAccessAppId)
+  pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Login-Schutz entfernt' : 'war nicht eingeschaltet')
+}
+
+/* --- Pausieren und Fortsetzen ----------------------------------------------------- */
+
+/**
+ * Pausieren: Name, DNS-Eintrag, Tunnel-Regel und Access bleiben; Caddy
+ * liefert für den öffentlichen Namen eine neutrale Wartungsseite (503).
+ * Die interne Adresse läuft weiter.
+ */
+export async function pausePublic(project: Project, actor: string, progress?: Progress): Promise<{ hostname: string; changed: boolean }> {
+  const route = await publicRoute(project.id)
+  if (!route) throw badRequest(`«${project.name}» ist nicht öffentlich`)
+  if (route.pausedAt) return { hostname: route.hostname, changed: false }
+  progress?.start('caddy')
+  await db.update(schema.routes).set({ pausedAt: new Date() }).where(eq(schema.routes.id, route.id))
+  try {
+    await reconcileCaddy()
+  } catch (err) {
+    // Caddy hat die Wartungsseite nicht: der Stand in der Datenbank muss
+    // stimmen, sonst zeigte die Karte «pausiert», Besucher sähen das Projekt.
+    await db.update(schema.routes).set({ pausedAt: null }).where(eq(schema.routes.id, route.id))
+    await audit({ actor, action: 'project.public.pause', targetType: 'project', targetId: project.id, params: { hostname: route.hostname }, result: 'error', error: (err as Error).message })
+    throw err
+  }
+  progress?.set('caddy', 'done', 'Besucher bekommen HTTP 503 mit Wartungsseite')
+  await audit({ actor, action: 'project.public.pause', targetType: 'project', targetId: project.id, params: { hostname: route.hostname }, result: 'ok' })
+  return { hostname: route.hostname, changed: true }
+}
+
+/** Fortsetzen: wie Veröffentlichen an die Schwelle gebunden (Scan ohne kritischen Befund). */
+export async function resumePublic(project: Project, actor: string, progress?: Progress): Promise<{ hostname: string; changed: boolean }> {
+  const route = await publicRoute(project.id)
+  if (!route) throw badRequest(`«${project.name}» ist nicht öffentlich`)
+  if (!route.pausedAt) return { hostname: route.hostname, changed: false }
+  progress?.start('check')
+  await assertPublishable(project.id)
+  progress?.set('check', 'done', 'Scan ohne offenen kritischen Befund')
+  progress?.start('caddy')
+  await db.update(schema.routes).set({ pausedAt: null }).where(eq(schema.routes.id, route.id))
+  try {
+    await reconcileCaddy()
+  } catch (err) {
+    await db.update(schema.routes).set({ pausedAt: route.pausedAt }).where(eq(schema.routes.id, route.id))
+    await audit({ actor, action: 'project.public.resume', targetType: 'project', targetId: project.id, params: { hostname: route.hostname }, result: 'error', error: (err as Error).message })
+    throw err
+  }
+  progress?.set('caddy', 'done', 'Caddy gibt den Verkehr wieder ans Projekt')
+  await audit({ actor, action: 'project.public.resume', targetType: 'project', targetId: project.id, params: { hostname: route.hostname, pausedSince: route.pausedAt.toISOString() }, result: 'ok' })
+  return { hostname: route.hostname, changed: true }
+}
+
+/* --- Übergänge mit Fortschritt (Karte «Veröffentlichung») --------------------------- */
+
+const busy = () => conflict('Für dieses Projekt läuft schon eine Änderung der Veröffentlichung')
+
+/** Prüfung von aussen als letzter Schritt; ein Fehlschlag ist eine Warnung, kein Abbruch. */
+async function outside(pr: Progress, hostname: string, expect: Expect, access = false): Promise<OutsideCheckDto | null> {
+  pr.start('outside')
+  if (process.env.PUBLIC_OUTSIDE_CHECK === 'off') {
+    pr.set('outside', 'skipped', 'abgeschaltet (PUBLIC_OUTSIDE_CHECK=off)')
+    return null
+  }
+  const r = await checkFromOutside(hostname, expect, { access })
+  pr.set('outside', r.ok ? 'done' : 'warn', r.message)
+  return r
+}
+
+export type FlowResult = { hostname: string | null; check: OutsideCheckDto | null; changed: boolean }
+
+/** Veröffentlichen oder nur Access an/aus. Die Rückfrage liegt beim Aufrufer. */
+export function publishFlow(project: Project, input: PublicInput, actor: string): Promise<FlowResult> {
+  return (async () => {
+    const before = await publicRoute(project.id)
+    const op = before ? 'access' : 'publish'
+    const access = input.accessProtected ?? Boolean(before?.accessProtected)
+    return withProgress(project.id, op, before?.hostname ?? null, stepsFor(op, { access }), async (pr) => {
+      pr.start('check')
+      const plan = await planPublic(project, input)
+      pr.hostname(plan.hostname)
+      pr.set('check', 'done', `Scan bestanden · ${plan.hostname}`)
+      await applyPublic(plan, actor, pr)
+      if (op === 'publish') {
+        pr.start('caddy')
+        await reconcileCaddy()
+        pr.set('caddy', 'done', 'nur aus dem Netz von cloudflared')
+      } else {
+        await reconcileCaddy()
+      }
+      const paused = Boolean(before?.pausedAt)
+      const check = await outside(pr, plan.hostname, paused ? 'paused' : 'live', plan.access)
+      return { hostname: plan.hostname, check, changed: true }
+    }, busy)
+  })()
+}
+
+export function pauseFlow(project: Project, actor: string): Promise<FlowResult> {
+  return (async () => {
+    const route = await publicRoute(project.id)
+    return withProgress(project.id, 'pause', route?.hostname ?? null, stepsFor('pause'), async (pr) => {
+      const r = await pausePublic(project, actor, pr)
+      const check = await outside(pr, r.hostname, 'paused')
+      return { hostname: r.hostname, check, changed: r.changed }
+    }, busy)
+  })()
+}
+
+export function resumeFlow(project: Project, actor: string): Promise<FlowResult> {
+  return (async () => {
+    const route = await publicRoute(project.id)
+    return withProgress(project.id, 'resume', route?.hostname ?? null, stepsFor('resume'), async (pr) => {
+      const r = await resumePublic(project, actor, pr)
+      const check = await outside(pr, r.hostname, 'live', Boolean(route?.accessProtected))
+      return { hostname: r.hostname, check, changed: r.changed }
+    }, busy)
+  })()
+}
+
+/** Ganz offline: Tunnel-Regel, DNS-Eintrag und Access-App weg, der Name ist frei. */
+export function unpublishFlow(project: Project, actor: string): Promise<FlowResult & { removed: { hostname: string; accessProtected: boolean } | null }> {
+  return (async () => {
+    const route = await publicRoute(project.id)
+    if (!route) throw badRequest(`«${project.name}» ist nicht öffentlich`)
+    const removed = { hostname: route.hostname, accessProtected: route.accessProtected }
+    return withProgress(project.id, 'unpublish', route.hostname, stepsFor('unpublish'), async (pr) => {
+      await removePublic(project, actor, { progress: pr })
+      const check = await outside(pr, route.hostname, 'gone')
+      return { hostname: route.hostname, check, changed: true, removed }
+    }, busy)
+  })()
+}
+
+/* --- Zustand für die Karte -------------------------------------------------------- */
+
+export async function publishability(projectId: string): Promise<PublicStatusDto['publishable']> {
+  if (!publicEnabled()) return { ok: false, why: 'disabled', reason: 'Öffentlich ist nicht eingerichtet: unter System → Cloudflare & HTTPS den Tunnel einrichten.' }
+  try {
+    await assertPublishable(projectId)
+    return { ok: true }
+  } catch (err) {
+    if (!(err instanceof AppError) || err.code !== 'not_publishable') throw err
+    const reason = err.message.replace(/^Nicht öffentlich schaltbar: /, '')
+    const last = await latestScan(projectId)
+    if (last && (last.status === 'queued' || last.status === 'running')) {
+      return { ok: false, why: 'scan_running', reason: 'Ein Scan läuft gerade. Sobald er ohne kritischen Befund fertig ist, lässt sich veröffentlichen.' }
+    }
+    return { ok: false, why: /kein abgeschlossener Scan/.test(reason) ? 'no_scan' : 'critical', reason }
+  }
+}
+
+export async function publicStatus(project: { id: string; slug: string }): Promise<PublicStatusDto> {
+  const route = await publicRoute(project.id)
+  const internal = (await routeDtosFor(project.id, project.slug)).find((r) => r.target !== 'public')
+  return {
+    state: !route ? 'private' : route.pausedAt ? 'paused' : 'live',
+    enabled: publicEnabled(),
+    hostname: route?.hostname ?? null,
+    url: route ? `https://${route.hostname}` : null,
+    since: route ? (route.pausedAt ?? route.createdAt).toISOString() : null,
+    accessProtected: Boolean(route?.accessProtected),
+    internalUrl: internal?.urls[0] ?? null,
+    publishable: await publishability(project.id),
+    pendingRequest: null,
+    progress: progressOf(project.id),
+  }
 }
 
 /* --- Tunnel ------------------------------------------------------------------------ */

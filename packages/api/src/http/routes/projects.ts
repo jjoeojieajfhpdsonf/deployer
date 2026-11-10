@@ -22,12 +22,16 @@ import { badRequest, notFound, AppError } from '../../lib/errors.js'
 import { projectHealth } from '../../jobs/monitor.js'
 import { probeViaCaddy } from '../../lib/address-probe.js'
 import { config } from '../../config.js'
+import { publicRoutes } from './public.js'
 
 interface IdParams {
   id: string
 }
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
+  // Karte «Veröffentlichung» und interne Ziele allein
+  await publicRoutes(app)
+
   app.get('/projects', async () => ({ projects: await listProjects() }))
 
   app.post('/projects', async (request, reply) => {

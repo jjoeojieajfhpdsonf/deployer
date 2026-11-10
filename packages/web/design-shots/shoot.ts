@@ -32,8 +32,11 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   const u = new URL(path, 'http://x')
   const p = u.pathname.replace(/^\/api\/v1/, '')
   if (p === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
-  if (method !== 'GET') return { body: {} }
   let m: RegExpMatchArray | null
+  if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
+  if (method !== 'GET') return { body: {} }
+  if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
   if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.allProjects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
@@ -81,6 +84,8 @@ type Shot = {
 const P = fx.detailProjectId
 const S = fx.securityProjectId
 const W = 'p-wetter'
+const L = fx.liveProjectId
+const Z = fx.pausedProjectId
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
@@ -134,6 +139,50 @@ const shots: Shot[] = [
     group: 'anzahl', name: 'projekte-per-chat', path: '/projekte', count: 1, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: /Per Chat/ }).click(); await pg.waitForTimeout(300) },
   },
+  /* Veröffentlichung: Privat (projekt-einstellungen), Öffentlich, Pausiert, gesperrt, Rückfragen, Fortschritt, Toast */
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen` },
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen` },
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-gesperrt', path: `/projekte/${S}?tab=einstellungen`, full: false },
+  {
+    group: 'veroeffentlichung', name: 'veroeffentlichung-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.waitForTimeout(150)
+      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'veroeffentlichung', name: 'veroeffentlichung-fortschritt', path: `/projekte/${P}?tab=einstellungen`, full: false, hang: [`POST /api/v1/projects/${P}/public`],
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.waitForTimeout(150)
+      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Ja, veröffentlichen' }).click()
+      await pg.waitForTimeout(900)
+    },
+  },
+  {
+    group: 'veroeffentlichung', name: 'veroeffentlichung-offline-wahl', path: `/projekte/${L}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen …' }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'veroeffentlichung', name: 'veroeffentlichung-toast', path: `/projekte/${L}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.getByRole('button', { name: 'Ja, pausieren' }).click()
+      await pg.waitForTimeout(700)
+    },
+  },
+  {
+    group: 'veroeffentlichung', name: 'veroeffentlichung-menue', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Aktionen für Haushaltsbuch' }).click()
+      await pg.waitForTimeout(200)
+      await pg.getByRole('menuitem', { name: 'Offline nehmen …' }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -161,7 +210,8 @@ try {
         const url = new URL(route.request().url())
         if ((url.port === String(PORT) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
           if (url.pathname.startsWith('/api/')) {
-            if (s.hang?.some((h) => url.pathname === h)) return // nie beantwortet: Ladezustand
+            // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
+            if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
