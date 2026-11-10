@@ -18,11 +18,33 @@ export interface AuditInput {
   params?: unknown
   result: 'ok' | 'error'
   error?: string | null
+  /**
+   * M9: Umgebung des Eintrags. undefined = aus dem Ziel ableiten (Projekt,
+   * Token, Domain, externes Ziel); null = ausdrücklich Server-Ereignis.
+   */
+  environmentId?: string | null
+}
+
+/** Umgebung eines Audit-Ziels; null für Server-Ereignisse oder unbekannte Ziele. */
+async function environmentOfTarget(type: string | null | undefined, id: string | null | undefined): Promise<string | null> {
+  if (!type || !id || !/^[0-9a-f-]{36}$/i.test(id)) return null
+  const table = type === 'project' ? schema.projects
+    : type === 'token' ? schema.apiTokens
+    : type === 'domain' ? schema.domains
+    : type === 'external_target' ? schema.externalTargets
+    : type === 'environment' ? null
+    : undefined
+  if (table === null) return id
+  if (!table) return null
+  const rows = await db.select({ env: table.environmentId }).from(table).where(eq(table.id, id)).limit(1)
+  return rows[0]?.env ?? null
 }
 
 export async function audit(entry: AuditInput): Promise<void> {
   try {
+    const environmentId = entry.environmentId !== undefined ? entry.environmentId : await environmentOfTarget(entry.targetType, entry.targetId)
     await db.insert(schema.auditEvents).values({
+      environmentId,
       actor: entry.actor,
       action: entry.action,
       targetType: entry.targetType ?? null,

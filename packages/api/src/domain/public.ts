@@ -1,5 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
+import { defaultEnvironmentId } from './environments.js'
 import { cf as settings, config } from '../config.js'
 import { RESERVED_SLUGS } from '@airlock/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
@@ -65,7 +66,7 @@ export async function syncDomains(cf = client()): Promise<DomainDto[]> {
     for (const z of zones) {
       await tx
         .insert(schema.domains)
-        .values({ cfZoneId: z.id, name: z.name.toLowerCase() })
+        .values({ cfZoneId: z.id, name: z.name.toLowerCase(), environmentId: defaultEnvironmentId() })
         .onConflictDoUpdate({ target: schema.domains.cfZoneId, set: { name: z.name.toLowerCase() } })
     }
     const ids = zones.map((z) => z.id)

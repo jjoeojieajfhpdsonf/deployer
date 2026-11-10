@@ -2,6 +2,7 @@ import { eq, desc } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { db, schema } from '../db/index.js'
+import { defaultEnvironmentId } from '../domain/environments.js'
 import { cf, config } from '../config.js'
 import { audit } from '../domain/audit.js'
 import { notFound, conflict } from '../lib/errors.js'
@@ -80,7 +81,7 @@ export async function addExternalTarget(hostname: string, actor: string): Promis
   const h = validateExternalHostname(hostname, cf.baseDomain())
   const existing = await db.select().from(schema.externalTargets).where(eq(schema.externalTargets.hostname, h))
   if (existing[0]) throw conflict(`${h} ist schon eingetragen`)
-  const rows = await db.insert(schema.externalTargets).values({ hostname: h, txtToken: randomBytes(18).toString('base64url') }).returning()
+  const rows = await db.insert(schema.externalTargets).values({ hostname: h, txtToken: randomBytes(18).toString('base64url'), environmentId: defaultEnvironmentId() }).returning()
   await audit({ actor, action: 'external_target.add', targetType: 'external_target', targetId: rows[0]!.id, params: { hostname: h }, result: 'ok' })
   return toDto(rows[0]!)
 }

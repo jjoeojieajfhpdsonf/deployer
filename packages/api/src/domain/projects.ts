@@ -2,6 +2,7 @@ import { eq, or, asc, and, desc } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
+import { defaultEnvironmentId } from './environments.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
 import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
@@ -158,6 +159,7 @@ export async function createProject(input: CreateProjectInput, actor: string): P
       keep: input.keep,
       status: 'created',
       desiredState: 'stopped',
+      environmentId: defaultEnvironmentId(),
     })
     .returning()
 

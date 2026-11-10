@@ -3,7 +3,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PAUSE_FILE } from '../drivers/caddy-config.js'
 import { DEFAULT_PAUSE_PAGE, pausePageSchema, type PausePage, type PauseOptions } from '@airlock/shared'
-import { db, schema, getSetting, setSetting } from '../db/index.js'
+import { db, schema, getSetting } from '../db/index.js'
+import { defaultEnvironmentId } from './environments.js'
 import { audit } from './audit.js'
 import { badRequest } from '../lib/errors.js'
 
@@ -19,22 +20,34 @@ const KEY = 'pause_page'
 /** Anzeige von «Voraussichtlich zurück»: Zeitzone des Servers, sonst Zürich. */
 export const displayTimeZone = () => process.env.TZ || 'Europe/Zurich'
 
-export async function pausePageTemplate(): Promise<PausePage> {
-  const raw = await getSetting(KEY)
+/**
+ * M9: Die Vorlage gehört zur Umgebung (environments.pause_page); ohne Angabe
+ * die Standard-Umgebung. app_settings.pause_page ist nur noch Rückfall aus
+ * der Zeit vor M9 (importLegacySettings übernimmt ihn einmal).
+ */
+export async function pausePageTemplate(envId: string = defaultEnvironmentId()): Promise<PausePage> {
+  const row = (await db.select({ page: schema.environments.pausePage }).from(schema.environments).where(eq(schema.environments.id, envId)))[0]
+  const raw: unknown = row?.page ?? (await legacyTemplate())
   if (!raw) return DEFAULT_PAUSE_PAGE
+  const r = pausePageSchema.safeParse(raw)
+  return r.success ? r.data : DEFAULT_PAUSE_PAGE
+}
+
+async function legacyTemplate(): Promise<unknown> {
+  const raw = await getSetting(KEY)
+  if (!raw) return null
   try {
-    const r = pausePageSchema.safeParse(JSON.parse(raw))
-    return r.success ? r.data : DEFAULT_PAUSE_PAGE
+    return JSON.parse(raw)
   } catch {
-    return DEFAULT_PAUSE_PAGE
+    return null
   }
 }
 
 /** null setzt die Vorlage auf den Standard zurück. */
-export async function setPausePageTemplate(page: PausePage | null, actor: string): Promise<PausePage> {
+export async function setPausePageTemplate(page: PausePage | null, actor: string, envId: string = defaultEnvironmentId()): Promise<PausePage> {
   const value = page ? pausePageSchema.parse(page) : DEFAULT_PAUSE_PAGE
-  await setSetting(KEY, JSON.stringify(value))
-  await audit({ actor, action: 'settings.pause_page', targetType: 'system', targetId: null, params: { title: value.title, lang: value.lang, reset: page === null }, result: 'ok' })
+  await db.update(schema.environments).set({ pausePage: value, updatedAt: new Date() }).where(eq(schema.environments.id, envId))
+  await audit({ actor, action: 'settings.pause_page', targetType: 'environment', targetId: envId, environmentId: envId, params: { title: value.title, lang: value.lang, reset: page === null }, result: 'ok' })
   return value
 }
 

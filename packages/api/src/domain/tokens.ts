@@ -1,5 +1,6 @@
 import { eq, desc, isNull, and } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
+import { defaultEnvironmentId } from './environments.js'
 import { generateToken, hashToken, looksLikeToken } from '../lib/tokens.js'
 import { notFound, badRequest } from '../lib/errors.js'
 import { audit } from './audit.js'
@@ -32,7 +33,7 @@ export async function createToken(name: string, actor: string): Promise<{ token:
   const clean = name.trim()
   if (clean.length < 1 || clean.length > 80) throw badRequest('Name muss 1 bis 80 Zeichen haben')
   const token = generateToken()
-  const rows = await db.insert(schema.apiTokens).values({ name: clean, tokenHash: hashToken(token) }).returning()
+  const rows = await db.insert(schema.apiTokens).values({ name: clean, tokenHash: hashToken(token), environmentId: defaultEnvironmentId() }).returning()
   const row = rows[0]!
   await audit({ actor, action: 'token.create', targetType: 'token', targetId: row.id, params: { name: clean }, result: 'ok' })
   return { token, dto: toDto(row) }

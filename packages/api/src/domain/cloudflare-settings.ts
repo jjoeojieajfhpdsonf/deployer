@@ -1,10 +1,11 @@
 import { join } from 'node:path'
 import { mkdir, rm, writeFile, chmod } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { UI_HOST_LABEL, type CfStatusDto, type CfTokenCheckDto, type CfPermissionCheck, type CfTlsPhase } from '@airlock/shared'
 import { config, setCfRuntime, cf, net, type CfRuntime } from '../config.js'
-import { db, schema, getSetting, setSetting } from '../db/index.js'
+import { db, schema, getSetting } from '../db/index.js'
+import { reloadEnvironments, defaultEnvironment, splitBaseDomain, DEFAULT_CLOUDFLARED_NAME, type EnvRuntime } from './environments.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import { Cloudflare, CloudflareError } from '../drivers/cloudflare.js'
 import {
@@ -32,8 +33,7 @@ import { redactSecrets, redactDeep, registerSecret } from '../lib/redact.js'
  * compose.tls.yaml / compose.public.yaml).
  */
 
-const KEY = 'cloudflare'
-const key = () => loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
+const key =() => loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
 const enc = (s: string) => encrypt(s, key()).toString('base64')
 const dec = (s: string) => decrypt(Buffer.from(s, 'base64'), key())
 
@@ -60,18 +60,120 @@ interface Stored {
 
 let stored: Stored = {}
 
+/*
+ * M9: Der Stand liegt nicht mehr als JSON in app_settings.cloudflare, sondern
+ * in environments (Basis, Zertifikat, E-Mails), cloudflare_accounts (Token,
+ * Konto) und tunnels; die Tailscale-IP serverweit in app_settings
+ * «server_network». `Stored` bleibt die Arbeitsform dieser Datei und gilt
+ * vorerst für die Standard-Umgebung (Etappe 3: pro Umgebung).
+ * app_settings.cloudflare bleibt eine Version lang als Rückfall stehen und
+ * wird nicht mehr geschrieben.
+ */
+const NET_KEY = 'server_network'
+
 async function load(): Promise<Stored> {
-  const raw = await getSetting(KEY)
+  await reloadEnvironments()
+  const env = defaultEnvironment()
+  const netRaw = await getSetting(NET_KEY)
+  let tailscale: { tailscaleIp?: string | null } = {}
   try {
-    return raw ? (JSON.parse(raw) as Stored) : {}
+    tailscale = netRaw ? (JSON.parse(netRaw) as { tailscaleIp?: string | null }) : {}
   } catch {
-    return {}
+    tailscale = {}
   }
+  return storedFromEnvironment(env, tailscale)
+}
+
+/** Arbeitsform aus den Tabellen; mit Konto (über die Oberfläche eingerichtet) gelten auch leere Werte. */
+function storedFromEnvironment(env: EnvRuntime, tailscale: { tailscaleIp?: string | null }): Stored {
+  const { row, account: acc, tunnel } = env
+  return {
+    ...(acc
+      ? {
+          tokenEnc: acc.tokenEnc,
+          ...(acc.tokenSavedAt ? { tokenSavedAt: acc.tokenSavedAt.toISOString() } : {}),
+          ...(acc.lastCheck ? { lastCheck: acc.lastCheck } : {}),
+          ...(acc.cfAccountId ? { accountId: acc.cfAccountId } : {}),
+          ...(acc.name ? { accountName: acc.name } : {}),
+          accessEmail: row.accessEmails[0] ?? null,
+          acmeEmail: row.acmeEmail ?? null,
+        }
+      : {
+          ...(row.accessEmails[0] ? { accessEmail: row.accessEmails[0] } : {}),
+          ...(row.acmeEmail ? { acmeEmail: row.acmeEmail } : {}),
+        }),
+    ...(env.baseDomain ? { baseDomain: env.baseDomain } : {}),
+    ...('tailscaleIp' in tailscale ? { tailscaleIp: tailscale.tailscaleIp ?? null } : {}),
+    ...(tunnel ? { tunnel: { id: tunnel.cfTunnelId, name: tunnel.name, tokenEnc: tunnel.tokenEnc } } : {}),
+    ...(tunnel?.cloudflaredImage ? { cloudflaredImage: tunnel.cloudflaredImage } : {}),
+    ...(row.tunnelSkipped ? { tunnelSkipped: true } : {}),
+    ...(row.tlsState ? { tls: row.tlsState } : {}),
+  }
+}
+
+/** Arbeitsform zurück in die Tabellen schreiben (Standard-Umgebung). */
+async function persist(next: Stored): Promise<void> {
+  const env = defaultEnvironment()
+  await db.transaction(async (tx) => {
+    let accountId = env.row.cloudflareAccountId
+    if (next.tokenEnc) {
+      const values = {
+        cfAccountId: next.accountId ?? null,
+        name: next.accountName ?? null,
+        tokenEnc: next.tokenEnc,
+        tokenSavedAt: next.tokenSavedAt ? new Date(next.tokenSavedAt) : null,
+        lastCheck: next.lastCheck ?? null,
+        updatedAt: new Date(),
+      }
+      if (accountId) {
+        await tx.update(schema.cloudflareAccounts).set(values).where(eq(schema.cloudflareAccounts.id, accountId))
+      } else {
+        accountId = (await tx.insert(schema.cloudflareAccounts).values(values).returning({ id: schema.cloudflareAccounts.id }))[0]!.id
+      }
+    } else if (accountId) {
+      // Getrennt: Konto (mit Tunnel) weg, sofern keine andere Umgebung es nutzt
+      const others = await tx.select({ id: schema.environments.id }).from(schema.environments)
+        .where(and(eq(schema.environments.cloudflareAccountId, accountId), ne(schema.environments.id, env.id)))
+      await tx.update(schema.environments).set({ cloudflareAccountId: null }).where(eq(schema.environments.id, env.id))
+      if (!others.length) await tx.delete(schema.cloudflareAccounts).where(eq(schema.cloudflareAccounts.id, accountId))
+      accountId = null
+    }
+
+    if (accountId) {
+      const have = (await tx.select().from(schema.tunnels).where(eq(schema.tunnels.cloudflareAccountId, accountId)))[0]
+      if (next.tunnel) {
+        const values = { cfTunnelId: next.tunnel.id, name: next.tunnel.name, tokenEnc: next.tunnel.tokenEnc, cloudflaredImage: next.cloudflaredImage ?? null, updatedAt: new Date() }
+        if (have) await tx.update(schema.tunnels).set(values).where(eq(schema.tunnels.id, have.id))
+        else await tx.insert(schema.tunnels).values({ ...values, cloudflareAccountId: accountId, containerName: DEFAULT_CLOUDFLARED_NAME() })
+      } else if (have) {
+        await tx.delete(schema.tunnels).where(eq(schema.tunnels.id, have.id))
+      }
+    }
+
+    const zones = (await tx.select({ name: schema.domains.name }).from(schema.domains)).map((z) => z.name)
+    const split = next.baseDomain ? splitBaseDomain(next.baseDomain, zones) : null
+    await tx.update(schema.environments).set({
+      cloudflareAccountId: accountId,
+      ...(split ? { zoneName: split.zone, internalPrefix: split.prefix } : {}),
+      tlsState: next.tls ?? null,
+      tunnelSkipped: Boolean(next.tunnelSkipped),
+      accessEmails: next.accessEmail ? [next.accessEmail] : [],
+      acmeEmail: next.acmeEmail ?? null,
+      updatedAt: new Date(),
+    }).where(eq(schema.environments.id, env.id))
+
+    if (next.tailscaleIp !== undefined) {
+      const value = JSON.stringify({ tailscaleIp: next.tailscaleIp })
+      await tx.insert(schema.appSettings).values({ key: NET_KEY, value })
+        .onConflictDoUpdate({ target: schema.appSettings.key, set: { value, updatedAt: new Date() } })
+    }
+  })
+  await reloadEnvironments()
 }
 
 async function save(next: Stored): Promise<void> {
   stored = next
-  await setSetting(KEY, JSON.stringify(next))
+  await persist(next)
   await applyRuntime()
 }
 
