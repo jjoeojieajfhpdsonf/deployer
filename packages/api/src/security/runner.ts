@@ -19,6 +19,8 @@ export const SCANNER_IMAGES = {
   // Wie Caddy im Stack: liefert auch Punktdateien (.env) aus. busybox httpd
   // verweigert sie – der Scan übersähe genau das, was Caddy ausliefert.
   httpd: 'caddy:2-alpine',
+  // CSP-Fix: Funktionsprüfung einer scharfen CSP im Headless-Browser
+  chrome: 'zenika/alpine-chrome:124',
 } as const
 
 /** Caches der Scanner (Trivy-Datenbank, Nuclei-Vorlagen), über Scans hinweg. */

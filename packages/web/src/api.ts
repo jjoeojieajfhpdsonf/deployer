@@ -188,6 +188,8 @@ export const api = {
   removeHeaderRule: (id: string, header: HeaderKey) =>
     call<{ recheck: HeaderRecheckDto }>(`/projects/${id}/header-rules/${header}`, { method: 'DELETE' }),
   recheckHeaders: (id: string) => call<HeaderRecheckDto>(`/projects/${id}/header-recheck`, { method: 'POST' }),
+  resetHeaderRule: (id: string, header: HeaderKey) =>
+    call<{ recheck: HeaderRecheckDto; result: 'report-only' | 'removed' }>(`/projects/${id}/header-rules/${header}/reset`, { method: 'POST' }),
 
   /* Fix-Assistent (M8): Mit Claude lösen */
   fixHint: (id: string, findingId: string) => call<FixHintDto>(`/projects/${id}/findings/${findingId}/fix-hint`),

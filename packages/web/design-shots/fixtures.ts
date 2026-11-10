@@ -372,11 +372,16 @@ function runningScan(p: ProjectDto): ScanReportDto {
 }
 
 /** M8: Header über Caddy – CSP im Report-Only mit gesammelten Verstössen, frame-ancestors aktiv. */
-export function headerRules(id: string): HeaderRulesDto {
-  if (id !== securityProjectId) return { rules: [], hsts: { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }, viaCaddy: true, csp: { violations: [], total: 0, suggestion: null, notes: [] } }
+export function headerRules(id: string, reverted = false): HeaderRulesDto {
+  if (id !== securityProjectId) return { rules: [], hsts: { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }, viaCaddy: true, csp: { violations: [], total: 0, suggestion: null, notes: [], analysis: null, readiness: null, inlinePrompt: null } }
+  const policy = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"
+  // CSP-Fix: der Fall hallo-welt – Inline-Skript und Inline-Style; nach einem Scharfschalten automatisch zurück
+  const check = reverted
+    ? { state: 'failed' as const, at: ago(2 * MIN), pages: ['/', '/auswertung'], violations: ['Inline-Skript (script-src) auf /', 'Inline-Style (style-src) auf /'], message: 'Zurück auf Report-Only. 2 Verstösse beim Laden im Browser.' }
+    : null
   return {
     rules: [
-      { header: 'content-security-policy', value: "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'", mode: 'report-only', createdAt: ago(2 * HOUR), updatedAt: ago(2 * HOUR) },
+      { header: 'content-security-policy', value: policy, mode: 'report-only', createdAt: ago(2 * HOUR), updatedAt: ago(reverted ? 2 * MIN : 2 * HOUR), reportOnlySince: ago(reverted ? 2 * MIN : 2 * HOUR), check },
       { header: 'frame-ancestors', value: "'self'", mode: 'enforce', createdAt: ago(2 * HOUR), updatedAt: ago(2 * HOUR) },
     ],
     hsts: { ok: true, reason: null },
@@ -389,7 +394,27 @@ export function headerRules(id: string): HeaderRulesDto {
       ],
       total: 64,
       suggestion: "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self' wss://kontoauszug-reader.int.example.ch; object-src 'none'; base-uri 'self'; form-action 'self'",
-      notes: ["Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt Airlock nicht vor."],
+      notes: [
+        'Diese CSP blockiert 1 Inline-Skript und 1 Inline-Style – zuerst auslagern.',
+        "Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt Airlock nicht vor.",
+      ],
+      analysis: {
+        pages: ['/', '/auswertung', '/live'],
+        inlineScripts: 1, inlineStyles: 1, styleAttributes: 0, eventHandlers: 0,
+        external: { 'script-src': ['https://cdn.jsdelivr.net'] },
+        conflicts: ['1 Inline-Skript (<script> ohne src)', '1 Inline-Style (<style>)', 'script-src: https://cdn.jsdelivr.net'],
+        error: null,
+      },
+      readiness: {
+        ok: false,
+        reason: "Die Regel würde blockieren: 1 Inline-Skript (<script> ohne src); 1 Inline-Style (<style>); script-src: https://cdn.jsdelivr.net. 7 von 20 Aufrufen im Report-Only, 3 Verstösse gemeldet.",
+        views: 7, viewsNeeded: 20, violationsSince: 3,
+      },
+      inlinePrompt: [
+        "Lagere im Airlock-Projekt «Kontoauszug-Reader» (kontoauszug-reader) den Inline-Code in eigene Dateien aus, damit eine Content-Security-Policy ohne 'unsafe-inline' funktioniert. Diese CSP blockiert 1 Inline-Skript und 1 Inline-Style – zuerst auslagern.",
+        'Hole Befund und Dateien mit dem Airlock-MCP: get_fix_context mit project "kontoauszug-reader" und finding "f4".',
+        'Verschiebe <script>-Inhalte in .js-Dateien und <style>-Inhalte in .css-Dateien, ersetze style="…" durch Klassen und onclick=… durch addEventListener. Schlage die Änderung mit propose_fix vor; ich prüfe den Diff in Airlock.',
+      ].join('\n'),
     },
   }
 }

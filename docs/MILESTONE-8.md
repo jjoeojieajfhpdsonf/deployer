@@ -177,3 +177,21 @@ Stand 10.11.2026. Unit-Tests mit einer fetch-Attrappe (Manifest, JWT mit echtem 
 **Offen (bewusst nicht gebaut):** private Repos als Quelle (Klonen mit dem Installations-Token; `lsRemoteHead` nimmt das Token schon an, `cloneRepo` noch nicht), GitLab (OAuth-App oder Projekt-Token; Datenmodell vorbereitet), Kommentar am Pull Request auch dann, wenn der Befund nach dem Merge bleibt (heute nur bei «behoben»), der optionale Weg «Direkt in Airlock» mit `ANTHROPIC_API_KEY`.
 
 Screenshots: `docs/design-cal/m8-etappe3/`.
+
+## Nachtrag: CSP hat hallo-welt zerstört (10.11.2026)
+
+**Was passiert ist:** hallo-welt hat ein Inline-`<style>` und ein Inline-`<script>`. Die vorgeschlagene Regel `default-src 'self'; …` liess sich ohne einen einzigen Nachweis scharf schalten und hat beides blockiert. Der Nachscan sah danach eine CSP mit `default-src` und markierte «Content-Security-Policy fehlt» als behoben. Report-Only hatte nichts gesammelt.
+
+**Report-Pfad:** Zur Zeit des Fehlers war 55e5ebe schon live (seit dem Deploy um 19:29): Die ausgelieferte Regel hatte `report-uri /.well-known/deployer/csp-report/<key>`, und je eine leere Testmeldung kam über `https://hallo-welt.jherren.com` und `https://hallo-welt.int.jherren.com` bei deployer an (204; falscher Schlüssel 404). Gesammelt wurde nichts, weil zwischen Report-Only und Scharfschalten kein Aufruf lag – genau das liess die Oberfläche zu.
+
+**Was jetzt gilt:**
+
+1. **Analyse der ausgelieferten Seiten** (über Caddys Probe-Socket, Startseite und bis zu vier verlinkte Seiten derselben Herkunft): Inline-`<script>`, Inline-`<style>`, `style="…"`, `on…=`-Attribute und `javascript:`-Links, externe Quellen je Direktive. Der Vorschlag ergänzt die externen Quellen; Inline-Code wird nicht mit `'unsafe-inline'` erlaubt, sondern gemeldet: «Diese CSP blockiert 1 Inline-Skript und 1 Inline-Style – zuerst auslagern.» Bei Chat- und Repo-Projekten daneben «Mit Claude lösen» (Auftrag zum Kopieren; `get_fix_context` liefert dann die HTML-Dateien, `propose_fix` ist für den CSP-Befund erlaubt).
+2. **Scharf schalten nur mit Nachweis:** die Analyse findet keinen Konflikt mit genau dieser Regel **oder** Report-Only hat mit genau diesem Wert mindestens 20 Seitenaufrufe ohne gemeldeten Verstoss gesehen. Die Aufrufe zählt Airlock aus Caddys Zugriffs-Log: Für Namen mit Report-Only-CSP schreibt Caddy dafür ein Log (Logger `csp`), sonst nicht. Sonst ist der Knopf gesperrt (fokussierbar, mit Grund), und API und MCP lehnen mit 409 ab. Ein geänderter Wert (Vorschlag übernommen) beginnt die Zählung neu.
+3. **report-uri über den Host des Projekts:** war schon erledigt (siehe oben); seit der Umbenennung lautet der Pfad `/.well-known/airlock/csp-report/<key>`.
+4. **Funktionsprüfung nach dem Scharfschalten:** Headless-Chromium (`zenika/alpine-chrome:124` als Wegwerf-Container im Projekt-Netz) lädt die analysierten Seiten über einen kurzlebigen Proxy in Airlock, der über den Probe-Socket holt – also mit Caddys Headern wie für Besucher. CSP-Verstösse kommen aus der Konsole. Bei einem Verstoss, oder wenn die Prüfung nicht möglich ist, geht die CSP automatisch auf Report-Only zurück; die Meldung steht an der Regel und im Audit-Log (`header.csp_reverted`). «Behoben» setzt erst die bestandene Prüfung, auch im Nachscan. Abweichung vom Wortlaut: kein Playwright, sondern Chromium direkt mit `--enable-logging` – dieselbe Engine, ohne Node und npm-Paket im Container.
+5. **Zurücksetzen** pro Regel, ein Klick ohne Rückfrage: scharfe CSP → Report-Only, jede andere Regel wird entfernt (`POST /projects/{id}/header-rules/{header}/reset`).
+
+**Geprüft:** Unit-Tests mit einer Fixture-Seite (Inline-Script, Inline-Style, `style`-Attribut, `onclick`, externe Quellen, JSON-LD und Kommentar), Freigabe-Logik, Chromium-Ausgabe, Aufrufzählung; gegen echtes Chromium (`scripts/csp-browser-e2e.ts`: scharfe Regel findet Inline-Skript, Inline-Style und externes Skript; passende Regel und Report-Only ohne Verstoss); gegen echtes Caddy (Aufrufe im Log gezählt). **Nicht** im laufenden Stack geprüft: der Proxy in Airlock zusammen mit dem Browser-Container im Projekt-Netz.
+
+Screenshots: `docs/design-cal/csp-fix/`.

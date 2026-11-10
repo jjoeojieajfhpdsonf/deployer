@@ -102,6 +102,49 @@ export interface HeaderRuleDto {
   mode: HeaderMode
   createdAt: string
   updatedAt: string
+  /** Nur CSP: seit wann Report-Only läuft (für «Aufrufe ohne Verstoss») */
+  reportOnlySince?: string | null
+  /** Nur CSP: Funktionsprüfung nach dem Scharfschalten */
+  check?: CspCheckDto | null
+}
+
+/** Funktionsprüfung einer scharfen CSP im Headless-Browser */
+export interface CspCheckDto {
+  state: 'running' | 'ok' | 'failed' | 'unavailable'
+  at: string
+  /** Geladene Seiten (Pfade) */
+  pages: string[]
+  /** Gemeldete Verstösse, z.B. «Inline-Skript (script-src) auf /» */
+  violations: string[]
+  /** Satz für die Oberfläche */
+  message: string
+}
+
+/** Was in den ausgelieferten Seiten steht und eine CSP betrifft */
+export interface CspAnalysisDto {
+  /** Untersuchte Seiten (Pfade) */
+  pages: string[]
+  inlineScripts: number
+  inlineStyles: number
+  styleAttributes: number
+  eventHandlers: number
+  /** Externe Quellen je Direktive, z.B. { 'script-src': ['https://cdn.example'] } */
+  external: Record<string, string[]>
+  /** Was die vorgeschlagene bzw. aktuelle Regel davon blockieren würde (Sätze) */
+  conflicts: string[]
+  /** Fehler beim Laden der Seiten (dann keine Aussage) */
+  error: string | null
+}
+
+/** Darf die CSP scharf geschaltet werden? */
+export interface CspEnforceReadinessDto {
+  ok: boolean
+  /** Warum ja bzw. warum nicht */
+  reason: string
+  /** Aufrufe seit Report-Only-Beginn und davon ohne Verstoss */
+  views: number | null
+  viewsNeeded: number
+  violationsSince: number
 }
 
 export interface CspViolationDto {
@@ -125,6 +168,12 @@ export interface HeaderRulesDto {
     suggestion: string | null
     /** Hinweise, die der Vorschlag bewusst nicht erlaubt (Inline-Skript, eval) */
     notes: string[]
+    /** Analyse der ausgelieferten Seiten (Inline-Code, externe Quellen); null ohne CSP-Regel */
+    analysis: CspAnalysisDto | null
+    /** Scharf schalten erlaubt? */
+    readiness: CspEnforceReadinessDto | null
+    /** Auftrag für Claude, Inline-Code auszulagern (nur bei Konflikten und Chat-/GitHub-Projekten) */
+    inlinePrompt: string | null
   }
 }
 
@@ -136,6 +185,8 @@ export interface HeaderRecheckDto {
   opened: string[]
   score: number | null
   grade: 'A' | 'B' | 'C' | 'D' | null
+  /** Nachscan folgt später (CSP scharf: erst nach der Funktionsprüfung) */
+  pending?: string | null
 }
 
 /* ------------------------------------------------------------------ *
