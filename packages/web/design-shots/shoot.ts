@@ -13,17 +13,15 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
-import { chromium, type Page, type Route } from 'playwright'
+import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
 import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 
-const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
 const repo = resolve(webRoot, '../..')
-const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
-mkdirSync(outDir, { recursive: true })
 
+/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen */
 const PORT = 5199
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -503,23 +501,23 @@ const shots: Shot[] = [
   },
 ]
 
-const only = args.only?.split(',').map((s) => s.trim()).filter(Boolean)
-const selected = only ? shots.filter((s) => only.includes(s.group) || only.includes(s.name)) : shots
+export { shots }
+export type { Shot }
 
-const server = await createServer({ root: webRoot, logLevel: 'error', server: { port: PORT, strictPort: true } })
-await server.listen()
-// Installiertes Chrome (kein Browser-Download nötig); PW_CHANNEL=chromium für Playwrights eigenen
-const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
-let n = 0
-try {
-  for (const theme of ['hell', 'dunkel'] as const) {
-    const t = theme === 'hell' ? 'light' : 'dark'
-    for (const s of selected) {
-      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce', locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t })
+/** Optionen des Browser-Kontexts für eine Aufnahme (Desktop, 1440 px) */
+export const contextOptions = (t: 'light' | 'dark') => ({
+  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t,
+})
+
+/**
+ * Theme setzen und die API aus den Fixtures beantworten (page.route auf dem
+ * Kontext). Gemeinsam für shoot.ts und die visuellen Tests (visual/).
+ */
+export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | 'dark', port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
-        if ((url.port === String(PORT) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
+        if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
           if (url.pathname.startsWith('/api/')) {
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
@@ -562,14 +560,40 @@ try {
         // Erreichbarkeits-Prüfungen der Oberfläche: antworten, ohne das Netz zu fragen
         return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, body: '' })
       })
-      const page = await ctx.newPage()
-      await page.goto(`http://localhost:${PORT}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
+}
+
+/** Seite öffnen, auf Daten und Schriften warten, Szene vorbereiten. */
+export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> {
+      await page.goto(`http://localhost:${port}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
       // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
       if (s.fail?.some((f) => f.startsWith('/'))) await page.locator('.error-state').first().waitFor({ timeout: 8000 })
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)
+}
+
+// Als Skript gestartet (nicht importiert): Screenshots in einen Ordner schreiben
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
+const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
+mkdirSync(outDir, { recursive: true })
+const only = args.only?.split(',').map((s) => s.trim()).filter(Boolean)
+const selected = only ? shots.filter((s) => only.includes(s.group) || only.includes(s.name)) : shots
+
+const server = await createServer({ root: webRoot, logLevel: 'error', server: { port: PORT, strictPort: true } })
+await server.listen()
+// Installiertes Chrome (kein Browser-Download nötig); PW_CHANNEL=chromium für Playwrights eigenen
+const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
+let n = 0
+try {
+  for (const theme of ['hell', 'dunkel'] as const) {
+    const t = theme === 'hell' ? 'light' : 'dark'
+    for (const s of selected) {
+      const ctx = await browser.newContext(contextOptions(t))
+      await installRoutes(ctx, s, t)
+      const page = await ctx.newPage()
+      await openShot(page, s)
       const file = join(outDir, `${s.name}-${theme}.png`)
       if (s.el) {
         const box = await page.locator(s.el).first().boundingBox()
@@ -589,3 +613,4 @@ try {
   await server.close()
 }
 console.log(`${n} Screenshots in ${outDir.replace(repo + '/', '')}`)
+}

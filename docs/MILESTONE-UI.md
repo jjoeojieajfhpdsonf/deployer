@@ -15,6 +15,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 
 - `pnpm -r typecheck`, alle Tests (`pnpm -r test`, API: `node:test`), `pnpm -r build`
 - Screenshots: bis Etappe 2 mit `design-shots/shoot.ts`, ab Etappe 3 `pnpm test:visual`
+  (zusätzlich `shoot.ts` für die Bilder der Etappe in `docs/design-cal/ui-grundlagen/`)
 - Kontrast: `node docs/design-cal/contrast.mjs`
 - Impeccable nur als Gutachter (audit/critique/detect); Befunde zu Kontrast, Schriftgrösse und
   kaputter Darstellung werden behoben, Stilfragen gehen nach dem Taste Skill.
@@ -25,7 +26,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 |---|---|---|
 | 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | erledigt |
 | 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | erledigt; Bestätigung offen, Frage Nr. 3 |
-| 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | geplant |
+| 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | erledigt |
 | 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | geplant |
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | geplant |
 | 6 | Befehlspalette und Tastatur | geplant |
@@ -127,6 +128,13 @@ Umsetzung:
   Seitenwechsel. Endet ein Deploy oder Scan, solange die Oberfläche offen ist: Toast mit Ergebnis
   und Link («Log ansehen», «Ansehen»).
 - **Bestätigung:** offen, Frage Nr. 3 (inline wie heute, ein modaler Dialog, oder gemischt).
+- Gutachten (Impeccable) behoben: Projektseite je Projekt neu aufgebaut (`key`), damit «Rückgängig»
+  nach einem Projektwechsel das richtige Projekt trifft; «Erneut versuchen» nur bei Server weg/5xx
+  und nie bei Löschen/Trennen; Balken der Aktivitätsliste gleich lang; Fokus geht beim Verschwinden
+  der Anzeige zum Profil; Ergebnis-Toast auch für das Zertifikat; ohne Bewegung kein Teilbalken, der
+  wie 30 % aussieht; ein Tempo für alle Ringe.
+- Bewegung: Emils Skill `review-animations` lässt sich nur von Hand aufrufen
+  (`/review-animations`); das Gutachten dazu steht noch aus.
 - Screenshots: `docs/design-cal/ui-grundlagen/2-rueckmeldung/` (Gruppe `aktion`).
 
 ### Etappe 3 – Visuelle Regressionstests
@@ -136,6 +144,21 @@ Abnahme:
   Dunkel, 1440 px; feste Uhrzeit, damit die Bilder stabil sind.
 - Vergleich mit Referenzbildern, kleine Schwelle, Diff-Bilder bei Abweichung.
 - `pnpm test:visual` und `pnpm test:visual:update`; Regel in `CLAUDE.md`.
+
+Umsetzung:
+- `@playwright/test` 1.65.0 (gleiche Version wie `playwright`), installiertes Chrome.
+- `packages/web/visual/`: `playwright.config.ts` (eigener Vite-Server auf Port 5299, 4 Worker,
+  Schwelle höchstens 20 abweichende Pixel – ein Anteil von 0,2 % liess einen halb so langen Balken
+  durch –, Animationen aus, feste Schriftglättung ohne LCD-Text und GPU, sonst schwankte die Seite
+  mit offenem Menü), `ui.spec.ts` (42 Szenen × Hell/Dunkel = 84
+  Bilder), `fixed-clock.ts` (feste Uhr 10.11.2026 14:00 in Node für die Fixtures und im Browser über
+  `page.clock`). Referenzen in `visual/referenz/` (eingecheckt, rund 11 MB), Ergebnisse und
+  Diff-Bilder in `visual/ergebnis/`, HTML-Bericht in `visual/bericht/` (beide in `.gitignore`).
+- `design-shots/shoot.ts` exportiert jetzt Szenen, Kontext-Optionen, API-Attrappe (`installRoutes`)
+  und `openShot`; dieselben Fixtures für Screenshots und Tests. Als Skript gestartet verhält es sich
+  wie bisher.
+- Stabilität: drei Läufe hintereinander, 84 von 84 ohne Abweichung (rund 35 s). Probe: eine
+  absichtlich geänderte Balkenbreite wird erkannt (Diff-Bild in `visual/ergebnis/`).
 
 ### Etappe 4 – Komponenten-Übersicht
 
