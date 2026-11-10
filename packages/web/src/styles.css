@@ -1409,12 +1409,46 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .sc-when { margin: 0 0 0 auto; font-size: var(--fs-13); color: var(--muted); white-space: nowrap; }
 .sc-when .link-button { font-size: var(--fs-13); }
 
-/* Aktivität eines Projekts */
-.pact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.pact { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--sp-3); padding: 6px 0; font-size: var(--fs-13); }
-.pact-time { font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
-.pact-text { color: var(--ink-dim); min-width: 0; overflow-wrap: anywhere; }
-.pact-bad .pact-text { color: var(--bad); }
+/* Aktivität (Projekt und Audit-Log): Tagestrenner, Zeitleiste, Symbol je Kategorie */
+.act { display: grid; gap: var(--sp-5); }
+.act-day-label { margin: 0 0 var(--sp-2); font-size: var(--fs-13); font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.act-list { list-style: none; margin: 0; padding: 0; }
+.act-item { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; padding: 10px 0; align-items: start; }
+/* Linie der Zeitleiste zwischen den Symbolen */
+.act-item:not(:last-child)::before { content: ''; position: absolute; left: 16.5px; top: 48px; bottom: -6px; width: 1px; background: var(--line-strong); }
+.act-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r); background: var(--surface-2); color: var(--ink-dim); }
+.act-deploy .act-mark, .act-public .act-mark { background: var(--info-bg); color: var(--info); }
+.act-header .act-mark { background: var(--ok-bg); color: var(--ok); }
+.act-paused .act-mark { background: var(--warn-bg); color: var(--warn); }
+.act-error .act-mark, .act-danger .act-mark { background: var(--bad-bg); color: var(--bad); }
+.act-claude .act-mark { background: var(--claude-bg); color: var(--claude); }
+.act-body { min-width: 0; padding-top: 1px; }
+.act-body p { margin: 0; max-width: none; }
+.act-title { font-size: var(--fs-15); font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.act-error .act-title { color: var(--bad); }
+.act-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 3px !important; font-size: var(--fs-13); color: var(--muted); }
+.act-meta > * + *::before { content: '·'; margin: 0 7px; color: var(--faint); }
+/* Der Chip trennt sich über Abstand, nicht über einen Punkt */
+.act-meta > .act-chip::before { content: none; }
+.act-meta > .act-chip { margin-left: var(--sp-2); }
+.act-project { color: var(--ink-dim); font-weight: 500; }
+.act-sub { min-width: 0; overflow-wrap: anywhere; }
+.act-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-12); font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.act-chip-ok { color: var(--ok); background: var(--ok-bg); }
+.act-chip-bad { color: var(--bad); background: var(--bad-bg); }
+.act-chip-warn { color: var(--warn); background: var(--warn-bg); }
+.act-chip-info { color: var(--info); background: var(--info-bg); }
+.act-chip-neutral { color: var(--ink-dim); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.act-time { font-size: var(--fs-13); color: var(--muted); padding-top: 2px; }
+.act-more { margin: var(--sp-2) 0 0 48px; font-size: var(--fs-13); color: var(--muted); }
+.act-more a { font-size: var(--fs-13); }
+.act-details-toggle { margin-top: 6px; font-size: var(--fs-12) !important; color: var(--muted) !important; }
+.act-details { margin: var(--sp-2) 0 0; padding: 10px var(--sp-3); border-radius: var(--r); background: var(--code); display: grid; gap: var(--sp-2); font-size: var(--fs-12); }
+.act-details dt { color: var(--muted); }
+.act-details dt code, .act-details dd code { font-family: var(--mono); font-weight: 400; color: var(--ink-dim); }
+.act-details dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.audit-panel { padding: var(--sp-6) var(--sp-7); }
+.audit-project-filter { display: flex; gap: var(--sp-3); align-items: baseline; margin: 0 0 var(--sp-4); font-size: var(--fs-14); color: var(--ink-dim); }
 
 /* Seitenspalte: Adressen und Eckdaten */
 .addr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }

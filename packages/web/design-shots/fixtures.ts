@@ -542,23 +542,53 @@ export function autoDeploy(id: string) {
   return { autoDeploy: id === 'p-foto', checkedAt: ago(3 * MIN), available: repo, viaGithubApp: repo }
 }
 
+/**
+ * Audit-Log. hallo-welt zeigt den Ablauf der Referenz «Aktivität»: Header
+ * gesetzt + Nachprüfung, pausiert + Pause-Seite angepasst, wieder öffentlich,
+ * vier Header auf einmal, Scan über MCP; dazu ein unbekannter Typ
+ * («deploy.failed») und Anmeldungen für das globale Log.
+ */
 export function audit(targetId?: string): AuditEventDto[] {
-  const rows: [number, string, string, string | null, 'ok' | 'error', string | null][] = [
-    [4 * MIN, 'ui', 'project.deploy', 'p-rezepte', 'ok', null],
-    [9 * MIN, 'ui', 'auth.login', null, 'ok', null],
-    [13 * MIN, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+  const C = 'token:claude-code-mac'
+  const H = 'p-hallo'
+  const hh = 'hallo-welt.example.ch'
+  type Row = [number, string, string, string | null, 'ok' | 'error', string | null, Record<string, unknown>?]
+  const rows: Row[] = [
+    [3 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Strict-Transport-Security fehlt'], opened: [], before: 93, after: 96, grade: 'A' }],
+    [3 * MIN + 20_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'strict-transport-security', mode: 'enforce' }],
+    [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
+    [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
+    [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+    [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
+    [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
+    [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],
+    [32 * MIN + 10_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'referrer-policy', mode: 'enforce' }],
+    [32 * MIN + 20_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'x-content-type-options', mode: 'enforce' }],
+    [32 * MIN + 30_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'frame-ancestors', mode: 'enforce' }],
+    [32 * MIN + 40_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'content-security-policy', mode: 'report-only' }],
+    [33 * MIN, 'system', 'scan.done', H, 'ok', null, { scan: 's9', level: 'standard', score: 90, grade: 'A', open: 4, durationMs: 7 * MIN }],
     [40 * MIN, 'ip:192.168.1.77', 'auth.login', null, 'error', 'falsches Passwort'],
-    [70 * MIN, 'ui', 'auth.login', null, 'ok', null],
-    [2 * HOUR, 'ui', 'project.deploy', 'p-foto', 'ok', null],
-    [3 * HOUR, 'system', 'scan.done', 'p-kontoauszug', 'ok', null],
-    [4 * HOUR, 'ui', 'auth.login', null, 'ok', null],
-    [5 * HOUR, 'mcp:claude', 'project.env', 'p-haushalt', 'ok', null],
-    [7 * HOUR, 'ui', 'auth.login', null, 'ok', null],
-    [26 * HOUR, 'ui', 'cloudflare.tls', 'cloudflare', 'ok', null],
+    [40 * MIN, C, 'mcp.run_scan', H, 'ok', null, { project: 'hallo-welt' }],
+    [40 * MIN + 2_000, C, 'scan.start', H, 'ok', null, { scan: 's9', level: 'standard' }],
+    [62 * MIN, C, 'mcp.get_project', H, 'ok', null, { project: 'hallo-welt' }],
+    [70 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
+    [2 * HOUR, 'ui:joel', 'project.deploy', 'p-foto', 'ok', null, { deployment: 'p-foto-d0' }],
+    [26 * HOUR, 'system', 'scan.done', H, 'ok', null, { scan: 's8', level: 'standard', score: 86, grade: 'B', open: 5, durationMs: 6 * MIN }],
+    [26 * HOUR + 6 * MIN, 'system', 'scan.start', H, 'ok', null, { scan: 's8', level: 'standard' }],
+    [26 * HOUR + 6 * MIN + 1_000, C, 'project.deploy', H, 'ok', null, { deployment: 'p-hallo-d1' }],
+    [26 * HOUR + 6 * MIN + 5_000, C, 'mcp.create_project', H, 'ok', null, { name: 'hallo-welt' }],
+    [26 * HOUR + 6 * MIN + 6_000, C, 'files.init', H, 'ok', null, { files: ['index.html', 'style.css', 'app.js'], commit: '5a19cd4e8b21' }],
+    [3 * HOUR, 'system', 'scan.done', 'p-kontoauszug', 'ok', null, { scan: 'k1', level: 'standard', score: 38, grade: 'D', open: 9, durationMs: 11 * MIN }],
+    [4 * HOUR, 'ui:joel', 'auth.login', null, 'ok', null],
+    [5 * HOUR, C, 'project.env.replace', 'p-haushalt', 'ok', null, { keys: ['DATABASE_URL', 'SESSION_SECRET'] }],
+    [7 * HOUR, 'ui:joel', 'auth.login', null, 'ok', null],
+    [27 * HOUR, 'ui:joel', 'cloudflare.tls', 'cloudflare', 'ok', null],
   ]
   return rows
     .filter((r) => !targetId || r[3] === targetId)
-    .map(([t, actor, action, tid, result, error], i) => ({ id: String(100 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: {}, result, error }))
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, actor, action, tid, result, error, params], i) => ({ id: String(200 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: params ?? {}, result, error }))
 }
 
 export const system: SystemStatusDto = {

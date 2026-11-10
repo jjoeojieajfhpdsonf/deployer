@@ -376,6 +376,12 @@ const shots: Shot[] = [
   { group: 'p2', name: '2-security-karte-offen', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-sec"]' },
   { group: 'p2', name: '2-security-karte-ohne-befunde', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-sec"]' },
   { group: 'p2', name: '2-security-karte-handlungsbedarf', path: `/projekte/${S}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p3', name: '3-aktivitaet-karte', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-act"]' },
+  { group: 'p3', name: '3-audit-log', path: '/audit', count: 7 },
+  {
+    group: 'p3', name: '3-audit-log-projekt-details', path: `/audit?projekt=${H}`, count: 7, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Details' }).nth(2).click(); await pg.waitForTimeout(200) },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },

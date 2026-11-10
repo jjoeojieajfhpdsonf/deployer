@@ -4,7 +4,9 @@ import { Link } from 'react-router-dom'
 import type { AddressRowInput, DeploymentDto, EnvEntryDto, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
 import { api, probeUrl } from '../api.js'
-import { relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
+import { relativeTime, shortVersion, since } from '../lib/format.js'
+import { bundle, isReadOnly } from '../lib/activity.js'
+import { ActivityList } from './ActivityList.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
@@ -68,7 +70,7 @@ export function ProjectOverview({
           )}
           <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />
           <SecurityCard p={p} onTab={onTab} />
-          <Activity projectId={p.id} p={p} />
+          <Activity projectId={p.id} />
         </div>
 
         <aside className="overview-side" aria-label="Eckdaten">
@@ -306,29 +308,25 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
 
 /* --- Aktivität ---------------------------------------------------------------- */
 
-function Activity({ projectId, p }: { projectId: string; p: ProjectDto }) {
-  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(8, projectId), refetchInterval: 15_000 })
-  const byId = useMemo(() => new Map([[p.id, p]]), [p])
-  const events = a.data?.events ?? []
+/** Höchstens so viele Einträge in der Karte */
+const ACTIVITY_SHOWN = 5
+
+function Activity({ projectId }: { projectId: string }) {
+  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: 15_000 })
+  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
+  const shown = items.slice(0, ACTIVITY_SHOWN)
+  const more = items.length - shown.length
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-act">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
         <Link to="/audit">Audit-Log</Link>
       </div>
-      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : events.length === 0 ? <p className="muted ov-empty">Noch nichts passiert.</p> : (
-        <ul className="pact-list">
-          {events.map((e) => {
-            const tone = auditTone(e)
-            const text = describeAudit(e, byId).replace(new RegExp(`^${p.slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '')
-            return (
-              <li key={e.id} className={`pact pact-${tone}`}>
-                <time className="pact-time" dateTime={e.at} title={new Date(e.at).toLocaleString('de-CH')}>{clockOrDay(e.at)}</time>
-                <span className="pact-text">{text.charAt(0).toUpperCase() + text.slice(1)}{e.result === 'error' && !/fehl|Fehler/.test(text) ? ' – Fehler' : ''}</span>
-              </li>
-            )
-          })}
-        </ul>
+      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : <ActivityList items={shown} />}
+      {more > 0 && (
+        <p className="act-more">
+          {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={`/audit?projekt=${projectId}`}>Alle anzeigen</Link>
+        </p>
       )}
     </section>
   )

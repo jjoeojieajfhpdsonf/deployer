@@ -443,6 +443,11 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
     })
     .where(eq(schema.scanRuns.id, run.id))
   if (!ranAny) return
+  // Aktivität: «Scan … fertig nach 7 Min.» mit Note als Chip
+  await audit({
+    actor: 'system', action: 'scan.done', targetType: run.projectId ? 'project' : 'external_target', targetId: run.projectId ?? run.externalTargetId,
+    params: { scan: run.id, level: run.level, score: s, grade: g, open: open.length, durationMs: Date.now() - run.startedAt.getTime() }, result: 'ok',
+  })
 
   // Frühere offene Befunde, die nicht mehr auftauchen: behoben.
   const prevRuns = await db
@@ -584,7 +589,8 @@ export async function recheckHeaders(projectId: string, actor: string): Promise<
   ]
   await audit({
     actor, action: 'scan.recheck_headers', targetType: 'project', targetId: projectId,
-    params: { scan: last.id, fixed: fixedTitles, opened: openedTitles }, result: 'ok',
+    // Note vorher → nachher für den Chip in der Aktivität
+    params: { scan: last.id, fixed: fixedTitles, opened: openedTitles, before: last.score, after: after.score, grade: after.grade }, result: 'ok',
   })
   return { ok: true, error: null, fixed: fixedTitles, opened: openedTitles, score: after.score, grade: after.grade }
 }

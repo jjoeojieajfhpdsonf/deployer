@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { AuditEventDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
-import { actorLabel, describeAudit } from '../lib/format.js'
+import { ActivityList } from '../components/ActivityList.js'
+import { actorText } from '../components/Actor.js'
+import { bundle } from '../lib/activity.js'
 import { IconSearch } from '../components/Icons.js'
 import { IconWarn } from '../components/Security.js'
 import { useProjects } from '../lib/projects.js'
@@ -16,34 +19,41 @@ const isLogin = (e: AuditEventDto) => e.action === 'auth.login'
 const isHiddenLogin = (e: AuditEventDto) => isLogin(e) && e.result !== 'error'
 
 /**
- * Audit-Log: lesbare Sätze wie in der Übersicht, darunter der Schlüssel der
- * Aktion. Anmeldungen sind standardmässig ausgeblendet – sie überdeckten
- * sonst die echten Ereignisse (Critique).
+ * Audit-Log: dieselbe Zeitleiste wie die Aktivität eines Projekts, mit
+ * Projektnamen und aufklappbaren Rohdaten (Schlüssel, Parameter) je Eintrag.
+ * Anmeldungen sind standardmässig ausgeblendet – sie überdeckten sonst die
+ * echten Ereignisse (Critique). ?projekt=<id> zeigt nur ein Projekt.
  */
 export function Audit() {
+  const [params, setParams] = useSearchParams()
+  const projectFilter = params.get('projekt')
   const [filter, setFilter] = useState('')
   const [kind, setKind] = useState<Kind>('alle')
   const [logins, setLogins] = useState(false)
   const [limit, setLimit] = useState(100)
-  const events = useQuery({ queryKey: ['audit', limit], queryFn: () => api.audit(limit), placeholderData: (prev) => prev })
+  const events = useQuery({
+    queryKey: ['audit', limit, projectFilter],
+    queryFn: () => api.audit(limit, projectFilter ?? undefined),
+    placeholderData: (prev) => prev,
+  })
   const projects = useProjects()
   const byId = useMemo(() => new Map((projects.data?.projects ?? []).map((p) => [p.id, p])), [projects.data])
+  const filteredProject = projectFilter ? byId.get(projectFilter) : undefined
 
   const all = events.data?.events ?? []
   const q = filter.trim().toLowerCase()
-  const list = all
-    .filter((e) => logins || !isHiddenLogin(e))
-    .filter((e) => kind === 'alle' || (kind === 'fehler' ? e.result === 'error' : isDeploy(e)))
-    .filter((e) => !q || describeAudit(e, byId).toLowerCase().includes(q) || e.action.includes(q) || e.actor.toLowerCase().includes(q) || JSON.stringify(e.paramsMasked ?? '').toLowerCase().includes(q))
+  // Erst bündeln (Zusammengehöriges zusammen), dann filtern
+  const items = useMemo(() => bundle(all.filter((e) => logins || !isHiddenLogin(e))), [all, logins])
+  const list = items
+    .filter((it) => kind === 'alle' || (kind === 'fehler' ? it.events.some((e) => e.result === 'error') : it.events.some(isDeploy)))
+    .filter((it) => {
+      if (!q) return true
+      const p = it.targetId ? byId.get(it.targetId) : undefined
+      const hay = [it.info.title, ...it.info.sub, actorText(it.actor), p?.name ?? '', p?.slug ?? '', ...it.events.map((e) => `${e.action} ${JSON.stringify(e.paramsMasked ?? '')}`)].join(' ').toLowerCase()
+      return hay.includes(q)
+    })
   const hiddenLogins = logins ? 0 : all.filter(isHiddenLogin).length
   const failedLogins = all.filter((e) => isLogin(e) && e.result === 'error').length
-
-  const details = (e: AuditEventDto) => {
-    if (e.error) return e.error
-    const p = e.paramsMasked
-    if (!p || (typeof p === 'object' && Object.keys(p as object).length === 0)) return ''
-    return JSON.stringify(p)
-  }
 
   return (
     <section className="page">
@@ -81,6 +91,12 @@ export function Audit() {
           </span>
         </label>
       </div>
+      {projectFilter && (
+        <p className="audit-project-filter">
+          Nur <strong>{filteredProject?.name ?? 'ein Projekt'}</strong>
+          <button type="button" className="link-button" onClick={() => setParams({})}>Alle Projekte zeigen</button>
+        </p>
+      )}
 
       {events.isLoading ? (
         <p className="state state-loading">Audit-Log wird geladen…</p>
@@ -89,30 +105,8 @@ export function Audit() {
       ) : list.length === 0 ? (
         <p className="state state-empty">{q ? <>Nichts passt zu «{filter}».</> : kind === 'fehler' ? 'Keine Fehler in diesem Zeitraum.' : 'Keine Einträge.'}</p>
       ) : (
-        <div className="table-scroll">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Zeit</th><th>Ereignis</th><th>Wer</th><th>Ergebnis</th><th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((e) => (
-                <tr key={e.id}>
-                  <td className="num nowrap">{new Date(e.at).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-                  <td>
-                    <div>{describeAudit(e, byId)}</div>
-                    <div className="cell-sub">{e.action}</div>
-                  </td>
-                  <td className="nowrap">{actorLabel(e.actor)}</td>
-                  <td>{e.result === 'ok' ? <span className="status status-running"><span className="status-dot" aria-hidden="true" />ok</span> : <span className="status status-failed"><span className="status-dot" aria-hidden="true" />Fehler</span>}</td>
-                  <td className="cell-detail">
-                    {details(e) ? <span className="clamp-2" title={details(e)}>{details(e)}</span> : <span className="muted">–</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="panel panel-pad audit-panel">
+          <ActivityList items={list} projects={projectFilter ? undefined : byId} details />
         </div>
       )}
       {all.length >= limit && (

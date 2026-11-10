@@ -113,13 +113,19 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     handler: (args: z.objectOutputType<S, z.ZodTypeAny>) => Promise<ToolResult>,
   ) {
     server.registerTool(name, { description, inputSchema: shape }, (async (args: z.objectOutputType<S, z.ZodTypeAny>) => {
+      // Projektseite: der Aufruf gehört zum Projekt (Aktivität zeigt «Claude (<Token>)» als Auslöser)
+      const target = async () => {
+        const ref = (args as Record<string, unknown>).project
+        const p = typeof ref === 'string' ? await findProject(ref).catch(() => null) : null
+        return p ? { targetType: 'project', targetId: p.id } : {}
+      }
       try {
         const r = await handler(args)
-        await audit({ actor, action: `mcp.${name}`, params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
+        await audit({ actor, action: `mcp.${name}`, ...(await target()), params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
         return r
       } catch (err) {
         const msg = err instanceof AppError || err instanceof z.ZodError ? (err as Error).message : 'Interner Fehler'
-        await audit({ actor, action: `mcp.${name}`, params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
+        await audit({ actor, action: `mcp.${name}`, ...(await target()), params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
         return fail(msg)
       }
     }) as never)
