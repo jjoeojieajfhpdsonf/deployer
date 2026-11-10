@@ -85,7 +85,7 @@ export async function railWithEnvironments(page: Page, opts: { open?: boolean } 
 
     const nav = document.querySelector<HTMLElement>('.rail-nav')!
     nav.setAttribute('aria-label', `Umgebung ${cur.name}`)
-    nav.insertAdjacentHTML('afterbegin', `<div class="rail-group"><strong>${cur.name}</strong>Umgebung · ${cur.projects} Projekte</div>`)
+    // Kein zweiter Umgebungs-Block über der Navigation: die Umgebung steht schon im Umschalter neben dem Logo
     const system = nav.querySelector<HTMLAnchorElement>('a[href="/system"]')!
     const server = system.cloneNode(true) as HTMLAnchorElement
     server.classList.remove('active')
