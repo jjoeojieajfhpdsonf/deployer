@@ -89,3 +89,45 @@ export async function checkImageInRegistry(ref: string): Promise<ImageCheck> {
     return 'unknown'
   }
 }
+
+/**
+ * M8: Tags eines Images, anonym. Docker Hub über seine API (die neuesten
+ * 100, nach Aktualität), andere Registries über /v2/<repo>/tags/list.
+ * Wirft bei Fehlern; der Aufrufer zeigt dann einen Hinweis statt Kandidaten.
+ */
+export async function listTags(ref: string, hubApi = 'https://hub.docker.com/v2'): Promise<string[]> {
+  const { registry, repository } = parseImageRef(ref)
+  if (registry === 'registry-1.docker.io') {
+    const res = await request(`${hubApi}/repositories/${repository}/tags?page_size=100&ordering=last_updated`, { headersTimeout: 8_000, bodyTimeout: 8_000 })
+    if (res.statusCode !== 200) {
+      await res.body.dump()
+      throw new Error(`Docker Hub antwortete ${res.statusCode}`)
+    }
+    const body = (await res.body.json()) as { results?: { name?: string }[] }
+    return (body.results ?? []).map((r) => r.name ?? '').filter(Boolean)
+  }
+  // Seitenweise (n, last): Registries wie ghcr.io liefern höchstens 1000 pro Seite
+  const PAGE = 1000
+  let token: string | null = null
+  const all: string[] = []
+  for (let page = 0; page < 10; page++) {
+    const last = all[all.length - 1]
+    const url = `https://${registry}/v2/${repository}/tags/list?n=${PAGE}${last ? `&last=${encodeURIComponent(last)}` : ''}`
+    let res: Awaited<ReturnType<typeof request>> = await request(url, { headers: token ? { authorization: `Bearer ${token}` } : {}, headersTimeout: 8_000, bodyTimeout: 8_000 })
+    if (res.statusCode === 401 && !token) {
+      const challenge: string = String(res.headers['www-authenticate'] ?? '')
+      await res.body.dump()
+      token = challenge.toLowerCase().startsWith('bearer') ? await anonymousToken(challenge, repository) : null
+      if (!token) throw new Error('Registry verlangt eine Anmeldung')
+      res = await request(url, { headers: { authorization: `Bearer ${token}` }, headersTimeout: 8_000, bodyTimeout: 8_000 })
+    }
+    if (res.statusCode !== 200) {
+      await res.body.dump()
+      throw new Error(`Registry antwortete ${res.statusCode}`)
+    }
+    const tags = ((await res.body.json()) as { tags?: string[] }).tags ?? []
+    all.push(...tags.filter((t) => t !== last))
+    if (tags.length < PAGE) break
+  }
+  return all
+}

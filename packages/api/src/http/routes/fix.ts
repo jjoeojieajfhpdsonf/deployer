@@ -5,7 +5,8 @@ import { listHeaderRules, setHeaderRule, removeHeaderRule, recordCspReports } fr
 import { recheckHeaders } from '../../security/scan.js'
 import { findProject } from '../../domain/projects.js'
 import { actorFor } from '../auth.js'
-import { AppError } from '../../lib/errors.js'
+import { AppError, badRequest } from '../../lib/errors.js'
+import { fixHint, listFixRequests, applyFix, rejectFix } from '../../security/fix-service.js'
 
 /**
  * M8: Fix-Assistent. Eigene Datei statt security.ts, damit parallele
@@ -49,6 +50,27 @@ export async function fixRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>('/projects/:id/header-recheck', async (request) => {
     const p = await findProject(request.params.id)
     return recheckHeaders(p.id, actorFor(request))
+  })
+
+  /* --- Mit Claude lösen (Etappe 2) --------------------------------------------- */
+
+  /** Weg, fertiger Auftrag und bei Images die Kandidaten */
+  app.get<{ Params: { id: string; finding: string } }>('/projects/:id/findings/:finding/fix-hint', async (request) =>
+    fixHint(request.params.id, z.string().uuid().parse(request.params.finding)))
+
+  app.get<{ Params: { id: string } }>('/projects/:id/fix-requests', async (request) => ({ fixes: await listFixRequests(request.params.id) }))
+
+  /** Übernehmen: neue Version, Deploy, Nachscan. Nur mit ausdrücklicher Bestätigung. */
+  app.post<{ Params: { id: string; fix: string } }>('/projects/:id/fix-requests/:fix/apply', async (request) => {
+    const { confirm } = z.object({ confirm: z.boolean().optional() }).parse(request.body ?? {})
+    if (confirm !== true) throw badRequest('Übernehmen verlangt eine ausdrückliche Bestätigung')
+    const p = await findProject(request.params.id)
+    return { fix: await applyFix(z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
+  })
+
+  app.post<{ Params: { id: string; fix: string } }>('/projects/:id/fix-requests/:fix/reject', async (request) => {
+    const p = await findProject(request.params.id)
+    return { fix: await rejectFix(z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
   })
 }
 

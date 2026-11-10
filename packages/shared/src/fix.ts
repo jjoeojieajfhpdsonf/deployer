@@ -137,3 +137,89 @@ export interface HeaderRecheckDto {
   score: number | null
   grade: 'A' | 'B' | 'C' | 'D' | null
 }
+
+/* ------------------------------------------------------------------ *
+ * M8 – Etappe 2: Mit Claude lösen
+ * ------------------------------------------------------------------ */
+
+export const fixStatuses = ['proposed', 'applied', 'pr_open', 'merged', 'verified', 'rejected', 'failed'] as const
+export type FixStatus = (typeof fixStatuses)[number]
+
+/** Status als Wort (nie nur Farbe) */
+export const FIX_STATUS_LABEL: Record<FixStatus, string> = {
+  proposed: 'Vorschlag',
+  applied: 'übernommen, Nachscan läuft',
+  pr_open: 'Pull Request offen',
+  merged: 'gemergt, Deploy folgt',
+  verified: 'behoben (Nachscan bestätigt)',
+  rejected: 'verworfen',
+  failed: 'gescheitert',
+}
+
+/**
+ * Wie ein Befund behoben wird:
+ * header – Caddy ergänzt den Header (set_security_header)
+ * files – Chat-Projekt: Vorschlag als Diff, nach Bestätigung neue Version
+ * github – Repo mit verbundener GitHub App: Pull Request
+ * repo – Git-Repo ohne Verbindung: Änderung im Repo selbst
+ * image – fertiges Image: nur Hinweis auf eine neuere Version
+ * none – nicht über Code lösbar (etwa ein Upload ohne Repo)
+ */
+export type FixWay = 'header' | 'files' | 'github' | 'repo' | 'image' | 'none'
+
+export interface ImageHintDto {
+  image: string
+  /** Paket und Version, die den Fehler beheben (aus dem Befund) */
+  fixedIn: string | null
+  /** Neuere Tags derselben Linie, neueste zuerst */
+  candidates: string[]
+  /** Warum keine Kandidaten (Registry nicht erreichbar, Tag ohne Version) */
+  note: string | null
+}
+
+export interface FixHintDto {
+  way: FixWay
+  /** Fertiger Auftrag zum Kopieren (nicht bei header und image) */
+  prompt: string | null
+  explanation: string
+  image: ImageHintDto | null
+}
+
+export interface FixRequestDto {
+  id: string
+  findingId: string | null
+  findingTitle: string
+  tool: string
+  way: 'mcp' | 'api' | 'github'
+  status: FixStatus
+  explanation: string
+  diff: string
+  baseCommit: string | null
+  commit: string | null
+  branch: string | null
+  prUrl: string | null
+  note: string | null
+  actor: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Auftrag für Claude: kurz, mit allem, was Claude zum Finden braucht, und
+ * mit der Regel, nichts ohne Zustimmung einzuspielen.
+ */
+export function fixPrompt(o: { projectName: string; slug: string; findingId: string; title: string; severity: string; way: FixWay }): string {
+  const how =
+    o.way === 'files'
+      ? 'Schlage die Änderung mit propose_fix vor (nicht mit update_files); ich prüfe den Diff in deployer und übernehme ihn dort.'
+      : o.way === 'github'
+        ? 'Schlage die Änderung mit propose_fix vor; deployer öffnet dafür einen Pull Request auf einem eigenen Branch.'
+        : 'Das Projekt kommt aus einem Git-Repo: Ändere es im Repo auf einem eigenen Branch, nie direkt auf dem Standard-Branch.'
+  const sev: Record<string, string> = { critical: 'kritisch', high: 'hoch', medium: 'mittel', low: 'niedrig' }
+  return [
+    `Behebe den Befund «${o.title}» (Schwere ${sev[o.severity] ?? o.severity}) im deployer-Projekt «${o.projectName}» (${o.slug}).`,
+    `Hole dir zuerst Befund, Erklärung und betroffene Dateien mit dem deployer-MCP: get_fix_context mit project "${o.slug}" und finding "${o.findingId}".`,
+    how,
+    'Erkläre kurz, was die Änderung behebt und was sie sonst beeinflussen könnte.',
+  ].join('\n')
+}

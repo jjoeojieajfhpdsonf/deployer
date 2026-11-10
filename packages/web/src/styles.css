@@ -881,6 +881,23 @@ details > summary:hover { color: var(--ink); }
 .csp-notes { padding-left: var(--sp-5); max-width: none; }
 .fix-live .fix-notice { margin-top: var(--sp-3); }
 .scan-actions + .fix-live .fix-notice, .tab-panel > .fix-live .fix-notice { margin-top: 0; }
+/* M8: Mit Claude lösen – Auftrag unter den Knöpfen, Vorschläge mit Diff */
+.claude-fix { margin-top: var(--sp-3); }
+.claude-fix .hint { margin-top: 0; }
+.claude-fix-label { margin: 0; font-size: var(--fs-13); color: var(--ink-dim); }
+.claude-fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.image-hint { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: var(--sp-2) 0 0; font-size: var(--fs-14); }
+.image-hint dt { color: var(--muted); }
+.image-hint dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.fix-requests { margin-top: var(--sp-2); }
+.fix-status { background: var(--surface-2); color: var(--ink-dim); }
+.fix-status-verified { color: var(--ok); background: var(--ok-bg); }
+.fix-status-failed { color: var(--bad); background: var(--bad-bg); }
+.diff-scroll { max-height: 420px; overflow: auto; margin: var(--sp-2) 0 var(--sp-3); border-radius: var(--r-md); }
+.diff-scroll .diff { margin: 0; white-space: pre; }
+.diff .diff-add { color: var(--ok); }
+.diff .diff-del { color: var(--bad); }
+.diff .diff-hunk, .diff .diff-file { color: var(--muted); }
 /* Gesperrt, aber fokussierbar (Begründung wird vorgelesen) */
 button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .csp-reports .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }

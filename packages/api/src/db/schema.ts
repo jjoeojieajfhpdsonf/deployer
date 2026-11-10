@@ -243,3 +243,32 @@ export const cspViolations = pgTable('csp_violations', {
   firstSeen: timestamp('first_seen', { withTimezone: true }).notNull().defaultNow(),
   lastSeen: timestamp('last_seen', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex('csp_violations_project_id_directive_blocked_key').on(t.projectId, t.directive, t.blocked)])
+
+export interface FixChanges {
+  files?: { path: string; content: string; encoding?: 'utf8' | 'base64' }[]
+  delete?: string[]
+}
+
+export const fixRequests = pgTable('fix_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  findingId: uuid('finding_id').references(() => findings.id, { onDelete: 'set null' }),
+  fingerprint: text('fingerprint').notNull(),
+  findingTitle: text('finding_title').notNull(),
+  tool: text('tool').notNull(),
+  way: text('way').$type<'mcp' | 'api' | 'github'>().notNull().default('mcp'),
+  status: text('status').$type<import('@deployer/shared').FixStatus>().notNull().default('proposed'),
+  explanation: text('explanation').notNull().default(''),
+  diff: text('diff').notNull().default(''),
+  changes: jsonb('changes').$type<FixChanges>().notNull().default({}),
+  baseCommit: text('base_commit'),
+  commit: text('commit'),
+  deploymentId: uuid('deployment_id'),
+  branch: text('branch'),
+  prUrl: text('pr_url'),
+  prNumber: integer('pr_number'),
+  note: text('note'),
+  actor: text('actor').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('fix_requests_project').on(t.projectId, t.createdAt)])

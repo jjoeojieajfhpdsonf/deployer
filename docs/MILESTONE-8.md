@@ -139,11 +139,22 @@ Screenshots: `docs/design-cal/m8-etappe1/` (Hell und Dunkel, 1440 px).
 
 ### Etappe 2
 
-- [ ] «Mit Claude lösen» zeigt einen kopierbaren Auftrag mit Projekt und Befund
-- [ ] `get_fix_context` liefert Befund, Erklärung, Weg und Dateien – ohne Env-Werte, ohne Secret-Zeilen, ohne `.env`-Dateien
-- [ ] `propose_fix` bei einem Chat-Projekt legt einen Vorschlag mit Diff an; «Übernehmen» bzw. `apply_fix` (Bestätigung) erzeugt einen Commit, deployt und scannt nach; ein verschwundener Befund macht den Vorschlag «bestätigt»
-- [ ] Ein veralteter Vorschlag (Repo inzwischen geändert) wird nicht übernommen
-- [ ] Bei fertigen Images: Hinweis mit behebender Paketversion und Tag-Kandidaten aus der Registry
+Stand 10.11.2026. Unit-Tests (Diff, Weg, betroffene Dateien, Bereinigen, Tag-Kandidaten, Auftrag), Ablauf gegen Wegwerf-Postgres mit echtem lokalem Git-Repo (17 Prüfungen), MCP über In-Memory-Client (6 Prüfungen), Tag-Suche einmal live gegen Docker Hub und ghcr.io. Der Deploy nach «Übernehmen» lief ohne Docker ins Leere (gewollt im Test); dass der Scan danach den Vorschlag bestätigt, ist mit der Funktion `verifyFixesAfterScan` geprüft, nicht im laufenden Stack.
+
+- [x] «Mit Claude lösen» zeigt einen kopierbaren Auftrag mit Projekt-Slug, Befund-ID und Weg (nicht bei Header-Befunden: dort «Header setzen»)
+- [x] `get_fix_context` liefert Befund, Erklärung, Weg und Dateien – Env-Werte (auch nicht geheime) und die Secret-Zeile ersetzt, `.env`-Dateien und Schlüssel zurückgehalten; ein Vorschlag mit den Platzhaltern wird abgelehnt
+- [x] `propose_fix` bei einem Chat-Projekt legt einen Vorschlag mit Diff an; «Übernehmen» bzw. `apply_fix` (Bestätigung) erzeugt einen Commit und startet den Deploy; nach dem Scan wird der Vorschlag «behoben (Nachscan bestätigt)», sonst steht im Vermerk, dass der Befund bleibt
+- [x] Ein veralteter Vorschlag (Repo inzwischen geändert) wird nicht übernommen; ein neuer Vorschlag ersetzt ältere zum selben Befund
+- [x] Bei fertigen Images: Hinweis mit behebender Paketversion und Tag-Kandidaten derselben Linie aus der Registry (Docker Hub, andere Registries seitenweise)
+- [x] Scheitert der Deploy nach dem Übernehmen, steht der Vorschlag auf «gescheitert» mit Grund
+
+**Fehler aus dem Echttest der Tag-Suche:** ghcr.io liefert Tags in Seiten zu 1000 – ohne Weiterblättern fehlten alle neueren Versionen (Home Assistant: keine Kandidaten statt `2024.12.5`, `2026.11.1`). Bei nginx kam `1.31-alpine3.24` statt `1.31-alpine`; jetzt gewinnt bei gleicher Version die exakt gleiche Variante.
+
+Nicht gebaut: der optionale Weg «Direkt in deployer» mit `ANTHROPIC_API_KEY` (SPEC, Abschnitt «Zwei Wege zu Claude»). Das Datenmodell (`way = 'api'`) ist vorbereitet.
+
+**Gutachten (Impeccable, nur audit/critique):** behoben – abgedämpfte Karten (opacity) fielen unter AA, Diff-Scrollbereich nicht per Tastatur erreichbar und ohne Namen (jetzt Region mit `tabIndex`), Fokus nach Fehlern und nach Übernehmen/Verwerfen verloren (Meldung im Live-Bereich), Panel lag in der Tab-Reihenfolge vor «Akzeptieren» (jetzt unter der Knopfzeile; bleibt offen, während das Akzeptieren-Formular offen ist), «Mit Claude lösen» bei fertigen Images irreführend (jetzt «Abhilfe zeigen»), Vorschläge erschienen nach dem Kopieren erst nach 30 s (jetzt 5 s), Einzahl/Mehrzahl, Zähler ohne Wort für Screenreader, neues Fenster nicht angekündigt, Verwerfen ohne Rückfrage. Nicht umgesetzt (Stil): Pillen für Tags – stattdessen ein Komma als Trenner.
+
+Screenshots: `docs/design-cal/m8-etappe2/`.
 
 ### Etappe 3
 

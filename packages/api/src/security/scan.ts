@@ -321,6 +321,17 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
     if (gone.length) await db.update(schema.findings).set({ status: 'fixed' }).where(inArray(schema.findings.id, gone))
   }
 
+  // M8: übernommene Vorschläge (Mit Claude lösen) bestätigen. Dynamisch
+  // geladen: fix-service zieht die Deploy-Pipeline nach, die diese Datei lädt.
+  if (run.projectId) {
+    const { verifyFixesAfterScan } = await import('./fix-service.js')
+    await verifyFixesAfterScan({
+      projectId: run.projectId, deploymentId: run.deploymentId,
+      // Alles, was der Scan noch findet (auch akzeptiert): nur Verschwundenes ist behoben
+      openFingerprints: new Set(rows.map((r) => r.fingerprint)), checkedTools: toolsChecked(stages),
+    }).catch((err) => log.warn('Vorschläge nach dem Scan nicht geprüft', { scan: run.id, err: String(err) }))
+  }
+
   // Neu hinzugekommene kritische und hohe Befunde melden.
   const name = run.projectId
     ? (await findProject(run.projectId)).name

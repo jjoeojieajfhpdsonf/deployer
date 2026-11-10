@@ -46,6 +46,8 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
+  if ((m = p.match(/^\/projects\/[^/]+\/findings\/([^/]+)\/fix-hint$/))) return { body: fx.fixHint(m[1]!) }
   if (p === '/audit') return { body: { events: fx.audit(u.searchParams.get('targetId') ?? undefined) } }
   if (p === '/system/status') return { body: fx.system }
   if (p === '/system/cloudflare') return { body: fx.cloudflare }
@@ -91,6 +93,37 @@ const shots: Shot[] = [
       await b.scrollIntoViewIfNeeded()
       await b.click()
       await pg.waitForTimeout(250)
+    },
+  },
+  // M8, Etappe 2: Mit Claude lösen – Auftrag am Befund und Image-Hinweis
+  {
+    group: 'fix', name: 'security-mit-claude-loesen', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      const cards = pg.locator('.finding').filter({ hasText: 'Container läuft als root' })
+      await cards.first().getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.waitForTimeout(300)
+      await cards.first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'fix', name: 'security-image-hinweis', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      const card = pg.locator('.finding').filter({ hasText: 'CVE-2026-31337' }).first()
+      await card.getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.waitForTimeout(300)
+      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'fix', name: 'security-vorschlag-claude', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#fix-requests-title').scrollIntoViewIfNeeded()
+      await pg.evaluate(() => window.scrollBy(0, 300))
+      await pg.waitForTimeout(150)
     },
   },
   { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen` },

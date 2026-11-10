@@ -1,10 +1,10 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
-  HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto,
+  HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto,
 } from '@deployer/shared'
 
-export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto }
+export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto }
 
 export interface ExternalTargetDto {
   id: string
@@ -152,6 +152,12 @@ export const api = {
   removeHeaderRule: (id: string, header: HeaderKey) =>
     call<{ recheck: HeaderRecheckDto }>(`/projects/${id}/header-rules/${header}`, { method: 'DELETE' }),
   recheckHeaders: (id: string) => call<HeaderRecheckDto>(`/projects/${id}/header-recheck`, { method: 'POST' }),
+
+  /* Fix-Assistent (M8): Mit Claude lösen */
+  fixHint: (id: string, findingId: string) => call<FixHintDto>(`/projects/${id}/findings/${findingId}/fix-hint`),
+  fixRequests: (id: string) => call<{ fixes: FixRequestDto[] }>(`/projects/${id}/fix-requests`),
+  applyFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/apply`, { method: 'POST', body: body({ confirm: true }) }),
+  rejectFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/reject`, { method: 'POST', body: body({}) }),
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),

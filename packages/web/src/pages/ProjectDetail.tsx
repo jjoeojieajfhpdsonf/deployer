@@ -194,7 +194,7 @@ export function ProjectDetail() {
         />
       )}
       {tab === 'logs' && <LiveLogs projectId={id} />}
-      {tab === 'security' && <ProjectSecurity projectId={p.id} />}
+      {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && <Reachability p={p} />}
       {tab === 'einstellungen' && (
         <Settings

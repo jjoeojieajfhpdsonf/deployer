@@ -6,8 +6,9 @@
  */
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, RouteDto, ScanReportDto, SystemStatusDto,
-  HeaderRulesDto,
+  HeaderRulesDto, FixHintDto, FixRequestDto,
 } from '@deployer/shared'
+import { fixPrompt } from '@deployer/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto } from '../src/api.js'
 
 const MIN = 60_000
@@ -195,6 +196,42 @@ export function headerRules(id: string): HeaderRulesDto {
       notes: ["Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt deployer nicht vor."],
     },
   }
+}
+
+/** M8, Etappe 2: Auftrag am Befund «Container läuft als root» und am CVE (fertiges Image) */
+export function fixHint(findingId: string): FixHintDto {
+  if (findingId === 'f1') {
+    return {
+      way: 'image', prompt: null,
+      explanation: 'Fertiges Image: deployer kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.',
+      image: { image: 'ghcr.io/example/kontoauszug-reader-api:1.4-bookworm', fixedIn: 'openssl 3.0.15-1~deb12u1', candidates: ['1.6-bookworm', '2.1-bookworm'], note: 'Kandidaten derselben Linie; ob sie das Paket wirklich aktualisieren, zeigt erst der Scan nach dem Wechsel.' },
+    }
+  }
+  return {
+    way: 'files',
+    prompt: fixPrompt({ projectName: 'Kontoauszug-Reader', slug: 'kontoauszug-reader', findingId: '3f1c9a52-7d40-4e8b-9b1a-0c2d6e8f4a17', title: 'Container läuft als root', severity: 'medium', way: 'files' }),
+    explanation: 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, deployer deployt und scannt nach.',
+    image: null,
+  }
+}
+
+export function fixRequests(id: string): FixRequestDto[] {
+  if (id !== securityProjectId) return []
+  const base = { findingId: 'f3', tool: 'trivy', way: 'mcp' as const, baseCommit: 'a3f9c21d0be4', branch: null, prUrl: null, actor: 'token:claude-code' }
+  return [
+    {
+      ...base, id: 'x1', findingTitle: 'Container läuft als root', status: 'proposed', commit: null, note: null,
+      explanation: 'Der API-Dienst läuft jetzt als Benutzer node (UID 1000). Das Volume /data gehört diesem Benutzer bereits; sonst ändert sich nichts.',
+      diff: ['--- a/compose.yaml', '+++ b/compose.yaml', '@@ -4,6 +4,7 @@', '   api:', '     build: ./api', '     restart: unless-stopped', '+    user: "1000:1000"', '     volumes:', '       - data:/data', '     environment:'].join('\n'),
+      createdAt: ago(7 * MIN), updatedAt: ago(7 * MIN),
+    },
+    {
+      ...base, id: 'x2', findingTitle: 'Offene Datei /backup.sql', tool: 'nuclei', status: 'verified', commit: '9c1e07b2aa41', note: 'Der Nachscan findet den Befund nicht mehr.',
+      explanation: 'backup.sql aus dem Projekt entfernt und in .dockerignore aufgenommen.',
+      diff: ['--- a/backup.sql', '+++ /dev/null', '@@ -1,1 +0,0 @@', '-«Binärdatei»'].join('\n'),
+      createdAt: ago(26 * HOUR), updatedAt: ago(25 * HOUR),
+    },
+  ]
 }
 
 export function audit(targetId?: string): AuditEventDto[] {

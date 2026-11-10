@@ -6,6 +6,7 @@ import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
+import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 
 /**
  * Ergebnis eines Scans: Note, Score, offene Befunde, Stufen, Zeit. Wird am
@@ -86,7 +87,7 @@ export function ScanReport({
   /** Ein neuerer Scan läuft gerade (dieser Bericht ist der letzte fertige). */
   runningSince?: string | null
   /** M8: Weg zum Beheben neben «Akzeptieren» (Header setzen, Mit Claude lösen) */
-  findingAction?: (f: FindingDto) => ReactNode
+  findingAction?: (f: FindingDto, acceptButton: ReactNode) => ReactNode
   /** M8: Abschnitt unter den Befunden (Header über Caddy) */
   after?: ReactNode
 }) {
@@ -184,7 +185,7 @@ export function ScanReport({
       {open.length === 0 && !running && <p className="state state-empty">Keine offenen Befunde.</p>}
       {shown.length > 0 && (
         <ul className="finding-list">
-          {shown.map((f) => <Finding key={f.id} f={f} onAccepted={onAccepted} action={findingAction?.(f)} />)}
+          {shown.map((f) => <Finding key={f.id} f={f} onAccepted={onAccepted} action={findingAction ? (accept) => findingAction(f, accept) : undefined} />)}
         </ul>
       )}
       {other.length > 0 && (
@@ -198,7 +199,7 @@ export function ScanReport({
   )
 }
 
-function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => void; action?: ReactNode }) {
+function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => void; action?: (acceptButton: ReactNode) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const v = useFormErrors({
@@ -226,12 +227,14 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
       {f.fix && <p><span className="muted">Behebung:</span> {f.fix}</p>}
       {f.status === 'accepted' && <p className="muted">✓ akzeptiert: {f.acceptReason}</p>}
       {f.status === 'fixed' && <p className="muted">✓ behoben</p>}
-      {f.status === 'open' && !open && (action || onAccepted) && (
-        <div className="finding-actions">
-          {action}
-          {onAccepted && <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button>}
-        </div>
-      )}
+      {f.status === 'open' && (() => {
+        // M8: Der Weg zum Beheben rendert die Knopfzeile selbst (mit «Akzeptieren»
+        // am Ende) und sein Panel darunter – so stimmt die Tab-Reihenfolge, und
+        // das Panel bleibt offen, während das Akzeptieren-Formular offen ist.
+        const acceptButton = onAccepted && !open ? <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button> : null
+        if (action) return action(acceptButton)
+        return acceptButton ? <div className="finding-actions">{acceptButton}</div> : null
+      })()}
       {open && (
         <form
           className="inline-form"
@@ -257,7 +260,7 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
 }
 
 /** Reiter "Security" am Projekt. */
-export function ProjectSecurity({ projectId }: { projectId: string }) {
+export function ProjectSecurity({ projectId, sourceType }: { projectId: string; sourceType?: string }) {
   const qc = useQueryClient()
   const [confirmActive, setConfirmActive] = useState(false)
   const q = useQuery({
@@ -287,6 +290,8 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
   // M8: Header über Caddy; Ergebnis des Nachscans als Meldung über den Befunden
   const headerRules = useHeaderRules(projectId)
   const [fixNotice, setFixNotice] = useState<string | null>(null)
+  // Nach «Auftrag kopieren»: öfter nach neuen Vorschlägen von Claude sehen
+  const [watchFixes, setWatchFixes] = useState(false)
   const noticeRef = useRef<HTMLDivElement>(null)
   // Die Karte des behobenen Befunds verschwindet; die Meldung oben einblenden.
   // Erst leeren, dann setzen: auch eine gleichlautende Meldung wird angesagt.
@@ -332,8 +337,17 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
             report={report}
             runningSince={running && report !== latest ? latest!.scan.startedAt : null}
             onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
-            findingAction={(f) => <HeaderFixAction projectId={projectId} finding={f} rules={headerRules.data} onDone={showFixNotice} />}
-            after={<HeaderRulesSection projectId={projectId} />}
+            findingAction={(f, accept) => (
+              <ClaudeFixAction
+                projectId={projectId}
+                finding={f}
+                sourceType={sourceType}
+                before={<HeaderFixAction projectId={projectId} finding={f} rules={headerRules.data} onDone={showFixNotice} />}
+                after={accept}
+                onCopied={() => setWatchFixes(true)}
+              />
+            )}
+            after={<><FixRequestsSection projectId={projectId} onDone={showFixNotice} watch={watchFixes} /><HeaderRulesSection projectId={projectId} /></>}
           />
         </>
       )}

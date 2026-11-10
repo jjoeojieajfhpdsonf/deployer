@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { headerKeys, headerModes, needsConfirmation, HEADER_LABEL } from '@deployer/shared'
+import { headerKeys, headerModes, needsConfirmation, HEADER_LABEL, fileInputSchema } from '@deployer/shared'
+import { getFixContext, proposeFix, applyFix, listFixRequests } from '../security/fix-service.js'
 import { findProject } from '../domain/projects.js'
 import { setHeaderRule, removeHeaderRule, listHeaderRules, describeRule } from '../security/header-service.js'
 import type { ToolResult } from './server.js'
@@ -82,6 +83,55 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
           : {}),
         ...(a.header === 'content-security-policy' && all.csp.suggestion ? { csp_suggestion: all.csp.suggestion, csp_notes: all.csp.notes } : {}),
       })
+    },
+  )
+
+  /* --- Etappe 2: Mit Claude lösen --------------------------------------------- */
+
+  tool(
+    'get_fix_context',
+    'Alles, um einen Befund zu beheben: Befund, Erklärung, empfohlener Weg (header, files, github, repo, image, none) und die betroffenen Dateien. ' +
+      'Werte aus der Projekt-Env und Zeilen mit Secrets sind ersetzt, Env-Dateien fehlen. Danach je nach Weg set_security_header oder propose_fix.',
+    { project, finding: z.string().uuid() },
+    async (a) => ok(await getFixContext(a.project, a.finding)),
+  )
+
+  tool(
+    'propose_fix',
+    'Änderung zu einem Befund vorschlagen. files: geänderte Dateien vollständig [{path, content}], delete: Pfade. ' +
+      'Chat-Projekte: deployer zeigt den Vorschlag als Diff; übernommen wird er erst nach Zustimmung (Oberfläche oder apply_fix). ' +
+      'Mit GitHub App: deployer öffnet einen Pull Request auf einem eigenen Branch.',
+    {
+      project,
+      finding: z.string().uuid(),
+      files: z.array(fileInputSchema).max(50).optional(),
+      delete: z.array(z.string()).max(50).optional(),
+      explanation: z.string().min(10).max(4000).describe('Was die Änderung behebt und was sie sonst beeinflusst'),
+    },
+    async (a) => {
+      const fix = await proposeFix(a.project, a.finding, { files: a.files, delete: a.delete, explanation: a.explanation }, actor)
+      return ok({
+        fix: fix.id, status: fix.status, ...(fix.prUrl ? { pull_request: fix.prUrl, branch: fix.branch } : { diff: fix.diff }),
+        next: fix.way === 'github'
+          ? 'Pull Request prüfen und mergen; deployer deployt danach automatisch und scannt nach.'
+          : 'Joël prüft den Diff im Security-Reiter und übernimmt ihn dort – oder apply_fix (verlangt Bestätigung).',
+      })
+    },
+  )
+
+  tool(
+    'apply_fix',
+    'Einen Vorschlag übernehmen: neue Version im lokalen Repo, Deploy, Nachscan (verlangt Bestätigung).',
+    { project, fix: z.string().uuid(), confirmation_token: z.string().optional() },
+    async (a) => {
+      const p = await findProject(a.project)
+      const fixes = await listFixRequests(p.id, 100)
+      const f = fixes.find((x) => x.id === a.fix)
+      if (!f) return fail(`Vorschlag ${a.fix} gehört nicht zu "${p.name}"`)
+      const c = await confirm('apply_fix', { project: p.id, fix: a.fix, confirmation_token: a.confirmation_token }, `Vorschlag für «${f.findingTitle}» in "${p.name}" übernehmen, neu deployen und nachscannen?`)
+      if (!c.go) return c.result
+      const r = await applyFix(a.fix, actor, { projectId: p.id })
+      return ok({ fix: r.id, status: r.status, commit: r.commit, note: r.note, next: 'get_scan_report in einigen Minuten zeigt, ob der Befund weg ist.' })
     },
   )
 }
