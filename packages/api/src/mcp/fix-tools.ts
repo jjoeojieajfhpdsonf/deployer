@@ -4,6 +4,7 @@ import { getFixContext, proposeFix, applyFix, listFixRequests } from '../securit
 import { findProject } from '../domain/projects.js'
 import { setHeaderRule, removeHeaderRule, listHeaderRules, describeRule } from '../security/header-service.js'
 import type { ToolResult } from './server.js'
+import type { Scope } from '../lib/scope.js'
 
 /**
  * M8: MCP-Werkzeuge des Fix-Assistenten. Eigene Datei, damit parallele
@@ -28,13 +29,15 @@ export interface FixToolsContext {
   tool: ToolFn
   confirm: ConfirmFn
   actor: string
+  /** M9: Umgebung des Tokens */
+  scope: Scope
   ok: (data: unknown) => ToolResult
   fail: (msg: string) => ToolResult
 }
 
 const project = z.string().min(1).max(64).describe('Slug oder ID des Projekts')
 
-export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsContext): void {
+export function registerFixTools({ tool, confirm, actor, scope, ok, fail }: FixToolsContext): void {
   tool(
     'set_security_header',
     'Fehlenden Security-Header über Caddy ergänzen (ohne Redeploy; setzt die App den Header selbst, gewinnt ihr Wert). ' +
@@ -51,9 +54,9 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
       confirmation_token: z.string().optional(),
     },
     async (a) => {
-      const p = await findProject(a.project)
+      const p = await findProject(scope, a.project)
       if (a.remove) {
-        const r = await removeHeaderRule(p.id, a.header, actor)
+        const r = await removeHeaderRule(scope, p.id, a.header, actor)
         return ok({ removed: a.header, recheck: r.recheck })
       }
       const mode = a.header === 'content-security-policy' ? a.mode : 'enforce'
@@ -72,8 +75,8 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
         if (!c.go) return c.result
         confirmed = true
       }
-      const r = await setHeaderRule(p.id, a.header, { value: a.value, mode, confirm: confirmed }, actor)
-      const all = await listHeaderRules(p.id)
+      const r = await setHeaderRule(scope, p.id, a.header, { value: a.value, mode, confirm: confirmed }, actor)
+      const all = await listHeaderRules(scope, p.id)
       return ok({
         rule: describeRule(r.rule),
         recheck: r.recheck,
@@ -93,7 +96,7 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
     'Alles, um einen Befund zu beheben: Befund, Erklärung, empfohlener Weg (header, files, github, repo, image, none) und die betroffenen Dateien. ' +
       'Werte aus der Projekt-Env und Zeilen mit Secrets sind ersetzt, Env-Dateien fehlen. Danach je nach Weg set_security_header oder propose_fix.',
     { project, finding: z.string().uuid() },
-    async (a) => ok(await getFixContext(a.project, a.finding)),
+    async (a) => ok(await getFixContext(scope, a.project, a.finding)),
   )
 
   tool(
@@ -109,7 +112,7 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
       explanation: z.string().min(10).max(4000).describe('Was die Änderung behebt und was sie sonst beeinflusst'),
     },
     async (a) => {
-      const fix = await proposeFix(a.project, a.finding, { files: a.files, delete: a.delete, explanation: a.explanation }, actor)
+      const fix = await proposeFix(scope, a.project, a.finding, { files: a.files, delete: a.delete, explanation: a.explanation }, actor)
       return ok({
         fix: fix.id, status: fix.status, ...(fix.prUrl ? { pull_request: fix.prUrl, branch: fix.branch } : { diff: fix.diff }),
         next: fix.way === 'github'
@@ -124,13 +127,13 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
     'Einen Vorschlag übernehmen: neue Version im lokalen Repo, Deploy, Nachscan (verlangt Bestätigung).',
     { project, fix: z.string().uuid(), confirmation_token: z.string().optional() },
     async (a) => {
-      const p = await findProject(a.project)
-      const fixes = await listFixRequests(p.id, 100)
+      const p = await findProject(scope, a.project)
+      const fixes = await listFixRequests(scope, p.id, 100)
       const f = fixes.find((x) => x.id === a.fix)
       if (!f) return fail(`Vorschlag ${a.fix} gehört nicht zu "${p.name}"`)
       const c = await confirm('apply_fix', { project: p.id, fix: a.fix, confirmation_token: a.confirmation_token }, `Vorschlag für «${f.findingTitle}» in "${p.name}" übernehmen, neu deployen und nachscannen?`)
       if (!c.go) return c.result
-      const r = await applyFix(a.fix, actor, { projectId: p.id })
+      const r = await applyFix(scope, a.fix, actor, { projectId: p.id })
       return ok({ fix: r.id, status: r.status, commit: r.commit, note: r.note, next: 'get_scan_report in einigen Minuten zeigt, ob der Befund weg ist.' })
     },
   )

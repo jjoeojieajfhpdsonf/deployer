@@ -33,22 +33,22 @@ function allowReport(key: string): boolean {
 export async function fixRoutes(app: FastifyInstance): Promise<void> {
   /* --- Header über Caddy ------------------------------------------------------- */
 
-  app.get<{ Params: { id: string } }>('/projects/:id/header-rules', async (request) => listHeaderRules(request.params.id))
+  app.get<{ Params: { id: string } }>('/projects/:id/header-rules', async (request) => listHeaderRules(request.scope, request.params.id))
 
   app.put<{ Params: { id: string; header: string } }>('/projects/:id/header-rules/:header', async (request) => {
     const header = headerParam.parse(request.params.header)
     const body = headerRuleInputSchema.parse(request.body ?? {})
-    return setHeaderRule(request.params.id, header, body, actorFor(request))
+    return setHeaderRule(request.scope, request.params.id, header, body, actorFor(request))
   })
 
   app.delete<{ Params: { id: string; header: string } }>('/projects/:id/header-rules/:header', async (request) => {
     const header = headerParam.parse(request.params.header)
-    return removeHeaderRule(request.params.id, header, actorFor(request))
+    return removeHeaderRule(request.scope, request.params.id, header, actorFor(request))
   })
 
   /** Nachscan nur der Stufe «headers», etwa nachdem die App selbst Header setzt */
   app.post<{ Params: { id: string } }>('/projects/:id/header-recheck', async (request) => {
-    const p = await findProject(request.params.id)
+    const p = await findProject(request.scope, request.params.id)
     return recheckHeaders(p.id, actorFor(request))
   })
 
@@ -56,21 +56,21 @@ export async function fixRoutes(app: FastifyInstance): Promise<void> {
 
   /** Weg, fertiger Auftrag und bei Images die Kandidaten */
   app.get<{ Params: { id: string; finding: string } }>('/projects/:id/findings/:finding/fix-hint', async (request) =>
-    fixHint(request.params.id, z.string().uuid().parse(request.params.finding)))
+    fixHint(request.scope, request.params.id, z.string().uuid().parse(request.params.finding)))
 
-  app.get<{ Params: { id: string } }>('/projects/:id/fix-requests', async (request) => ({ fixes: await listFixRequests(request.params.id) }))
+  app.get<{ Params: { id: string } }>('/projects/:id/fix-requests', async (request) => ({ fixes: await listFixRequests(request.scope, request.params.id) }))
 
   /** Übernehmen: neue Version, Deploy, Nachscan. Nur mit ausdrücklicher Bestätigung. */
   app.post<{ Params: { id: string; fix: string } }>('/projects/:id/fix-requests/:fix/apply', async (request) => {
     const { confirm } = z.object({ confirm: z.boolean().optional() }).parse(request.body ?? {})
     if (confirm !== true) throw badRequest('Übernehmen verlangt eine ausdrückliche Bestätigung')
-    const p = await findProject(request.params.id)
-    return { fix: await applyFix(z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
+    const p = await findProject(request.scope, request.params.id)
+    return { fix: await applyFix(request.scope, z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
   })
 
   app.post<{ Params: { id: string; fix: string } }>('/projects/:id/fix-requests/:fix/reject', async (request) => {
-    const p = await findProject(request.params.id)
-    return { fix: await rejectFix(z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
+    const p = await findProject(request.scope, request.params.id)
+    return { fix: await rejectFix(request.scope, z.string().uuid().parse(request.params.fix), actorFor(request), { projectId: p.id }) }
   })
 }
 

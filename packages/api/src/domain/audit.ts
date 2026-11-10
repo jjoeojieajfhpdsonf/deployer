@@ -1,4 +1,5 @@
-import { desc, lt, and, eq, sql, type SQL } from 'drizzle-orm'
+import { desc, lt, and, eq, or, isNull, sql, type SQL } from 'drizzle-orm'
+import type { ListScope } from '../lib/scope.js'
 import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
 import { log } from '../lib/log.js'
@@ -76,9 +77,17 @@ export async function withAudit<T>(
   }
 }
 
-export async function listAudit(opts: { limit?: number; before?: string; action?: string; targetId?: string } = {}): Promise<AuditEventDto[]> {
+/**
+ * M9: Einträge einer Umgebung und dazu die Server-Ereignisse (ohne Umgebung:
+ * Anmeldung, Passwort, Tunnel, …) – SPEC, Entscheidung 6. Einträge anderer
+ * Umgebungen nie.
+ */
+export async function listAudit(scope: ListScope, opts: { limit?: number; before?: string; action?: string; targetId?: string } = {}): Promise<AuditEventDto[]> {
   const limit = Math.min(opts.limit ?? 100, 500)
   const conds: SQL[] = []
+  if (scope.kind === 'env') {
+    conds.push(or(eq(schema.auditEvents.environmentId, scope.envId), isNull(schema.auditEvents.environmentId))!)
+  }
   if (opts.before) conds.push(lt(schema.auditEvents.at, new Date(opts.before)))
   if (opts.action) conds.push(eq(schema.auditEvents.action, opts.action))
   if (opts.targetId) conds.push(eq(schema.auditEvents.targetId, opts.targetId))
@@ -100,6 +109,8 @@ export async function listAudit(opts: { limit?: number; before?: string; action?
     paramsMasked: redactDeep(r.paramsMasked),
     result: r.result,
     error: redactSecrets(r.error) ?? null,
+    environmentId: r.environmentId,
+    server: r.environmentId === null,
   }))
 }
 

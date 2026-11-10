@@ -6,6 +6,7 @@ import { UI_HOST_LABEL, type CfStatusDto, type CfTokenCheckDto, type CfPermissio
 import { config, setCfRuntime, cf, net, type CfRuntime } from '../config.js'
 import { db, schema, getSetting } from '../db/index.js'
 import { reloadEnvironments, defaultEnvironment, splitBaseDomain, DEFAULT_CLOUDFLARED_NAME, type EnvRuntime } from './environments.js'
+import { inEnvironment } from '../lib/scope.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import { Cloudflare, CloudflareError } from '../drivers/cloudflare.js'
 import {
@@ -415,7 +416,8 @@ export interface DomainChoice {
 export async function saveDomains(input: DomainChoice, actor: string): Promise<void> {
   if (!stored.tokenEnc) throw badRequest('Zuerst das Token speichern')
   const { listDomains, setDefaultDomain } = await import('./public.js')
-  const zones = await listDomains()
+  const own = inEnvironment(defaultEnvironment().id)
+  const zones = await listDomains(own)
   const zone = zones.find((z) => z.name === input.baseZone.toLowerCase())
   if (!zone) throw badRequest(`${input.baseZone} ist keine Zone dieses Kontos`, [{ path: 'baseZone', message: 'Wähle eine Zone aus der Liste.' }])
   const label = input.baseLabel.trim().toLowerCase()
@@ -430,7 +432,7 @@ export async function saveDomains(input: DomainChoice, actor: string): Promise<v
     ...(input.accessEmail !== undefined ? { accessEmail: input.accessEmail || null } : {}),
     ...(input.acmeEmail !== undefined ? { acmeEmail: input.acmeEmail || null } : {}),
   })
-  if (input.defaultZone) await setDefaultDomain(input.defaultZone, actor)
+  if (input.defaultZone) await setDefaultDomain(own, input.defaultZone, actor)
   if (before !== baseDomain) {
     // Bestehende Projekte ziehen auf die neue Basisdomain um; ein Zertifikat für die alte gilt nicht mehr
     const { rehostRoutes } = await import('./routes.js')
@@ -819,7 +821,7 @@ async function reloadCaddy(force = false): Promise<void> {
 
 export async function cloudflareStatus(): Promise<CfStatusDto> {
   const { listDomains, tunnelStatus } = await import('./public.js')
-  const zones = await listDomains().catch(() => [])
+  const zones = await listDomains(inEnvironment(defaultEnvironment().id)).catch(() => [])
   const tunnelId = cf.tunnelId()
   const managed = Boolean(stored.tunnel)
   const container = tunnelId ? await cloudflaredState().catch(() => null) : null

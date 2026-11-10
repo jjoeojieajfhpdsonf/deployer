@@ -9,6 +9,7 @@ import { approvePublicRequest, discardPublicRequest } from '../../domain/public-
 import { progressOf } from '../../domain/public-progress.js'
 import { audit } from '../../domain/audit.js'
 import { actorFor } from '../auth.js'
+import { listScopeFor } from '../scope.js'
 import { AppError } from '../../lib/errors.js'
 
 interface IdParams { id: string }
@@ -25,67 +26,72 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   }
 
   app.get<{ Params: IdParams }>('/projects/:id/public', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     return publicStatus(project)
   })
 
   /** Nur der Fortschritt – die Karte fragt ihn ab, solange ihr Aufruf läuft. */
   app.get<{ Params: IdParams }>('/projects/:id/public/progress', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     return { progress: progressOf(project.id) }
   })
 
   app.post<{ Params: IdParams }>('/projects/:id/public', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const body = publishPublicSchema.parse(request.body ?? {})
     const r = await publishFlow(project, { subdomain: body.publicSubdomain, hostname: body.publicHostname, accessProtected: body.accessProtected }, actorFor(request))
-    return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+    return { ...r, project: await toDto(await findProject(request.scope, project.id)), status: await publicStatus(project) }
   })
 
   app.post<{ Params: IdParams }>('/projects/:id/public/pause', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     // Optional: eigene Pause-Seite (null = Vorlage) und «Voraussichtlich zurück»
     const opts = request.body ? pauseOptionsSchema.parse(request.body) : undefined
     const r = await pauseFlow(project, actorFor(request), opts)
-    return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+    return { ...r, project: await toDto(await findProject(request.scope, project.id)), status: await publicStatus(project) }
   })
 
   /** Pause-Seite des Projekts ändern, auch während der Pause (wirkt sofort). */
   app.put<{ Params: IdParams }>('/projects/:id/public/pause-page', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const opts = pauseOptionsSchema.parse(request.body ?? {})
     if (await setProjectPause(project.id, opts, actorFor(request))) await reconcileCaddy()
     return { status: await publicStatus(project) }
   })
 
-  /** Globale Vorlage der Pause-Seite (System → Veröffentlichung). */
-  app.get('/settings/pause-page', async () => ({ page: await pausePageTemplate(), defaults: DEFAULT_PAUSE_PAGE }))
+  /** Vorlage der Pause-Seite einer Umgebung (M9; ohne Angabe die Standard-Umgebung). */
+  const getTemplate = async (request: FastifyRequest) => ({ page: await pausePageTemplate(listScopeFor(request).envId), defaults: DEFAULT_PAUSE_PAGE })
+  app.get('/settings/pause-page', getTemplate)
+  app.get('/environments/:env/settings/pause-page', getTemplate)
 
-  app.put('/settings/pause-page', async (request) => {
+  const putTemplate = async (request: FastifyRequest) => {
     sessionOnly(request)
+    const scope = listScopeFor(request)
     const body = z.object({ page: pausePageSchema.nullable() }).parse(request.body)
-    const page = await setPausePageTemplate(body.page, actorFor(request))
+    const page = await setPausePageTemplate(body.page, actorFor(request), scope.envId)
     // Pausierte Projekte ohne eigene Seite zeigen die neue Vorlage sofort
     await reconcileCaddy()
     return { page, defaults: DEFAULT_PAUSE_PAGE }
-  })
+  }
+  app.put('/settings/pause-page', putTemplate)
+  app.put('/environments/:env/settings/pause-page', putTemplate)
 
   app.post<{ Params: IdParams }>('/projects/:id/public/resume', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const r = await resumeFlow(project, actorFor(request))
-    return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+    return { ...r, project: await toDto(await findProject(request.scope, project.id)), status: await publicStatus(project) }
   })
 
   /** Ganz offline: Tunnel-Regel und DNS-Eintrag weg, der Name ist frei. */
   app.delete<{ Params: IdParams }>('/projects/:id/public', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const r = await unpublishFlow(project, actorFor(request))
-    return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+    return { ...r, project: await toDto(await findProject(request.scope, project.id)), status: await publicStatus(project) }
   })
 
   /**
@@ -94,22 +100,22 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post<{ Params: IdParams }>('/projects/:id/public/request/approve', async (request) => {
     sessionOnly(request)
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     await approvePublicRequest(project.id, actorFor(request))
     // Falls der Scan inzwischen bestanden ist: gleich ausführen
     await applyApprovedRequest(project.id)
-    return { project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+    return { project: await toDto(await findProject(request.scope, project.id)), status: await publicStatus(project) }
   })
 
   app.delete<{ Params: IdParams }>('/projects/:id/public/request', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     await discardPublicRequest(project.id, actorFor(request))
     return { status: await publicStatus(project) }
   })
 
   /** Tailnet und LAN speichern, ohne die öffentliche Route anzufassen. */
   app.put<{ Params: IdParams }>('/projects/:id/routes/internal', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const body = putInternalRoutesSchema.parse(request.body)
     try {
       await setRoutes(project.id, project.slug, body.targets, body.subdomain)
@@ -117,6 +123,6 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       await reconcileCaddy()
     }
     await audit({ actor: actorFor(request), action: 'project.routes.set', targetType: 'project', targetId: project.id, params: body, result: 'ok' })
-    return { project: await toDto(await findProject(project.id)) }
+    return { project: await toDto(await findProject(request.scope, project.id)) }
   })
 }

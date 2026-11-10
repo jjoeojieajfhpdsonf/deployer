@@ -1,8 +1,8 @@
-import { eq, desc } from 'drizzle-orm'
+import { and, eq, desc } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { db, schema } from '../db/index.js'
-import { defaultEnvironmentId } from '../domain/environments.js'
+import { serverJob, type Scope, type EnvScope, type ListScope } from '../lib/scope.js'
 import { cf, config } from '../config.js'
 import { audit } from '../domain/audit.js'
 import { notFound, conflict } from '../lib/errors.js'
@@ -62,32 +62,40 @@ export function assertTargetIsPublic(hostname: string): Promise<string[]> {
   return assertPublicTarget(hostname, resolveAddresses)
 }
 
-export async function listExternalTargets(): Promise<ExternalTargetDto[]> {
-  return (await db.select().from(schema.externalTargets).orderBy(desc(schema.externalTargets.createdAt))).map(toDto)
+export async function listExternalTargets(scope: ListScope): Promise<ExternalTargetDto[]> {
+  return (await db.select().from(schema.externalTargets)
+    .where(scope.kind === 'env' ? eq(schema.externalTargets.environmentId, scope.envId) : undefined)
+    .orderBy(desc(schema.externalTargets.createdAt))).map(toDto)
 }
 
-export async function findExternalTarget(idOrHost: string): Promise<Row> {
+/** M9: Ziel einer anderen Umgebung = «nicht gefunden», wie ein unbekanntes. */
+export async function findExternalTarget(scope: Scope, idOrHost: string): Promise<Row> {
   const isUuid = /^[0-9a-f-]{36}$/i.test(idOrHost)
+  const byKey = isUuid ? eq(schema.externalTargets.id, idOrHost) : eq(schema.externalTargets.hostname, idOrHost.toLowerCase())
   const rows = await db
     .select()
     .from(schema.externalTargets)
-    .where(isUuid ? eq(schema.externalTargets.id, idOrHost) : eq(schema.externalTargets.hostname, idOrHost.toLowerCase()))
+    .where(scope.kind === 'env' ? and(byKey, eq(schema.externalTargets.environmentId, scope.envId)) : byKey)
     .limit(1)
   if (!rows[0]) throw notFound('Externes Ziel')
   return rows[0]
 }
 
-export async function addExternalTarget(hostname: string, actor: string): Promise<ExternalTargetDto> {
+/**
+ * Neues Ziel in der Umgebung des Scopes. Hostnamen sind serverweit
+ * eindeutig; ein Name einer anderen Umgebung ergibt «schon eingetragen».
+ */
+export async function addExternalTarget(scope: EnvScope, hostname: string, actor: string): Promise<ExternalTargetDto> {
   const h = validateExternalHostname(hostname, cf.baseDomain())
   const existing = await db.select().from(schema.externalTargets).where(eq(schema.externalTargets.hostname, h))
   if (existing[0]) throw conflict(`${h} ist schon eingetragen`)
-  const rows = await db.insert(schema.externalTargets).values({ hostname: h, txtToken: randomBytes(18).toString('base64url'), environmentId: defaultEnvironmentId() }).returning()
+  const rows = await db.insert(schema.externalTargets).values({ hostname: h, txtToken: randomBytes(18).toString('base64url'), environmentId: scope.envId }).returning()
   await audit({ actor, action: 'external_target.add', targetType: 'external_target', targetId: rows[0]!.id, params: { hostname: h }, result: 'ok' })
   return toDto(rows[0]!)
 }
 
-export async function verifyExternalTarget(idOrHost: string, actor: string): Promise<ExternalTargetDto & { confirmedBy: string[]; errors: string[] }> {
-  const t = await findExternalTarget(idOrHost)
+export async function verifyExternalTarget(scope: Scope, idOrHost: string, actor: string): Promise<ExternalTargetDto & { confirmedBy: string[]; errors: string[] }> {
+  const t = await findExternalTarget(scope, idOrHost)
   const r = await verifyTxt(t.hostname, t.txtToken, resolveTxt)
   if (r.verified) {
     try {
@@ -115,7 +123,7 @@ export async function verifyExternalTarget(idOrHost: string, actor: string): Pro
  * aufgehoben und es gibt eine Benachrichtigung.
  */
 export async function recheckExternalTarget(id: string): Promise<boolean> {
-  const t = await findExternalTarget(id)
+  const t = await findExternalTarget(serverJob('nachweis-vor-scan'), id)
   const r = await verifyTxt(t.hostname, t.txtToken, resolveTxt)
   await db
     .update(schema.externalTargets)
@@ -128,15 +136,15 @@ export async function recheckExternalTarget(id: string): Promise<boolean> {
   return r.verified
 }
 
-export async function updateExternalTarget(idOrHost: string, scanInterval: Row['scanInterval'], actor: string): Promise<ExternalTargetDto> {
-  const t = await findExternalTarget(idOrHost)
+export async function updateExternalTarget(scope: Scope, idOrHost: string, scanInterval: Row['scanInterval'], actor: string): Promise<ExternalTargetDto> {
+  const t = await findExternalTarget(scope, idOrHost)
   const rows = await db.update(schema.externalTargets).set({ scanInterval }).where(eq(schema.externalTargets.id, t.id)).returning()
   await audit({ actor, action: 'external_target.update', targetType: 'external_target', targetId: t.id, params: { scanInterval }, result: 'ok' })
   return toDto(rows[0]!)
 }
 
-export async function deleteExternalTarget(idOrHost: string, actor: string): Promise<void> {
-  const t = await findExternalTarget(idOrHost)
+export async function deleteExternalTarget(scope: Scope, idOrHost: string, actor: string): Promise<void> {
+  const t = await findExternalTarget(scope, idOrHost)
   await db.delete(schema.externalTargets).where(eq(schema.externalTargets.id, t.id))
-  await audit({ actor, action: 'external_target.delete', targetType: 'external_target', targetId: t.id, params: { hostname: t.hostname }, result: 'ok' })
+  await audit({ actor, action: 'external_target.delete', targetType: 'external_target', targetId: t.id, environmentId: t.environmentId, params: { hostname: t.hostname }, result: 'ok' })
 }

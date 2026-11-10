@@ -693,6 +693,27 @@ export interface AuditEventDto {
   paramsMasked: unknown
   result: 'ok' | 'error'
   error: string | null
+  /** M9: Umgebung des Eintrags; null = Server-Ereignis (gilt für alle Umgebungen) */
+  environmentId: string | null
+  server: boolean
+}
+
+/* --- M9: Umgebungen ------------------------------------------------------- */
+
+export interface EnvironmentDto {
+  id: string
+  slug: string
+  name: string
+  /** Kürzel aus zwei Zeichen, im Umschalter neben dem Namen */
+  short: string
+  isDefault: boolean
+  /** Hauptzone, z. B. «jherren.com»; null = noch nicht gewählt */
+  zone: string | null
+  /** Interne Basis, z. B. «int.jherren.com» */
+  baseDomain: string | null
+  projects: number
+  /** Offene kritische Befunde (Zahl, im Umschalter mit Wort) */
+  critical: number
 }
 
 /* --- Cloudflare verbinden (Systemseite) ------------------------------------ */

@@ -1,6 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { defaultEnvironmentId } from './environments.js'
+import { inEnvironment, serverJob, type EnvScope, type ListScope } from '../lib/scope.js'
 import { cf as settings, config } from '../config.js'
 import { RESERVED_SLUGS } from '@airlock/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
@@ -54,8 +55,13 @@ function wrap(err: unknown): never {
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
 
-/** Zonen des Kontos holen und in `domains` spiegeln. Die Standard-Wahl bleibt. */
-export async function syncDomains(cf = client()): Promise<DomainDto[]> {
+/**
+ * Zonen des Kontos holen und in `domains` spiegeln. Die Standard-Wahl bleibt.
+ * M9: Neue Zonen landen in der Umgebung envId (vorerst die Standard-Umgebung;
+ * Etappe 3: die Umgebung, deren Token abgeglichen wird); die Antwort ist die
+ * Liste dieser Umgebung.
+ */
+export async function syncDomains(cf = client(), envId: string = defaultEnvironmentId()): Promise<DomainDto[]> {
   let zones: Zone[]
   try {
     zones = await cf.listZones()
@@ -66,7 +72,7 @@ export async function syncDomains(cf = client()): Promise<DomainDto[]> {
     for (const z of zones) {
       await tx
         .insert(schema.domains)
-        .values({ cfZoneId: z.id, name: z.name.toLowerCase(), environmentId: defaultEnvironmentId() })
+        .values({ cfZoneId: z.id, name: z.name.toLowerCase(), environmentId: envId })
         .onConflictDoUpdate({ target: schema.domains.cfZoneId, set: { name: z.name.toLowerCase() } })
     }
     const ids = zones.map((z) => z.id)
@@ -80,24 +86,27 @@ export async function syncDomains(cf = client()): Promise<DomainDto[]> {
       await tx.delete(schema.domains).where(eq(schema.domains.id, d.id))
     }
   })
-  return listDomains()
+  return listDomains(inEnvironment(envId))
 }
 
-export async function listDomains(): Promise<DomainDto[]> {
-  const rows = await db.select().from(schema.domains).orderBy(schema.domains.name)
+/** M9: Zonen einer Umgebung (oder aller, für Server-Jobs). */
+export async function listDomains(scope: ListScope): Promise<DomainDto[]> {
+  const rows = await db.select().from(schema.domains)
+    .where(scope.kind === 'env' ? eq(schema.domains.environmentId, scope.envId) : undefined)
+    .orderBy(schema.domains.name)
   return rows.map((d) => ({ id: d.id, name: d.name, zoneId: d.cfZoneId, isDefault: d.isDefault }))
 }
 
-export async function setDefaultDomain(name: string, actor: string): Promise<DomainDto[]> {
+export async function setDefaultDomain(scope: EnvScope, name: string, actor: string): Promise<DomainDto[]> {
   const n = name.trim().toLowerCase()
-  const row = (await db.select().from(schema.domains).where(eq(schema.domains.name, n)))[0]
-  if (!row) throw badRequest(`${n} ist keine Zone dieses Cloudflare-Kontos (Liste zuerst abgleichen)`)
+  const row = (await db.select().from(schema.domains).where(and(eq(schema.domains.name, n), eq(schema.domains.environmentId, scope.envId))))[0]
+  if (!row) throw badRequest(`${n} ist keine Zone dieser Umgebung (Liste zuerst abgleichen)`)
   await db.transaction(async (tx) => {
-    await tx.update(schema.domains).set({ isDefault: false }).where(eq(schema.domains.isDefault, true))
+    await tx.update(schema.domains).set({ isDefault: false }).where(and(eq(schema.domains.isDefault, true), eq(schema.domains.environmentId, scope.envId)))
     await tx.update(schema.domains).set({ isDefault: true }).where(eq(schema.domains.id, row.id))
   })
   await audit({ actor, action: 'domain.default', targetType: 'domain', targetId: row.id, params: { name: n }, result: 'ok' })
-  return listDomains()
+  return listDomains(scope)
 }
 
 /* --- Öffentlich schalten --------------------------------------------------------- */
@@ -113,7 +122,7 @@ export async function publicRoute(projectId: string) {
   return (await db.select().from(schema.routes).where(and(eq(schema.routes.projectId, projectId), eq(schema.routes.target, 'public'))))[0] ?? null
 }
 
-type Project = { id: string; slug: string; name: string }
+type Project = { id: string; slug: string; name: string; environmentId: string }
 type PublicRouteRow = NonNullable<Awaited<ReturnType<typeof publicRoute>>>
 
 export interface PublicPlan {
@@ -137,7 +146,9 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
   await assertPublishable(project.id)
   try {
     const before = await publicRoute(project.id)
-    const domains = await listDomains().then((d) => (d.length ? d : syncDomains(cf)))
+    // M9: nur Zonen der Umgebung des Projekts
+    const own = inEnvironment(project.environmentId)
+    const domains = await listDomains(own).then((d) => (d.length ? d : syncDomains(cf, project.environmentId)))
     const nameGiven = Boolean(input.subdomain || input.hostname)
     const { hostname, zone } = resolvePublicHostname(
       nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
@@ -277,7 +288,7 @@ export async function removePublic(project: { id: string; slug: string }, actor:
 }
 
 async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }, pr?: Progress): Promise<void> {
-  const domains = await listDomains()
+  const domains = await listDomains(serverJob('cloudflare-aufräumen'))
   const zone = domains.find((d) => route.hostname === d.name || route.hostname.endsWith(`.${d.name}`))
   if (route.cfDnsRecordId && !zone) throw new Error(`Zone von ${route.hostname} unbekannt; DNS-Eintrag bitte in Cloudflare von Hand entfernen`)
   if (route.cfDnsRecordId && zone) {

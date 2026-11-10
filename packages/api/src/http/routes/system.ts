@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { listScopeFor } from '../scope.js'
 import { statfs, readFile } from 'node:fs/promises'
 import { cpus, totalmem, freemem } from 'node:os'
 import { scanQueueLength } from '../../security/scan.js'
@@ -250,14 +251,25 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   /* --- M5: Domains und Cloudflare --------------------------------------------- */
 
-  app.get('/domains', async () => ({ domains: await listDomains(), publicEnabled: publicEnabled() }))
+  // M9: Zonen der Umgebung (Pfad /environments/:env/domains oder ?environment=)
+  const listZones = async (request: FastifyRequest) => ({ domains: await listDomains(listScopeFor(request)), publicEnabled: publicEnabled() })
+  app.get('/domains', listZones)
+  app.get('/environments/:env/domains', listZones)
 
-  app.post('/domains/sync', async () => ({ domains: await syncDomains() }))
+  const sync = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
+    return { domains: await syncDomains(undefined, scope.envId) }
+  }
+  app.post('/domains/sync', sync)
+  app.post('/environments/:env/domains/sync', sync)
 
-  app.put('/domains/default', async (request) => {
+  const setDefault = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
     const { name } = z.object({ name: z.string().min(3).max(253) }).parse(request.body)
-    return { domains: await setDefaultDomain(name, actorFor(request)) }
-  })
+    return { domains: await setDefaultDomain(scope, name, actorFor(request)) }
+  }
+  app.put('/domains/default', setDefault)
+  app.put('/environments/:env/domains/default', setDefault)
 
   // Tunnel-Ingress aus der Datenbank neu setzen (nur mit Anmeldung, siehe auth.ts).
   app.post('/system/cloudflare-sync', async () => {
@@ -273,15 +285,19 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     )
   })
 
-  app.get<{ Querystring: { limit?: string; before?: string; action?: string; targetId?: string } }>(
-    '/audit',
-    async (request) => ({
-      events: await listAudit({
-        limit: request.query.limit ? Number(request.query.limit) : undefined,
-        before: request.query.before,
-        action: request.query.action,
-        targetId: request.query.targetId,
+  // M9: Einträge der Umgebung plus Server-Ereignisse
+  type AuditQuery = { limit?: string; before?: string; action?: string; targetId?: string }
+  const auditList = async (request: FastifyRequest) => {
+    const q = request.query as AuditQuery
+    return {
+      events: await listAudit(listScopeFor(request), {
+        limit: q.limit ? Number(q.limit) : undefined,
+        before: q.before,
+        action: q.action,
+        targetId: q.targetId,
       }),
-    }),
-  )
+    }
+  }
+  app.get('/audit', auditList)
+  app.get('/environments/:env/audit', auditList)
 }

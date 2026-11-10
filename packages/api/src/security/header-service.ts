@@ -6,6 +6,7 @@ import {
 } from '@airlock/shared'
 import { db, schema } from '../db/index.js'
 import { findProject } from '../domain/projects.js'
+import type { Scope } from '../lib/scope.js'
 import { probeTargetFor, reconcileCaddy } from '../domain/routes.js'
 import { caddyTlsOptions, tlsPhase } from '../domain/cloudflare-settings.js'
 import { audit } from '../domain/audit.js'
@@ -48,8 +49,8 @@ export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; r
   return { ok: true, reason: null }
 }
 
-export async function listHeaderRules(idOrSlug: string): Promise<HeaderRulesDto> {
-  const p = await findProject(idOrSlug)
+export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<HeaderRulesDto> {
+  const p = await findProject(scope, idOrSlug)
   const rules = await db.select().from(schema.headerRules).where(eq(schema.headerRules.projectId, p.id))
   const violations = await db
     .select()
@@ -86,12 +87,13 @@ export interface SetHeaderInput {
  * und HSTS nur mit Bestätigung; HSTS nur, wenn TLS stabil läuft.
  */
 export async function setHeaderRule(
+  scope: Scope,
   idOrSlug: string,
   header: HeaderKey,
   input: SetHeaderInput,
   actor: string,
 ): Promise<{ rule: HeaderRuleDto; recheck: HeaderRecheckDto }> {
-  const p = await findProject(idOrSlug)
+  const p = await findProject(scope, idOrSlug)
   const existing = (await db.select().from(schema.headerRules).where(and(eq(schema.headerRules.projectId, p.id), eq(schema.headerRules.header, header))))[0]
   // HSTS kennt nur «scharf»; die anderen ausser CSP auch
   const mode: HeaderMode = header === 'content-security-policy' ? input.mode : 'enforce'
@@ -130,8 +132,8 @@ export async function setHeaderRule(
   return { rule: toDto(saved), recheck }
 }
 
-export async function removeHeaderRule(idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto }> {
-  const p = await findProject(idOrSlug)
+export async function removeHeaderRule(scope: Scope, idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto }> {
+  const p = await findProject(scope, idOrSlug)
   const gone = await db
     .delete(schema.headerRules)
     .where(and(eq(schema.headerRules.projectId, p.id), eq(schema.headerRules.header, header)))

@@ -6,7 +6,8 @@ import type { DeploymentArtifact } from '../db/schema.js'
 import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { composeUp, composePull } from '../drivers/compose-cli.js'
-import { findProject, setStatus, setDesiredState, touchActivity } from '../domain/projects.js'
+import { findProject, findProjectForServerJob, setStatus, setDesiredState, touchActivity } from '../domain/projects.js'
+import { serverJob, type Scope } from '../lib/scope.js'
 import { resolveEnv } from '../domain/env.js'
 import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
@@ -52,13 +53,13 @@ type Job =
  * (stirbt der Prozess, gibt Postgres den Lock frei). Rollbacks benutzen
  * dieselbe Sperre.
  */
-export async function startDeploy(idOrSlug: string, actor: string, ref?: string): Promise<DeploymentDto> {
-  return startJob(await findProject(idOrSlug), actor, { kind: 'deploy', ref })
+export async function startDeploy(scope: Scope, idOrSlug: string, actor: string, ref?: string): Promise<DeploymentDto> {
+  return startJob(await findProject(scope, idOrSlug), actor, { kind: 'deploy', ref })
 }
 
 /** Ohne Angabe: die zuletzt aktive Fassung vor der jetzigen. */
-export async function startRollback(idOrSlug: string, actor: string, deploymentId?: string): Promise<DeploymentDto> {
-  const project = await findProject(idOrSlug)
+export async function startRollback(scope: Scope, idOrSlug: string, actor: string, deploymentId?: string): Promise<DeploymentDto> {
+  const project = await findProject(scope, idOrSlug)
   const target = deploymentId ? await getDeployment(deploymentId) : await previousGood(project.id)
   if (!target || target.projectId !== project.id) throw badRequest('Keine frühere Fassung für ein Rollback gefunden')
   if (target.isActive) throw badRequest('Diese Fassung ist bereits aktiv')
@@ -74,8 +75,8 @@ export async function startRollback(idOrSlug: string, actor: string, deploymentI
  * airlock.*-Labels im Netz air_<slug>. Technisch ein Rollback auf die
  * aktive Fassung; die alten Container aus der deployer-Zeit fallen danach weg.
  */
-export async function startRecreate(idOrSlug: string, actor: string): Promise<DeploymentDto> {
-  const project = await findProject(idOrSlug)
+export async function startRecreate(scope: Scope, idOrSlug: string, actor: string): Promise<DeploymentDto> {
+  const project = await findProject(scope, idOrSlug)
   const rows = await db
     .select()
     .from(schema.deployments)
@@ -162,7 +163,7 @@ async function run(
     .limit(1))[0]?.id ?? null
   try {
     await setStatus(projectId, 'deploying')
-    const project = await findProject(projectId)
+    const project = await findProjectForServerJob(projectId)
     appendLine(
       deploymentId,
       job.kind === 'rollback'
@@ -240,7 +241,7 @@ async function run(
 
     // M6: automatischer Scan nach jedem erfolgreichen Deploy, im Hintergrund.
     if (config.SCAN_AFTER_DEPLOY) {
-      await enqueueProjectScan(projectId, { deploymentId, actor, trigger: 'deploy' }).catch(async (e) => {
+      await enqueueProjectScan(serverJob('scan-nach-deploy'), projectId, { deploymentId, actor, trigger: 'deploy' }).catch(async (e) => {
         log.warn('Scan nach Deploy nicht gestartet', { projectId, err: String(e) })
         await rm(scanSourceDir(deploymentId), { recursive: true, force: true }).catch(() => {})
       })
@@ -265,7 +266,7 @@ async function run(
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
     await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: message })
     // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
-    const p = await findProject(projectId).catch(() => null)
+    const p = await findProjectForServerJob(projectId).catch(() => null)
     await notify('deploy_failed', { project: p?.name ?? projectId, error: message.slice(0, 300) })
   } finally {
     await dropWorkDir(deploymentId)
@@ -631,7 +632,7 @@ async function cleanupFailed(projectId: string, deploymentId: string): Promise<v
         await docker.removeContainer(c.id)
       }
     }
-    const project = await findProject(projectId)
+    const project = await findProjectForServerJob(projectId)
     await docker.disconnectFromNetwork(docker.projectNetworkName(project.slug), config.AIRLOCK_CONTAINER)
     // Gebaute Images eines gescheiterten Versuchs braucht niemand – aber nur,
     // wenn er sie selbst gebaut hat. Ein Rollback trägt die Images seines
