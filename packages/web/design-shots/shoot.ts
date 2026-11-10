@@ -162,6 +162,12 @@ const shots: Shot[] = [
       await pg.waitForTimeout(900)
     },
   },
+  { group: 'anfrage', name: 'anfrage-wartet', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false },
+  {
+    group: 'anfrage', name: 'anfrage-wartet-bestaetigen', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Nach dem Scan öffentlich schalten …' }).click(); await pg.waitForTimeout(200) },
+  },
+  { group: 'anfrage', name: 'anfrage-gesperrt', path: `/projekte/${fx.requestBlockedProjectId}?tab=einstellungen`, full: false },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-offline-wahl', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen …' }).click(); await pg.waitForTimeout(250) },

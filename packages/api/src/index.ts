@@ -16,7 +16,7 @@ import { startNetworkWatch } from './domain/network.js'
 import { scrubAuditSecrets } from './domain/audit.js'
 import { scrubDeploymentLogs } from './deploy/journal.js'
 import { ensureTailnetDnsOnBoot } from './domain/tailnet.js'
-import { reconcilePublicOnBoot } from './domain/public.js'
+import { reconcilePublicOnBoot, watchPublicRequests } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
 import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
@@ -72,6 +72,8 @@ async function main(): Promise<void> {
   void ensureTailnetDnsOnBoot()
   // M5: Domains und Tunnel-Ingress aus der Datenbank, ebenfalls im Hintergrund.
   void reconcilePublicOnBoot()
+  // Vorgemerkte Öffentlich-Anfragen nach jedem bestandenen Scan prüfen
+  watchPublicRequests()
   void ensureManagedTunnelOnBoot()
   startCloudflaredWatch()
   startCertJob()

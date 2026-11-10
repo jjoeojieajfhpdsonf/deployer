@@ -858,6 +858,16 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .publication-pending { color: var(--info); background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--info-line); margin-bottom: var(--sp-2); }
 .publication-blocked svg, .publication-pending svg { flex: none; margin-top: 2px; }
 .publication-blocked strong, .publication-pending strong { font-weight: 600; }
+/* Vorgemerkte Anfrage: Text, darunter die Knöpfe */
+.publication-pending { flex-direction: column; gap: 10px; }
+.publication-pending-blocked, .publication-pending-failed { color: var(--warn); background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.publication-pending-text { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.publication-pending-text > span { display: grid; gap: 2px; }
+.publication-pending-detail { color: var(--ink-dim); }
+.publication-pending-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding-left: 22px; }
+.publication-pending .confirm-inline { padding-left: 22px; }
+.publication-pending .confirm-note { display: block; flex-basis: 100%; color: var(--ink-dim); font-weight: 400; }
+.publication-pending .confirm-note svg { display: inline; vertical-align: -2px; margin: 0 4px 0 0; color: var(--warn); }
 .publication .public-options { margin: var(--sp-4) 0 0; }
 .publication-facts { margin-top: var(--sp-2); }
 .publication-url { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }

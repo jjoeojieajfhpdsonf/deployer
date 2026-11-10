@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { publishPublicSchema, putInternalRoutesSchema } from '@deployer/shared'
 import { findProject, toDto } from '../../domain/projects.js'
 import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
-import { publicStatus, publishFlow, pauseFlow, resumeFlow, unpublishFlow } from '../../domain/public.js'
+import { publicStatus, publishFlow, pauseFlow, resumeFlow, unpublishFlow, applyApprovedRequest } from '../../domain/public.js'
+import { approvePublicRequest, discardPublicRequest } from '../../domain/public-requests.js'
 import { progressOf } from '../../domain/public-progress.js'
 import { audit } from '../../domain/audit.js'
 import { actorFor } from '../auth.js'
@@ -60,6 +61,25 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const project = await findProject(request.params.id)
     const r = await unpublishFlow(project, actorFor(request))
     return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+  })
+
+  /**
+   * Vorgemerkte Anfrage bestätigen: «Nach dem Scan öffentlich schalten».
+   * Ist der Scan schon bestanden, geht die Karte direkt über POST /public.
+   */
+  app.post<{ Params: IdParams }>('/projects/:id/public/request/approve', async (request) => {
+    sessionOnly(request)
+    const project = await findProject(request.params.id)
+    await approvePublicRequest(project.id, actorFor(request))
+    // Falls der Scan inzwischen bestanden ist: gleich ausführen
+    await applyApprovedRequest(project.id)
+    return { project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+  })
+
+  app.delete<{ Params: IdParams }>('/projects/:id/public/request', async (request) => {
+    const project = await findProject(request.params.id)
+    await discardPublicRequest(project.id, actorFor(request))
+    return { status: await publicStatus(project) }
   })
 
   /** Tailnet und LAN speichern, ohne die öffentliche Route anzufassen. */

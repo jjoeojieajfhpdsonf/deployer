@@ -36,6 +36,16 @@ let busy = false
 /** Der laufende Scan und wer ihn abbrechen liess (null: läuft weiter). */
 let current: { id: string; cancelledBy: string | null } | null = null
 
+/**
+ * Wer nach einem abgeschlossenen Projekt-Scan etwas tun will (vorgemerkte
+ * Öffentlich-Anfragen, domain/public.ts). Ohne Import in diese Richtung:
+ * public.ts hängt schon an scan.ts.
+ */
+const doneListeners: ((projectId: string) => void)[] = []
+export function onProjectScanDone(fn: (projectId: string) => void): void {
+  doneListeners.push(fn)
+}
+
 /** Scans in der Warteschlange inklusive des laufenden (für die Übersicht). */
 export function scanQueueLength(): number {
   return queue.length + (busy ? 1 : 0)
@@ -246,6 +256,7 @@ async function runScan(runId: string): Promise<void> {
     } else {
       const findings = rewrite ? all.map((f) => ({ ...f, location: rewrite!(f.location) })) : all
       await finalize(run, findings, stages)
+      if (run.projectId) for (const fn of doneListeners) fn(run.projectId)
     }
     log.info('Scan beendet', { scan: runId, status: by ? 'abgebrochen' : 'fertig', dauerMs: Date.now() - startedAt.getTime(), befunde: all.length })
   } catch (err) {

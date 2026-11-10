@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto } from '@deployer/shared'
 import { api } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
@@ -56,7 +56,7 @@ export function Publication({ p }: { p: ProjectDto }) {
       {s && (
         <>
           {/* Platz für eine vorgemerkte Öffentlich-Anfrage (etwa von MCP), die nach dem Scan wirksam wird */}
-          {s.pendingRequest && <PendingRequest s={s} />}
+          {s.pendingRequest && <PendingRequest p={p} s={s} />}
 
           {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} defaultZone={domains.data?.domains.find((d) => d.isDefault)?.name ?? null} />}
           {s.state === 'live' && <LiveState p={p} s={s} actions={actions} />}
@@ -71,17 +71,75 @@ export function Publication({ p }: { p: ProjectDto }) {
 
 type Actions = ReturnType<typeof usePublicActions>
 
-/* --- Vorgemerkte Anfrage (Platzhalter) --------------------------------------------- */
+/* --- Vorgemerkte Anfrage ------------------------------------------------------------- */
 
-function PendingRequest({ s }: { s: PublicStatusDto }) {
+const REQUEST_HEAD: Record<NonNullable<PublicStatusDto['pendingRequest']>['state'], string> = {
+  waiting: 'Öffentlich-Anfrage vorgemerkt',
+  blocked: 'Öffentlich-Anfrage gesperrt',
+  ready: 'Öffentlich-Anfrage: Scan bestanden',
+  failed: 'Öffentlich-Anfrage gescheitert',
+}
+
+/**
+ * Eine Anfrage (etwa per MCP), die wegen der Schwelle noch nicht wirksam
+ * ist. Wird nie still ausgeführt: «Nach dem Scan öffentlich schalten»
+ * bestätigt sie; ist der Scan schon bestanden, geht sie damit sofort live.
+ */
+function PendingRequest({ p, s }: { p: ProjectDto; s: PublicStatusDto }) {
   const r = s.pendingRequest!
+  const qc = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const refresh = () => Promise.all([
+    qc.invalidateQueries({ queryKey: ['public', p.id] }),
+    qc.invalidateQueries({ queryKey: ['project', p.id] }),
+    qc.invalidateQueries({ queryKey: ['projects'] }),
+  ])
+  const approve = useMutation({
+    mutationFn: () => api.approvePublicRequest(p.id),
+    onSuccess: () => { setConfirming(false); void refresh() },
+  })
+  const discard = useMutation({ mutationFn: () => api.discardPublicRequest(p.id), onSuccess: () => void refresh() })
+  const busy = approve.isPending || discard.isPending
+  const now = r.state === 'ready' || r.state === 'failed'
+  const label = r.state === 'failed' ? 'Erneut versuchen …' : now ? 'Jetzt öffentlich schalten …' : 'Nach dem Scan öffentlich schalten …'
+
   return (
-    <div className="publication-pending" role="note">
-      <IconGlobe size={14} />
-      <span>
-        <strong>Öffentlich-Anfrage vorgemerkt</strong> von {r.actor} ({relativeTime(r.requestedAt)}){r.hostname ? <> für <code>{r.hostname}</code></> : null}.
-        {' '}Sie wird erst wirksam, wenn du sie nach dem Scan bestätigst.
-      </span>
+    <div className={`publication-pending publication-pending-${r.state}`} role="note">
+      <div className="publication-pending-text">
+        {r.state === 'blocked' || r.state === 'failed' ? <IconWarn /> : <IconGlobe size={14} />}
+        <span>
+          <strong>{REQUEST_HEAD[r.state]}</strong>
+          <span className="publication-pending-detail">{r.text}</span>
+          {r.hostname && <span className="publication-pending-detail">Name: <code>{r.hostname}</code>{r.accessProtected ? ' · hinter Cloudflare Access' : ''}</span>}
+        </span>
+      </div>
+      {!r.approvedBy || r.state === 'failed' ? (
+        !confirming ? (
+          <div className="publication-pending-actions">
+            <button type="button" className="button-small" onClick={() => setConfirming(true)} disabled={busy}>{label}</button>
+            <button type="button" className="button-small button-ghost" onClick={() => discard.mutate()} disabled={busy}>Anfrage verwerfen</button>
+          </div>
+        ) : (
+          <div className="confirm-inline" role="group" aria-label="Öffentlich-Anfrage bestätigen">
+            <span className="confirm-note">
+              <IconWarn /> {now
+                ? <>«{p.name}» wird jetzt für alle im Internet erreichbar.</>
+                : <>«{p.name}» wird nach dem nächsten Scan ohne kritischen Befund automatisch für alle im Internet erreichbar.</>}
+              {' '}<InternalNote s={s} />
+            </span>
+            <button type="button" className="button-small" onClick={() => setConfirming(false)}>Abbrechen</button>
+            <button type="button" className="button-small button-primary" onClick={() => approve.mutate()} disabled={busy} autoFocus>
+              {approve.isPending ? 'Wird gespeichert…' : now ? 'Ja, veröffentlichen' : 'Ja, nach dem Scan'}
+            </button>
+          </div>
+        )
+      ) : (
+        <div className="publication-pending-actions">
+          <span className="hint">Bestätigt von {r.approvedBy} {relativeTime(r.approvedAt)}.</span>
+          <button type="button" className="button-small button-ghost" onClick={() => discard.mutate()} disabled={busy}>Anfrage verwerfen</button>
+        </div>
+      )}
+      {(approve.isError || discard.isError) && <p role="alert" className="error-inline">{((approve.error ?? discard.error) as Error).message}</p>}
     </div>
   )
 }

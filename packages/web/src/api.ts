@@ -112,6 +112,9 @@ export const api = {
 
   /* Veröffentlichung (Karte) */
   publicStatus: (id: string) => call<PublicStatusDto>(`/projects/${id}/public`),
+  /** Vorgemerkte Öffentlich-Anfrage bestätigen bzw. verwerfen */
+  approvePublicRequest: (id: string) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/request/approve`, { method: 'POST' }),
+  discardPublicRequest: (id: string) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/request`, { method: 'DELETE' }),
   publicProgress: (id: string) => call<{ progress: PublicProgressDto | null }>(`/projects/${id}/public/progress`),
   publish: (id: string, pub: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
     call<PublicFlowResult>(`/projects/${id}/public`, { method: 'POST', body: body(pub) }),

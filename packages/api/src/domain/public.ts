@@ -5,7 +5,8 @@ import { RESERVED_SLUGS } from '@deployer/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, MANAGED_COMMENT, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { cloudflareClient } from './tailnet.js'
-import { assertPublishable, latestScan } from '../security/scan.js'
+import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
+import { getPublicRequest, discardPublicRequest, markRequestFailed, toRequestDto, gateReason } from './public-requests.js'
 import { reconcileCaddy, routeDtosFor } from './routes.js'
 import { Progress, withProgress, stepsFor, progressOf } from './public-progress.js'
 import { checkFromOutside, type Expect } from '../lib/outside-probe.js'
@@ -377,6 +378,8 @@ export function publishFlow(project: Project, input: PublicInput, actor: string)
         await reconcileCaddy()
       }
       const paused = Boolean(before?.pausedAt)
+      // Eine vorgemerkte Anfrage ist damit erledigt
+      if (op === 'publish') await discardPublicRequest(project.id, actor, 'veröffentlicht').catch(() => false)
       const check = await outside(pr, plan.hostname, paused ? 'paused' : 'live', plan.access)
       return { hostname: plan.hostname, check, changed: true }
     }, busy)
@@ -422,24 +425,65 @@ export function unpublishFlow(project: Project, actor: string): Promise<FlowResu
 /* --- Zustand für die Karte -------------------------------------------------------- */
 
 export async function publishability(projectId: string): Promise<PublicStatusDto['publishable']> {
-  if (!publicEnabled()) return { ok: false, why: 'disabled', reason: 'Öffentlich ist nicht eingerichtet: unter System → Cloudflare & HTTPS den Tunnel einrichten.' }
+  if (!publicEnabled()) return { ok: false, why: 'disabled', reason: gateReason({ why: 'disabled' }) }
   try {
     await assertPublishable(projectId)
     return { ok: true }
   } catch (err) {
     if (!(err instanceof AppError) || err.code !== 'not_publishable') throw err
-    const reason = err.message.replace(/^Nicht öffentlich schaltbar: /, '')
+    // Kurz und konkret: «Scan läuft seit 5 Min.», «1 kritischer Befund offen»
     const last = await latestScan(projectId)
     if (last && (last.status === 'queued' || last.status === 'running')) {
-      return { ok: false, why: 'scan_running', reason: 'Ein Scan läuft gerade. Sobald er ohne kritischen Befund fertig ist, lässt sich veröffentlichen.' }
+      return { ok: false, why: 'scan_running', reason: gateReason({ why: 'scan_running', runningSince: last.status === 'running' ? last.startedAt : null }) }
     }
-    return { ok: false, why: /kein abgeschlossener Scan/.test(reason) ? 'no_scan' : 'critical', reason }
+    const done = await latestScan(projectId, true)
+    if (!done) return { ok: false, why: 'no_scan', reason: gateReason({ why: 'no_scan' }) }
+    const critical = await db.select({ title: schema.findings.title }).from(schema.findings)
+      .where(and(eq(schema.findings.scanRunId, done.id), eq(schema.findings.status, 'open'), eq(schema.findings.severity, 'critical')))
+    return { ok: false, why: 'critical', reason: gateReason({ why: 'critical', critical: critical.map((c) => c.title) }) }
   }
+}
+
+/**
+ * Nach jedem bestandenen Scan: eine in der Oberfläche bestätigte Anfrage
+ * ausführen. Eine unbestätigte bleibt stehen – die Karte zeigt dann «Scan
+ * bestanden» mit Knopf; nichts wird still veröffentlicht.
+ */
+export async function applyApprovedRequest(projectId: string): Promise<void> {
+  const req = await getPublicRequest(projectId)
+  if (!req?.approvedBy || req.lastError) return
+  if (await publicRoute(projectId)) {
+    await discardPublicRequest(projectId, 'system', 'schon öffentlich')
+    return
+  }
+  const gate = await publishability(projectId)
+  if (!gate.ok) return
+  const project = (await db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]
+  if (!project) return
+  const actor = `${req.approvedBy} (vorgemerkt)`
+  try {
+    log.info('Vorgemerkte Öffentlich-Anfrage wird ausgeführt', { projectId, actor })
+    await publishFlow(project, { subdomain: req.subdomain ?? undefined, hostname: req.hostname ?? undefined, accessProtected: req.accessProtected }, actor)
+    await discardPublicRequest(projectId, actor, 'nach bestandenem Scan veröffentlicht')
+  } catch (err) {
+    const msg = (err as Error).message
+    await markRequestFailed(projectId, msg)
+    await audit({ actor, action: 'public.request.apply', targetType: 'project', targetId: projectId, params: {}, result: 'error', error: msg })
+    log.warn('Vorgemerkte Öffentlich-Anfrage gescheitert', { projectId, err: msg })
+  }
+}
+
+/** Beim Start aufrufen (index.ts): nach jedem bestandenen Scan Vormerkungen prüfen. */
+export function watchPublicRequests(): void {
+  onProjectScanDone((projectId) => {
+    void applyApprovedRequest(projectId).catch((err) => log.warn('Vormerkung nach Scan nicht geprüft', { projectId, err: String(err) }))
+  })
 }
 
 export async function publicStatus(project: { id: string; slug: string }): Promise<PublicStatusDto> {
   const route = await publicRoute(project.id)
   const internal = (await routeDtosFor(project.id, project.slug)).find((r) => r.target !== 'public')
+  const [gate, req] = await Promise.all([publishability(project.id), getPublicRequest(project.id)])
   return {
     state: !route ? 'private' : route.pausedAt ? 'paused' : 'live',
     enabled: publicEnabled(),
@@ -448,8 +492,8 @@ export async function publicStatus(project: { id: string; slug: string }): Promi
     since: route ? (route.pausedAt ?? route.createdAt).toISOString() : null,
     accessProtected: Boolean(route?.accessProtected),
     internalUrl: internal?.urls[0] ?? null,
-    publishable: await publishability(project.id),
-    pendingRequest: null,
+    publishable: gate,
+    pendingRequest: req && !route ? toRequestDto(req, gate) : null,
     progress: progressOf(project.id),
   }
 }

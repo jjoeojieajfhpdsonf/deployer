@@ -134,11 +134,29 @@ export function publicStatus(id: string): PublicStatusDto {
     accessProtected: Boolean(pub?.accessProtected),
     internalUrl: internal?.urls[0] ?? null,
     publishable: critical
-      ? { ok: false, why: 'critical', reason: 'Offene kritische Befunde: SQL-Injection in /api/suche. Beheben oder mit Begründung akzeptieren.' }
-      : !p.security ? { ok: false, why: 'no_scan', reason: 'Es liegt noch kein abgeschlossener Scan vor' } : { ok: true },
-    pendingRequest: null,
+      ? { ok: false, why: 'critical', reason: '1 kritischer Befund offen: SQL-Injection in /api/suche. Beheben oder mit Begründung akzeptieren.' }
+      : id === requestWaitingProjectId ? { ok: false, why: 'scan_running', reason: 'Scan läuft seit 5 Min. – veröffentlichen geht, sobald er ohne kritischen Befund fertig ist.' }
+      : !p.security ? { ok: false, why: 'no_scan', reason: 'Noch kein abgeschlossener Scan – er startet nach dem ersten erfolgreichen Deploy.' } : { ok: true },
+    pendingRequest: pendingRequest(id),
     progress: null,
   }
+}
+
+/** Vorgemerkte Öffentlich-Anfragen (per MCP): wartet auf den Scan bzw. gesperrt */
+export const requestWaitingProjectId = 'p-rezepte'
+export const requestBlockedProjectId = 'p-kontoauszug'
+
+function pendingRequest(id: string): PublicStatusDto['pendingRequest'] {
+  const at = new Date(Date.now() - 6 * MIN)
+  const hhmm = at.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich' })
+  const base = { requestedAt: at.toISOString(), actor: 'token:claude-code-mac', accessProtected: false, approvedBy: null, approvedAt: null, lastError: null }
+  if (id === requestWaitingProjectId) {
+    return { ...base, hostname: 'rezepte.example.ch', state: 'waiting', text: `Öffentlich angefragt von token:claude-code-mac um ${hhmm} – wartet auf abgeschlossenen Scan ohne kritischen Befund.` }
+  }
+  if (id === requestBlockedProjectId) {
+    return { ...base, hostname: null, state: 'blocked', text: `Öffentlich angefragt von token:claude-code-mac um ${hhmm} – gesperrt, solange ein kritischer Befund offen ist.` }
+  }
+  return null
 }
 
 /** Fortschritt mitten im Veröffentlichen (Tunnel-Regel läuft). */

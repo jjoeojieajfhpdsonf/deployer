@@ -25,6 +25,7 @@ import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import { describeScan, describeStages } from '../security/progress.js'
+import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
 import type { TokenIdentity } from '../domain/tokens.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 
@@ -38,11 +39,6 @@ import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 const project = z.string().min(1).max(64).describe('Slug oder ID des Projekts')
 const wait = z.boolean().default(true).describe('Auf das Ende des Deploys warten (Standard) und das Ergebnis liefern')
 
-/**
- * "public" beim Anlegen: geht nicht, weil die Schwelle (M6) einen
- * abgeschlossenen Scan verlangt – den gibt es erst nach dem ersten Deploy.
- */
-const PUBLIC_AT_CREATE = 'Öffentlich geht erst nach dem ersten Scan (Schwelle aus Meilenstein 6): Projekt mit "lan"/"tailnet" anlegen, get_scan_report abwarten, dann set_targets mit "public".'
 
 type Content = { type: 'text'; text: string } | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } }
 type ToolResult = { content: Content[]; isError?: boolean }
@@ -217,21 +213,35 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     files: z.array(fileInputSchema).max(2000).optional(),
     port: z.number().int().min(1).max(65535).optional().describe('Port im Container; nötig bei Image, Dockerfile, Compose'),
     env: z.array(envEntryInputSchema).max(200).optional(),
-    targets: z.array(z.enum(routeTargets)).default(['tailnet']),
+    targets: z.array(z.enum(routeTargets)).default(['tailnet']).describe('"public" wird vorgemerkt: öffentlich erst nach bestandenem Scan und Bestätigung in der Oberfläche'),
     subdomain: z.string().optional(),
+    public_subdomain: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Subdomain der Standard-Domain'),
+    public_hostname: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: voller Hostname'),
+    access: z.boolean().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Cloudflare Access davorschalten'),
     wait,
   }, async (a) => {
-    if (a.targets.includes('public')) return fail(PUBLIC_AT_CREATE)
+    const wantsPublic = a.targets.includes('public')
+    if (wantsPublic && !publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen. Projekt ohne "public" anlegen.')
+    const internal = a.targets.filter((t) => t !== 'public')
     const input = createProjectSchema.parse({
       name: a.name, source: sourceSchema.parse(a.source), files: a.files, port: a.port,
-      env: a.env ?? [], targets: a.targets.filter((t) => t !== 'public'), subdomain: a.subdomain,
+      // Nur "public" gewünscht: intern trotzdem über das Tailnet erreichbar
+      env: a.env ?? [], targets: internal.length ? internal : ['tailnet'], subdomain: a.subdomain,
     })
     assertSourceSupported(input.source.type)
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
     const p = input.source.type === 'files' ? await createFilesProject(input, actor) : await createProject(input, actor)
+    // Öffentlich geht erst nach dem Scan (M6): vormerken statt still verwerfen
+    const req = wantsPublic
+      ? await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
+      : null
     const dep = await startDeploy(p.id, actor)
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
-    return ok({ ...summarize(await toDto(await findProject(p.id))), deploy: result })
+    return ok({
+      ...summarize(await toDto(await findProject(p.id))),
+      deploy: result,
+      ...(req ? { public: mcpRequestInfo(req, await publishability(p.id)) } : {}),
+    })
   })
 
   tool('update_files', 'Geänderte oder gelöschte Dateien eines Chat-Projekts committen und neu deployen', {
@@ -451,7 +461,24 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       if (!publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
       // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
       // scheitert – oder ein Teil (interne Ziele) wäre schon umgestellt.
-      plan = await planPublic(p, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access })
+      try {
+        plan = await planPublic(p, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access })
+      } catch (err) {
+        // Schwelle nicht erfüllt (Scan läuft, fehlt, kritischer Befund): interne
+        // Ziele setzen und «öffentlich» vormerken statt still verwerfen.
+        if (!(err instanceof AppError) || err.code !== 'not_publishable') throw err
+        const internal = a.targets.filter((t) => t !== 'public')
+        if (internal.length) {
+          try {
+            await setRoutes(p.id, p.slug, internal, a.subdomain)
+          } finally {
+            await reconcileCaddy()
+          }
+        }
+        const gate = await publishability(p.id)
+        const req = await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, gate.ok ? 'Schwelle' : gate.why)
+        return ok({ ...summarize(await toDto(await findProject(p.id))), public: mcpRequestInfo(req, gate) })
+      }
       const before = plan.before
       const changes = !before || before.hostname !== plan.hostname || before.accessProtected !== plan.access
       if (changes) {

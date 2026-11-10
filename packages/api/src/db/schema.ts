@@ -87,6 +87,19 @@ export interface DeploymentArtifact {
 /** Erkannte Art eines Chat-Projekts (Quelle "files"). */
 export type FilesKind = 'compose' | 'dockerfile' | 'static-build' | 'static'
 
+/** Vorgemerkte Öffentlich-Anfrage (Migration 0010), höchstens eine pro Projekt. */
+export const publicRequests = pgTable('public_requests', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  actor: text('actor').notNull(),
+  subdomain: text('subdomain'),
+  hostname: text('hostname'),
+  accessProtected: boolean('access_protected').notNull().default(false),
+  approvedBy: text('approved_by'),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  lastError: text('last_error'),
+})
+
 export const routes = pgTable(
   'routes',
   {

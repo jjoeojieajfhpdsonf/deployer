@@ -390,6 +390,25 @@ export interface OutsideCheckDto {
   message: string
 }
 
+export interface PublicRequestDto {
+  requestedAt: string
+  actor: string
+  hostname: string | null
+  accessProtected: boolean
+  /** In der Oberfläche bestätigt: wird nach dem nächsten bestandenen Scan wirksam */
+  approvedBy: string | null
+  approvedAt: string | null
+  /**
+   * waiting: wartet auf abgeschlossenen Scan ohne kritischen Befund;
+   * blocked: kritischer Befund offen; ready: Scan bestanden, wartet nur auf
+   * die Bestätigung; failed: der automatische Versuch scheiterte (lastError).
+   */
+  state: 'waiting' | 'blocked' | 'ready' | 'failed'
+  /** Ein Satz für Oberfläche und MCP */
+  text: string
+  lastError: string | null
+}
+
 export interface PublicStatusDto {
   state: PublicState
   /** Cloudflare-Tunnel eingerichtet? Sonst lässt sich nichts veröffentlichen. */
@@ -408,10 +427,10 @@ export interface PublicStatusDto {
   publishable: { ok: true } | { ok: false; why: 'no_scan' | 'scan_running' | 'critical' | 'disabled'; reason: string }
   /**
    * Vorgemerkte Öffentlich-Anfrage (etwa von MCP create_project), die nach
-   * bestandenem Scan wirksam werden soll. Platzhalter: null, bis die
-   * Vormerkung gebaut ist.
+   * bestandenem Scan wirksam werden soll – nie still: erst nach Bestätigung
+   * in der Oberfläche (approvedBy).
    */
-  pendingRequest: { requestedAt: string; actor: string; hostname: string | null; accessProtected: boolean } | null
+  pendingRequest: PublicRequestDto | null
   /** Letzter oder laufender Übergang (nur im Speicher des Servers). */
   progress: PublicProgressDto | null
 }
