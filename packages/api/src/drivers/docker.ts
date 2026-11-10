@@ -397,6 +397,20 @@ export async function networkSubnets(name: string): Promise<string[]> {
   }
 }
 
+/**
+ * Gateway-Adressen aller Bridge-Netze (docker0, br-…). Verkehr, den der Host
+ * in ein Docker-Netz maskiert (Tailscale als Subnet-Router, docker-proxy für
+ * Anfragen auf localhost), kommt in Caddy mit dieser Absenderadresse an.
+ */
+export async function bridgeGateways(): Promise<string[]> {
+  try {
+    const nets = (await docker.listNetworks({ filters: { driver: ['bridge'] } })) as { IPAM?: { Config?: { Gateway?: string }[] } }[]
+    return [...new Set(nets.flatMap((n) => (n.IPAM?.Config ?? []).map((c) => c.Gateway).filter((g): g is string => !!g)))]
+  } catch {
+    return []
+  }
+}
+
 export async function stopContainer(id: string, timeoutSec = 10): Promise<void> {
   try {
     await docker.getContainer(id).stop({ t: timeoutSec })

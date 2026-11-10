@@ -45,7 +45,9 @@ describe('Caddy mit TLS', () => {
     const srv0 = c.apps.http.servers.srv0
     const srv1 = c.apps.http.servers.srv1
     assert.deepEqual(srv1.listen, [':443'])
-    assert.deepEqual(hostsOf(srv1.routes).sort(), ['deployer.int.example.ch', 'seite.int.example.ch', 'solar.int.example.ch'])
+    // Ohne die 403-Sperrseite (dieselben Namen, siehe caddy-block.test.ts)
+    const served = (srv1.routes as R[]).filter((r) => r.handle[0]?.status_code !== 403)
+    assert.deepEqual(hostsOf(served).sort(), ['deployer.int.example.ch', 'seite.int.example.ch', 'solar.int.example.ch'])
     const plain = hostsOf(srv0.routes)
     assert.ok(plain.includes('solar.192-168-1-10.nip.io'))
     assert.ok(!plain.includes('solar.int.example.ch'))
@@ -59,6 +61,7 @@ describe('Caddy mit TLS', () => {
     for (const srv of ['srv0', 'srv1']) {
       for (const r of c.apps.http.servers[srv].routes as R[]) {
         if (!r.match) continue // Auffangroute
+        if (r.handle[0]?.status_code === 403) continue // Sperrseite: trifft genau, wenn der Filter davor nicht durchliess
         assert.deepEqual(r.match[0]!.remote_ip?.ranges, base.cidrs, `${srv} ${r.match[0]!.host}`)
       }
     }

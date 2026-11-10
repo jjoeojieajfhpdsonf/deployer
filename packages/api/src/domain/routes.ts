@@ -316,6 +316,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       tls: caddyTlsOptions(),
       // M5: nur wenn es öffentliche Routen geben kann
       trustedProxies: edge,
+      // Zugriffs-Log für deployer selbst (Systemseite: welche Absender sieht Caddy?)
+      accessLogHosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
     })
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
   const withTls = Boolean((build as { apps?: { tls?: unknown } }).apps?.tls)

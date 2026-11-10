@@ -7,21 +7,23 @@ Grundlage ist die gemessene Formensprache der Startseite cal.com
 
 ## Etappen (je ein Commit)
 
-| Etappe | Inhalt | Screenshots |
-|---|---|---|
-| 0 (auf `main`) | «…»-Knöpfe: gefüllte Punkte statt Linien der Länge 0,01 | – |
-| 1 Prototyp | weisser Grund, «Offene Befunde» hell mit roter Kennzahl, Security-Ergebnis als Bento, System in Unterseiten | `1-prototyp/` |
-| 2 Fundament | `styles.css` neu mit allen Tokens, Theme-Mechanik (Server), Schriften lokal | `2-fundament/` |
-| 3a Shell | Seitenleiste, Kopf, Profilmenü mit Darstellung, Anmeldung | `3a-shell/` |
-| 3b Projekte | Projekt-Karten statt Tabelle, Projektdetail mit allen Reitern | `3b-projekte/` |
-| 3c Formulare | Neues Projekt, Konto, Einstellungen; Bestätigungsmuster | `3c-formulare/` |
-| 3d Security | Security (global), Externe Ziele | `3d-security/` |
-| 3e Verwaltung | Domains, Tokens, Audit | `3e-verwaltung/` |
-| 3f System | Übersicht, Cloudflare & HTTPS (Assistent), Benachrichtigungen | `3f-system/` |
-| 3g Zustände | leer, laden, API nicht erreichbar, Rückmeldung, Bestätigung im Menü | `3g-zustaende/` |
-| 4 Aufräumen | Prototyp, DemoToggle, Midnight-Reste entfernt; Prüfskript für tote Klassen | `4-aufraeumen/` |
+| Etappe | Inhalt |
+|---|---|
+| 0 (auf `main`) | «…»-Knöpfe: gefüllte Punkte statt Linien der Länge 0,01 |
+| 1 Prototyp | weisser Grund, «Offene Befunde» hell mit roter Kennzahl, Security-Ergebnis als Bento, System in Unterseiten |
+| 2 Fundament | `styles.css` neu mit allen Tokens, Theme-Mechanik (Server), Schriften lokal |
+| 3a Shell | Seitenleiste, Kopf, Profilmenü mit Darstellung, Anmeldung |
+| 3b Projekte | Projekt-Karten statt Tabelle, Projektdetail mit allen Reitern |
+| 3c Formulare | Neues Projekt, Konto, Einstellungen; Bestätigungsmuster |
+| 3d Security | Security (global), Externe Ziele |
+| 3e Verwaltung | Domains, Tokens, Audit |
+| 3f System | Übersicht, Cloudflare & HTTPS (Assistent), Benachrichtigungen |
+| 3g Zustände | leer, laden, API nicht erreichbar, Rückmeldung, Bestätigung im Menü |
+| 4 Aufräumen | Prototyp, DemoToggle, Midnight-Reste entfernt; Prüfskript für tote Klassen |
 
-Endstand der wichtigsten Seiten: `aktuell/`, Vergleich mit cal.com: `vergleich-*.png`
+Die Screenshots je Etappe lagen in `docs/design-cal/<etappe>/` und sind nach dem Merge
+gelöscht (im Git-Verlauf bis Commit `0fb7c58` noch abrufbar). Im Repo bleiben: Endstand der
+wichtigsten Seiten in `aktuell/` und der Vergleich mit cal.com in `vergleich-*.png`
 (links deployer, rechts der cal.com-Ausschnitt; Hell und Dunkel).
 
 ## Fundament
@@ -108,9 +110,8 @@ Checkbox im Audit-Kopf nicht auf der Linie.
 - **Screenshots mit Fixtures**, nicht mit echten Daten; ein Blick auf den echten Server nach dem
   Merge lohnt (lange Namen, viele Projekte, echte Logs).
 - **Inter** setzt den Bindestrich zwischen Grossbuchstaben etwas höher («Kontoauszug-Reader»).
-- **Speicherplatz:** die Etappen-Screenshots belegen rund 24 MB in `docs/design-cal/`. Wer das
-  Repo schlank halten will: Etappen-Ordner nach dem Merge löschen und nur `aktuell/` und
-  `vergleich-*.png` behalten (oder Git LFS).
+- **Speicherplatz:** Die Etappen-Ordner sind gelöscht (von 24 MB auf rund 6 MB); im
+  Git-Verlauf bleiben sie enthalten.
 - **PRODUCT.md / DESIGN.md** fehlen weiterhin; mit `impeccable init` würde der neue Stil für
   spätere Gutachten zum Massstab.
 - Impeccable meldet eine neuere Version (v4.8.2); nicht aktualisiert.

@@ -91,8 +91,20 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 }
 
 function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
+  const ci = s.clientIps
   return (
     <>
+      {ci && ci.fromGateway > 0 && (
+        <div role="alert" className="banner banner-warn">
+          <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
+          In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} Anfragen auf deployer von{' '}
+          {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
+          {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
+          Meist maskiert Tailscale als Subnet-Router den Verkehr aus dem Tailnet in die Docker-Netze; dann sperrt der
+          IP-Filter Zugriffe aus dem Tailnet. Abhilfe: <code>docs/INSTALL.md</code>, Abschnitt «Tailscale als Subnet-Router».
+          Anfragen vom Server selbst (z. B. <code>curl</code> auf localhost) erscheinen ebenfalls mit dieser Adresse.
+        </div>
+      )}
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
           <strong>IP-Filter ist ausgeschaltet.</strong> Interne Hostnamen sind ohne

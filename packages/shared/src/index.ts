@@ -471,6 +471,13 @@ export interface SystemStatusDto {
   scanQueue: number
   /** M5: Cloudflare Tunnel */
   publicTunnel: { configured: boolean; status: string | null; connections: number }
+  /**
+   * Absender, die Caddy bei Anfragen auf deployer sieht (letzte 30 Minuten,
+   * Zugriffs-Log). fromGateway > 0: Anfragen kamen maskiert von einem
+   * Docker-Gateway an (Tailscale als Subnet-Router, docs/INSTALL.md).
+   * null: Log nicht lesbar.
+   */
+  clientIps: { total: number; fromGateway: number; gatewayIps: string[]; gatewayOnly: boolean; blocked: number; since: string } | null
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }

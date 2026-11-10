@@ -46,7 +46,15 @@ export interface CaddyBuildOptions {
    * die Besucher-IP aus CF-Connecting-IP übernommen (SPEC, wichtig für M7).
    */
   trustedProxies?: string[]
+  /**
+   * Namen, für die Caddy ein Zugriffs-Log schreibt (deployer selbst). Daraus
+   * liest die Systemseite die Absenderadressen (lib/client-ips.ts).
+   */
+  accessLogHosts?: string[]
 }
+
+/** Logger-Name des Zugriffs-Logs für deployer (im Log: http.log.access.deployer) */
+export const ACCESS_LOGGER = 'deployer'
 
 export interface TlsOptions {
   baseDomain: string
@@ -181,25 +189,50 @@ export function buildCaddyConfig(
     })
   }
 
-  // Auffangroute: Wer den IP-Filter nicht passiert oder einen unbekannten
-  // Hostnamen anfragt, bekommt eine klare Antwort statt irgendeiner anderen.
-  // Bewusst OHNE Matcher – ein host-Matcher "*" trifft in Caddy nicht auf
-  // alles, die Anfrage fiele dann auf eine leere 200 durch.
+  // Sperrseite in zwei Meldungen: Ein bekannter Name von einer Adresse
+  // ausserhalb der freigegebenen Netze bekommt 403 und sieht, welche Adresse
+  // Caddy gesehen hat (verrät z. B. eine Maskierung auf ein Docker-Gateway);
+  // ein unbekannter Name bekommt 404.
+  const forbidden = (hosts: string[]): HttpRoute[] =>
+    opts.ipFilter && hosts.length
+      ? [{
+          match: [{ host: hosts }],
+          handle: [{
+            handler: 'static_response',
+            status_code: 403,
+            body: 'Kein Zugriff von {http.request.remote.host} auf {http.request.host}: dieser Name ist nur aus den freigegebenen Netzen erreichbar (LAN, Tailnet oder Cloudflare).',
+          }],
+          terminal: true,
+        }]
+      : []
+  const plainHosts = [...new Set(plainRoutes.flatMap((r) => r.match?.flatMap((m) => m.host) ?? []))]
+  const tlsHosts = [...new Set(tlsRoutes.flatMap((r) => r.match?.flatMap((m) => m.host) ?? []))]
+
+  // Auffangroute: unbekannter Name. Bewusst OHNE Matcher – ein host-Matcher
+  // "*" trifft in Caddy nicht auf alles, die Anfrage fiele dann auf eine
+  // leere 200 durch.
   const catchAll: HttpRoute = {
     handle: [
       {
         handler: 'static_response',
         status_code: 404,
-        body: 'Kein Projekt unter diesem Namen, oder Zugriff nicht aus LAN/Tailnet.',
+        body: 'Kein Projekt unter diesem Namen.',
       },
     ],
     terminal: true,
   }
 
+  // Zugriffs-Log nur für deployer selbst: daraus liest die Systemseite, welche
+  // Absenderadressen Caddy sieht (Warnung bei Docker-Gateway statt Gerät).
+  const accessLog = opts.accessLogHosts?.length
+    ? { logs: { logger_names: Object.fromEntries(opts.accessLogHosts.map((h) => [h, [ACCESS_LOGGER]])), skip_unmapped_hosts: true } }
+    : {}
+
   const servers: Record<string, unknown> = {
     srv0: {
       listen: [':80'],
-      routes: [...plainRoutes, catchAll],
+      routes: [...plainRoutes, ...forbidden(plainHosts), catchAll],
+      ...accessLog,
       // Kein automatisches HTTPS auf :80; Zertifikate kommen (ab M4) nur
       // über die ausdrückliche Wildcard-Policy unten.
       automatic_https: { disable: true },
@@ -218,7 +251,8 @@ export function buildCaddyConfig(
     const subject = mode === 'probe' ? probeName(tls.baseDomain) : `*.${tls.baseDomain}`
     servers.srv1 = {
       listen: [':443'],
-      routes: [...tlsRoutes, catchAll],
+      routes: [...tlsRoutes, ...forbidden(tlsHosts), catchAll],
+      ...accessLog,
       // Leere Policy = TLS an, Zertifikat nach SNI aus Caddys Cache.
       tls_connection_policies: [{}],
       automatic_https: { disable: true },

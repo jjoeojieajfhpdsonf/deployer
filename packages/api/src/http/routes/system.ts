@@ -15,6 +15,7 @@ import { CloudflareError } from '../../drivers/cloudflare.js'
 import { actorFor } from '../auth.js'
 import { badRequest, AppError } from '../../lib/errors.js'
 import { redactDeep } from '../../lib/redact.js'
+import { assessClientIps, parseAccessLog } from '../../lib/client-ips.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
@@ -121,8 +122,20 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     const nip = nipioHost('deployer')
     const cert = await currentCert().catch(() => null)
 
+    // Welche Absender sieht Caddy bei Anfragen auf deployer? (Zugriffs-Log, 30 Minuten)
+    const clientIps = await (async () => {
+      try {
+        const since = Date.now() - 30 * 60_000
+        const [logs, gateways] = await Promise.all([docker.getLogs(config.CADDY_CONTAINER, { tail: 2000, since: Math.floor(since / 1000) }), docker.bridgeGateways()])
+        return assessClientIps(parseAccessLog(logs, since), gateways, since)
+      } catch {
+        return null
+      }
+    })()
+
     // Prüfungen und Zertifikatsfehler stammen aus fremden Meldungen (Caddy, Cloudflare)
     return redactDeep<SystemStatusDto>({
+      clientIps,
       version: config.version,
       checks,
       diskFreeBytes,

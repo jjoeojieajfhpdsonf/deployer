@@ -1,6 +1,6 @@
 # Installation auf dem Server
 
-Stand: 8. November 2026
+Stand: 10. November 2026
 
 **Tailscale ist die Hauptadresse des Servers.** Eine feste LAN-IP braucht es nicht: deployer liest LAN-IP, LAN-Netz und Tailscale-IP beim Start und stündlich selbst vom Host und zieht Adressen und den IP-Filter von Caddy nach, wenn sich etwas ändert.
 
@@ -18,6 +18,53 @@ Dann in der Tailscale-Verwaltung (login.tailscale.com → Machines) beim Server:
 - Optional einen sprechenden Namen vergeben (z.B. `thinkpad`).
 
 Die Tailscale-IP bleibt fest, solange der Server im Tailnet bleibt.
+
+### Tailscale als Subnet-Router
+
+Bietet der Server zusätzlich Routen ins Heimnetz an (`tailscale up --advertise-routes=…`), maskiert Tailscale Verkehr aus dem Tailnet, der in ein Docker-Netz geht: Die Kette `ts-postrouting` (Tabelle `nat`) setzt `MASQUERADE` für alle Pakete mit der Markierung `0x40000`. Caddy sieht dann statt der Tailnet-Adresse (`100.x`) die Gateway-Adresse des Docker-Netzes (`172.x.0.1`), und der IP-Filter sperrt den Zugriff aus dem Tailnet.
+
+Erkennbar daran:
+
+- Die Sperrseite meldet «Kein Zugriff von 172.x.0.1 auf …» statt der Tailnet-Adresse des Geräts.
+- Die Systemseite warnt «Caddy sieht … Docker-Gateway-Adressen statt der Geräte» (aus Caddys Zugriffs-Log für deployer).
+
+**Abhilfe:** Die Markierung für Verkehr aus dem Tailnet in Docker-Netze löschen, bevor `ts-postrouting` greift. Die Tabelle `mangle` läuft in `POSTROUTING` vor `nat`; ohne Markierung maskiert Tailscale diese Pakete nicht.
+
+`/usr/local/sbin/ts-docker-nosnat.sh`:
+
+```sh
+#!/bin/sh
+# Tailnet-Verkehr in Docker-Netze nicht maskieren: Tailscales Markierung
+# (0x40000 in der Maske 0xff0000) vor ts-postrouting entfernen.
+set -eu
+RULE="-s 100.64.0.0/10 -o br-+ -j MARK --set-xmark 0x0/0xff0000"
+# Nur einmal eintragen (Skript läuft bei jedem Start von tailscaled)
+iptables -t mangle -C POSTROUTING $RULE 2>/dev/null || iptables -t mangle -A POSTROUTING $RULE
+```
+
+```sh
+sudo install -m 0755 ts-docker-nosnat.sh /usr/local/sbin/ts-docker-nosnat.sh
+```
+
+Systemd-Drop-in, damit die Regel nach jedem Start von `tailscaled` gesetzt ist – `/etc/systemd/system/tailscaled.service.d/docker-nosnat.conf`:
+
+```ini
+[Service]
+ExecStartPost=/usr/local/sbin/ts-docker-nosnat.sh
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart tailscaled
+sudo iptables -t mangle -S POSTROUTING | grep 100.64.0.0/10   # Regel ist da
+```
+
+Hinweise:
+
+- `br-+` trifft alle Bridges, die Docker Compose anlegt (deployer und Projekte). Laufen Container im Standard-Netz `docker0`, eine zweite Regel mit `-o docker0` ergänzen.
+- **Eine NAT-Regel an Position 1 reicht nicht:** Tailscale setzt seine Regeln verzögert neu und schiebt `ts-postrouting` wieder nach oben. Die Markierung in `mangle` greift unabhängig von der Reihenfolge in `nat`.
+- **Alternative** `tailscale up --snat-subnet-routes=false`: nur, wenn der Server nicht als Subnet-Router arbeitet. Mit Subnet-Routing das Skript oben verwenden.
+- Anfragen vom Server selbst auf `localhost` laufen über `docker-proxy` und erscheinen in Caddy ebenfalls mit der Gateway-Adresse; das ist normal und kein Hinweis auf dieses Problem.
 
 ## 2. deployer starten
 
@@ -63,5 +110,5 @@ Noch offen (braucht den Server und ein Handy):
 - [ ] Gerät mit Tailscale (Laptop im Heimnetz): `http://deployer.<tailscale-ip>.nip.io` und ein Projekt im Tailnet öffnen → geht
 - [ ] Handy im Mobilnetz **mit** Tailscale: dasselbe Projekt → geht
 - [ ] Handy im Mobilnetz **ohne** Tailscale (App getrennt): dasselbe Projekt → geht nicht (der Name zeigt auf eine 100.x-Adresse, die ohne Tailscale nicht erreichbar ist)
-- [ ] Laptop im Heimnetz **ohne** Tailscale, Projekt nur «Tailnet», über den LAN-nip.io-Namen → Caddy antwortet mit 404 «Zugriff nicht aus LAN/Tailnet» (IP-Filter)
+- [ ] Laptop im Heimnetz **ohne** Tailscale, Projekt nur «Tailnet», über den LAN-nip.io-Namen → Caddy antwortet mit 403 «Kein Zugriff von <adresse> auf <name> …» (IP-Filter); ein unbekannter Name gibt dagegen 404 «Kein Projekt unter diesem Namen.»
 - [ ] Systemseite: Tailscale-IP und LAN-IP erkannt; nach einem Wechsel des LAN (z.B. anderer Router oder DHCP-Lease) zieht «Jetzt prüfen» den Filter nach

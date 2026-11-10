@@ -3,6 +3,8 @@ dist/
 data/
 *.log
 .DS_Store
+# Swap-Dateien von Vim
+*.swp
 
 # Lokale Umgebung: enthält Passwörter, nie einchecken.
 .env
