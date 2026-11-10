@@ -1,4 +1,4 @@
-import type { ThemePref } from '@deployer/shared'
+import type { ThemePref } from '@airlock/shared'
 
 /**
  * Darstellung Hell/Dunkel. Die Wahl liegt auf dem Server (Profilmenü, gilt
@@ -6,7 +6,9 @@ import type { ThemePref } from '@deployer/shared'
  * vor dem ersten Bild setzen kann und nichts aufblitzt. «system» folgt
  * prefers-color-scheme und wechselt mit, wenn das Gerät umschaltet.
  */
-export const THEME_KEY = 'deployer.theme'
+export const THEME_KEY = 'airlock.theme'
+/** Schlüssel vor der Umbenennung; wird beim Lesen einmalig übernommen. */
+const OLD_THEME_KEY = 'deployer.theme'
 
 const media = () => (typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null)
 
@@ -17,7 +19,7 @@ export function resolveTheme(pref: ThemePref): 'light' | 'dark' {
 
 export function readLocalTheme(): ThemePref {
   try {
-    const v = localStorage.getItem(THEME_KEY)
+    const v = localStorage.getItem(THEME_KEY) ?? localStorage.getItem(OLD_THEME_KEY)
     return v === 'light' || v === 'dark' || v === 'system' ? v : 'system'
   } catch {
     return 'system'

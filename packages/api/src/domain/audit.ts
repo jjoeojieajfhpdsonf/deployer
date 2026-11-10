@@ -3,7 +3,7 @@ import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
 import { log } from '../lib/log.js'
 import { redactDeep, redactSecrets } from '../lib/redact.js'
-import type { AuditEventDto } from '@deployer/shared'
+import type { AuditEventDto } from '@airlock/shared'
 
 /**
  * Audit-Log fuer jede Aenderung, egal ob aus UI, API oder (spaeter) MCP.

@@ -1,13 +1,13 @@
-# Nur für die E2E-Tests von Meilenstein 5: deployer spricht mit einer
+# Nur für die E2E-Tests von Meilenstein 5: Airlock spricht mit einer
 # Cloudflare-Attrappe auf dem Host statt mit api.cloudflare.com.
 #
-#   pnpm --filter @deployer/api e2e:cf
+#   pnpm --filter @airlock/api e2e:cf
 #
 # Keine echten Werte: Konto, Tunnel und Token sind erfunden; das Token
 # ("cf-test-token") erwartet nur die Attrappe.
 
 services:
-  deployer:
+  airlock:
     environment:
       CLOUDFLARE_API_BASE: http://host.docker.internal:18787/client/v4
       CLOUDFLARE_ACCOUNT_ID: acc-e2e-test

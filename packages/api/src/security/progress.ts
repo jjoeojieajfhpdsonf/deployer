@@ -4,7 +4,7 @@
  * Funktionen, ohne Datenbank und Docker – testbar.
  */
 
-import type { ScanReportDto } from '@deployer/shared'
+import type { ScanReportDto } from '@airlock/shared'
 import type { ScanStage, ScanStages } from '../db/schema.js'
 
 export type StageKey = 'trivy-image' | 'trivy-source' | 'headers' | 'zap-baseline' | 'zap-full' | 'nuclei' | 'testssl'

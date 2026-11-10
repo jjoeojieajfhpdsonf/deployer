@@ -14,12 +14,12 @@ importers:
 
   packages/api:
     dependencies:
+      '@airlock/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@balena/dockerignore':
         specifier: ^1.0.2
         version: 1.0.2
-      '@deployer/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@fastify/cookie':
         specifier: ^11.0.2
         version: 11.1.5
@@ -108,7 +108,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@deployer/shared':
+      '@airlock/shared':
         specifier: workspace:*
         version: link:../shared
       '@fontsource/cal-sans':

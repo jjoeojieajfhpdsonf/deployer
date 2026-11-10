@@ -3,15 +3,17 @@ import type { Readable } from 'node:stream'
 import { config } from '../config.js'
 import { assertCreatePolicy } from './policy.js'
 import { AppError } from '../lib/errors.js'
+import { LABEL, LEGACY_LABEL_NS, projectNetwork, legacyProjectNetwork, PROJECT_PREFIX, LEGACY_PROJECT_PREFIX, normalizeLabels } from '../lib/names.js'
 
 /**
  * Einziger Ort im Projekt, der dockerode kennt. Jede Container-Erstellung
  * geht durch assertCreatePolicy(). Siehe drivers/policy.ts.
  */
 
-export const LABEL_MANAGED = 'deployer.managed'
-export const LABEL_PROJECT = 'deployer.project'
-export const LABEL_DEPLOYMENT = 'deployer.deployment'
+export const LABEL_MANAGED = LABEL.managed
+export const LABEL_PROJECT = LABEL.project
+export const LABEL_DEPLOYMENT = LABEL.deployment
+export { LABEL }
 
 /**
  * Soll ein Compose-Dienst beim Start und beim Abgleich wieder hochgefahren
@@ -20,7 +22,7 @@ export const LABEL_DEPLOYMENT = 'deployer.deployment'
  * das Label stammen aus der Zeit davor und gelten als dauerhaft.
  */
 export function isPersistentComposeService(labels: Record<string, string>): boolean {
-  const r = labels['deployer.compose-restart']
+  const r = labels[LABEL.composeRestart]
   return r === undefined || r === 'unless-stopped'
 }
 
@@ -35,11 +37,60 @@ function dockerFromEnv(): Docker {
 export const docker = dockerFromEnv()
 
 export function projectNetworkName(slug: string): string {
-  return `dep_${slug}`
+  return projectNetwork(slug)
 }
 
-export function containerName(slug: string, deploymentId: string): string {
-  return `dep_${slug}_${deploymentId.replace(/-/g, '').slice(0, 10)}`
+/** Netz eines Projekts aus der deployer-Zeit (dep_<slug>), nur für den Übergang. */
+export function legacyNetworkName(slug: string): string {
+  return legacyProjectNetwork(slug)
+}
+
+export function containerName(slug: string, deploymentId: string, o: { legacy?: boolean } = {}): string {
+  return `${o.legacy ? LEGACY_PROJECT_PREFIX : PROJECT_PREFIX}${slug}_${deploymentId.replace(/-/g, '').slice(0, 10)}`
+}
+
+/** Was von einer Fassung zählt, um ihr Netz und ihren Container zu finden. */
+export interface DeploymentRef {
+  id: string
+  /** Compose: Name des Web-Containers aus dem Artefakt */
+  webContainer?: string | null
+}
+
+/**
+ * Netz, in dem eine Fassung läuft. Fassungen aus der deployer-Zeit laufen
+ * bis zum nächsten Deploy weiter in dep_<slug>.
+ */
+export function networkOf(slug: string, d: DeploymentRef | null, legacy: LegacyState): string {
+  return d && isLegacyDeployment(d, legacy) ? legacyNetworkName(slug) : projectNetworkName(slug)
+}
+
+/** Name des Containers, den Caddy und der Healthcheck ansprechen. */
+export function webContainerOf(slug: string, d: DeploymentRef, legacy: LegacyState): string {
+  return d.webContainer ?? containerName(slug, d.id, { legacy: legacy.deployments.has(d.id) })
+}
+
+function isLegacyDeployment(d: DeploymentRef, legacy: LegacyState): boolean {
+  if (d.webContainer) return d.webContainer.startsWith(LEGACY_PROJECT_PREFIX)
+  return legacy.deployments.has(d.id)
+}
+
+/** Container aus der deployer-Zeit, die noch existieren. */
+export interface LegacyState {
+  /** Deployment-IDs mit Container unter deployer.*-Labels */
+  deployments: Set<string>
+  /** Projekte (Slug) mit mindestens einem solchen Container */
+  slugs: Set<string>
+}
+
+let legacyCache: LegacyState = { deployments: new Set(), slugs: new Set() }
+
+/** Stand vom letzten listManagedContainers(); für synchrone Abfragen (DTOs). */
+export const legacySnapshot = (): LegacyState => legacyCache
+
+/** Frisch von Docker: welche Fassungen laufen noch unter den alten Namen? */
+export async function legacyState(): Promise<LegacyState> {
+  await listManagedContainers()
+  return legacyCache
 }
 
 export interface ContainerSpec {
@@ -110,7 +161,7 @@ export async function ensureVolume(name: string): Promise<void> {
     await docker.getVolume(name).inspect()
   } catch (err) {
     if ((err as { statusCode?: number }).statusCode !== 404) throw err
-    await docker.createVolume({ Name: name, Labels: { [LABEL_MANAGED]: 'true', 'deployer.role': 'scanner-cache' } })
+    await docker.createVolume({ Name: name, Labels: { [LABEL_MANAGED]: 'true', [LABEL.role]: 'scanner-cache' } })
   }
 }
 
@@ -190,7 +241,7 @@ export async function connectToNetwork(network: string, container: string): Prom
   if ((await networksOfContainer(container)).includes(network)) return
   try {
     // Niedrige Gateway-Prioritaet: ein Projekt-Netz darf nie zum Standard-
-    // Gateway von Caddy oder deployer werden. Sonst liefe deren ausgehender
+    // Gateway von Caddy oder Airlock werden. Sonst liefe deren ausgehender
     // Verkehr durch das Projekt-Netz, und beim Trennen risse die
     // Port-Veroeffentlichung von Caddy ab (beobachtet unter Docker 29).
     // Zweite Absicherung zu gw_priority in compose.yaml.
@@ -467,20 +518,75 @@ export async function inspectContainer(id: string): Promise<ContainerState | nul
   }
 }
 
-/** Alle von deployer verwalteten Container, auch gestoppte. */
-export async function listManagedContainers(): Promise<
-  { id: string; names: string[]; labels: Record<string, string>; running: boolean }[]
-> {
-  const list = await docker.listContainers({
-    all: true,
-    filters: { label: [`${LABEL_MANAGED}=true`] },
+export interface ManagedContainer {
+  id: string
+  names: string[]
+  /** Labels, alte deployer.*-Schlüssel zusätzlich als airlock.* (lib/names.ts) */
+  labels: Record<string, string>
+  running: boolean
+  /** Angelegt in der deployer-Zeit (deployer.*-Labels, dep_-Namen) */
+  legacy: boolean
+}
+
+/**
+ * Alle von Airlock verwalteten Container, auch gestoppte – inklusive der
+ * Container aus der deployer-Zeit (Übergang, siehe docs/RENAME.md).
+ */
+export async function listManagedContainers(): Promise<ManagedContainer[]> {
+  const [current, old] = await Promise.all([
+    docker.listContainers({ all: true, filters: { label: [`${LABEL_MANAGED}=true`] } }),
+    docker.listContainers({ all: true, filters: { label: [`${LEGACY_LABEL_NS}.managed=true`] } }),
+  ])
+  const seen = new Set<string>()
+  const out: ManagedContainer[] = []
+  for (const c of [...current, ...old]) {
+    if (seen.has(c.Id)) continue
+    seen.add(c.Id)
+    const { labels, legacy } = normalizeLabels(c.Labels ?? {})
+    out.push({
+      id: c.Id,
+      names: c.Names.map((n) => n.replace(/^\//, '')),
+      labels,
+      running: c.State === 'running',
+      legacy,
+    })
+  }
+  const next: LegacyState = { deployments: new Set(), slugs: new Set() }
+  for (const c of out) {
+    if (!c.legacy) continue
+    const slug = c.labels[LABEL_PROJECT]
+    if (slug) next.slugs.add(slug)
+    const dep = c.labels[LABEL_DEPLOYMENT]
+    if (dep) next.deployments.add(dep)
+  }
+  legacyCache = next
+  return out
+}
+
+/** Volumes eines Compose-Projekts (Label com.docker.compose.project). */
+export async function listComposeVolumes(composeProject: string): Promise<{ name: string; volume: string | null }[]> {
+  const res = (await docker.listVolumes({
+    filters: { label: [`com.docker.compose.project=${composeProject}`] },
+  })) as { Volumes?: { Name: string; Labels?: Record<string, string> }[] }
+  return (res.Volumes ?? []).map((v) => ({ name: v.Name, volume: v.Labels?.['com.docker.compose.volume'] ?? null }))
+}
+
+export async function volumeExists(name: string): Promise<boolean> {
+  try {
+    await docker.getVolume(name).inspect()
+    return true
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return false
+    throw err
+  }
+}
+
+/** Volume so anlegen, wie Compose es für <project> selbst anlegen würde (keine Warnung beim up). */
+export async function createComposeVolume(name: string, composeProject: string, volume: string): Promise<void> {
+  await docker.createVolume({
+    Name: name,
+    Labels: { 'com.docker.compose.project': composeProject, 'com.docker.compose.volume': volume },
   })
-  return list.map((c) => ({
-    id: c.Id,
-    names: c.Names.map((n) => n.replace(/^\//, '')),
-    labels: c.Labels ?? {},
-    running: c.State === 'running',
-  }))
 }
 
 /* --- Logs ----------------------------------------------------------------- */

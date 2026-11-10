@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { cfDomainsSchema, cfTokenSchema } from '@deployer/shared'
+import { cfDomainsSchema, cfTokenSchema } from '@airlock/shared'
 import { api, ApiError, type CfStatusDto, type CfTokenCheckDto } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
@@ -159,7 +159,7 @@ function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
               </li>
             ))}
           </ul>
-          <p className="cf-lead">Unter «Kontoressourcen» dein Konto wählen, unter «Zonenressourcen» alle Zonen oder die, die deployer nutzen soll.</p>
+          <p className="cf-lead">Unter «Kontoressourcen» dein Konto wählen, unter «Zonenressourcen» alle Zonen oder die, die Airlock nutzen soll.</p>
         </>
       )}
       {replacing && <p className="cf-lead">Neues Token für dasselbe Konto. Das alte gilt, bis das neue geprüft und gespeichert ist; danach kannst du es bei Cloudflare löschen.</p>}
@@ -240,7 +240,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
   return (
     <form noValidate ref={v.formRef} onSubmit={(ev) => { ev.preventDefault(); if (v.validateAll()) save.mutate() }}>
       {accounts.length > 1 && (
-        <Field id={v.idFor('accountId')} label="Konto" hint="Darin legt deployer den Tunnel an.">
+        <Field id={v.idFor('accountId')} label="Konto" hint="Darin legt Airlock den Tunnel an.">
           <select {...v.field('accountId')} value={accountId} onChange={(x) => setAccountId(x.target.value)}>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
@@ -269,7 +269,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
         </select>
       </Field>
 
-      <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: deployer legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall mit Tailscale.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
+      <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: Airlock legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall mit Tailscale.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
         <input {...v.field('tailscaleIp', `${v.idFor('tailscaleIp')}-hint`)} value={tailscaleIp} onChange={(x) => setTailscaleIp(x.target.value)} placeholder="100.101.102.103" inputMode="decimal" spellCheck={false} />
       </Field>
 
@@ -278,7 +278,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
         <Field id={v.idFor('accessEmail')} label="E-Mail für Cloudflare Access" optional error={e.accessEmail} hint="Wer sich bei Projekten hinter Access anmelden darf.">
           <input {...v.field('accessEmail', `${v.idFor('accessEmail')}-hint`)} value={accessEmail} onChange={(x) => setAccessEmail(x.target.value)} type="email" placeholder="joel@deine-domain.ch" spellCheck={false} />
         </Field>
-        <Field id={v.idFor('acmeEmail')} label="E-Mail für Let's Encrypt" optional error={e.acmeEmail} hint="Kontakt beim ACME-Konto. Let's Encrypt verschickt seit Juni 2025 keine Ablauf-Warnungen mehr; die kommen von deployer (System → Benachrichtigungen).">
+        <Field id={v.idFor('acmeEmail')} label="E-Mail für Let's Encrypt" optional error={e.acmeEmail} hint="Kontakt beim ACME-Konto. Let's Encrypt verschickt seit Juni 2025 keine Ablauf-Warnungen mehr; die kommen von Airlock (System → Benachrichtigungen).">
           <input {...v.field('acmeEmail', `${v.idFor('acmeEmail')}-hint`)} value={acmeEmail} onChange={(x) => setAcmeEmail(x.target.value)} type="email" placeholder="joel@deine-domain.ch" spellCheck={false} />
         </Field>
       </details>
@@ -302,7 +302,7 @@ function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
   const skip = useMutation({ mutationFn: api.cloudflareTunnelSkip, onSuccess: onDone })
   return (
     <>
-      <p className="cf-lead">deployer legt bei Cloudflare einen Tunnel an und startet <code>cloudflared</code> als eigenen Container. Er baut die Verbindung nach aussen auf – am Router bleibt jeder Port zu. Öffentlich wird dadurch noch nichts.</p>
+      <p className="cf-lead">Airlock legt bei Cloudflare einen Tunnel an und startet <code>cloudflared</code> als eigenen Container. Er baut die Verbindung nach aussen auf – am Router bleibt jeder Port zu. Öffentlich wird dadurch noch nichts.</p>
       <p className="cf-meta">Nur für öffentliche Projekte nötig. Das Zertifikat für interne Adressen geht auch ohne Tunnel.</p>
       <div className="form-actions">
         <button type="button" className="button-primary" onClick={() => run.mutate()} disabled={run.isPending || skip.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel anlegen und starten'}</button>
@@ -387,7 +387,7 @@ function ForeignIngress({ s }: { s: CfStatusDto }) {
           <li key={i}><code>{r.hostname ?? '(alle übrigen Namen)'}</code> → <code>{r.service}</code></li>
         ))}
       </ul>
-      <p className="cf-meta">Solche Regeln umgehen Caddy: kein IP-Filter, keine Kontrolle durch deployer. Bei Cloudflare unter Zero Trust → Netzwerke → Tunnel → {t.name ?? 'Tunnel'} → Öffentliche Hostnamen entfernen. deployer setzt nur <code>http://caddy:80</code>.</p>
+      <p className="cf-meta">Solche Regeln umgehen Caddy: kein IP-Filter, keine Kontrolle durch Airlock. Bei Cloudflare unter Zero Trust → Netzwerke → Tunnel → {t.name ?? 'Tunnel'} → Öffentliche Hostnamen entfernen. Airlock setzt nur <code>http://caddy:80</code>.</p>
     </div>
   )
 }

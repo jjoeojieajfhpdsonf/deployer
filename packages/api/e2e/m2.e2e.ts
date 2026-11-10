@@ -11,7 +11,7 @@ import {
 /**
  * Abnahme Meilenstein 2: Dockerfile, Compose, statisch aus Repo, Rollback,
  * Umschalten ohne Ausfall. Ein kleiner Git-Server läuft auf dem Host; der
- * deployer-Container erreicht ihn unter host.docker.internal (Docker Desktop).
+ * Airlock-Container erreicht ihn unter host.docker.internal (Docker Desktop).
  */
 
 const P = 'e2e-m2-'
@@ -118,7 +118,7 @@ describe('M2: statische Seite aus einem Repo', () => {
     const r = await waitDeployment(p.deploymentId)
     assert.equal(r.status, 'active', r.log)
     assert.match((await get(host(p.slug))).body, /gebaut v22/)
-    assert.equal(docker('ps', '-a', '--filter', 'label=deployer.role=build', '-q'), '')
+    assert.equal(docker('ps', '-a', '--filter', 'label=airlock.role=build', '-q'), '')
   })
 
   test('Rollback einer statischen Seite hängt current auf die alte Fassung', async () => {
@@ -198,7 +198,7 @@ volumes:
     await api('PUT', `/projects/${id}/env`, { entries: [{ key: 'GEHEIM', value: 'nicht-auf-platte', isSecret: true }] })
     const d = await api('POST', `/projects/${id}/deploy`, {})
     assert.equal((await waitDeployment(d.data.deployment.id)).status, 'active')
-    const found = docker('exec', 'deployer-app', 'sh', '-c', 'grep -rl nicht-auf-platte /data || true')
+    const found = docker('exec', 'airlock-app', 'sh', '-c', 'grep -rl nicht-auf-platte /data || true')
     assert.equal(found, '', `Secret liegt auf der Platte: ${found}`)
     const envs = docker('inspect', `dep_${slug}-web-1`, '--format', '{{json .Config.Env}}')
     assert.match(envs, /GEHEIM=nicht-auf-platte/, 'der Web-Dienst bekommt das Secret trotzdem')
@@ -272,10 +272,10 @@ describe('M2: statischer Build mit devDependency (REVIEW)', () => {
 
 describe('M2: Repo-URLs', () => {
   const cases: [string, RegExp][] = [
-    ['http://socket-proxy:2375/x.git', /deployer-Stacks/],
-    ['http://postgres:5432/x.git', /deployer-Stacks/],
+    ['http://socket-proxy:2375/x.git', /Airlock-Stacks/],
+    ['http://postgres:5432/x.git', /Airlock-Stacks/],
     ['http://127.0.0.1/x.git', /gesperrte Adresse/],
-    ['http://deployer-caddy/x.git', /deployer-Stacks/],
+    ['http://airlock-caddy/x.git', /Airlock-Stacks/],
   ]
   for (const [url, re] of cases) {
     test(`abgelehnt: ${url}`, async () => {
@@ -318,7 +318,7 @@ describe('M2: Umschalten ohne Ausfall und Image-Rollback', () => {
     const rb = await api('POST', `/projects/${p.id}/rollback`, {})
     assert.equal(rb.data.deployment.rollbackOf, first)
     assert.equal((await waitDeployment(rb.data.deployment.id)).status, 'active')
-    const name = docker('ps', '--filter', `label=deployer.project=${p.slug}`, '--format', '{{.Names}}').split('\n')[0]!
+    const name = docker('ps', '--filter', `label=airlock.project=${p.slug}`, '--format', '{{.Names}}').split('\n')[0]!
     // .Config.Image ist die Referenz bei der Erzeugung; docker ps zeigte nur die ID.
     const img = docker('inspect', name, '--format', '{{.Config.Image}}')
     assert.match(img, /@sha256:/, 'läuft auf dem Digest')

@@ -40,7 +40,7 @@ export function App() {
     return (
       <main className="state state-offline" role="alert">
         <h1>Keine Verbindung zur API</h1>
-        <p>Der deployer-Dienst antwortet nicht. Läuft der Container noch?</p>
+        <p>Der Airlock-Dienst antwortet nicht. Läuft der Container noch?</p>
         <button onClick={() => void me.refetch()}>Erneut versuchen</button>
       </main>
     )
@@ -83,9 +83,11 @@ export function App() {
   )
 }
 
-const RAIL_KEY = 'deployer.rail.collapsed'
+const RAIL_KEY = 'airlock.rail.collapsed'
+/** Schlüssel vor der Umbenennung; wird beim Lesen einmalig übernommen. */
+const OLD_RAIL_KEY = 'deployer.rail.collapsed'
 const readCollapsed = () => {
-  try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false }
+  try { return (localStorage.getItem(RAIL_KEY) ?? localStorage.getItem(OLD_RAIL_KEY)) === '1' } catch { return false }
 }
 
 function Rail() {
@@ -131,7 +133,7 @@ function Rail() {
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
         </button>
-        <Link to="/projekte" className="brand-name">deployer</Link>
+        <Link to="/projekte" className="brand-name">Airlock</Link>
       </div>
       <nav className="rail-nav" id="rail-nav" aria-label="Hauptnavigation">
         {items.map((it) => (

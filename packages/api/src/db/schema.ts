@@ -2,7 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
-import type { ScanStageDto, PausePage } from '@deployer/shared'
+import type { ScanStageDto, PausePage } from '@airlock/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -252,7 +252,7 @@ export const domains = pgTable('domains', {
 export const headerRules = pgTable('header_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  header: text('header').$type<import('@deployer/shared').HeaderKey>().notNull(),
+  header: text('header').$type<import('@airlock/shared').HeaderKey>().notNull(),
   value: text('value').notNull(),
   mode: text('mode').$type<'report-only' | 'enforce'>().notNull().default('enforce'),
   reportKey: text('report_key').unique(),
@@ -284,7 +284,7 @@ export const fixRequests = pgTable('fix_requests', {
   findingTitle: text('finding_title').notNull(),
   tool: text('tool').notNull(),
   way: text('way').$type<'mcp' | 'api' | 'github'>().notNull().default('mcp'),
-  status: text('status').$type<import('@deployer/shared').FixStatus>().notNull().default('proposed'),
+  status: text('status').$type<import('@airlock/shared').FixStatus>().notNull().default('proposed'),
   explanation: text('explanation').notNull().default(''),
   diff: text('diff').notNull().default(''),
   changes: jsonb('changes').$type<FixChanges>().notNull().default({}),

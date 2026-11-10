@@ -2,6 +2,7 @@ import { relative } from 'node:path'
 import * as docker from '../../drivers/docker.js'
 import { resolveInRepo } from '../../lib/repo-files.js'
 import { badRequest } from '../../lib/errors.js'
+import { IMAGE_PREFIX } from '../../lib/names.js'
 import { appendLine } from '../journal.js'
 import { packDir } from '../workdir.js'
 import { cloneForDeployment } from './repo.js'
@@ -14,7 +15,7 @@ export const BUILD_MEMORY_MB = 2048
 export const BUILD_TIMEOUT_MS = 10 * 60_000
 
 export function builtTag(slug: string, deploymentId: string): string {
-  return `deployer/${slug}:${deploymentId.replace(/-/g, '').slice(0, 12)}`
+  return `${IMAGE_PREFIX}${slug}:${deploymentId.replace(/-/g, '').slice(0, 12)}`
 }
 
 /** Clone, dann Build. Ergebnis ist ein lokaler Tag, ab hier wie ein fertiges Image. */

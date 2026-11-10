@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { acceptFindingSchema, addExternalTargetSchema, ntfySettingsSchema, emailSettingsSchema } from '@deployer/shared'
+import { acceptFindingSchema, addExternalTargetSchema, ntfySettingsSchema, emailSettingsSchema } from '@airlock/shared'
 import { findProject } from '../../domain/projects.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, listScans, acceptFinding, assertPublishable, latestExternalScan, cancelScan } from '../../security/scan.js'
 import {

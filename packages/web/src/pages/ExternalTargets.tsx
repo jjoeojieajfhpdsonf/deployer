@@ -5,7 +5,7 @@ import { copyText } from '../lib/clipboard.js'
 import { ScanReport } from '../components/Security.js'
 import { relativeTime } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
-import { addExternalTargetSchema } from '@deployer/shared'
+import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
 
@@ -33,7 +33,7 @@ export function ExternalTargets() {
     <section className="page page-medium">
       <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele">
         <p className="lede">
-          Eigene Websites, die nicht über den deployer laufen, lassen sich mit denselben
+          Eigene Websites, die nicht über Airlock laufen, lassen sich mit denselben
           passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
           die Domain dir gehört.
         </p>

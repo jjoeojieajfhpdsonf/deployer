@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, ApiError, type PublicFlowResult } from '../api.js'
-import type { PauseOptions } from '@deployer/shared'
+import type { PauseOptions } from '@airlock/shared'
 
 /**
  * Übergänge der Veröffentlichung, gemeinsam für die Karte in den

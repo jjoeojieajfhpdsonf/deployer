@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@deployer/shared'
+import type { ProjectDto } from '@airlock/shared'
 
 /**
  * Übersetzt, warum ein Deploy gescheitert ist, in einen Satz, mit dem man
@@ -23,7 +23,7 @@ export function explainDeployFailure(p: ProjectDto, message: string | null, log:
   if (has(msg, 'pull access denied', 'error from registry: denied', 'unauthorized', 'manifest unknown', 'not found: manifest', 'repository does not exist')) {
     return {
       title: 'Image liess sich nicht laden',
-      cause: `Die Registry hat ${image ? `«${image}»` : 'das Image'} nicht herausgegeben: Es existiert nicht, der Tag ist falsch, oder das Image ist privat. Private Images unterstützt der deployer nicht.`,
+      cause: `Die Registry hat ${image ? `«${image}»` : 'das Image'} nicht herausgegeben: Es existiert nicht, der Tag ist falsch, oder das Image ist privat. Private Images unterstützt Airlock nicht.`,
       fix: 'source',
     }
   }

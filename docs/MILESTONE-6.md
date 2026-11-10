@@ -8,11 +8,11 @@ M6 kommt laut Auftrag **vor** M4 und M5. Die Schwelle für «öffentlich» wird 
 
 ## 1. Grundsätze
 
-- **Ziele** sind ausschliesslich Container, die deployer verwaltet, oder externe Domains mit DNS-Besitznachweis. Eine beliebige URL lässt sich weder über UI noch über MCP scannen; es gibt dafür schlicht keinen Parameter.
+- **Ziele** sind ausschliesslich Container, die Airlock verwaltet, oder externe Domains mit DNS-Besitznachweis. Eine beliebige URL lässt sich weder über UI noch über MCP scannen; es gibt dafür schlicht keinen Parameter.
 - **Scanner sind Wegwerf-Container** über die Erlaubnisliste aus `drivers/policy.ts`, ohne Docker-Socket, ohne Bind-Mount. Eingaben kommen per `PUT /archive` hinein, Berichte per `GET /archive` heraus.
 - Ein Scanner hängt **nur im Netz des Projekts**, das er prüft (SPEC). Er spricht den Container direkt an (`http://<container>:<port>`), nicht über Caddy.
-  - Warum nicht über Caddy: Dann müsste das Netz `deployer_edge` im IP-Filter erlaubt werden. Datenverkehr, den Dockers Userland-Proxy weiterreicht (etwa über IPv6), kommt mit einer Absenderadresse aus genau diesem Netz an und würde den Filter umgehen.
-- Externe Ziele werden über ein eigenes Netz `dep_ext-scan` mit Internetzugang geprüft. Der Slug `ext-scan` wird dafür reserviert; ebenso `deployer`, das bisher mit der Adresse der Oberfläche kollidieren konnte (Fehler aus M1, wird hier behoben).
+  - Warum nicht über Caddy: Dann müsste das Netz `airlock_edge` im IP-Filter erlaubt werden. Datenverkehr, den Dockers Userland-Proxy weiterreicht (etwa über IPv6), kommt mit einer Absenderadresse aus genau diesem Netz an und würde den Filter umgehen.
+- Externe Ziele werden über ein eigenes Netz `air_ext-scan` (damals `dep_ext-scan`) mit Internetzugang geprüft. Der Slug `ext-scan` wird dafür reserviert; ebenso `deployer` (Name der Oberfläche) und `airlock`; `deployer` konnte bisher mit der Adresse der Oberfläche kollidieren (Fehler aus M1, wird hier behoben).
 - Scans laufen **nacheinander** in einer Warteschlange; sie sind schwer (ZAP braucht über 1 GB Speicher).
 - Ein Scan blockiert keinen Deploy: Er startet nach einem erfolgreichen Deploy im Hintergrund. Die SPEC nennt Stufe 1 «vor dem Start», verlangt aber keine Blockade; die Schwelle, die zählt (öffentlich), wirkt unabhängig von der Reihenfolge. Das hält Deploys unter den Zeitzielen.
 
@@ -53,7 +53,7 @@ Pro offenem Befund: kritisch −25, hoch −10, mittel −4, niedrig −1, Minim
 Tabelle `external_targets`: `id`, `hostname`, `txt_token`, `verified_at`, `last_check_at`, `scan_interval` (`off`, `daily`, `weekly`, `monthly`; Standard `weekly`).
 
 1. Eintragen: Hostname wird geprüft (gültiger DNS-Name, keine IP, nicht `localhost`, nicht unter der internen Basisdomain).
-2. deployer erzeugt ein Zufalls-Token und verlangt `_deployer-verify.<host>` als TXT mit `deployer-verify=<token>`.
+2. Airlock erzeugt ein Zufalls-Token und verlangt `_airlock-verify.<host>` als TXT mit `airlock-verify=<token>` (der alte Name `_deployer-verify` gilt weiter).
 3. Prüfen über **öffentliche** Resolver (1.1.1.1, 8.8.8.8, 9.9.9.9), nicht über den lokalen.
 4. Vor jedem Scan erneut prüfen. Fehlt der Eintrag: Freigabe weg, Benachrichtigung «Besitznachweis verloren».
 
@@ -115,14 +115,14 @@ Stand 7.11.2026. Geprüft gegen den laufenden Stack mit echten Scannern (Trivy 0
 - [x] Eine beliebige URL lässt sich nicht scannen; ein externes Ziel ohne TXT-Nachweis gibt `not_verified` (REST) bzw. einen Fehler (MCP); private und interne Namen werden abgelehnt – *der Nachweis selbst nur mit austauschbarem Resolver (Unit), keine echte Domain*
 - [x] Aktiver Scan nur mit Bestätigung: REST ohne `confirm` 400, MCP liefert ein Bestätigungs-Token statt eines Scans
 - [x] Benachrichtigungen kommen bei einer ntfy-Attrappe (HTTP) und einem SMTP-Ersatz (`smtp-server`) auf dem Host an; Test-Push, Test-Mail und ein echter `deploy_failed`; kein Secret-Wert darin; Einstellungen nur mit Anmeldung (Token: 403)
-- [x] Die Slugs `deployer` und `ext-scan` lassen sich nicht vergeben
+- [x] Die Slugs `deployer`, `airlock` und `ext-scan` lassen sich nicht vergeben
 - [x] Alle M1- bis M3-Kriterien gelten weiter – *mit einem sporadischen, nicht gezielt reproduzierbaren Fehlschlag in der M3-Suite, siehe NACHT-LOG*
 
 ### Fehler, die erst die Abnahme gezeigt hat
 
 1. **Nuclei prüfte nie etwas.** `-duc` unterdrückt auch das erste Herunterladen der Vorlagen; ohne Vorlagen bricht Nuclei mit «no templates provided» ab, liefert keine Datei – und die Stufe galt als durchgelaufen ohne Befund. Auch der frühere Probelauf gegen whoami war damit wertlos. Jetzt: Vorlagen laden, wenn sie fehlen oder älter als 7 Tage sind; Abbruch oder `[FTL]` macht die Stufe zum Fehler.
 2. **busybox-httpd verweigert Punktdateien.** Statische Seiten wurden über einen busybox-httpd gescannt, Caddy liefert `.env` aber aus. Jetzt scannt ein kurzlebiger `caddy file-server`.
-3. **Header-Check lief in eine tote Verbindung.** Der Healthcheck des Deploys hatte dieselbe Adresse gerade angefragt; die Keep-Alive-Verbindung im globalen Pool war tot, seit der deployer das Projekt-Netz verlassen hatte. Jetzt ein eigener Agent ohne Keep-Alive.
+3. **Header-Check lief in eine tote Verbindung.** Der Healthcheck des Deploys hatte dieselbe Adresse gerade angefragt; die Keep-Alive-Verbindung im globalen Pool war tot, seit Airlock das Projekt-Netz verlassen hatte. Jetzt ein eigener Agent ohne Keep-Alive.
 
 ## Review
 

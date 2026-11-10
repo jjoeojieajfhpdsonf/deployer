@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@deployer/shared'
+import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { isOwnImage } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
@@ -46,6 +47,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     expiresAt: expiresAt(r, config.CHAT_EXPIRY_DAYS)?.toISOString() ?? null,
     security: await securitySummary(r.id),
     lastDeployment: await lastDeploymentDto(r.id),
+    // Stand vom letzten Blick auf Docker (Abgleich, Deploy); kein Docker-Aufruf je DTO
+    legacyContainers: docker.legacySnapshot().slugs.has(r.slug),
   }
 }
 
@@ -235,22 +238,26 @@ export async function deleteProject(id: string, actor: string, purgeVolumes = fa
   // 1b. Gebaute Images und aufbewahrte Artefakte (Compose-Dateien) weg
   const deps = await db.select().from(schema.deployments).where(eq(schema.deployments.projectId, project.id))
   for (const d of deps) {
-    const imgs = [...(d.artifact?.builtImages ?? []), ...(d.imageRef?.startsWith('deployer/') ? [d.imageRef] : [])]
+    const imgs = [...(d.artifact?.builtImages ?? []), ...(d.imageRef && isOwnImage(d.imageRef) ? [d.imageRef] : [])]
     for (const img of imgs) await docker.removeImageIfUnused(img).catch(() => {})
     await dropArtifactDir(d.id)
   }
 
-  // 2. Caddy aus dem Netz, dann Netz weg
-  const net = docker.projectNetworkName(project.slug)
-  await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
-  await docker.disconnectFromNetwork(net, config.DEPLOYER_CONTAINER)
-  await docker.removeNetwork(net)
+  // 2. Caddy aus dem Netz, dann Netz weg (auch dep_<slug> aus der deployer-Zeit)
+  const nets = [docker.projectNetworkName(project.slug), docker.legacyNetworkName(project.slug)]
+  for (const net of nets) {
+    await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
+    await docker.disconnectFromNetwork(net, config.AIRLOCK_CONTAINER)
+    await docker.removeNetwork(net)
+  }
 
   // 2b. Benannte Volumes (Compose) nur auf ausdrücklichen Wunsch: darin
   // liegen Daten, etwa die einer Datenbank.
   if (purgeVolumes) {
-    const removed = await docker.removeProjectVolumes(net)
-    if (removed.length) log.info('Volumes gelöscht', { slug: project.slug, volumes: removed })
+    for (const net of nets) {
+      const removed = await docker.removeProjectVolumes(net)
+      if (removed.length) log.info('Volumes gelöscht', { slug: project.slug, volumes: removed })
+    }
   }
 
   // 3. Statische Dateien weg (auch bei Chat-Projekten, die als statisch liefen),

@@ -1,4 +1,4 @@
-import type { OutsideCheckDto } from '@deployer/shared'
+import type { OutsideCheckDto } from '@airlock/shared'
 
 /**
  * Prüfung eines öffentlichen Namens von aussen: eine Anfrage an
@@ -13,7 +13,7 @@ export interface Observation {
   status: number | null
   /** Antwort trägt cf-ray: kam über Cloudflare */
   cfRay: boolean
-  /** Wartungsseite von deployer (X-Deployer-State: paused) */
+  /** Wartungsseite von Airlock (X-Airlock-State: paused; früher X-Deployer-State) */
   maintenance: boolean
   location?: string | null
   /** Anfang des Bodys (Caddys eigene 403/404 erkennen) */
@@ -68,13 +68,13 @@ export async function observe(hostname: string, timeoutMs = 6000): Promise<Obser
     const res = await fetch(`https://${hostname}/`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { 'user-agent': 'deployer-outside-check', 'cache-control': 'no-cache' },
+      headers: { 'user-agent': 'airlock-outside-check', 'cache-control': 'no-cache' },
     })
     const body = (await res.text().catch(() => '')).slice(0, 200)
     return {
       status: res.status,
       cfRay: res.headers.has('cf-ray'),
-      maintenance: res.headers.get('x-deployer-state') === 'paused',
+      maintenance: (res.headers.get('x-airlock-state') ?? res.headers.get('x-deployer-state')) === 'paused',
       location: res.headers.get('location'),
       body,
     }

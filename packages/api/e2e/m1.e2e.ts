@@ -36,7 +36,7 @@ describe('M1: Image deployen', () => {
   })
 
   test('kein Host-Port, kein privileged, no-new-privileges', () => {
-    const name = docker('ps', '--filter', `label=deployer.project=${slug}`, '--format', '{{.Names}}').split('\n')[0]!
+    const name = docker('ps', '--filter', `label=airlock.project=${slug}`, '--format', '{{.Names}}').split('\n')[0]!
     const out = docker('inspect', name, '--format', '{{json .HostConfig.PortBindings}}|{{.HostConfig.Privileged}}|{{json .HostConfig.SecurityOpt}}')
     const [ports, priv, sec] = out.split('|')
     assert.ok(ports === '{}' || ports === 'null', `PortBindings: ${ports}`)
@@ -46,9 +46,9 @@ describe('M1: Image deployen', () => {
 
   test('ein Projekt-Container erreicht die Caddy-Admin-API nicht, wohl aber Caddy auf :80', () => {
     const net = `dep_${slug}`
-    const admin = dockerOk('run', '--rm', '--network', net, 'curlimages/curl:latest', '-sf', '-m', '4', 'http://deployer-caddy:2019/config/')
+    const admin = dockerOk('run', '--rm', '--network', net, 'curlimages/curl:latest', '-sf', '-m', '4', 'http://airlock-caddy:2019/config/')
     assert.equal(admin, false, 'Admin-API darf nicht erreichbar sein')
-    const web = docker('run', '--rm', '--network', net, 'curlimages/curl:latest', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-m', '4', 'http://deployer-caddy:80/')
+    const web = docker('run', '--rm', '--network', net, 'curlimages/curl:latest', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-m', '4', 'http://airlock-caddy:80/')
     assert.equal(web, '404', 'Caddy selbst muss erreichbar sein (Gegenprobe)')
   })
 
@@ -62,7 +62,7 @@ describe('M1: Image deployen', () => {
     let n: string[] = []
     for (let i = 0; i < 20; i++) {
       // Ohne Scanner (M6): die tragen das Projekt-Label ebenfalls.
-      n = docker('ps', '--filter', `label=deployer.project=${slug}`, '--format', '{{.Names}} {{.Label "deployer.role"}}')
+      n = docker('ps', '--filter', `label=airlock.project=${slug}`, '--format', '{{.Names}} {{.Label "airlock.role"}}')
         .split('\n').filter((l) => l && !l.endsWith(' scanner')).map((l) => l.split(' ')[0]!)
       if (n.length === 1) break
       await sleep(500)
@@ -70,14 +70,14 @@ describe('M1: Image deployen', () => {
     assert.equal(n.length, 1, `Container: ${n.join(', ')}`)
   })
 
-  test('fehlgeschlagener Deploy lässt die alte Fassung laufen und löst den deployer aus dem Netz', async () => {
+  test('fehlgeschlagener Deploy lässt die alte Fassung laufen und löst Airlock aus dem Netz', async () => {
     await api('PATCH', `/projects/${id}`, { port: 9999 })
     const d = await api('POST', `/projects/${id}/deploy`, {})
     const r = await waitDeployment(d.data.deployment.id)
     assert.equal(r.status, 'failed')
     assert.equal((await get(host(slug))).status, 200)
-    const nets = docker('inspect', 'deployer-app', '--format', '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}')
-    assert.ok(!nets.includes('dep_'), `deployer hängt noch in: ${nets}`)
+    const nets = docker('inspect', 'airlock-app','--format', '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}')
+    assert.ok(!nets.includes('air_'), `Airlock hängt noch in: ${nets}`)
     await api('PATCH', `/projects/${id}`, { port: 80 })
   })
 
@@ -88,7 +88,7 @@ describe('M1: Image deployen', () => {
 
   test('Löschen hinterlässt nichts, und :80 bleibt erreichbar', async () => {
     await deleteProject(id)
-    assert.equal(docker('ps', '-a', '--filter', `label=deployer.project=${slug}`, '-q'), '')
+    assert.equal(docker('ps', '-a', '--filter', `label=airlock.project=${slug}`, '-q'), '')
     assert.equal(dockerOk('network', 'inspect', `dep_${slug}`), false)
     assert.equal((await get(`${BASE}/health`)).status, 200)
     assert.equal((await get(host(slug))).status, 404)
@@ -119,7 +119,7 @@ describe('M1: statische Seite und Zip Slip', () => {
     const p = await createProject({ name: `${P}boese`, source: { type: 'static', uploadId: up } })
     const r = await waitDeployment(p.deploymentId)
     assert.equal(r.status, 'failed')
-    const found = docker('exec', 'deployer-app', 'sh', '-c', 'find / -name entwischt.html -not -path "/proc/*" 2>/dev/null || true')
+    const found = docker('exec', 'airlock-app', 'sh', '-c', 'find / -name entwischt.html -not -path "/proc/*" 2>/dev/null || true')
     assert.equal(found, '')
   })
 

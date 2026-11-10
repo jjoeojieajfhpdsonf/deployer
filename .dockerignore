@@ -1,4 +1,4 @@
-# Build-Kontext des deployer-Images klein halten.
+# Build-Kontext des Airlock-Images klein halten.
 **/node_modules
 **/dist
 .git

@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { themePrefs, type ThemePref } from '@deployer/shared'
+import { themePrefs, type ThemePref } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
 import { applyTheme, readLocalTheme, THEME_LABEL } from '../lib/theme.js'
 import { useMenu } from './useMenu.js'

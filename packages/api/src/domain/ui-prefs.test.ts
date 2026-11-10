@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { uiPrefsSchema } from '@deployer/shared'
+import { uiPrefsSchema } from '@airlock/shared'
 
 // ui-prefs.ts zieht die Datenbank nach; für den Import genügt eine Dummy-Umgebung.
 process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'

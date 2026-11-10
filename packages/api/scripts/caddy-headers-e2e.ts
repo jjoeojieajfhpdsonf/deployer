@@ -1,9 +1,9 @@
 /**
  * M8, Etappe 1: Security-Header über echtes Caddy (Image aus caddy/Dockerfile)
- * in einem Wegwerf-Container. Kein deployer, keine Datenbank: geprüft wird
+ * in einem Wegwerf-Container. Kein Airlock, keine Datenbank: geprüft wird
  * die Konfiguration aus buildCaddyConfig.
  *
- *   pnpm --filter @deployer/api exec tsx scripts/caddy-headers-e2e.ts
+ *   pnpm --filter @airlock/api exec tsx scripts/caddy-headers-e2e.ts
  *
  * - Besucher-Server mit IP-Filter: Absender ausserhalb der Netze -> 403
  * - Probe-Socket: dieselbe Route ohne Filter -> 200, mit den ergänzten Headern
@@ -20,10 +20,10 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildCaddyConfig, type RouteSpec } from '../src/drivers/caddy-config.js'
 import { checkHeaders } from '../src/security/headers.js'
-import { HEADER_DEFAULT } from '@deployer/shared'
+import { HEADER_DEFAULT } from '@airlock/shared'
 
-const NAME = 'deployer-caddy-headers-e2e'
-const IMAGE = 'deployer-caddy-test:e2e'
+const NAME = 'airlock-caddy-headers-e2e'
+const IMAGE = 'airlock-caddy-test:e2e'
 const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..')
 const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 let failures = 0
@@ -35,7 +35,7 @@ const check = (ok: boolean, what: string) => {
 const APP = 'solar.int.example.test'
 const SITE = 'seite.int.example.test'
 const KEY = 'abcdefghijklmnopqrstuvwx'
-const REPORT = `/.well-known/deployer/csp-report/${KEY}`
+const REPORT = `/.well-known/airlock/csp-report/${KEY}`
 /** Eigener Name für die CSP-Meldungen, erreichbar aus 127.0.0.0/8 (curl im Container) */
 const MELDE = 'melde.int.example.test'
 
@@ -57,8 +57,8 @@ function config(withRules: boolean) {
     ipFilter: true, cidrs: ['10.254.0.0/16'], adminSocket: '/run/caddy/admin.sock', probeSocket: '/run/caddy/probe.sock',
     cspReportUpstream: '127.0.0.1:8082',
   }) as { apps: { http: { servers: Record<string, unknown> } } }
-  // «deployer»: zeigt, welchen Pfad und wie viel Body er bekommt
-  cfg.apps.http.servers.deployer = {
+  // «airlock»: zeigt, welchen Pfad und wie viel Body er bekommt
+  cfg.apps.http.servers.airlock = {
     listen: [':8082'],
     automatic_https: { disable: true },
     routes: [{ handle: [{ handler: 'static_response', status_code: 204, headers: { 'X-Seen-Uri': ['{http.request.uri}'], 'X-Seen-Cookie': ['{http.request.header.Cookie}'] } }], terminal: true }],
@@ -128,9 +128,9 @@ try {
   const post = (path: string, extra: string[] = []) =>
     fetchIn(['-X', 'POST', '-H', `Host: ${MELDE}`, '-H', 'Content-Type: application/csp-report', '-H', 'Cookie: sitzung=geheim', ...extra, `http://127.0.0.1${path}`])
   const ok = post(REPORT, ['--data', '{"csp-report":{"effective-directive":"script-src","blocked-uri":"https://cdn.example"}}'])
-  check(ok.status === 204 && ok.headers['x-seen-uri'] === `/api/v1/csp-reports/${KEY}`, `Meldung an deployer weitergeleitet: ${ok.status} ${ok.headers['x-seen-uri']}`)
-  check(!ok.headers['x-seen-cookie'], 'Cookies des Projekts gehen nicht an deployer')
-  const wrong = post('/.well-known/deployer/csp-report/falscherschluessel123456', ['--data', '{}'])
+  check(ok.status === 204 && ok.headers['x-seen-uri'] === `/api/v1/csp-reports/${KEY}`, `Meldung an Airlock weitergeleitet: ${ok.status} ${ok.headers['x-seen-uri']}`)
+  check(!ok.headers['x-seen-cookie'], 'Cookies des Projekts gehen nicht an Airlock')
+  const wrong = post('/.well-known/airlock/csp-report/falscherschluessel123456', ['--data', '{}'])
   check(wrong.status === 200 && !wrong.headers['x-seen-uri'], `falscher Schlüssel: nicht weitergeleitet (geht an die App, ${wrong.status})`)
   const get = fetchIn(['-H', `Host: ${MELDE}`, `http://127.0.0.1${REPORT}`])
   check(!get.headers['x-seen-uri'], 'GET wird nicht weitergeleitet')

@@ -1,7 +1,7 @@
 import { connect, type PeerCertificate } from 'node:tls'
 
 /**
- * Zertifikatsstatus (M4): deployer verbindet sich per TLS mit Caddy und
+ * Zertifikatsstatus (M4): Airlock verbindet sich per TLS mit Caddy und
  * liest das ausgelieferte Zertifikat. Kein Import von config.ts.
  */
 

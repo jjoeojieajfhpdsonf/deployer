@@ -5,7 +5,7 @@ import { reconcileCaddy } from './routes.js'
 import { audit } from './audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
 import { log } from '../lib/log.js'
-import type { DeploymentDto } from '@deployer/shared'
+import type { DeploymentDto } from '@airlock/shared'
 
 /**
  * Start und Stopp setzen zuerst desired_state und fuehren dann aus. Nach
@@ -43,7 +43,7 @@ export async function startProject(
   // neu deployen.
   if (kind === 'compose') {
     const services = (await docker.listManagedContainers()).filter(
-      (c) => c.labels[docker.LABEL_PROJECT] === project.slug && c.labels['deployer.compose-service'],
+      (c) => c.labels[docker.LABEL_PROJECT] === project.slug && c.labels[docker.LABEL.composeService],
     )
     if (!active || services.length === 0) {
       const deployment = await startDeploy(project.id, actor)

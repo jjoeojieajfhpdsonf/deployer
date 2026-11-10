@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
-import type { EnvEntryDto, EnvEntryInput } from '@deployer/shared'
+import type { EnvEntryDto, EnvEntryInput } from '@airlock/shared'
 
 /**
  * Umgebungsvariablen eines Projekts. Als geheim markierte Werte liegen

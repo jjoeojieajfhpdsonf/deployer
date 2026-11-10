@@ -18,7 +18,7 @@ import { prepareImage, startImageContainer } from './sources/image.js'
 import { prepareStatic, prepareStaticFromDir, activateStatic, siteDir } from './sources/static.js'
 import { buildFromRepo, buildFromDir } from './sources/dockerfile.js'
 import { checkoutFiles, KIND_LABEL, type FilesConfig } from './sources/files.js'
-import { prepareCompose, materialize } from './sources/compose.js'
+import { prepareCompose, materialize, takeOverLegacyCompose, restoreLegacyCompose } from './sources/compose.js'
 import { dropWorkDir, dropArtifactDir, workDir, ensureArtifactDir } from './workdir.js'
 import { copyFile, rm, rename, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -26,7 +26,8 @@ import { enqueueProjectScan, scanSourceDir } from '../security/scan.js'
 import { notify } from '../notify/send.js'
 import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
-import type { DeploymentDto } from '@deployer/shared'
+import type { DeploymentDto } from '@airlock/shared'
+import { isOwnImage } from '../lib/names.js'
 
 /** Wie viele erfolgreiche Fassungen pro Projekt für ein Rollback aufgehoben werden. */
 export const KEEP_VERSIONS = 5
@@ -38,7 +39,8 @@ type Deployment = typeof schema.deployments.$inferSelect
 
 type Job =
   | { kind: 'deploy'; ref?: string }
-  | { kind: 'rollback'; target: Deployment }
+  /** recreate: dieselbe Fassung neu anlegen (Übergang deployer → Airlock) */
+  | { kind: 'rollback'; target: Deployment; recreate?: boolean }
 
 /**
  * Startet einen Deploy und kehrt sofort zurück. Der Fortschritt läuft über
@@ -64,6 +66,28 @@ export async function startRollback(idOrSlug: string, actor: string, deploymentI
     throw badRequest('Auf diese Fassung lässt sich nicht zurückrollen (fehlgeschlagen oder Artefakt entfernt)')
   }
   return startJob(project, actor, { kind: 'rollback', target })
+}
+
+/**
+ * «Neu erstellen» (Übergang, docs/RENAME.md): die aktive Fassung genau so
+ * noch einmal anlegen – gleiches Image, gleiche Compose-Datei, aber mit
+ * airlock.*-Labels im Netz air_<slug>. Technisch ein Rollback auf die
+ * aktive Fassung; die alten Container aus der deployer-Zeit fallen danach weg.
+ */
+export async function startRecreate(idOrSlug: string, actor: string): Promise<DeploymentDto> {
+  const project = await findProject(idOrSlug)
+  const rows = await db
+    .select()
+    .from(schema.deployments)
+    .where(and(eq(schema.deployments.projectId, project.id), eq(schema.deployments.isActive, true)))
+    .limit(1)
+  const target = rows[0]
+  if (!target) throw badRequest('Keine aktive Fassung, die neu erstellt werden könnte – bitte neu deployen')
+  const a = target.artifact ?? {}
+  if (!target.imageRef && !a.composeFile) {
+    throw badRequest('Diese Fassung hat kein Image und keine Compose-Datei mehr – bitte neu deployen')
+  }
+  return startJob(project, actor, { kind: 'rollback', target, recreate: true })
 }
 
 async function previousGood(projectId: string): Promise<Deployment | null> {
@@ -126,7 +150,7 @@ async function run(
   lock: { release(): Promise<void> },
 ): Promise<void> {
   const started = Date.now()
-  const action = job.kind === 'rollback' ? 'project.rollback' : 'project.deploy'
+  const action = job.kind === 'rollback' ? (job.recreate ? 'project.recreate' : 'project.rollback') : 'project.deploy'
   const params = job.kind === 'rollback'
     ? { deployment: deploymentId, rollbackOf: job.target.id }
     : { deployment: deploymentId, ref: job.ref }
@@ -142,7 +166,9 @@ async function run(
     appendLine(
       deploymentId,
       job.kind === 'rollback'
-        ? `Rollback von "${project.name}" auf Fassung ${job.target.version ?? job.target.id} gestartet`
+        ? job.recreate
+          ? `"${project.name}" wird neu erstellt (Fassung ${job.target.version ?? job.target.id}, Namen von Airlock)`
+          : `Rollback von "${project.name}" auf Fassung ${job.target.version ?? job.target.id} gestartet`
         : `Deploy von "${project.name}" (${project.sourceType}) gestartet`,
     )
 
@@ -365,7 +391,7 @@ async function startAndCheck(deploymentId: string, project: Project, imageRef: s
 }
 
 /**
- * Der deployer hängt sich NUR für den Healthcheck ins Projekt-Netz und löst
+ * Airlock hängt sich NUR für den Healthcheck ins Projekt-Netz und löst
  * sich danach wieder. Das disconnect steht im finally, damit ein
  * fehlgeschlagener Healthcheck die Verbindung nicht stehen lässt.
  */
@@ -388,7 +414,7 @@ async function healthcheck(deploymentId: string, network: string, host: string, 
     }
     return result.ok
   })
-  appendLine(deploymentId, 'Healthcheck beendet, Netzverbindung des deployers freigegeben')
+  appendLine(deploymentId, 'Healthcheck beendet, Netzverbindung von Airlock freigegeben')
   return ok
 }
 
@@ -450,7 +476,9 @@ async function runCompose(
     // Fassung aus der Aufbewahrung fällt.
     artifactFile = join(await ensureArtifactDir(deploymentId), 'compose.yaml')
     await copyFile(from, artifactFile)
-    webContainer = job.target.artifact!.webContainer!
+    // Fassungen aus der deployer-Zeit hiessen dep_<slug>-…; materialize()
+    // startet sie jetzt unter air_<slug> (Übergang, docs/RENAME.md).
+    webContainer = job.target.artifact!.webContainer!.replace(/^dep_/, 'air_')
     builtImages = job.target.artifact?.builtImages ?? []
     version = job.target.version
   } else {
@@ -475,14 +503,29 @@ async function runCompose(
     .where(and(eq(schema.deployments.projectId, project.id), eq(schema.deployments.isActive, true)))
     .limit(1)
 
-  await upWithEnv(deploymentId, project, artifactFile, cfg.webService, { pull: job.kind === 'deploy' })
+  // Übergang: läuft das Projekt noch als dep_<slug>, Daten zuerst übernehmen.
+  const legacyIds = await takeOverLegacyCompose(project, deploymentId).catch(async (err) => {
+    // Kopie gescheitert: alte Dienste laufen wieder, nichts ist umgestellt.
+    const stopped = (await docker.listManagedContainers()).filter((c) => c.legacy && c.labels[docker.LABEL_PROJECT] === project.slug && !c.running)
+    await restoreLegacyCompose(project, deploymentId, stopped.map((c) => c.id))
+    throw err
+  })
+
+  try {
+    await upWithEnv(deploymentId, project, artifactFile, cfg.webService, { pull: job.kind === 'deploy' })
+  } catch (err) {
+    if (legacyIds.length) await restoreLegacyCompose(project, deploymentId, legacyIds)
+    throw err
+  }
 
   const ok = await healthcheck(deploymentId, network, webContainer, project)
   if (!ok) {
     const tail = await docker.getLogs(webContainer, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Ausgabe von ${cfg.webService}:\n${tail}`)
     const prevFile = previous[0]?.artifact?.composeFile
-    if (prevFile && existsSync(prevFile)) {
+    if (legacyIds.length) {
+      await restoreLegacyCompose(project, deploymentId, legacyIds)
+    } else if (prevFile && existsSync(prevFile)) {
       appendLine(deploymentId, 'Vorherige Fassung wird wieder hochgefahren')
       await upWithEnv(deploymentId, project, prevFile, cfg.webService).catch((e) =>
         appendLine(deploymentId, `Rückfall gescheitert: ${(e as Error).message}`),
@@ -548,15 +591,34 @@ async function removeSupersededContainers(
   o: { includeCompose?: boolean } = {},
 ): Promise<void> {
   const managed = await docker.listManagedContainers()
+  let legacy = false
   for (const c of managed) {
     if (c.labels[docker.LABEL_PROJECT] !== slug) continue
-    if (c.labels['deployer.compose-service'] && !o.includeCompose) continue
     // Laufende Scanner (M6) gehören keiner Fassung; sie räumen sich selbst weg.
-    if (c.labels['deployer.role'] === 'scanner') continue
-    if (c.labels[docker.LABEL_DEPLOYMENT] === keepDeploymentId) continue
+    if (c.labels[docker.LABEL.role] === 'scanner') continue
+    // Übergang: nach einem erfolgreichen Deploy ist alles aus der
+    // deployer-Zeit abgelöst, auch Compose-Dienste (ihre Daten sind kopiert).
+    if (c.legacy) {
+      legacy = true
+    } else {
+      if (c.labels[docker.LABEL.composeService] && !o.includeCompose) continue
+      if (c.labels[docker.LABEL_DEPLOYMENT] === keepDeploymentId) continue
+    }
     await docker.stopContainer(c.id)
     await docker.removeContainer(c.id)
   }
+  if (legacy) {
+    await dropLegacyNetwork(slug)
+    await docker.legacyState().catch(() => {}) // Anzeige «Neu erstellen» sofort aktuell
+  }
+}
+
+/** Netz dep_<slug> nach dem Übergang lösen und entfernen (Volumes bleiben). */
+export async function dropLegacyNetwork(slug: string): Promise<void> {
+  const net = docker.legacyNetworkName(slug)
+  await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER).catch(() => {})
+  await docker.disconnectFromNetwork(net, config.AIRLOCK_CONTAINER).catch(() => {})
+  await docker.removeNetwork(net).catch((err) => log.warn('Altes Projekt-Netz nicht entfernt', { net, err: String(err) }))
 }
 
 /** Nach einem Fehlschlag: alles entfernen, was dieser Versuch angelegt hat. */
@@ -564,13 +626,13 @@ async function cleanupFailed(projectId: string, deploymentId: string): Promise<v
   try {
     const managed = await docker.listManagedContainers()
     for (const c of managed) {
-      if (c.labels[docker.LABEL_DEPLOYMENT] === deploymentId && !c.labels['deployer.compose-service']) {
+      if (!c.legacy && c.labels[docker.LABEL_DEPLOYMENT] === deploymentId && !c.labels[docker.LABEL.composeService]) {
         await docker.stopContainer(c.id)
         await docker.removeContainer(c.id)
       }
     }
     const project = await findProject(projectId)
-    await docker.disconnectFromNetwork(docker.projectNetworkName(project.slug), config.DEPLOYER_CONTAINER)
+    await docker.disconnectFromNetwork(docker.projectNetworkName(project.slug), config.AIRLOCK_CONTAINER)
     // Gebaute Images eines gescheiterten Versuchs braucht niemand – aber nur,
     // wenn er sie selbst gebaut hat. Ein Rollback trägt die Images seines
     // Ziels im Artefakt; die gehören einer aufbewahrten Fassung und bleiben.
@@ -617,7 +679,7 @@ export async function pruneOldDeployments(projectId: string): Promise<void> {
   for (const r of rows) {
     if (keep.has(r.id)) continue
     const a = (r.artifact ?? {}) as DeploymentArtifact
-    for (const img of [...(a.builtImages ?? []), ...(r.imageRef?.startsWith('deployer/') ? [r.imageRef] : [])]) {
+    for (const img of [...(a.builtImages ?? []), ...(r.imageRef && isOwnImage(r.imageRef) ? [r.imageRef] : [])]) {
       if (!imagesInUse.has(img)) await docker.removeImageIfUnused(img).catch(() => {})
     }
     await dropArtifactDir(r.id)

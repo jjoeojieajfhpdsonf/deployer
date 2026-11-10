@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { headerKeys, headerRuleInputSchema } from '@deployer/shared'
+import { headerKeys, headerRuleInputSchema } from '@airlock/shared'
 import { listHeaderRules, setHeaderRule, removeHeaderRule, recordCspReports } from '../../security/header-service.js'
 import { recheckHeaders } from '../../security/scan.js'
 import { findProject } from '../../domain/projects.js'
@@ -77,7 +77,7 @@ export async function fixRoutes(app: FastifyInstance): Promise<void> {
 /**
  * CSP-Meldungen von Browsern, ohne Anmeldung (Browser schicken keine
  * Zugangsdaten mit). Geschützt durch den zufälligen Schlüssel der Regel und
- * dadurch, dass Caddy den Namen von deployer nur aus LAN und Tailnet
+ * dadurch, dass Caddy den Namen von Airlock nur aus LAN und Tailnet
  * durchlässt; dazu Grössen- und Mengengrenzen.
  */
 export async function cspReportRoutes(app: FastifyInstance): Promise<void> {

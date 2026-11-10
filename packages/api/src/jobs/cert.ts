@@ -3,10 +3,11 @@ import { probeCert, certProblem, type CertInfo } from '../lib/cert.js'
 import { getSetting, setSetting } from '../db/index.js'
 import { notify } from '../notify/send.js'
 import { log } from '../lib/log.js'
+import { UI_HOST_LABEL } from '@airlock/shared'
 
 /**
- * M4: Zertifikat im Blick behalten. deployer fragt Caddy per TLS (SNI
- * deployer.<basis>) nach dem ausgelieferten Zertifikat. Problem: höchstens
+ * M4: Zertifikat im Blick behalten. Airlock fragt Caddy per TLS (SNI
+ * <UI_HOST_LABEL>.<basis>, vorerst deployer.<basis>) nach dem ausgelieferten Zertifikat. Problem: höchstens
  * eine Benachrichtigung pro Tag (infra_problem).
  */
 
@@ -24,7 +25,7 @@ const CACHE_MS = 5 * 60_000
 export async function currentCert(fresh = false): Promise<CertInfo | null> {
   if (!cf.tls() || !cf.baseDomain()) return null
   if (!fresh && cached && Date.now() - cached.at < CACHE_MS) return cached.info
-  const info = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${cf.baseDomain()}`)
+  const info = await probeCert(config.CADDY_CONTAINER, 443, `${UI_HOST_LABEL}.${cf.baseDomain()}`)
   cached = { at: Date.now(), info }
   return info
 }

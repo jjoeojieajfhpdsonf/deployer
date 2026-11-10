@@ -52,7 +52,7 @@ async function waitScan(projectId: string, since: number, timeoutMs = 600_000): 
   throw new Error(`Kein fertiger Scan für ${projectId} nach ${timeoutMs} ms`)
 }
 
-const psql = (sql: string) => docker('exec', 'deployer-postgres-1', 'psql', '-U', 'deployer', '-d', 'deployer', '-tAc', sql)
+const psql = (sql: string) => docker('exec', 'airlock-postgres', 'psql', '-U', 'airlock', '-d', 'airlock', '-tAc', sql)
 
 const expectedScore = (c: Record<string, number>) => Math.max(0, 100 - 25 * c.critical! - 10 * c.high! - 4 * c.medium! - c.low!)
 
@@ -72,8 +72,8 @@ after(async () => {
 })
 
 describe('M6: reservierte Namen', () => {
-  test('Slug "deployer" und "ext-scan" sind nicht wählbar', async () => {
-    for (const slug of ['deployer', 'ext-scan']) {
+  test('Slug "deployer", "airlock" und "ext-scan" sind nicht wählbar', async () => {
+    for (const slug of ['deployer', 'airlock', 'ext-scan']) {
       const r = await api('POST', '/projects', { name: 'x', slug, source: { type: 'image', image: 'nginx:alpine' }, port: 80, targets: ['lan'] })
       assert.equal(r.status, 400, `${slug}: ${JSON.stringify(r.data)}`)
     }
@@ -238,7 +238,7 @@ describe('M6: Scans nach dem Deploy', () => {
 
   test('Scanner-Container sind weg', async () => {
     // Nur die eigenen: In der Gesamtsuite laufen noch Scans für Projekte aus M1–M3.
-    const left = docker('ps', '-a', '--filter', 'label=deployer.role=scanner', '--format', '{{.Label "deployer.project"}} {{.Names}}')
+    const left = docker('ps', '-a', '--filter', 'label=airlock.role=scanner', '--format', '{{.Label "airlock.project"}} {{.Names}}')
       .split('\n').filter((l) => l.startsWith(P))
     assert.deepEqual(left, [])
   })
@@ -250,8 +250,8 @@ describe('M6: externe Ziele', () => {
     assert.equal(add.status, 201, JSON.stringify(add.data))
     const t = add.data.target
     assert.equal(t.verified, false)
-    assert.equal(t.txt.name, '_deployer-verify.e2e-m6-nicht-vorhanden.example.com')
-    assert.match(t.txt.value, /^deployer-verify=/)
+    assert.equal(t.txt.name, '_airlock-verify.e2e-m6-nicht-vorhanden.example.com')
+    assert.match(t.txt.value, /^airlock-verify=/)
 
     const scan = await api('POST', `/external-targets/${t.id}/scans`, {})
     assert.equal(scan.status, 400)
@@ -323,7 +323,7 @@ describe('M6: Benachrichtigungen', () => {
   test('Einstellungen speichern; Token kommt nicht zurück; nur mit Anmeldung', async () => {
     const r = await api('PUT', '/notifications', {
       ntfy: { url: `http://host.docker.internal:${ntfyPort}`, topic: 'e2e-m6', token: 'tk_nur_test' },
-      email: { host: 'host.docker.internal', port: smtpPort, secure: false, user: null, password: null, from: 'deployer@test.example', to: 'joel@test.example' },
+      email: { host: 'host.docker.internal', port: smtpPort, secure: false, user: null, password: null, from: 'airlock@test.example', to: 'joel@test.example' },
     })
     assert.equal(r.status, 200, JSON.stringify(r.data))
     assert.equal(r.data.ntfy.hasToken, true)

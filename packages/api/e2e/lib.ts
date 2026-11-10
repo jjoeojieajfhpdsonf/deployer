@@ -6,7 +6,7 @@ import { join } from 'node:path'
  * Hilfen für die Ende-zu-Ende-Abnahme gegen den laufenden lokalen Stack
  * (docker compose up). Läuft auf dem Host, nicht im Container.
  *
- *   pnpm --filter @deployer/api e2e
+ *   pnpm --filter @airlock/api e2e
  *
  * Erwartet SERVER_LAN_IP und ADMIN_PASSWORD in der .env im Projektordner.
  */

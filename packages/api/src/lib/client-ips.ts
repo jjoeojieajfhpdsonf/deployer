@@ -1,7 +1,7 @@
 /**
- * Welche Absenderadressen sieht Caddy bei Anfragen auf deployer selbst?
- * Quelle: Caddys Zugriffs-Log für die deployer-Namen (Logger
- * http.log.access.deployer, drivers/caddy-config.ts). Rein: bekommt Log-Text
+ * Welche Absenderadressen sieht Caddy bei Anfragen auf Airlock selbst?
+ * Quelle: Caddys Zugriffs-Log für die Namen der Oberfläche (Logger
+ * http.log.access.airlock, drivers/caddy-config.ts). Rein: bekommt Log-Text
  * und die Gateways der Docker-Netze, liest nichts selbst.
  *
  * Hintergrund: Läuft Tailscale als Subnet-Router, maskiert es Verkehr aus dem
@@ -19,7 +19,7 @@ export interface AccessEntry {
 }
 
 export interface ClientIpReport {
-  /** Anfragen auf deployer im Zeitraum */
+  /** Anfragen auf Airlock im Zeitraum */
   total: number
   /** davon von einer Docker-Gateway-Adresse */
   fromGateway: number
@@ -32,7 +32,7 @@ export interface ClientIpReport {
   since: string
 }
 
-export function parseAccessLog(text: string, sinceMs: number, logger = 'http.log.access.deployer'): AccessEntry[] {
+export function parseAccessLog(text: string, sinceMs: number, logger = 'http.log.access.airlock'): AccessEntry[] {
   const out: AccessEntry[] = []
   for (const raw of text.split('\n')) {
     const l = raw.trim()

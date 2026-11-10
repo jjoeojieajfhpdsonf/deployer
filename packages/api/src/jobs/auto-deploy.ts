@@ -9,13 +9,14 @@ import { audit } from '../domain/audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
 import { lsRemoteHead } from '../lib/git.js'
 import { log } from '../lib/log.js'
+import { UI_HOST_LABEL } from '@airlock/shared'
 
 /**
- * M8, Etappe 3: Auto-Deploy nach Merge, ohne Webhook (deployer ist nie
+ * M8, Etappe 3: Auto-Deploy nach Merge, ohne Webhook (Airlock ist nie
  * öffentlich). Alle 5 Minuten:
  * 1. Projekte mit auto_deploy: Kopf des Deploy-Branches mit der aktiven
  *    Fassung vergleichen; bei neuem Commit deployen (der Scan folgt).
- * 2. Offene Pull Requests von deployer: gemergt -> «merged», ohne Merge
+ * 2. Offene Pull Requests von Airlock: gemergt -> «merged», ohne Merge
  *    geschlossen -> «verworfen».
  * 3. Bestätigte Fixes mit Pull Request: Ergebnis als Kommentar am PR.
  */
@@ -33,8 +34,8 @@ export function autoDeployDecision(o: { head: string; activeVersion: string | nu
 export function prComment(o: { title: string; verified: boolean; score: number | null; grade: string | null; scanUrl: string }): string {
   return [
     o.verified
-      ? `✅ deployer: Nach dem Merge deployt und nachgescannt – der Befund «${o.title}» ist behoben.`
-      : `⚠️ deployer: Nach dem Merge deployt und nachgescannt – der Befund «${o.title}» besteht weiter.`,
+      ? `✅ Airlock: Nach dem Merge deployt und nachgescannt – der Befund «${o.title}» ist behoben.`
+      : `⚠️ Airlock: Nach dem Merge deployt und nachgescannt – der Befund «${o.title}» besteht weiter.`,
     o.grade ? `Note jetzt ${o.grade} (${o.score} / 100).` : '',
     `Bericht: ${o.scanUrl}`,
   ].filter(Boolean).join('\n\n')
@@ -89,7 +90,7 @@ async function checkPullRequests(): Promise<void> {
       if (pr.merged) {
         await db.update(schema.fixRequests).set({
           status: 'merged', updatedAt: new Date(),
-          note: p.autoDeploy ? 'Gemergt; Auto-Deploy holt den neuen Stand, der Scan danach bestätigt die Behebung.' : 'Gemergt. Auto-Deploy ist aus: neu deployen, dann scannt deployer nach.',
+          note: p.autoDeploy ? 'Gemergt; Auto-Deploy holt den neuen Stand, der Scan danach bestätigt die Behebung.' : 'Gemergt. Auto-Deploy ist aus: neu deployen, dann scannt Airlock nach.',
         }).where(eq(schema.fixRequests.id, fx.id))
       } else if (pr.state === 'closed') {
         await db.update(schema.fixRequests).set({ status: 'rejected', note: 'Pull Request ohne Merge geschlossen.', updatedAt: new Date() }).where(eq(schema.fixRequests.id, fx.id))
@@ -107,7 +108,7 @@ async function checkPullRequests(): Promise<void> {
       const r = await connectedRepo(p)
       if (!r) continue
       const last = (await db.select().from(schema.scanRuns).where(and(eq(schema.scanRuns.projectId, p.id), eq(schema.scanRuns.status, 'done'))).orderBy(schema.scanRuns.startedAt)).pop()
-      const body = prComment({ title: fx.findingTitle, verified: true, score: last?.score ?? null, grade: last?.grade ?? null, scanUrl: `${urlForHost(primaryHost('deployer'))}/projekte/${p.id}?tab=security` })
+      const body = prComment({ title: fx.findingTitle, verified: true, score: last?.score ?? null, grade: last?.grade ?? null, scanUrl: `${urlForHost(primaryHost(UI_HOST_LABEL))}/projekte/${p.id}?tab=security` })
       await github().comment(await repoToken(r.repo), r.owner, r.repo, fx.prNumber!, body)
       await db.update(schema.fixRequests).set({ prCommentedAt: new Date() }).where(eq(schema.fixRequests.id, fx.id))
     } catch (err) {

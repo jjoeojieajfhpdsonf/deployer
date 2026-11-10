@@ -35,7 +35,7 @@ function tree(name: string, files: Record<string, string>): string {
 }
 
 before(() => {
-  root = mkdtempSync(join(tmpdir(), 'deployer-pack-'))
+  root = mkdtempSync(join(tmpdir(), 'airlock-pack-'))
 })
 after(() => rmSync(root, { recursive: true, force: true }))
 

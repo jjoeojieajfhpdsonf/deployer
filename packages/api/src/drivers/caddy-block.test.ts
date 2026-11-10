@@ -7,7 +7,7 @@ type Route = { match?: { host: string[]; remote_ip?: unknown }[]; handle: { hand
 type Srv = { routes: Route[]; logs?: { logger_names: Record<string, string[]>; skip_unmapped_hosts: boolean } }
 const servers = (cfg: unknown) => (cfg as { apps: { http: { servers: Record<string, Srv> } } }).apps.http.servers
 
-const deployer: RouteSpec = { hosts: ['deployer.int.example.ch', 'deployer.100-88-41-12.nip.io'], kind: 'proxy', upstream: 'deployer-app:3000' }
+const deployer: RouteSpec = { hosts: ['deployer.int.example.ch', 'deployer.100-88-41-12.nip.io'], kind: 'proxy', upstream: 'airlock-app:3000' }
 const app: RouteSpec = { hosts: ['app.int.example.ch'], kind: 'proxy', upstream: 'app:80' }
 const base = { cidrs: ['192.168.1.0/24', '100.64.0.0/10'], adminSocket: '/run/caddy/admin.sock', trustedProxies: [] as string[] }
 
@@ -43,8 +43,8 @@ describe('Sperrseite: zwei Meldungen', () => {
   })
 })
 
-describe('Zugriffs-Log nur für deployer', () => {
-  test('logger_names für die deployer-Namen, andere Namen werden nicht geloggt', () => {
+describe('Zugriffs-Log nur für Airlock', () => {
+  test('logger_names für die Namen der Oberfläche, andere Namen werden nicht geloggt', () => {
     const cfg = buildCaddyConfig([deployer, app], { ...base, ipFilter: true, accessLogHosts: deployer.hosts, tls: { baseDomain: 'int.example.ch', acmeCa: 'production', tokenFile: '/t' } })
     for (const s of Object.values(servers(cfg))) {
       assert.deepEqual(s.logs, { logger_names: { 'deployer.int.example.ch': [ACCESS_LOGGER], 'deployer.100-88-41-12.nip.io': [ACCESS_LOGGER] }, skip_unmapped_hosts: true })
@@ -57,7 +57,7 @@ describe('Zugriffs-Log nur für deployer', () => {
 
 describe('Absender aus dem Zugriffs-Log', () => {
   const T = Date.parse('2026-11-10T08:00:00Z')
-  const line = (sec: number, ip: string, status: number, logger = 'http.log.access.deployer') =>
+  const line = (sec: number, ip: string, status: number, logger = 'http.log.access.airlock') =>
     JSON.stringify({ level: 'info', ts: (T + sec * 1000) / 1000, logger, msg: 'handled request', request: { remote_ip: ip, client_ip: ip, host: 'deployer.int.example.ch' }, status })
   const log = [
     line(-4000, '172.20.0.1', 403), // zu alt
@@ -68,7 +68,7 @@ describe('Absender aus dem Zugriffs-Log', () => {
     'kein JSON',
   ].join('\n')
 
-  test('liest nur deployer-Einträge im Zeitraum', () => {
+  test('liest nur Airlock-Einträge im Zeitraum', () => {
     const e = parseAccessLog(log, T)
     assert.equal(e.length, 3)
     assert.deepEqual(e.map((x) => x.ip), ['172.20.0.1', '172.20.0.1', '192.168.1.40'])

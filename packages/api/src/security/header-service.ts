@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import {
   HEADER_DEFAULT, HEADER_LABEL, headerValueProblem, needsConfirmation,
   type HeaderKey, type HeaderMode, type HeaderRulesDto, type HeaderRecheckDto, type HeaderRuleDto,
-} from '@deployer/shared'
+} from '@airlock/shared'
 import { db, schema } from '../db/index.js'
 import { findProject } from '../domain/projects.js'
 import { probeTargetFor, reconcileCaddy } from '../domain/routes.js'
@@ -148,7 +148,7 @@ export async function removeHeaderRule(idOrSlug: string, header: HeaderKey, acto
 /**
  * CSP-Meldungen eines Browsers speichern. Ohne gültigen Schlüssel: 404 (der
  * Endpunkt ist ohne Anmeldung erreichbar, aber nur aus LAN, Tailnet und dem
- * Projekt-Netz – Caddy lässt den Namen von deployer von nirgends sonst durch).
+ * Projekt-Netz – Caddy lässt den Namen von Airlock von nirgends sonst durch).
  */
 export async function recordCspReports(reportKey: string, body: unknown): Promise<number> {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(reportKey)) throw notFound('Report-Ziel')

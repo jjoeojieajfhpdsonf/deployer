@@ -14,7 +14,7 @@ import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
-import { putEnvSchema } from '@deployer/shared'
+import { putEnvSchema } from '@airlock/shared'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { runtimeStatus, isPublic } from '../lib/projects.js'
 
@@ -42,8 +42,9 @@ export function ProjectDetail() {
   })
 
   const act = useMutation({
-    mutationFn: async (what: 'deploy' | 'start' | 'stop') => {
+    mutationFn: async (what: 'deploy' | 'start' | 'stop' | 'recreate') => {
       if (what === 'deploy') return api.deploy(id)
+      if (what === 'recreate') return api.recreate(id)
       if (what === 'start') return api.start(id)
       return api.stop(id)
     },
@@ -118,6 +119,16 @@ export function ProjectDetail() {
       </PageHead>
 
       {notice && <p role="status" className="notice notice-ok">{notice}</p>}
+      {p.legacyContainers && p.status !== 'deploying' && (
+        <div className="notice notice-info legacy-notice" role="status">
+          <span>
+            <strong>Läuft noch mit Containern aus der deployer-Zeit.</strong>{' '}
+            «Neu erstellen» legt dieselbe Fassung mit den Namen von Airlock neu an; Daten in Volumes werden übernommen.
+            {p.runtimeKind === 'compose' ? ' Die Dienste sind dabei kurz offline.' : ''}
+          </span>
+          <button onClick={() => act.mutate('recreate')} disabled={act.isPending}>Neu erstellen</button>
+        </div>
+      )}
       {act.isError && (
         <p role="alert" className="error">
           {act.error instanceof ApiError && act.error.status === 409

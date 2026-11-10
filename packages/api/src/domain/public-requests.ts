@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { PublicRequestDto, PublicStatusDto } from '@deployer/shared'
+import type { PublicRequestDto, PublicStatusDto } from '@airlock/shared'
 import { db, schema } from '../db/index.js'
 import { audit } from './audit.js'
 import { notFound } from '../lib/errors.js'
@@ -87,7 +87,7 @@ export function mcpRequestInfo(r: Pick<Row, 'requestedAt' | 'actor' | 'approvedB
     confirmed_in_ui: Boolean(r.approvedBy),
     next: r.approvedBy
       ? 'Bestätigt: wird nach dem nächsten bestandenen Scan automatisch öffentlich.'
-      : 'Bis zur Bestätigung in deployer (Projekt → Einstellungen → Veröffentlichung, «Nach dem Scan öffentlich schalten») bleibt das Projekt nur intern erreichbar. Nichts wird still veröffentlicht. Alternativ nach dem Scan set_targets mit "public" (mit Rückfrage).',
+      : 'Bis zur Bestätigung in Airlock (Projekt → Einstellungen → Veröffentlichung, «Nach dem Scan öffentlich schalten») bleibt das Projekt nur intern erreichbar. Nichts wird still veröffentlicht. Alternativ nach dem Scan set_targets mit "public" (mit Rückfrage).',
     text: d.text,
   }
 }

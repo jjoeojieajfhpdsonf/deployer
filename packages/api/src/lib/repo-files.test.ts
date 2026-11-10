@@ -8,7 +8,7 @@ import { resolveInRepo, readRepoFile } from './repo-files.js'
 let root: string
 
 before(() => {
-  root = mkdtempSync(join(tmpdir(), 'deployer-repofiles-'))
+  root = mkdtempSync(join(tmpdir(), 'airlock-repofiles-'))
   mkdirSync(join(root, 'conf'))
   writeFileSync(join(root, 'compose.yaml'), 'services: {}\n')
   writeFileSync(join(root, 'conf', 'app.env'), 'A=1\n')

@@ -4,7 +4,7 @@ ARG CADDY_VERSION=2.10.0
 
 FROM caddy:${CADDY_VERSION}-builder-alpine AS build
 ARG CF_MODULE_VERSION=v0.2.4
-# M8: Ratenlimit für die CSP-Meldungen, die Caddy vom Host eines Projekts an deployer weiterleitet
+# M8: Ratenlimit für die CSP-Meldungen, die Caddy vom Host eines Projekts an Airlock weiterleitet
 ARG RATELIMIT_MODULE_VERSION=v0.1.0
 RUN xcaddy build \
   --with github.com/caddy-dns/cloudflare@${CF_MODULE_VERSION} \
@@ -12,6 +12,6 @@ RUN xcaddy build \
 
 FROM caddy:${CADDY_VERSION}-alpine
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
-COPY entrypoint.sh /usr/local/bin/deployer-caddy-entrypoint
-RUN chmod 0755 /usr/local/bin/deployer-caddy-entrypoint
-ENTRYPOINT ["/usr/local/bin/deployer-caddy-entrypoint"]
+COPY entrypoint.sh /usr/local/bin/airlock-caddy-entrypoint
+RUN chmod 0755 /usr/local/bin/airlock-caddy-entrypoint
+ENTRYPOINT ["/usr/local/bin/airlock-caddy-entrypoint"]

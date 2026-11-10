@@ -4,11 +4,11 @@
  * liegen schon im Speicher (selbst signiert, mit den Ausstellern der echten
  * CAs), Caddy lädt sie und bestellt nichts.
  *
- *   pnpm --filter @deployer/api exec tsx scripts/caddy-tls-e2e.ts
+ *   pnpm --filter @airlock/api exec tsx scripts/caddy-tls-e2e.ts
  *
  * A – Zustand vom Server: Phase failed, Konfiguration (autosave) verwaltet
  *     *.<basis> mit Staging-CA, Cache und Speicher halten ein Staging-Wildcard,
- *     im Speicher liegt zusätzlich ein gültiges produktives. Erwartet: deployer
+ *     im Speicher liegt zusätzlich ein gültiges produktives. Erwartet: Airlock
  *     erkennt das produktive im Speicher, baut die Produktions-CA, leert den
  *     Cache per Zwischenschritt – Caddy liefert das produktive aus.
  * B – Ablauf: Probelauf (acme-probe.<basis>, Staging) → Produktion → Caddy
@@ -27,8 +27,8 @@ import { probeCert, checkIssuedCert, isStagingIssuer } from '../src/lib/cert.js'
 const BASE = 'int.example.test'
 const WILDCARD = `*.${BASE}`
 const PORT = 18444
-const NAME = 'deployer-caddy-e2e'
-const IMAGE = 'deployer-caddy-test:e2e'
+const NAME = 'airlock-caddy-e2e'
+const IMAGE = 'airlock-caddy-test:e2e'
 const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..')
 
 const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -99,7 +99,7 @@ try {
   check(isStagingIssuer(before.issuer), `vorher: Caddy liefert Staging aus (${before.issuer})`)
 
   const inStorage = storedProductionWildcard(dataA, BASE)
-  check(Boolean(inStorage), `deployer erkennt das produktive Wildcard im Speicher (${inStorage?.issuer}, bis ${inStorage?.validTo.slice(0, 10)})`)
+  check(Boolean(inStorage), `Airlock erkennt das produktive Wildcard im Speicher (${inStorage?.issuer}, bis ${inStorage?.validTo.slice(0, 10)})`)
   const next = build(opts('failed', Boolean(inStorage), tokenFile))
   check(JSON.stringify(next).includes('acme-v02.api.letsencrypt.org') && !JSON.stringify(next).includes('acme-staging'), 'Konfiguration in «failed» zeigt die Produktions-CA')
   check(removeStagingWildcard(dataA, BASE), 'Staging-Wildcard aus dem Speicher entfernt')

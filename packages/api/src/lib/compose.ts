@@ -1,6 +1,7 @@
 import { parse, stringify } from 'yaml'
 import { posix } from 'node:path'
 import { AppError } from './errors.js'
+import { LABEL, IMAGE_PREFIX, LEGACY_LABEL_NS } from './names.js'
 
 /**
  * Prüfung und Normalisierung einer compose.yaml.
@@ -19,7 +20,7 @@ export interface ComposeContext {
   deploymentShort: string
   deploymentId: string
   webService: string
-  /** Projekt-Netz dep_<slug>; wird zum Standardnetz aller Dienste. */
+  /** Projekt-Netz air_<slug>; wird zum Standardnetz aller Dienste. */
   network: string
   memoryLimitMb: number
   cpuLimit: number
@@ -58,12 +59,12 @@ const WHY: Record<string, string> = {
   cap_add: 'gibt dem Container zusätzliche Kernel-Rechte',
   devices: 'reicht Geräte des Hosts durch',
   network_mode: 'würde das Projekt-Netz verlassen (z.B. host)',
-  networks: 'das Netz setzt deployer selbst (dep_<slug>)',
+  networks: 'das Netz setzt Airlock selbst (air_<slug>)',
   pid: 'teilt Prozesse mit dem Host',
   ipc: 'teilt Speicher mit dem Host',
   uts: 'teilt den Hostnamen-Namensraum',
   userns_mode: 'schaltet die Benutzer-Isolation ab',
-  security_opt: 'die Sicherheitsoptionen setzt deployer selbst',
+  security_opt: 'die Sicherheitsoptionen setzt Airlock selbst',
   sysctls: 'ändert Kernel-Parameter',
   cgroup_parent: 'verlässt die Ressourcen-Grenzen',
   cgroup: 'verlässt die Ressourcen-Grenzen',
@@ -147,7 +148,7 @@ export function parseDotenv(text: string, field: string): Record<string, string>
 /**
  * environment in Mapping oder Liste. Einträge OHNE Wert lehnt die Prüfung ab:
  * Compose würde den Wert sonst aus der eigenen Umgebung nehmen – das ist die
- * Umgebung des deployers mit Datenbank-URL und Passwörtern.
+ * Umgebung von Airlock mit Datenbank-URL und Passwörtern.
  */
 function normalizeEnvironment(field: string, v: unknown): Record<string, string> {
   const out: Record<string, string> = {}
@@ -160,14 +161,14 @@ function normalizeEnvironment(field: string, v: unknown): Record<string, string>
       if (typeof entry !== 'string') fail(field, 'Listeneinträge müssen KEY=VALUE sein')
       const i = (entry as string).indexOf('=')
       if (i === -1) {
-        fail(field, `"${entry}" hat keinen Wert; Compose nähme ihn aus der Umgebung des deployers`)
+        fail(field, `"${entry}" hat keinen Wert; Compose nähme ihn aus der Umgebung von Airlock`)
       }
       set((entry as string).slice(0, i), (entry as string).slice(i + 1))
     }
   } else if (isObj(v)) {
     for (const [k, val] of Object.entries(v)) {
       if (val === null || val === undefined) {
-        fail(field, `"${k}" hat keinen Wert; Compose nähme ihn aus der Umgebung des deployers`)
+        fail(field, `"${k}" hat keinen Wert; Compose nähme ihn aus der Umgebung von Airlock`)
       }
       set(k, scalarToString(`${field}.${k}`, val))
     }
@@ -181,7 +182,7 @@ function normalizeLabels(field: string, v: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   const set = (k: string, val: string) => {
     // Diese Labels steuern Aufräumen und Löschen bzw. Compose selbst.
-    if (/^(deployer\.|com\.docker\.)/i.test(k)) fail(field, `Label "${k}" ist reserviert`)
+    if (/^(airlock\.|deployer\.|com\.docker\.)/i.test(k)) fail(field, `Label "${k}" ist reserviert`)
     out[k] = val
   }
   if (Array.isArray(v)) {
@@ -263,12 +264,44 @@ export function withServiceEnv(normalizedYaml: string, service: string, env: Rec
     if (!ENV_KEY_RE.test(k)) throw new AppError('compose_rejected', `Variablenname "${k}" ist ungültig`, 400)
   }
   svc.environment = { ...(svc.environment ?? {}), ...escapeDollars(env) }
-  return `# Erzeugt von deployer aus geprüften Werten. Nicht von Hand ändern.\n${stringify(doc)}`
+  return `${HEADER}${stringify(doc)}`
 }
+
+const HEADER = '# Erzeugt von Airlock aus geprüften Werten. Nicht von Hand ändern.\n'
+
+/**
+ * Übergang (docs/RENAME.md): Eine aufbewahrte normalisierte Datei aus der
+ * deployer-Zeit trägt noch `name: dep_<slug>`, das Netz dep_<slug> und
+ * `deployer.*`-Labels. Für Rollback und Rückfall auf das aktuelle Projekt-Netz
+ * und die neuen Labels umschreiben. Dateien, die schon stimmen, bleiben gleich.
+ * Nur eigene Felder (name, networks, Labels) – der Rest war schon geprüft.
+ */
+export function retargetCompose(normalizedYaml: string, network: string): string {
+  const doc = parse(normalizedYaml) as {
+    name?: string
+    services?: Record<string, { labels?: Record<string, string> }>
+    networks?: Record<string, unknown>
+  }
+  doc.name = network
+  doc.networks = { default: { name: network, external: true } }
+  const prefix = `${LEGACY_LABEL_NS}.`
+  for (const svc of Object.values(doc.services ?? {})) {
+    if (!svc.labels) continue
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(svc.labels)) {
+      out[k.startsWith(prefix) ? `airlock.${k.slice(prefix.length)}` : k] = v
+    }
+    svc.labels = out
+  }
+  return `${HEADER}${stringify(doc)}`
+}
+
+/** Name des Web-Containers, den Compose für ein Projekt vergibt. */
+export const composeWebContainer = (projectName: string, webService: string): string => `${projectName}-${webService}-1`
 
 export function imageTagFor(slug: string, service: string, short: string): string {
   const svc = service.toLowerCase().replace(/[^a-z0-9._-]/g, '-')
-  return `deployer/${slug}-${svc}:${short}`
+  return `${IMAGE_PREFIX}${slug}-${svc}:${short}`
 }
 
 export async function normalizeCompose(text: string, ctx: ComposeContext): Promise<NormalizedCompose> {
@@ -285,7 +318,7 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
     if (!TOP_KEYS.has(k)) {
       fail(k, k === 'include'
         ? 'liest weitere Dateien und ist nicht erlaubt'
-        : k === 'networks' ? 'das Netz setzt deployer selbst' : 'ist auf oberster Ebene nicht erlaubt (Erlaubnisliste)')
+        : k === 'networks' ? 'das Netz setzt Airlock selbst' : 'ist auf oberster Ebene nicht erlaubt (Erlaubnisliste)')
     }
   }
   const root = doc as Record<string, unknown>
@@ -362,7 +395,7 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
         const df = bb.dockerfile
         // Nur relative Pfade. Ein absoluter Pfad wie /proc/1/environ würde
         // sonst – an den Kontext gehängt – die Repo-Prüfung bestehen und
-        // danach unverändert an Compose gehen, das ihn aus dem deployer-
+        // danach unverändert an Compose gehen, das ihn aus dem Airlock-
         // Container liest.
         if (typeof df !== 'string' || df === '' || /^[/\\~]/.test(df) || df.includes('\0') || df.includes('\\')) {
           fail(`${f}.build.dockerfile`, 'muss ein relativer Pfad im Build-Kontext sein')
@@ -452,14 +485,14 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
       ...escaped,
       labels: {
         ...escapeDollars(userLabels),
-        'deployer.managed': 'true',
-        'deployer.project': ctx.slug,
-        // Bewusst KEIN deployer.deployment: ein geändertes Label lässt Compose
+        [LABEL.managed]: 'true',
+        [LABEL.project]: ctx.slug,
+        // Bewusst KEIN airlock.deployment: ein geändertes Label lässt Compose
         // den Container neu erzeugen – bei jedem Deploy auch die Datenbank.
-        'deployer.compose-service': name,
+        [LABEL.composeService]: name,
         // Start und Abgleich starten nur Dienste, die dauerhaft laufen sollen;
         // ein Einmal-Dienst (Migration, Seed) mit "no" bleibt beendet.
-        'deployer.compose-restart': restart,
+        [LABEL.composeRestart]: restart,
       },
       restart,
       logging: { driver: 'json-file', options: { 'max-size': '10m', 'max-file': '5' } },
@@ -469,19 +502,19 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
     }
   }
 
-  const projectName = ctx.network // dep_<slug>
+  const projectName = ctx.network // air_<slug>
   const normalized = {
     name: projectName,
     services: servicesOut,
     ...(Object.keys(topVolumes).length ? { volumes: topVolumes } : {}),
-    // Standardnetz aller Dienste ist das Projekt-Netz, das deployer anlegt.
+    // Standardnetz aller Dienste ist das Projekt-Netz, das Airlock anlegt.
     networks: { default: { name: ctx.network, external: true } },
   }
 
   return {
-    yaml: `# Erzeugt von deployer aus geprüften Werten. Nicht von Hand ändern.\n${stringify(normalized)}`,
+    yaml: `${HEADER}${stringify(normalized)}`,
     projectName,
-    webContainer: `${projectName}-${ctx.webService}-1`,
+    webContainer: composeWebContainer(projectName, ctx.webService),
     services: names,
     builtImages,
   }

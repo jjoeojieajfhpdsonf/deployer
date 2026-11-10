@@ -39,39 +39,39 @@ describe('withProjectNetwork (gezählt, nacheinander)', () => {
     const a = createNetworkAttacher(f.ops)
     const seen: boolean[] = []
     await Promise.all([
-      a.with('dep_x', async () => { await new Promise((r) => setTimeout(r, 20)); seen.push(f.connected) }),
-      a.with('dep_x', async () => { await new Promise((r) => setTimeout(r, 5)); seen.push(f.connected) }),
+      a.with('air_x', async () => { await new Promise((r) => setTimeout(r, 20)); seen.push(f.connected) }),
+      a.with('air_x', async () => { await new Promise((r) => setTimeout(r, 5)); seen.push(f.connected) }),
     ])
     assert.deepEqual(seen, [true, true])
-    assert.deepEqual(f.log, ['connect dep_x', 'disconnect dep_x'])
-    assert.equal(a.users('dep_x'), 0)
+    assert.deepEqual(f.log, ['connect air_x', 'disconnect air_x'])
+    assert.equal(a.users('air_x'), 0)
   })
 
   test('scheitert das Verbinden, bleibt der Zähler bei 0 und der nächste Aufruf verbindet neu', async () => {
     const f = fakeOps({ failConnect: 1 })
     const a = createNetworkAttacher(f.ops)
-    await assert.rejects(a.with('dep_y', async () => 'nie'), /hiccup/)
-    assert.equal(a.users('dep_y'), 0)
+    await assert.rejects(a.with('air_y', async () => 'nie'), /hiccup/)
+    assert.equal(a.users('air_y'), 0)
     let during = false
-    await a.with('dep_y', async () => { during = f.connected })
+    await a.with('air_y', async () => { during = f.connected })
     assert.equal(during, true)
-    assert.deepEqual(f.log, ['connect-fail dep_y', 'connect dep_y', 'disconnect dep_y'])
+    assert.deepEqual(f.log, ['connect-fail air_y', 'connect air_y', 'disconnect air_y'])
   })
 
   test('ein Nutzer kommt während des Trennens: er wartet und verbindet neu', async () => {
     const f = fakeOps()
     const a = createNetworkAttacher(f.ops)
-    await a.with('dep_z', async () => {})
-    const p = a.with('dep_z', async () => f.connected)
+    await a.with('air_z', async () => {})
+    const p = a.with('air_z', async () => f.connected)
     assert.equal(await p, true)
-    assert.deepEqual(f.log, ['connect dep_z', 'disconnect dep_z', 'connect dep_z', 'disconnect dep_z'])
+    assert.deepEqual(f.log, ['connect air_z', 'disconnect air_z', 'connect air_z', 'disconnect air_z'])
   })
 
   test('Fehler in fn trennt trotzdem', async () => {
     const f = fakeOps()
     const a = createNetworkAttacher(f.ops)
-    await assert.rejects(a.with('dep_e', async () => { throw new Error('fn kaputt') }), /fn kaputt/)
+    await assert.rejects(a.with('air_e', async () => { throw new Error('fn kaputt') }), /fn kaputt/)
     assert.equal(f.connected, false)
-    assert.equal(a.users('dep_e'), 0)
+    assert.equal(a.users('air_e'), 0)
   })
 })

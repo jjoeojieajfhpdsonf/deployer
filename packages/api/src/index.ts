@@ -24,7 +24,7 @@ import { registerGithub } from './domain/github.js'
 import { startAutoDeployJob } from './jobs/auto-deploy.js'
 
 async function main(): Promise<void> {
-  log.info('deployer startet', { version: config.version, env: config.NODE_ENV })
+  log.info('Airlock startet', { version: config.version, env: config.NODE_ENV })
 
   await runMigrations((msg) => log.info(msg))
   loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))

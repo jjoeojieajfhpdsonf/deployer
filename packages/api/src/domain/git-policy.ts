@@ -9,7 +9,7 @@ import type { RepoUrlPolicy } from '../lib/repo-url.js'
  */
 
 /** Die festen Netznamen aus compose.yaml (dort per `name:` gesetzt). */
-const STACK_NETWORKS = ['deployer_internal', 'deployer_edge']
+const STACK_NETWORKS = ['airlock_internal', 'airlock_edge', 'airlock_tunnel']
 
 let cached: { at: number; cidrs: string[] } | null = null
 
@@ -23,9 +23,10 @@ async function stackCidrs(): Promise<string[]> {
 export async function repoUrlPolicy(): Promise<RepoUrlPolicy> {
   return {
     deniedHosts: [
-      'postgres', 'socket-proxy', 'caddy', 'deployer',
-      config.DEPLOYER_CONTAINER, config.CADDY_CONTAINER,
-      config.DEPLOYER_UPSTREAM.split(':')[0] ?? '',
+      'postgres', 'socket-proxy', 'caddy', 'airlock', 'deployer',
+      'airlock-postgres', 'airlock-socket-proxy', 'airlock-cloudflared',
+      config.AIRLOCK_CONTAINER, config.CADDY_CONTAINER,
+      config.AIRLOCK_UPSTREAM.split(':')[0] ?? '',
     ].filter(Boolean),
     deniedCidrs: await stackCidrs(),
     resolve: async (host) => (await lookup(host, { all: true })).map((a) => a.address),

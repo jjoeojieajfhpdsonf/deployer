@@ -24,7 +24,7 @@ Grundlage ist die gemessene Formensprache der Startseite cal.com
 Die Screenshots je Etappe lagen in `docs/design-cal/<etappe>/` und sind nach dem Merge
 gelöscht (im Git-Verlauf bis Commit `0fb7c58` noch abrufbar). Im Repo bleiben: Endstand der
 wichtigsten Seiten in `aktuell/` und der Vergleich mit cal.com in `vergleich-*.png`
-(links deployer, rechts der cal.com-Ausschnitt; Hell und Dunkel).
+(links Airlock, rechts der cal.com-Ausschnitt; Hell und Dunkel).
 
 ## Fundament
 
@@ -66,7 +66,7 @@ wichtigsten Seiten in `aktuell/` und der Vergleich mit cal.com in `vergleich-*.p
 - **«Statusflächen ≥ 3 : 1»** gilt für Elemente, die einen Zustand ohne Text tragen (Punkte,
   Balken, Diagrammlinien, Primärfläche). Die blassen Tönungen hinter Status-Pillen tragen immer
   ein Wort; geprüft wird dort der Text auf der Tönung (≥ 4,5 : 1).
-- **«Pro Nutzer»:** deployer hat genau ein Konto; die Darstellung ist die Wahl dieses Kontos,
+- **«Pro Nutzer»:** Airlock hat genau ein Konto; die Darstellung ist die Wahl dieses Kontos,
   gespeichert auf dem Server (gilt auf jedem Gerät).
 
 ## Prüfungen (nach jeder Etappe)
@@ -78,7 +78,7 @@ wichtigsten Seiten in `aktuell/` und der Vergleich mit cal.com in `vergleich-*.p
 | Kontrast | `node docs/design-cal/contrast.mjs` (liest die Tokens aus `styles.css`) | alle erfüllt; schwächster Text 4,67 : 1 (ok auf surface-3), Feldrahmen 3,10 : 1 |
 | Tote CSS-Klassen | `node docs/design-cal/dead-css.mjs` | 0 von 391 |
 | Impeccable (Gutachter) | `.claude/skills/impeccable/scripts/impeccable detect` + Durchsicht der Screenshots | Detektor ohne Befund; Befunde der Durchsicht siehe unten |
-| Screenshots | `pnpm --filter @deployer/web exec tsx design-shots/shoot.ts --out <ordner> --only <gruppen>` | Hell und Dunkel, 1440 px |
+| Screenshots | `pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out <ordner> --only <gruppen>` | Hell und Dunkel, 1440 px |
 
 Die Screenshots laufen gegen Fixtures (`packages/web/design-shots/fixtures.ts`, typisiert gegen
 die echten DTOs, erfundene Projekte); dazu Varianten für leere Daten, hängende Anfragen und eine

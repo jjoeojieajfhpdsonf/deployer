@@ -20,7 +20,7 @@ Umfang laut [SPEC.md](SPEC.md): Wildcard-Zertifikat per DNS-Challenge bei Cloudf
 ## 2. Zertifikat
 
 - Ein Wildcard-Zertifikat für `*.<INTERNAL_BASE_DOMAIN>` über ACME DNS-01 bei Let's Encrypt. Caddy erneuert selbst.
-- Eine Wildcard deckt genau eine Ebene. Alle internen Namen sind deshalb einstufig: `<label>.<basis>`. Das ist schon heute so (Slug bzw. Subdomain ohne Punkt, Schema in `@deployer/shared`).
+- Eine Wildcard deckt genau eine Ebene. Alle internen Namen sind deshalb einstufig: `<label>.<basis>`. Das ist schon heute so (Slug bzw. Subdomain ohne Punkt, Schema in `@airlock/shared`).
 - `ACME_CA=staging` schaltet auf die Staging-CA von Let's Encrypt (für den ersten Versuch auf dem Server, ohne Rate-Limit-Risiko). Standard `production`.
 - `ACME_EMAIL` optional für Ablauf-Warnungen von Let's Encrypt.
 - DNS-Resolver für die Challenge-Prüfung: `1.1.1.1` – sonst fragt Caddy den lokalen DNS, und ein Split-Horizon-Setup (AdGuard mit `*.int`) beantwortet die `_acme-challenge`-Abfrage falsch.
@@ -43,18 +43,18 @@ Umfang laut [SPEC.md](SPEC.md): Wildcard-Zertifikat per DNS-Challenge bei Cloudf
 ## 4. LAN und Tailnet unter derselben Adresse
 
 - **LAN:** Der lokale DNS (Router, AdGuard, Pi-hole) zeigt `*.int.deinedomain.ch` auf `SERVER_LAN_IP`. Das richtet Joël ein; die Systemseite zeigt die Anleitung mit den richtigen Werten.
-- **Tailnet:** deployer legt bei Cloudflare einen DNS-Eintrag `*.int.deinedomain.ch` → `TAILSCALE_IP` an, Typ A, **nicht proxied** (SPEC). Beim Start und über `POST /api/v1/system/tailnet-dns` (nur mit Anmeldung). Bestehender Eintrag mit anderem Ziel wird aktualisiert, ein gleicher bleibt unverändert.
+- **Tailnet:** Airlock legt bei Cloudflare einen DNS-Eintrag `*.int.deinedomain.ch` → `TAILSCALE_IP` an, Typ A, **nicht proxied** (SPEC). Beim Start und über `POST /api/v1/system/tailnet-dns` (nur mit Anmeldung). Bestehender Eintrag mit anderem Ziel wird aktualisiert, ein gleicher bleibt unverändert.
   - Zone: die längste Zone des Kontos, auf die die Basisdomain endet (`int.deinedomain.ch` → Zone `deinedomain.ch`).
-  - Kommentar am Eintrag: `managed by deployer`, damit er in Cloudflare erkennbar ist.
+  - Kommentar am Eintrag: `managed by airlock` (früher `managed by deployer`), damit er in Cloudflare erkennbar ist.
 - **Routen-Modell:** Bisher legte ein zweites Ziel einen Eintrag `tailnet-<host>` an (wegen des Unique-Index auf `hostname`). Neu (Migration 0005): Unique auf `(target, hostname)`; LAN und Tailnet tragen denselben Namen. Caddy bekommt pro Name eine Route, nicht zwei.
 - Aus dem Tailnet kommen Anfragen mit Absender `100.x.y.z` am Server an; der IP-Filter erlaubt `100.64.0.0/10` schon seit M1.
 
-## 5. deployer selbst
+## 5. Airlock selbst
 
 - **Sitzungs-Cookie mit `Secure`,** sobald die Anfrage über HTTPS kam (`X-Forwarded-Proto: https`, gesetzt von Caddy). Über nip.io (HTTP) bleibt der Login möglich, aber ohne `Secure` – sonst wäre der Rückfall ausgesperrt.
   - Bewusst nur dieser Header, nicht `trustProxy` für alles: `X-Forwarded-For` bleibt unbeachtet, damit niemand im Projekt-Netz eine Absenderadresse vortäuschen kann.
 - **URLs:** `https://` für Namen unter der Basisdomain bei `TLS_MODE=cloudflare`, sonst `http://`. Gilt für UI, REST, MCP und Benachrichtigungen.
-- **Zertifikatsstatus** auf der Systemseite: deployer verbindet sich per TLS mit `caddy:443` (SNI `deployer.<basis>`) und zeigt Aussteller und Ablaufdatum. Ein stündlicher Job meldet `infra_problem` (M6), wenn kein gültiges Zertifikat da ist oder es in weniger als 14 Tagen abläuft – höchstens einmal pro Tag.
+- **Zertifikatsstatus** auf der Systemseite: Airlock verbindet sich per TLS mit `caddy:443` (SNI `deployer.<basis>`) und zeigt Aussteller und Ablaufdatum. Ein stündlicher Job meldet `infra_problem` (M6), wenn kein gültiges Zertifikat da ist oder es in weniger als 14 Tagen abläuft – höchstens einmal pro Tag.
 - **Scanner:** testssl.sh prüft intern weiterhin nichts. TLS endet bei Caddy, nicht im Projekt-Container; geprüft würde für jedes Projekt dieselbe Caddy-Konfiguration. Stattdessen ein Eintrag «TLS: zentral über Caddy, siehe Systemseite».
 
 ## 6. Konfiguration (neu)
@@ -65,7 +65,7 @@ Umfang laut [SPEC.md](SPEC.md): Wildcard-Zertifikat per DNS-Challenge bei Cloudf
 | `ACME_CA` | `production` | `production` oder `staging` |
 | `ACME_EMAIL` | leer | Kontakt bei Let's Encrypt |
 | `TAILSCALE_IP` | leer | Ziel des Tailnet-Eintrags; leer = kein Eintrag |
-| `CLOUDFLARE_API_TOKEN_FILE` | `/run/secrets/cloudflare_token` | Token für deployer (Tailnet-DNS, ab M5 Tunnel) |
+| `CLOUDFLARE_API_TOKEN_FILE` | `/run/secrets/cloudflare_token` | Token für Airlock (Tailnet-DNS, ab M5 Tunnel) |
 | `CLOUDFLARE_API_BASE` | `https://api.cloudflare.com/client/v4` | austauschbar für Tests |
 
 Prüfung beim Start: `TLS_MODE=cloudflare` verlangt `INTERNAL_BASE_DOMAIN` und eine lesbare Token-Datei, sonst Abbruch mit klarer Meldung (lieber nicht starten als halb konfiguriert, wie in M1).

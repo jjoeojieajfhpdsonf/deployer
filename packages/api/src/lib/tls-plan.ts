@@ -1,6 +1,6 @@
 /**
  * Schutz vor dem Rate-Limit von Let's Encrypt (Produktion): Wann darf
- * deployer ein produktives Zertifikat bestellen lassen? Rein, ohne Zugriff
+ * Airlock ein produktives Zertifikat bestellen lassen? Rein, ohne Zugriff
  * auf Datenbank oder Caddy (lib/tls-plan.test.ts).
  *
  * - Liegt ein gültiges produktives Zertifikat vor (gesehen per TLS-Prüfung

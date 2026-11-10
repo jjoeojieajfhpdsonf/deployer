@@ -9,7 +9,7 @@ import { validateExternalHostname, txtRecordName, txtExpectedValue, verifyTxt, a
 import { notify } from '../notify/send.js'
 
 /**
- * Externe Ziele (SPEC): eigene Seiten ausserhalb von deployer, die sich erst
+ * Externe Ziele (SPEC): eigene Seiten ausserhalb von Airlock, die sich erst
  * nach einem DNS-Besitznachweis scannen lassen.
  */
 

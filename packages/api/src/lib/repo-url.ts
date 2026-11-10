@@ -82,7 +82,7 @@ export async function checkRepoUrl(raw: string, policy: RepoUrlPolicy): Promise<
     throw rejected('localhost ist als Repo-Host nicht erlaubt')
   }
   if (policy.deniedHosts.map((h) => h.toLowerCase()).includes(host)) {
-    throw rejected(`"${host}" ist ein Dienst des deployer-Stacks und als Repo-Host gesperrt`)
+    throw rejected(`"${host}" ist ein Dienst des Airlock-Stacks und als Repo-Host gesperrt`)
   }
 
   const addresses = isIP(host) ? [host] : await policy.resolve(host).catch(() => [])

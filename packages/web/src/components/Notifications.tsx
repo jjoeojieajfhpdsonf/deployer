@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type NotifyEvent, type NotifySettingsDto } from '../api.js'
-import { notifySettingsFormSchema } from '@deployer/shared'
+import { notifySettingsFormSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
 
@@ -102,7 +102,7 @@ export function NotificationSettings() {
           <input {...v.field('ntfy.url')} value={ntfy.url} placeholder="https://ntfy.sh" inputMode="url" spellCheck={false} onChange={(x) => setNtfy({ url: x.target.value })} />
         </Field>
         <Field id={v.idFor('ntfy.topic')} label="Topic" error={e['ntfy.topic']} hint="Darauf hört die ntfy-App auf deinem Telefon.">
-          <input {...v.field('ntfy.topic', `${v.idFor('ntfy.topic')}-hint`)} value={ntfy.topic} placeholder="deployer-joel" spellCheck={false} onChange={(x) => setNtfy({ topic: x.target.value })} />
+          <input {...v.field('ntfy.topic', `${v.idFor('ntfy.topic')}-hint`)} value={ntfy.topic} placeholder="airlock-joel" spellCheck={false} onChange={(x) => setNtfy({ topic: x.target.value })} />
         </Field>
         <Field id={v.idFor('ntfy.token')} label="Token" optional error={e['ntfy.token']}>
           <input {...v.field('ntfy.token')} type="password" autoComplete="off" value={ntfyToken} placeholder={ntfy.hasToken ? 'gesetzt – leer lassen für unverändert' : ''} onChange={(x) => setNtfyToken(x.target.value)} />
@@ -130,7 +130,7 @@ export function NotificationSettings() {
           </Field>
         </div>
         <Field id={v.idFor('email.from')} label="Absender" error={e['email.from']}>
-          <input {...v.field('email.from')} type="email" value={email.from} placeholder="deployer@meine-domain.ch" spellCheck={false} onChange={(x) => setEmail({ from: x.target.value })} />
+          <input {...v.field('email.from')} type="email" value={email.from} placeholder="airlock@meine-domain.ch" spellCheck={false} onChange={(x) => setEmail({ from: x.target.value })} />
         </Field>
         <Field id={v.idFor('email.to')} label="Empfänger" error={e['email.to']} hint="Mehrere Adressen mit Komma trennen.">
           <input {...v.field('email.to', `${v.idFor('email.to')}-hint`)} value={email.to} placeholder="joel@meine-domain.ch" spellCheck={false} onChange={(x) => setEmail({ to: x.target.value })} />

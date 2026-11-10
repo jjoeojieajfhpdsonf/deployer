@@ -19,7 +19,7 @@ const allowAll: RepoUrlPolicy = { deniedHosts: [], deniedCidrs: [], resolve: asy
 
 before(async () => {
   if (!ip) return
-  work = mkdtempSync(join(tmpdir(), 'deployer-git-'))
+  work = mkdtempSync(join(tmpdir(), 'airlock-git-'))
   const src = join(work, 'src')
   commit = makeRepo(
     src,

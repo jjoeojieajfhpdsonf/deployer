@@ -29,7 +29,7 @@ describe('ensureWildcardRecord (Attrappe)', () => {
   // Eintrag direkt an und prüfen danach.
   test('findet die Zone über die Basisdomain und erkennt einen gleichen Eintrag', async () => {
     const cf = new Cloudflare({ token: fake.token, base: fake.url })
-    await cf.createRecord('zone-example.ch', { type: 'A', name: '*.int.example.ch', content: '100.101.1.2', proxied: false, comment: 'managed by deployer' })
+    await cf.createRecord('zone-example.ch', { type: 'A', name: '*.int.example.ch', content: '100.101.1.2', proxied: false, comment: 'managed by airlock' })
     const r = await mod.ensureWildcardRecord(cf, 'int.example.ch', '100.101.1.2', 'test')
     assert.equal(r.action, 'unchanged')
     assert.equal(r.zone, 'example.ch')
@@ -56,7 +56,7 @@ describe('tlsProblems (Startprüfung)', () => {
     assert.match(p[1]!, /Cloudflare-Token/)
   })
   test('leere Token-Datei wird erkannt; gefüllte genügt', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'deployer-tok-'))
+    const dir = mkdtempSync(join(tmpdir(), 'airlock-tok-'))
     try {
       const f = join(dir, 't')
       writeFileSync(f, '\n')

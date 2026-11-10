@@ -9,7 +9,7 @@ import { startFakeCloudflare, type FakeCloudflare } from '../src/lib/cf-fixture.
 /**
  * Meilenstein 5 gegen eine Cloudflare-Attrappe auf dem Host. Läuft nur mit
  * E2E_CF_FAKE=1, also wenn der Stack mit e2e/compose.cf-fake.yaml gestartet
- * wurde (`pnpm --filter @deployer/api e2e:cf`). Sonst übersprungen.
+ * wurde (`pnpm --filter @airlock/api e2e:cf`). Sonst übersprungen.
  *
  * Echte Cloudflare-API, echter Tunnel, echte Domain: nicht getestet.
  */
@@ -66,13 +66,13 @@ describe('M5: öffentlich über Cloudflare (Attrappe)', { skip: !enabled && 'nur
 
   before(async () => {
     fake = await startFakeCloudflare(['example.ch', 'beispiel.ch'], { host: '0.0.0.0', port: 18787 })
-    // Eine fremde Tunnel-Regel, die deployer nie anfassen darf.
+    // Eine fremde Tunnel-Regel, die Airlock nie anfassen darf.
     fake.ingress = [{ hostname: 'ha.example.ch', service: 'http://192.168.1.5:8123' }, { service: 'http_status:404' }]
     // Platzhalter für cloudflared im edge-Netz: Caddy lässt öffentliche Namen
     // nur von dessen Adresse zu (lokal ist der IP-Filter aus, aber ohne
     // cloudflared gäbe es gar keine öffentliche Route).
-    try { docker('rm', '-f', 'deployer-cloudflared') } catch { /* gab es nicht */ }
-    docker('run', '-d', '--name', 'deployer-cloudflared', '--network', 'deployer_edge', 'busybox:1.36', 'sleep', '3600')
+    try { docker('rm', '-f', 'airlock-cloudflared') } catch { /* gab es nicht */ }
+    docker('run', '-d', '--name', 'airlock-cloudflared', '--network', 'airlock_edge', 'busybox:1.36', 'sleep', '3600')
     await login()
     await deleteByPrefix(P)
     const t = await api('POST', '/tokens', { name: 'e2e-m5' })
@@ -82,7 +82,7 @@ describe('M5: öffentlich über Cloudflare (Attrappe)', { skip: !enabled && 'nur
   after(async () => {
     await deleteByPrefix(P)
     if (tokenId) await api('DELETE', `/tokens/${tokenId}`)
-    try { docker('rm', '-f', 'deployer-cloudflared') } catch { /* schon weg */ }
+    try { docker('rm', '-f', 'airlock-cloudflared') } catch { /* schon weg */ }
     await fake?.close()
   })
 
@@ -124,7 +124,7 @@ describe('M5: öffentlich über Cloudflare (Attrappe)', { skip: !enabled && 'nur
     assert.ok(rec, 'CNAME fehlt')
     assert.equal(rec.content, `${TUNNEL}.cfargotunnel.com`)
     assert.equal(rec.proxied, true)
-    assert.equal(rec.comment, 'managed by deployer')
+    assert.equal(rec.comment, 'managed by airlock')
     assert.deepEqual(fake.ingress, [
       { hostname: host, service: 'http://caddy:80' },
       { hostname: 'ha.example.ch', service: 'http://192.168.1.5:8123' },
@@ -215,7 +215,7 @@ describe('M5: öffentlich über Cloudflare (Attrappe)', { skip: !enabled && 'nur
   test('public entfernen: CNAME und Ingress-Regel weg, fremde Regel bleibt', async () => {
     const r = await api('PUT', `/projects/${id}/routes`, { targets: ['lan'] })
     assert.equal(r.status, 200, JSON.stringify(r.data))
-    assert.equal(records().filter((x) => x.comment === 'managed by deployer' && x.name.startsWith(slug)).length, 0)
+    assert.equal(records().filter((x) => x.comment === 'managed by airlock' && x.name.startsWith(slug)).length, 0)
     assert.deepEqual(fake.ingress, [{ hostname: 'ha.example.ch', service: 'http://192.168.1.5:8123' }, { service: 'http_status:404' }])
   })
 

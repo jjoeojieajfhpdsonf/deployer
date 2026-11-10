@@ -13,12 +13,12 @@ Startseite cal.com, gemessen statt geschätzt, und das Layout ist mit umgebaut.
 - Screenshots in `referenz/`: `cal-hero.png`, `cal-features.png`, `cal-preise.png`
   (die Startseite hat keinen Preisbereich mehr; die Preiskarten stammen von `cal.com/pricing`).
 - Gemessene Styles: `referenz/stil.md` (Tabelle), Rohdaten `referenz/styles.json`.
-- Skript: `pnpm --filter @deployer/web exec tsx prototype-shots/reference.ts`.
+- Skript: `pnpm --filter @airlock/web exec tsx prototype-shots/reference.ts`.
 - Übernommen ist nur die Formensprache; kein Logo, kein Text, keine Bilder oder Illustrationen.
 
 Die wichtigsten Messwerte und was daraus wurde:
 
-| cal.com (gemessen) | deployer-Prototyp |
+| cal.com (gemessen) | Airlock-Prototyp |
 |---|---|
 | Karten weiss, Radius 20, Ring `inset 0 0 0 1px rgba(15,35,75,.07)`, Polster 24 | genau so; dazu ein sehr weicher Schatten, damit Karten auf der grauen Fläche stehen |
 | Buttons Radius 10 (36 hoch) bzw. 12 (gross), Primär `#242424` mit Lichtkante | genau so; Hauptaktion der Seite und des Formulars in der grossen Variante |
@@ -57,17 +57,17 @@ stellen den Prototyp neben dieselbe helle Referenz.
 
 | Seite | Referenz | Wo es noch abweicht |
 |---|---|---|
-| Projektübersicht | Preiskarten | cal.com hat weissen Grund und Karten mit Haarlinie; deployer graue Fläche mit weissen Karten (Vorgabe). Die Preiskarten tragen Buttons über die ganze Breite; die Projekt-Karten kompakte Aktionen rechts, weil die ganze Karte schon klickbar ist. Kennzahlen 44 px statt der 56–80 px der Marketing-Titel. |
+| Projektübersicht | Preiskarten | cal.com hat weissen Grund und Karten mit Haarlinie; Airlock graue Fläche mit weissen Karten (Vorgabe). Die Preiskarten tragen Buttons über die ganze Breite; die Projekt-Karten kompakte Aktionen rechts, weil die ganze Karte schon klickbar ist. Kennzahlen 44 px statt der 56–80 px der Marketing-Titel. |
 | Projektdetail | Feature-Karten | Die Seite bleibt zweispaltig mit vielen Karten; cal.com zeigt pro Abschnitt eine grosse Aussage und ein Bild. Diagramme (CPU/RAM) haben bei cal.com kein Gegenstück. |
 | Security | Preiskarten | Befund-Karten sind textlastig und tragen je einen Button; die Häkchen-Listen von cal.com sind leichter. Der Ergebnis-Block ist noch eine Beschriftung/Wert-Liste statt Bento. |
-| System / Assistent | Feature-Karten | Zurückgenommene Schritte sind auf cal.com grau gefüllte Karten auf Weiss; auf der grauen deployer-Fläche wären sie unsichtbar – deshalb weiss (erledigt) bzw. nur Ring (gesperrt). Die Seite ist lang (Benachrichtigungen, Netz); cal.com hält jeden Abschnitt auf einem Bildschirm. |
+| System / Assistent | Feature-Karten | Zurückgenommene Schritte sind auf cal.com grau gefüllte Karten auf Weiss; auf der grauen Airlock-Fläche wären sie unsichtbar – deshalb weiss (erledigt) bzw. nur Ring (gesperrt). Die Seite ist lang (Benachrichtigungen, Netz); cal.com hält jeden Abschnitt auf einem Bildschirm. |
 | Formular | Hero | Felder haben einen dunkleren Rahmen als bei cal.com (WCAG 1.4.11, mindestens 3 : 1). Die gewählte Quelle hat einen 2-px-Ring in Tinte; dafür gibt es bei cal.com kein Vorbild. |
-| Kopf und Profilmenü | Hero (Navigation) | cal.com hat oben eine graue Navigationsleiste in einer abgerundeten Fläche; deployer behält die Seitenleiste (App mit sieben Bereichen). Profilmenü als Karte mit Schatten wie die Dropdowns von cal.com. |
+| Kopf und Profilmenü | Hero (Navigation) | cal.com hat oben eine graue Navigationsleiste in einer abgerundeten Fläche; Airlock behält die Seitenleiste (App mit sieben Bereichen). Profilmenü als Karte mit Schatten wie die Dropdowns von cal.com. |
 | Dunkel (alle) | – | Ohne Vorbild auf cal.com; eigene Ableitung in Schwarz und Grau, die hervorgehobene Karte kehrt sich zur hellen um. |
 
 ## Screenshots
 
-`pnpm --filter @deployer/web exec tsx prototype-shots/shoot.ts` – startet Vite selbst, Daten aus
+`pnpm --filter @airlock/web exec tsx prototype-shots/shoot.ts` – startet Vite selbst, Daten aus
 `prototype-shots/fixtures.ts` (typisiert gegen die echten DTOs, erfundene Projekte), nur Desktop
 (1440 px). Dateien `01-…` bis `06-…` je `hell` und `dunkel`.
 

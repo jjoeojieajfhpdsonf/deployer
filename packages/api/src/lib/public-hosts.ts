@@ -56,7 +56,7 @@ export const CATCH_ALL: IngressRule = { service: 'http_status:404' }
  *   3. die bisherige Auffangregel (letzte Regel ohne Hostnamen), sonst
  *      http_status:404.
  *
- * managedBefore: Namen, die deployer früher gesetzt hat. Was darin steht,
+ * managedBefore: Namen, die Airlock früher gesetzt hat. Was darin steht,
  * aber nicht mehr gewünscht ist, fliegt raus (Review M5).
  */
 export function reconcileIngress(current: IngressRule[], wanted: string[], managedBefore: string[], forbidden: string[] = []): { ingress: IngressRule[]; managed: string[] } {

@@ -1,5 +1,5 @@
 /* =========================================================================
-   deployer – Oberfläche im cal.com-Stil (Umstellung Branch design/cal)
+   Airlock – Oberfläche im cal.com-Stil (Umstellung Branch design/cal)
 
    Formensprache gemessen an der Startseite cal.com (docs/prototype-cal/
    referenz/stil.md): weisser Grund, Karten nur über Ring + weichen Schatten
@@ -548,6 +548,9 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .notice strong { color: var(--ink); font-weight: 500; }
 .notice-ok::before { content: '✓'; color: var(--ok); font-weight: 600; }
 .notice-info::before { content: '●'; color: var(--info); font-size: 10px; }
+/* Übergang deployer → Airlock: Hinweis mit «Neu erstellen» rechts */
+.legacy-notice > span { flex: 1; }
+.legacy-notice > button { flex: none; }
 
 /* Reiter und segmentierte Auswahl: graue Schiene, weisses Feld */
 .segmented, .tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); width: fit-content; max-width: 100%; overflow-x: auto; }

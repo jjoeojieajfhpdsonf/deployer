@@ -28,16 +28,16 @@ const envSchema = z.object({
   CADDY_ADMIN_SOCKET: z.string().default('/run/caddy/admin.sock'),
   // M8: Probe-Server von Caddy (gleiches Volume wie der Admin-Socket). Der
   // Header-Check fragt darüber, wie Besucher die Seite sehen, ohne dass der
-  // IP-Filter für den deployer geöffnet werden muss. Leer = aus.
+  // IP-Filter für Airlock geöffnet werden muss. Leer = aus.
   CADDY_PROBE_SOCKET: z.string().default('/run/caddy/probe.sock'),
 
   DATA_DIR: z.string().default('/data'),
   SITES_DIR: z.string().default('/srv/sites'),
   WEB_DIST: z.string().optional(),
 
-  DEPLOYER_CONTAINER: z.string().default('deployer-app'),
-  CADDY_CONTAINER: z.string().default('deployer-caddy'),
-  DEPLOYER_UPSTREAM: z.string().default('deployer-app:3000'),
+  AIRLOCK_CONTAINER: z.string().default('airlock-app'),
+  CADDY_CONTAINER: z.string().default('airlock-caddy'),
+  AIRLOCK_UPSTREAM: z.string().default('airlock-app:3000'),
 
   // Leer = noch nicht festgelegt. Bewusst kein Platzhalter wie
   // "int.example.ch": der sieht wie eine echte Adresse aus und fuehrt ins Leere.
@@ -64,8 +64,8 @@ const envSchema = z.object({
   // M3: Chat-Deploys (Quelle files) nach so vielen Tagen ohne Änderung stoppen.
   CHAT_EXPIRY_DAYS: z.coerce.number().int().min(4).max(3650).default(30),
 
-  // M6: Name des Docker-Volumes mit den statischen Seiten (Compose-Projekt "deployer").
-  SITES_VOLUME: z.string().default('deployer_sites'),
+  // M6: Name des Docker-Volumes mit den statischen Seiten (Compose-Projekt "airlock").
+  SITES_VOLUME: z.string().default('airlock_sites'),
   // M6: nach einem erfolgreichen Deploy automatisch scannen.
   SCAN_AFTER_DEPLOY: onOff.default('on'),
 
@@ -93,17 +93,17 @@ const envSchema = z.object({
     .refine((v) => v === '' || /^[0-9a-f-]{36}$/i.test(v), 'CLOUDFLARE_TUNNEL_ID muss die UUID des Tunnels sein')
     .transform((v) => (v === '' ? null : v.toLowerCase())),
   ACCESS_EMAIL: z.string().trim().default('').transform((v) => (v === '' ? null : v)),
-  EDGE_NETWORK: z.string().default('deployer_edge'),
-  // Eigenes Netz nur für cloudflared und Caddy: der Tunnel erreicht ausschliesslich Caddy, nie den deployer.
-  TUNNEL_NETWORK: z.string().default('deployer_tunnel'),
-  CLOUDFLARED_CONTAINER: z.string().default('deployer-cloudflared'),
+  EDGE_NETWORK: z.string().default('airlock_edge'),
+  // Eigenes Netz nur für cloudflared und Caddy: der Tunnel erreicht ausschliesslich Caddy, nie Airlock.
+  TUNNEL_NETWORK: z.string().default('airlock_tunnel'),
+  CLOUDFLARED_CONTAINER: z.string().default('airlock-cloudflared'),
   CLOUDFLARED_IMAGE: z.string().default('cloudflare/cloudflared:2025.8.1'),
   // Für die Prüfung auf neuere cloudflared-Versionen (in Tests austauschbar)
   DOCKER_HUB_API: z.string().url().default('https://hub.docker.com/v2'),
   // Gemeinsames Volume mit Caddy: dort liegt das Token für die DNS-Challenge
   // als Datei. Caddys Konfiguration (und autosave.json) enthält nur den Pfad.
   CADDY_SECRETS_DIR: z.string().default('/run/caddy-secrets'),
-  // Caddys Speicher (Volume caddy_data): deployer liest daraus, ob schon ein
+  // Caddys Speicher (Volume caddy_data): Airlock liest daraus, ob schon ein
   // gültiges produktives Wildcard-Zertifikat vorliegt, und räumt Staging-
   // Wildcards früherer Probeläufe weg. Fehlt das Volume, entfällt beides.
   CADDY_DATA_DIR: z.string().default('/caddy-data'),
@@ -218,7 +218,7 @@ export const cf = {
 export const cloudflareToken = (): string | null => cf.token()
 
 /* --- Netz des Servers zur Laufzeit ------------------------------------------------
- * LAN-IP und LAN-Netz ändern sich (DHCP, anderer Router); der deployer liest
+ * LAN-IP und LAN-Netz ändern sich (DHCP, anderer Router); Airlock liest
  * sie beim Start und stündlich vom Host (domain/network.ts). Erkanntes gilt
  * vor .env. Die Tailscale-IP kommt aus der Cloudflare-Einrichtung oder .env,
  * sonst aus der Erkennung.

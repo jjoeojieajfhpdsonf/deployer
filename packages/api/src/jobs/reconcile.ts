@@ -7,30 +7,44 @@ import { setStatus } from '../domain/projects.js'
 import { effectiveKind } from '../domain/deployments.js'
 import { audit } from '../domain/audit.js'
 import { log } from '../lib/log.js'
+import { isProjectScoped } from '../lib/names.js'
 
 /**
  * Abgleich beim Start. Deckt das NFR "Alle aktiven Projekte starten von
  * selbst wieder" ab und raeumt auf, was ein Absturz hinterlassen hat.
  */
 export async function reconcileOnBoot(): Promise<void> {
-  await detachDeployerFromProjectNetworks()
+  await detachFromProjectNetworks()
   await restoreDesiredState()
+  await reportLegacy()
   // Basisdomain gesetzt oder geaendert? Dann ziehen bestehende Adressen mit.
   await rehostRoutes()
   await reconcileCaddy()
 }
 
 /**
- * Der deployer haengt sich nur fuer den Healthcheck in Projekt-Netze. Stirbt
+ * Airlock haengt sich nur fuer den Healthcheck in Projekt-Netze. Stirbt
  * der Prozess mittendrin, bleibt die Verbindung stehen - genau der Zustand,
  * in dem dieses Muster sonst leise verrottet. Hier wird er aufgeraeumt.
  */
-async function detachDeployerFromProjectNetworks(): Promise<void> {
-  const nets = await docker.networksOfContainer(config.DEPLOYER_CONTAINER)
+async function detachFromProjectNetworks(): Promise<void> {
+  const nets = await docker.networksOfContainer(config.AIRLOCK_CONTAINER)
   for (const net of nets) {
-    if (!net.startsWith('dep_')) continue
-    await docker.disconnectFromNetwork(net, config.DEPLOYER_CONTAINER)
-    log.warn('Übrig gebliebene Netzverbindung des deployers gelöst', { net })
+    if (!isProjectScoped(net)) continue
+    await docker.disconnectFromNetwork(net, config.AIRLOCK_CONTAINER)
+    log.warn('Übrig gebliebene Netzverbindung von Airlock gelöst', { net })
+  }
+}
+
+/**
+ * Übergang (docs/RENAME.md): Projekte, die noch mit Containern aus der
+ * deployer-Zeit laufen. Sie laufen weiter und werden beim nächsten Deploy
+ * oder per «Neu erstellen» ersetzt; hier nur ins Log.
+ */
+async function reportLegacy(): Promise<void> {
+  const legacy = await docker.legacyState()
+  if (legacy.slugs.size) {
+    log.info('Projekte mit Containern aus der deployer-Zeit (werden beim nächsten Deploy ersetzt)', { slugs: [...legacy.slugs].sort() })
   }
 }
 
@@ -67,7 +81,7 @@ async function restoreDesiredState(): Promise<void> {
     if (kind === 'compose') {
       // Compose-Dienste haben keine einzelne Container-ID im Deployment.
       const services = managed.filter(
-        (c) => c.labels[docker.LABEL_PROJECT] === row.slug && c.labels['deployer.compose-service'],
+        (c) => c.labels[docker.LABEL_PROJECT] === row.slug && c.labels[docker.LABEL.composeService],
       )
       if (services.length === 0) {
         await setStatus(row.id, 'failed')

@@ -19,8 +19,8 @@ import { assessClientIps, parseAccessLog } from '../../lib/client-ips.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
-import type { SystemStatusDto } from '@deployer/shared'
-import { cfTokenSchema, cfDomainsSchema } from '@deployer/shared'
+import type { SystemStatusDto } from '@airlock/shared'
+import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME } from '@airlock/shared'
 import {
   cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, skipTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
 } from '../../domain/cloudflare-settings.js'
@@ -44,7 +44,7 @@ export async function hostsBlock(): Promise<string | null> {
   const ip = net.tailscaleIp() ?? net.lanIp()
   const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(ne(schema.routes.target, 'public')).orderBy(asc(schema.routes.hostname))
   // Ohne Doppel (LAN und Tailnet teilen sich den Namen), ohne öffentliche Namen.
-  const names = [...new Set([primaryHost('deployer'), ...rows.map((r) => r.hostname)])]
+  const names = [...new Set([primaryHost(UI_HOST_LABEL), ...rows.map((r) => r.hostname)])]
   if (!ip) {
     return [
       '# Keine IP des Servers bekannt (weder Tailscale noch LAN).',
@@ -119,10 +119,10 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     const mem = await memoryUsage()
 
     const base = cf.baseDomain()
-    const nip = nipioHost('deployer')
+    const nip = nipioHost(UI_HOST_LABEL)
     const cert = await currentCert().catch(() => null)
 
-    // Welche Absender sieht Caddy bei Anfragen auf deployer? (Zugriffs-Log, 30 Minuten)
+    // Welche Absender sieht Caddy bei Anfragen auf Airlock? (Zugriffs-Log, 30 Minuten)
     const clientIps = await (async () => {
       try {
         const since = Date.now() - 30 * 60_000
@@ -149,7 +149,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       nipioEnabled: nipioEnabled(),
       hostsBlock: await hostsBlock(),
       server: {
-        name: config.SERVER_NAME || 'deployer',
+        name: config.SERVER_NAME || PRODUCT_NAME,
         cpuPercent: await cpuPercent(),
         memUsedBytes: mem?.used ?? null,
         memTotalBytes: mem?.total ?? null,
@@ -172,7 +172,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       // beantwortet sie nicht.
       reachability: [
         base
-          ? { way: 'dns', label: `Interner Name (deployer.${base})`, url: `${urlForHost(`deployer.${base}`)}/health` }
+          ? { way: 'dns', label: `Interner Name (${UI_HOST_LABEL}.${base})`, url: `${urlForHost(`${UI_HOST_LABEL}.${base}`)}/health` }
           : { way: 'dns', label: 'Interner Name (keine Basisdomain gesetzt)', url: null },
         { way: 'nipio', label: nip ? `nip.io (${nip})` : 'nip.io (keine IP des Servers bekannt)', url: nip ? `http://${nip}/health` : null },
       ],

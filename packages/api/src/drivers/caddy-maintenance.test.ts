@@ -80,7 +80,7 @@ describe('Pause-Seite im Code-Modus', () => {
     assert.deepEqual(h['Content-Security-Policy'], ["default-src 'none'; style-src 'unsafe-inline'"])
     assert.deepEqual(h['X-Robots-Tag'], ['noindex'])
     assert.deepEqual(h['Cache-Control'], ['no-store'])
-    assert.deepEqual(h['X-Deployer-State'], ['paused'])
+    assert.deepEqual(h['X-Airlock-State'], ['paused'])
     assert.deepEqual(h['Retry-After'], ['Wed, 11 Nov 2026 07:00:00 GMT'])
     assert.equal(h['Content-Type'], undefined)
   })

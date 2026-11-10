@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { publishPublicSchema, putInternalRoutesSchema, pauseOptionsSchema, pausePageSchema, DEFAULT_PAUSE_PAGE } from '@deployer/shared'
+import { publishPublicSchema, putInternalRoutesSchema, pauseOptionsSchema, pausePageSchema, DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 import { setProjectPause, pausePageTemplate, setPausePageTemplate } from '../../domain/pause-page.js'
 import { findProject, toDto } from '../../domain/projects.js'
 import { setRoutes, reconcileCaddy } from '../../domain/routes.js'

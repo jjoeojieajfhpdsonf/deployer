@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
-import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, GITHUB_PERMISSIONS } from './github.js'
+import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, isFixBranch, GITHUB_PERMISSIONS } from './github.js'
 
 /**
  * GitHub-Attrappe: ein fetch, der Aufrufe mitschreibt und je Pfad antwortet.
@@ -25,7 +25,7 @@ function fake(routes: Record<string, (body: unknown, headers: Record<string, str
 
 describe('GitHub App: Manifest und JWT', () => {
   test('Manifest: nur Contents und Pull requests (write), kein Webhook, nicht öffentlich', () => {
-    const m = githubManifest({ name: 'deployer thinkpad ab12', deployerUrl: 'https://deployer.int.example.ch/' })
+    const m = githubManifest({ name: 'airlock thinkpad ab12', airlockUrl: 'https://deployer.int.example.ch/' })
     assert.deepEqual(m.default_permissions, { contents: 'write', pull_requests: 'write' })
     assert.deepEqual(m.default_events, [])
     assert.equal(m.public, false)
@@ -53,17 +53,24 @@ describe('GitHub App: Manifest und JWT', () => {
     assert.equal(githubRepoOf('https://github.com/joel'), null)
   })
 
-  test('Branch: deployer/fix-<befund>-<kurz-id>', () => {
-    assert.equal(fixBranchName('Container läuft als root', '9f3a1c22-7d40-4e8b-9b1a-0c2d6e8f4a17'), 'deployer/fix-container-lauft-als-root-9f3a1c22')
-    assert.match(fixBranchName('!!!', 'abcdef12-0000'), /^deployer\/fix-befund-abcdef12$/)
+  test('Branch: airlock/fix-<befund>-<kurz-id>', () => {
+    assert.equal(fixBranchName('Container läuft als root', '9f3a1c22-7d40-4e8b-9b1a-0c2d6e8f4a17'), 'airlock/fix-container-lauft-als-root-9f3a1c22')
+    assert.match(fixBranchName('!!!', 'abcdef12-0000'), /^airlock\/fix-befund-abcdef12$/)
+  })
+
+  test('Übergang: Fix-Branches aus der deployer-Zeit bleiben eigene', () => {
+    assert.ok(isFixBranch('airlock/fix-root-12345678'))
+    assert.ok(isFixBranch('deployer/fix-root-12345678'))
+    assert.ok(!isFixBranch('main'))
+    assert.ok(!isFixBranch('feature/fix-x'))
   })
 })
 
 describe('GitHub-Attrappe: Abläufe', () => {
   test('Manifest-Code gegen App-Daten tauschen (ohne Anmeldung, wie GitHub es verlangt)', async () => {
-    const g = fake({ 'POST /app-manifests/:code/conversions': () => [201, { id: 7, slug: 'deployer-x', name: 'deployer x', html_url: 'https://github.com/apps/deployer-x', client_id: 'Iv1', client_secret: 'sec', webhook_secret: null, pem: 'pem-platzhalter' }] })
+    const g = fake({ 'POST /app-manifests/:code/conversions': () => [201, { id: 7, slug: 'airlock-x', name: 'airlock x', html_url: 'https://github.com/apps/airlock-x', client_id: 'Iv1', client_secret: 'sec', webhook_secret: null, pem: 'pem-platzhalter' }] })
     const app = await new GitHub({ api: 'https://api.test', fetch: g.fetch }).convertManifest('abc123')
-    assert.equal(app.slug, 'deployer-x')
+    assert.equal(app.slug, 'airlock-x')
     assert.equal(g.calls[0]!.auth, undefined)
     await assert.rejects(() => new GitHub({ api: 'https://api.test', fetch: g.fetch }).convertManifest('../x'), GithubError)
   })
@@ -87,14 +94,14 @@ describe('GitHub-Attrappe: Abläufe', () => {
     })
     const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
     const pr = await gh.createFixPullRequest('ghs_x', {
-      owner: 'joel', repo: 'solar', base: 'main', branch: 'deployer/fix-root-12345678', title: 'Fix: root', body: 'b', message: 'm',
+      owner: 'joel', repo: 'solar', base: 'main', branch: 'airlock/fix-root-12345678', title: 'Fix: root', body: 'b', message: 'm',
       files: [{ path: 'Dockerfile', content: 'FROM x\nUSER node\n' }], delete: ['backup.sql'],
     })
     assert.equal(pr.number, 5)
     const tree = g.calls.find((c) => c.path.endsWith('/git/trees'))!.body as { base_tree: string; tree: { path: string; sha?: null }[] }
     assert.equal(tree.base_tree, 'tree000')
     assert.deepEqual(tree.tree.map((t) => [t.path, t.sha === null ? 'löschen' : 'schreiben']), [['Dockerfile', 'schreiben'], ['backup.sql', 'löschen']])
-    assert.deepEqual(g.calls.find((c) => c.path.endsWith('/git/refs'))!.body, { ref: 'refs/heads/deployer/fix-root-12345678', sha: 'commit111' })
+    assert.deepEqual(g.calls.find((c) => c.path.endsWith('/git/refs'))!.body, { ref: 'refs/heads/airlock/fix-root-12345678', sha: 'commit111' })
     assert.equal((g.calls.find((c) => c.path.endsWith('/pulls'))!.body as { base: string; head: string }).base, 'main')
     assert.ok(!g.calls.some((c) => c.method === 'PATCH' || c.path.includes('/git/refs/heads/main')), 'Standard-Branch wird nie geändert')
     assert.ok(g.calls.every((c) => c.auth === 'token ghs_x'))

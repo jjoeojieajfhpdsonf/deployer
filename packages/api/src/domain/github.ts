@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { join } from 'node:path'
-import type { GithubStatusDto } from '@deployer/shared'
+import { UI_HOST_LABEL, type GithubStatusDto } from '@airlock/shared'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { config, primaryHost, urlForHost } from '../config.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
@@ -17,7 +17,7 @@ import { setGithubCheck, setPullRequestHook, setGithubSource, type RepoSource } 
  * M8, Etappe 3: Verbindung zu GitHub über eine eigene GitHub App.
  *
  * Ablauf (SPEC): Manifest an GitHub schicken → GitHub leitet den Browser mit
- * einem Code zurück → deployer tauscht ihn gegen App-ID, privaten Schlüssel
+ * einem Code zurück → Airlock tauscht ihn gegen App-ID, privaten Schlüssel
  * und Secrets (verschlüsselt gespeichert) → «App installieren» (Repos
  * wählen) → GitHub leitet mit der installation_id zurück. Pro Vorgang ein
  * Installations-Token, eine Stunde gültig, auf das eine Repo beschränkt.
@@ -31,13 +31,13 @@ const STATE_TTL_MS = 60 * 60_000
 
 const key = () => loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
 export const github = () => new GitHub({ api: config.GITHUB_API })
-const deployerUrl = () => urlForHost(primaryHost('deployer'))
+const airlockUrl = () => urlForHost(primaryHost(UI_HOST_LABEL))
 
 async function connection(): Promise<Conn | null> {
   return (await db.select().from(schema.gitConnections).where(eq(schema.gitConnections.provider, 'github')).limit(1))[0] ?? null
 }
 
-const suggestedName = () => `deployer ${config.SERVER_NAME || 'homeserver'} ${randomBytes(2).toString('hex')}`.slice(0, 34)
+const suggestedName = () => `airlock ${config.SERVER_NAME || 'homeserver'} ${randomBytes(2).toString('hex')}`.slice(0, 34)
 
 export async function githubStatus(): Promise<GithubStatusDto> {
   const c = await connection()
@@ -50,7 +50,7 @@ export async function githubStatus(): Promise<GithubStatusDto> {
     installUrl: c ? `${web}/apps/${c.appSlug}/installations/new` : null,
     permissions: { ...GITHUB_PERMISSIONS, metadata: 'read (von GitHub immer dabei)' },
     suggestedName: suggestedName(),
-    callbackUrl: `${deployerUrl()}/api/v1/github/manifest/callback`,
+    callbackUrl: `${airlockUrl()}/api/v1/github/manifest/callback`,
   }
 }
 
@@ -62,7 +62,7 @@ export async function startManifest(o: { name: string; org?: string | null }, ac
   if (await connection()) throw new AppError('conflict', 'Es gibt schon eine GitHub App. Zuerst die Verbindung trennen.', 409)
   const state = randomBytes(24).toString('hex')
   await setSetting(STATE_KEY, JSON.stringify({ state, at: Date.now() }))
-  const manifest = githubManifest({ name: o.name, deployerUrl: deployerUrl() })
+  const manifest = githubManifest({ name: o.name, airlockUrl: airlockUrl() })
   await audit({ actor, action: 'github.manifest', params: { name: o.name, org: o.org ?? null, redirect: manifest.redirect_url }, result: 'ok' })
   return { action: manifestFormAction(config.GITHUB_WEB, state, o.org || null), manifest: JSON.stringify(manifest), state }
 }
@@ -183,7 +183,7 @@ async function source(p: Project): Promise<RepoSource | null> {
 type FixRow = typeof schema.fixRequests.$inferSelect
 
 /**
- * Vorschlag als Pull Request: eigener Branch deployer/fix-…, ein Commit, PR
+ * Vorschlag als Pull Request: eigener Branch airlock/fix-…, ein Commit, PR
  * mit Befund, Erklärung und Link zum Scan. Nie auf den Standard-Branch;
  * Branch-Schutzregeln des Repos gelten unverändert.
  */
@@ -207,19 +207,19 @@ async function openPullRequest(row: FixRow, p: Project, actor: string): Promise<
     }
     for (const path of remove) parts.push(unifiedDiff(path, (await gh.fileText(token, r.owner, r.repo, path, base)) ?? '', null))
     const branch = fixBranchName(row.findingTitle, row.id)
-    const scanUrl = `${deployerUrl()}/projekte/${p.id}?tab=security`
+    const scanUrl = `${airlockUrl()}/projekte/${p.id}?tab=security`
     const pr = await gh.createFixPullRequest(token, {
       owner: r.owner, repo: r.repo, base, branch,
       title: `Fix: ${row.findingTitle}`.slice(0, 200),
-      message: `Fix: ${row.findingTitle}\n\nVorgeschlagen über deployer (${actor}).`,
+      message: `Fix: ${row.findingTitle}\n\nVorgeschlagen über Airlock (${actor}).`,
       body: [
         `**Befund:** ${row.findingTitle} (${row.tool})`,
         '',
         row.explanation,
         '',
-        `Scan in deployer: ${scanUrl}`,
+        `Scan in Airlock: ${scanUrl}`,
         '',
-        '_Angelegt von deployer. Nach dem Merge deployt deployer (wenn Auto-Deploy an ist) und scannt nach; das Ergebnis folgt hier als Kommentar._',
+        '_Angelegt von Airlock. Nach dem Merge deployt Airlock (wenn Auto-Deploy an ist) und scannt nach; das Ergebnis folgt hier als Kommentar._',
       ].join('\n'),
       files, delete: remove,
     })

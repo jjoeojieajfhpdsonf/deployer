@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { tokenNameSchema } from '@deployer/shared'
+import { tokenNameSchema } from '@airlock/shared'
 import { createToken, listTokens, revokeToken } from '../../domain/tokens.js'
 import { actorFor } from '../auth.js'
 

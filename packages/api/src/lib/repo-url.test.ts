@@ -4,7 +4,7 @@ import { checkRepoUrl, type RepoUrlPolicy } from './repo-url.js'
 
 function policy(map: Record<string, string[]> = {}, deniedCidrs: string[] = []): RepoUrlPolicy {
   return {
-    deniedHosts: ['postgres', 'socket-proxy', 'caddy', 'deployer-app', 'deployer-caddy'],
+    deniedHosts: ['postgres', 'socket-proxy', 'caddy', 'airlock-app', 'airlock-caddy'],
     deniedCidrs,
     resolve: async (h) => map[h] ?? [],
   }
@@ -48,9 +48,9 @@ describe('Repo-URL: Schemata', () => {
 })
 
 describe('Repo-URL: keine Ziele im eigenen Stack', () => {
-  for (const host of ['postgres', 'socket-proxy', 'caddy', 'deployer-app', 'deployer-caddy']) {
+  for (const host of ['postgres', 'socket-proxy', 'caddy', 'airlock-app', 'airlock-caddy']) {
     test(`Dienstname ${host}`, async () => {
-      await rejectsWith(`http://${host}:2375/x.git`, policy(), /deployer-Stacks/)
+      await rejectsWith(`http://${host}:2375/x.git`, policy(), /Airlock-Stacks/)
     })
   }
 

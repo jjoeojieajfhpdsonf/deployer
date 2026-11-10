@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { publicStateOf, type ProjectDto, type SystemStatusDto } from '@deployer/shared'
+import { publicStateOf, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api, ApiError } from '../api.js'
@@ -339,7 +339,7 @@ function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
     <dialog ref={ref} className="dialog" aria-labelledby="chat-guide-h" onClose={onClose} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="dialog-body">
         <h2 id="chat-guide-h">Per Chat deployen</h2>
-        <p className="dialog-lede">Claude legt Projekte über den MCP-Server von deployer an, ohne Repo und ohne Formular. Einmal einrichten:</p>
+        <p className="dialog-lede">Claude legt Projekte über den MCP-Server von Airlock an, ohne Repo und ohne Formular. Einmal einrichten:</p>
         <ol className="dialog-steps">
           <li>Auf der Seite <Link to="/tokens">Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop».</li>
           <li>In Claude den MCP-Server <code>{mcpUrl}</code> mit diesem Token eintragen. Für Claude Code steht dort der fertige Befehl.</li>

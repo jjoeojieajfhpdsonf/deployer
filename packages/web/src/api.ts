@@ -3,7 +3,7 @@ import type {
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
-} from '@deployer/shared'
+} from '@airlock/shared'
 
 export type {
   ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
@@ -100,6 +100,9 @@ export const api = {
     call<{ project: ProjectDto }>(`/projects/${id}`, { method: 'PATCH', body: body(patch) }),
   deleteProject: (id: string, purgeVolumes = false) =>
     call<void>(`/projects/${id}${purgeVolumes ? '?purge=true' : ''}`, { method: 'DELETE' }),
+  /** Übergang deployer → Airlock: aktive Fassung mit neuen Namen neu anlegen */
+  recreate: (id: string) =>
+    call<{ deployment: DeploymentDto }>(`/projects/${id}/recreate`, { method: 'POST', body: body({}) }),
   rollback: (id: string, deploymentId?: string) =>
     call<{ deployment: DeploymentDto }>(`/projects/${id}/rollback`, {
       method: 'POST',

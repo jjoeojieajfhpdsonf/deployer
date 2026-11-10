@@ -1,4 +1,4 @@
-import type { AuditEventDto, ProjectDto } from '@deployer/shared'
+import type { AuditEventDto, ProjectDto } from '@airlock/shared'
 
 /** «vor 18 Min.», «vor 2 Std.», «gestern», «vor 3 Tagen» */
 export function relativeTime(iso: string | null | undefined): string {
@@ -71,11 +71,11 @@ export const KIND_LABEL: Record<string, string> = {
   files: 'Chat',
 }
 
-/** Wer etwas getan hat, kurz: UI, Tokenname, deployer. */
+/** Wer etwas getan hat, kurz: UI, Tokenname, Airlock. */
 export function actorLabel(actor: string): string {
   if (actor.startsWith('ui:')) return 'UI'
   if (actor.startsWith('token:')) return actor.slice(6)
-  if (actor === 'system') return 'deployer'
+  if (actor === 'system') return 'Airlock'
   return actor
 }
 
@@ -93,6 +93,7 @@ const VERBS: Record<string, string> = {
   'project.delete': 'gelöscht',
   'project.deploy': 'deployt',
   'project.rollback': 'zurückgerollt',
+  'project.recreate': 'neu erstellt',
   'project.start': 'gestartet',
   'project.stop': 'gestoppt',
   'project.update': 'geändert',

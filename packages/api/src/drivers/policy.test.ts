@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { assertCreatePolicy, assertHostConfigPolicy } from './policy.js'
 import { PolicyError } from '../lib/errors.js'
 
-const NET = 'dep_solar'
+const NET = 'air_solar'
 
 function goodHostConfig(): Record<string, unknown> {
   return {
@@ -18,10 +18,10 @@ function goodHostConfig(): Record<string, unknown> {
 
 function goodCreate(): Record<string, unknown> {
   return {
-    name: 'dep_solar_abc123',
+    name: 'air_solar_abc123',
     Image: 'traefik/whoami:latest',
     Env: ['PORT=80'],
-    Labels: { 'deployer.project': 'solar' },
+    Labels: { 'airlock.project': 'solar' },
     HostConfig: goodHostConfig(),
   }
 }
@@ -65,7 +65,7 @@ describe('Richtlinienprüfung: gültige Nutzlast', () => {
   test('erlaubt ein benanntes Volume des Projekts', () => {
     const o = goodCreate()
     ;(o.HostConfig as Record<string, unknown>).Mounts = [
-      { Type: 'volume', Source: 'dep_solar_data', Target: '/data' },
+      { Type: 'volume', Source: 'air_solar_data', Target: '/data' },
     ]
     assert.doesNotThrow(() => assertCreatePolicy(o, NET))
   })
@@ -109,25 +109,38 @@ describe('Die klassischen Ausbrüche', () => {
 
   test('M6: ausdrücklich erlaubtes Scanner-Volume, nur mit genauem Namen', () => {
     const hc = goodHostConfig()
-    hc.Mounts = [{ Type: 'volume', Source: 'deployer_scan-trivy', Target: '/root/.cache' }]
-    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'deployer_scan-trivy' }] }))
+    hc.Mounts = [{ Type: 'volume', Source: 'airlock_scan-trivy', Target: '/root/.cache' }]
+    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'airlock_scan-trivy' }] }))
     rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.mounts.source')
-    rejects(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'deployer_scan' }] }), 'hostconfig.mounts.source')
+    rejects(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'airlock_scan' }] }), 'hostconfig.mounts.source')
   })
 
   test('M6: nur-lesend-Volume darf nicht schreibbar eingehängt werden', () => {
     const hc = goodHostConfig()
-    hc.Mounts = [{ Type: 'volume', Source: 'deployer_sites', Target: '/srv/sites' }]
-    const opts = { extraVolumes: [{ name: 'deployer_sites', readOnly: true }] }
+    hc.Mounts = [{ Type: 'volume', Source: 'airlock_sites', Target: '/srv/sites' }]
+    const opts = { extraVolumes: [{ name: 'airlock_sites', readOnly: true }] }
     rejects(() => assertHostConfigPolicy(hc, NET, opts), 'hostconfig.mounts.readonly')
-    hc.Mounts = [{ Type: 'volume', Source: 'deployer_sites', Target: '/srv/sites', ReadOnly: true }]
+    hc.Mounts = [{ Type: 'volume', Source: 'airlock_sites', Target: '/srv/sites', ReadOnly: true }]
     assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, opts))
   })
 
   test('fremdes Volume', () => {
     const hc = goodHostConfig()
-    hc.Mounts = [{ Type: 'volume', Source: 'dep_andereapp_data', Target: '/data' }]
+    hc.Mounts = [{ Type: 'volume', Source: 'air_andereapp_data', Target: '/data' }]
     rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.mounts.source')
+  })
+
+  test('Übergang: Volume aus der deployer-Zeit nur ausdrücklich und nur lesend', () => {
+    const hc = goodHostConfig()
+    hc.Mounts = [{ Type: 'volume', Source: 'dep_solar_data', Target: '/from', ReadOnly: true }]
+    rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.mounts.source')
+    assert.doesNotThrow(() => assertHostConfigPolicy(hc, NET, { extraVolumes: [{ name: 'dep_solar_data', readOnly: true }] }))
+  })
+
+  test('Übergang: keine neuen Container in Netzen aus der deployer-Zeit', () => {
+    const o = goodCreate()
+    ;(o.HostConfig as Record<string, unknown>).NetworkMode = 'dep_solar'
+    rejects(() => assertCreatePolicy(o, 'dep_solar'), 'network.name')
   })
 
   test('network_mode: host', () => {
@@ -138,7 +151,7 @@ describe('Die klassischen Ausbrüche', () => {
 
   test('Netz eines anderen Projekts', () => {
     const hc = goodHostConfig()
-    hc.NetworkMode = 'dep_andereapp'
+    hc.NetworkMode = 'air_andereapp'
     rejects(() => assertHostConfigPolicy(hc, NET), 'hostconfig.networkmode')
   })
 
@@ -206,7 +219,7 @@ describe('Pflichtwerte', () => {
 
   test('NetworkingConfig darf kein fremdes Netz verbinden', () => {
     const o = goodCreate()
-    o.NetworkingConfig = { EndpointsConfig: { deployer_internal: {} } }
+    o.NetworkingConfig = { EndpointsConfig: { airlock_internal: {} } }
     rejects(() => assertCreatePolicy(o, NET), 'networkingconfig')
   })
 

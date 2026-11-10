@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
-import { acceptFindingSchema, type ScanStageDto } from '@deployer/shared'
+import { acceptFindingSchema, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'

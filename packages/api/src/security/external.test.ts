@@ -21,9 +21,20 @@ describe('Externe Ziele: Hostname', () => {
 describe('Externe Ziele: TXT-Nachweis', () => {
   const token = 'abc123'
   test('Eintragname und Inhalt', () => {
-    assert.equal(txtRecordName('shop.x.ch'), '_deployer-verify.shop.x.ch')
-    assert.ok(txtMatches([['deployer-verify=abc', '123']], token), 'TXT in Stücken')
-    assert.ok(!txtMatches([['deployer-verify=falsch']], token))
+    assert.equal(txtRecordName('shop.x.ch'), '_airlock-verify.shop.x.ch')
+    assert.ok(txtMatches([['airlock-verify=abc', '123']], token), 'TXT in Stücken')
+    assert.ok(!txtMatches([['airlock-verify=falsch']], token))
+  })
+
+  test('Übergang: Nachweis aus der deployer-Zeit gilt weiter', async () => {
+    assert.ok(txtMatches([['deployer-verify=abc123']], token))
+    const byName: TxtResolver = async (_s, name) => {
+      if (name === '_deployer-verify.shop.x.ch') return [['deployer-verify=abc123']]
+      throw Object.assign(new Error('keine Daten'), { code: 'ENODATA' })
+    }
+    const r = await verifyTxt('shop.x.ch', token, byName)
+    assert.equal(r.verified, true)
+    assert.deepEqual(r.errors, [])
   })
 
   const resolver = (answers: Record<string, string[][] | Error>): TxtResolver => async (server) => {
@@ -31,7 +42,7 @@ describe('Externe Ziele: TXT-Nachweis', () => {
     if (a instanceof Error) throw a
     return a ?? []
   }
-  const ok = [['deployer-verify=abc123']]
+  const ok = [['airlock-verify=abc123']]
 
   test('zwei von drei Resolvern genügen', async () => {
     const r = await verifyTxt('shop.x.ch', token, resolver({ '1.1.1.1': ok, '8.8.8.8': ok, '9.9.9.9': new Error('ETIMEOUT') }))

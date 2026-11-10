@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import type { AuditEventDto } from '@deployer/shared'
+import type { AuditEventDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { actorLabel, describeAudit } from '../lib/format.js'

@@ -102,7 +102,7 @@ async function sendPush(s: NonNullable<Stored['ntfy']>, title: string, body: str
   const res = await fetch(s.url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(s.tokenEnc ? { authorization: `Bearer ${dec(s.tokenEnc)}` } : {}) },
-    body: JSON.stringify({ topic: s.topic, title, message: body, priority, tags: ['deployer'] }),
+    body: JSON.stringify({ topic: s.topic, title, message: body, priority, tags: ['airlock'] }),
     signal: AbortSignal.timeout(10_000),
   })
   if (!res.ok) throw new Error(`ntfy antwortete ${res.status}`)
@@ -145,7 +145,7 @@ export async function notify(event: NotifyEvent, data: Record<string, unknown>, 
 /** Testnachricht über einen Kanal, unabhängig von der Matrix. Wirft bei Fehlern. */
 export async function sendTest(channel: Channel, actor: string): Promise<void> {
   const s = await load()
-  const title = 'deployer: Testnachricht'
+  const title = 'Airlock: Testnachricht'
   const body = 'Wenn das ankommt, funktionieren die Benachrichtigungen.'
   if (channel === 'push') {
     if (!s.ntfy) throw badRequest('Push (ntfy) ist nicht eingerichtet')

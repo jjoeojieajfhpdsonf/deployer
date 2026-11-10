@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { fixPrompt, type FixHintDto, type FixRequestDto, type FixWay, type ImageHintDto } from '@deployer/shared'
+import { fixPrompt, type FixHintDto, type FixRequestDto, type FixWay, type ImageHintDto } from '@airlock/shared'
 import { db, schema } from '../db/index.js'
 import type { FixChanges } from '../db/schema.js'
 import { config } from '../config.js'
@@ -21,7 +21,7 @@ import {
 /**
  * M8, Etappe 2: «Mit Claude lösen». Claude holt sich über MCP den Kontext
  * eines Befunds und legt einen Vorschlag an; übernommen wird er erst nach
- * Zustimmung (Oberfläche oder MCP mit Bestätigung). Danach deployt deployer,
+ * Zustimmung (Oberfläche oder MCP mit Bestätigung). Danach deployt Airlock,
  * der Scan nach dem Deploy bestätigt die Behebung.
  */
 
@@ -125,7 +125,7 @@ export async function getFixContext(idOrSlug: string, findingId: string): Promis
   if (way === 'image') return { ...base, image: await imageHint(p, f), next: 'Keine Codeänderung möglich. Eine neuere Image-Version vorschlagen; Joël stellt das Projekt selbst um.' }
   const source = way === 'files' ? await localSource(p) : way === 'github' ? await githubSource(p) : null
   if (!source) {
-    return { ...base, next: 'Die Änderung im Git-Repo des Projekts auf einem eigenen Branch machen; deployer kennt die Dateien nicht.' }
+    return { ...base, next: 'Die Änderung im Git-Repo des Projekts auf einem eigenen Branch machen; Airlock kennt die Dateien nicht.' }
   }
 
   const paths = source.paths
@@ -154,8 +154,8 @@ export async function getFixContext(idOrSlug: string, findingId: string): Promis
     commit: source.commit,
     next:
       'Änderung mit propose_fix vorschlagen: geänderte Dateien vollständig (nicht als Diff), gelöschte unter delete, kurze Erklärung. ' +
-      (way === 'github' ? 'deployer legt dafür einen Branch und einen Pull Request an. ' : '') +
-      'Ersetzte Stellen («deployer: …») nicht zurückschreiben: ein Secret gehört in die Projekt-Env (Oberfläche), nicht in den Code.',
+      (way === 'github' ? 'Airlock legt dafür einen Branch und einen Pull Request an. ' : '') +
+      'Ersetzte Stellen («Airlock: …») nicht zurückschreiben: ein Secret gehört in die Projekt-Env (Oberfläche), nicht in den Code.',
   }
 }
 
@@ -193,7 +193,7 @@ export async function proposeFix(
   const way = await wayFor(p, f)
   if (way === 'header') throw badRequest('Header-Befunde löst set_security_header, ohne Codeänderung')
   if (way === 'image') throw badRequest('Bei einem fertigen Image ist keine Codeänderung möglich; get_fix_context nennt neuere Versionen')
-  if (way === 'repo' || way === 'none') throw badRequest('Für dieses Projekt kennt deployer die Dateien nicht; die Änderung gehört ins Git-Repo')
+  if (way === 'repo' || way === 'none') throw badRequest('Für dieses Projekt kennt Airlock die Dateien nicht; die Änderung gehört ins Git-Repo')
   const files = input.files ?? []
   const remove = (input.delete ?? []).map(validateFilePath)
   if (!files.length && !remove.length) throw badRequest('Keine Dateien im Vorschlag')
@@ -201,8 +201,8 @@ export async function proposeFix(
   if (explanation.length < 10) throw badRequest('Bitte kurz erklären, was die Änderung behebt')
   const decoded = decodeFiles(files) // prüft Pfade und Grössen
   for (const x of decoded) {
-    if (isWithheld(x.path)) throw badRequest(`${x.path}: Env-Dateien und Schlüssel ändert deployer nicht über Vorschläge`)
-    if (containsMask(x.data.toString('utf8'))) throw badRequest(`${x.path} enthält einen Platzhalter von deployer («deployer: …»); das Secret gehört in die Projekt-Env, nicht in den Code`)
+    if (isWithheld(x.path)) throw badRequest(`${x.path}: Env-Dateien und Schlüssel ändert Airlock nicht über Vorschläge`)
+    if (containsMask(x.data.toString('utf8'))) throw badRequest(`${x.path} enthält einen Platzhalter von Airlock («Airlock: …»); das Secret gehört in die Projekt-Env, nicht in den Code`)
   }
 
   let diff = ''
@@ -245,7 +245,7 @@ export async function proposeFix(
     actor, action: 'fix.propose', targetType: 'project', targetId: p.id,
     params: { fix: row.id, finding: f.id, title: f.title, files: decoded.map((x) => x.path), delete: remove }, result: 'ok',
   })
-  // Etappe 3: Pull Request statt Vorschlag in deployer
+  // Etappe 3: Pull Request statt Vorschlag in Airlock
   if (way === 'github') return toFixDto(await openPullRequestHook(row, p, actor))
   return toFixDto(row)
 }

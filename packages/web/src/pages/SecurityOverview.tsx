@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { ProjectDto } from '@deployer/shared'
+import type { ProjectDto } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'

@@ -1,18 +1,18 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { cf as settings, config } from '../config.js'
-import { RESERVED_SLUGS } from '@deployer/shared'
-import { Cloudflare, CloudflareError, upsertManagedRecord, MANAGED_COMMENT, type Zone } from '../drivers/cloudflare.js'
+import { RESERVED_SLUGS } from '@airlock/shared'
+import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { cloudflareClient } from './tailnet.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
 import { getPublicRequest, discardPublicRequest, markRequestFailed, toRequestDto, gateReason } from './public-requests.js'
 import { setProjectPause, pausePageTemplate } from './pause-page.js'
-import type { PauseOptions } from '@deployer/shared'
+import type { PauseOptions } from '@airlock/shared'
 import { reconcileCaddy, routeDtosFor } from './routes.js'
 import { Progress, withProgress, stepsFor, progressOf } from './public-progress.js'
 import { checkFromOutside, type Expect } from '../lib/outside-probe.js'
-import type { OutsideCheckDto, PublicStatusDto } from '@deployer/shared'
+import type { OutsideCheckDto, PublicStatusDto } from '@airlock/shared'
 import { audit } from './audit.js'
 import { notify } from '../notify/send.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
@@ -25,7 +25,7 @@ import { log } from '../lib/log.js'
  * CNAME (proxied, auf den Tunnel) -> optional Access -> Route speichern ->
  * Tunnel-Ingress und Caddy aus der Datenbank abgleichen -> Benachrichtigung.
  * Beim Entfernen umgekehrt. Die Datenbank ist die Wahrheit; der Abgleich
- * räumt nur, was deployer selbst angelegt hat.
+ * räumt nur, was Airlock (oder früher deployer) selbst angelegt hat.
  */
 
 const MANAGED_HOSTS_KEY = 'tunnel_managed_hosts'
@@ -179,13 +179,13 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
     progress?.start('access')
     let accessAppId = sameName ? before.cfAccessAppId : null
     if (plan.access && !accessAppId) {
-      accessAppId = (await cf.createAccessApp(settings.accountId()!, { name: `deployer: ${project.name}`, domain: hostname, email: settings.accessEmail()! })).id
+      accessAppId = (await cf.createAccessApp(settings.accountId()!, { name: `Airlock: ${project.name}`, domain: hostname, email: settings.accessEmail()! })).id
       created.accessId = accessAppId
     }
 
     // 3. Route speichern (eine öffentliche Route pro Projekt), Belegung unter Sperre erneut prüfen
     await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('deployer.routes'))`)
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('airlock.routes'))`)
       const clash = await tx.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
       if (clash.some((r) => r.projectId !== project.id)) throw conflict(`${hostname} ist schon von einem anderen Projekt belegt`)
       await tx.delete(schema.routes).where(and(eq(schema.routes.projectId, project.id), eq(schema.routes.target, 'public')))
@@ -280,9 +280,9 @@ async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; 
   const zone = domains.find((d) => route.hostname === d.name || route.hostname.endsWith(`.${d.name}`))
   if (route.cfDnsRecordId && !zone) throw new Error(`Zone von ${route.hostname} unbekannt; DNS-Eintrag bitte in Cloudflare von Hand entfernen`)
   if (route.cfDnsRecordId && zone) {
-    // Nur löschen, was wirklich von deployer stammt.
+    // Nur löschen, was wirklich von Airlock (oder früher deployer) stammt.
     const recs = await cf.listRecords(zone.zoneId, route.hostname)
-    const mine = recs.find((r) => r.id === route.cfDnsRecordId && r.comment === MANAGED_COMMENT)
+    const mine = recs.find((r) => r.id === route.cfDnsRecordId && isManagedComment(r.comment))
     if (mine) await cf.deleteRecord(zone.zoneId, mine.id)
     pr?.set('dns', 'done', mine ? `CNAME ${route.hostname} entfernt` : 'kein eigener Eintrag mehr vorhanden')
   } else {

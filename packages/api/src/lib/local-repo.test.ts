@@ -11,7 +11,7 @@ import { extractTarSafely } from './untar.js'
 
 let work: string
 before(() => {
-  work = mkdtempSync(join(tmpdir(), 'deployer-localrepo-'))
+  work = mkdtempSync(join(tmpdir(), 'airlock-localrepo-'))
 })
 after(() => rmSync(work, { recursive: true, force: true }))
 

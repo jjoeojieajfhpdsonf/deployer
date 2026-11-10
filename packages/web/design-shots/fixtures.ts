@@ -1,14 +1,14 @@
 /**
  * Daten für die Prototyp-Screenshots (docs/prototype-cal). Typisiert gegen
- * die echten DTOs aus @deployer/shared und api.ts: Der Compiler prüft, dass
+ * die echten DTOs aus @airlock/shared und api.ts: Der Compiler prüft, dass
  * die Seiten dieselben Formen bekommen wie von der API. Erfundene Projekte
  * und Werte, keine echten Server- oder Zugangsdaten.
  */
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
-} from '@deployer/shared'
-import { fixPrompt } from '@deployer/shared'
+} from '@airlock/shared'
+import { fixPrompt } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -65,6 +65,7 @@ function project(p: P): ProjectDto {
     expiresAt: null,
     security: { scanId: `${p.id}-s`, status: 'done', score: 97, grade: 'A', finishedAt: ago(90 * MIN), open: { critical: 0, high: 0, medium: 0, low: 1 } },
     lastDeployment: active,
+    legacyContainers: false,
     ...p,
   }
 }
@@ -388,7 +389,7 @@ export function headerRules(id: string): HeaderRulesDto {
       ],
       total: 64,
       suggestion: "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self' wss://kontoauszug-reader.int.example.ch; object-src 'none'; base-uri 'self'; form-action 'self'",
-      notes: ["Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt deployer nicht vor."],
+      notes: ["Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt Airlock nicht vor."],
     },
   }
 }
@@ -398,14 +399,14 @@ export function fixHint(findingId: string): FixHintDto {
   if (findingId === 'f1') {
     return {
       way: 'image', prompt: null,
-      explanation: 'Fertiges Image: deployer kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.',
+      explanation: 'Fertiges Image: Airlock kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.',
       image: { image: 'ghcr.io/example/kontoauszug-reader-api:1.4-bookworm', fixedIn: 'openssl 3.0.15-1~deb12u1', candidates: ['1.6-bookworm', '2.1-bookworm'], note: 'Kandidaten derselben Linie; ob sie das Paket wirklich aktualisieren, zeigt erst der Scan nach dem Wechsel.' },
     }
   }
   return {
     way: 'files',
     prompt: fixPrompt({ projectName: 'Kontoauszug-Reader', slug: 'kontoauszug-reader', findingId: '3f1c9a52-7d40-4e8b-9b1a-0c2d6e8f4a17', title: 'Container läuft als root', severity: 'medium', way: 'files' }),
-    explanation: 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, deployer deployt und scannt nach.',
+    explanation: 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, Airlock deployt und scannt nach.',
     image: null,
   }
 }
@@ -433,15 +434,15 @@ export function fixRequests(id: string): FixRequestDto[] {
 export function github(connected: boolean): GithubStatusDto {
   const base = {
     permissions: { contents: 'write', pull_requests: 'write', metadata: 'read (von GitHub immer dabei)' },
-    suggestedName: 'deployer heimserver 4f2a',
+    suggestedName: 'airlock heimserver 4f2a',
     callbackUrl: `https://deployer.${BASE}/api/v1/github/manifest/callback`,
   }
   if (!connected) return { ...base, connected: false, app: null, installed: false, repos: [], installUrl: null }
   return {
     ...base, connected: true, installed: true,
-    app: { name: 'deployer heimserver 4f2a', slug: 'deployer-heimserver-4f2a', htmlUrl: 'https://github.com/apps/deployer-heimserver-4f2a', owner: 'example', createdAt: ago(2 * HOUR) },
+    app: { name: 'airlock heimserver 4f2a', slug: 'airlock-heimserver-4f2a', htmlUrl: 'https://github.com/apps/airlock-heimserver-4f2a', owner: 'example', createdAt: ago(2 * HOUR) },
     repos: ['example/fotoalbum', 'example/rezepte-api'],
-    installUrl: 'https://github.com/apps/deployer-heimserver-4f2a/installations/new',
+    installUrl: 'https://github.com/apps/airlock-heimserver-4f2a/installations/new',
   }
 }
 
@@ -577,8 +578,8 @@ export const tokens: ApiTokenDto[] = [
 ]
 
 export const externalTargets: ExternalTargetDto[] = [
-  { id: 'e1', hostname: 'blog.example.ch', verified: true, verifiedAt: ago(12 * DAY), lastCheckAt: ago(6 * HOUR), scanInterval: 'weekly', txt: { name: '_deployer-verify.blog.example.ch', value: 'dpl-verify=7f3a9c21e04d' } },
-  { id: 'e2', hostname: 'shop.example.ch', verified: false, verifiedAt: null, lastCheckAt: null, scanInterval: 'off', txt: { name: '_deployer-verify.shop.example.ch', value: 'dpl-verify=51c0aa8e2d93' } },
+  { id: 'e1', hostname: 'blog.example.ch', verified: true, verifiedAt: ago(12 * DAY), lastCheckAt: ago(6 * HOUR), scanInterval: 'weekly', txt: { name: '_airlock-verify.blog.example.ch', value: 'airlock-verify=7f3a9c21e04d' } },
+  { id: 'e2', hostname: 'shop.example.ch', verified: false, verifiedAt: null, lastCheckAt: null, scanInterval: 'off', txt: { name: '_airlock-verify.shop.example.ch', value: 'airlock-verify=51c0aa8e2d93' } },
 ]
 
 export const externalScan: ScanReportDto | null = null

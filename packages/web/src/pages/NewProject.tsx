@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { slugify, createProjectSchema } from '@deployer/shared'
+import { slugify, createProjectSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { PageHead } from '../components/PageHead.js'

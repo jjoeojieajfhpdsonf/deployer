@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { headerFixFor, headerValueProblem, needsConfirmation, HEADER_DEFAULT } from '@deployer/shared'
+import { headerFixFor, headerValueProblem, needsConfirmation, HEADER_DEFAULT } from '@airlock/shared'
 import { headerHandlers, xfoFor, parseCspReports, normalizeBlocked, baseDirective, suggestCsp, parsePolicy, type HeaderRuleSpec } from './header-rules.js'
 import { buildCaddyConfig, PROBE_SERVER, type RouteSpec } from '../drivers/caddy-config.js'
 import { checkHeaders } from './headers.js'
@@ -85,7 +85,7 @@ describe('Befund -> Header und Werte', () => {
     assert.ok(!real.some((f) => f.title === 'Content-Security-Policy fehlt'))
   })
 
-  test('Werte: keine Zeilenumbrüche, kein preload, report-uri setzt deployer', () => {
+  test('Werte: keine Zeilenumbrüche, kein preload, report-uri setzt Airlock', () => {
     assert.equal(headerValueProblem('x-content-type-options', 'nosniff', 'enforce'), null)
     assert.ok(headerValueProblem('x-content-type-options', 'sniff', 'enforce'))
     assert.equal(headerValueProblem('referrer-policy', 'no-referrer', 'enforce'), null)
@@ -213,14 +213,14 @@ describe('Caddy: CSP-Meldungen am Host des Projekts', () => {
     headers: [rule('content-security-policy', 'report-only')],
     cspReportKey: KEY,
   }
-  const opts = { ipFilter: true, cidrs: ['100.64.0.0/10'], adminSocket: '/run/caddy/admin.sock', cspReportUpstream: 'deployer-app:3000' }
+  const opts = { ipFilter: true, cidrs: ['100.64.0.0/10'], adminSocket: '/run/caddy/admin.sock', cspReportUpstream: 'airlock-app:3000' }
   const routesOf = (spec: RouteSpec, o: Partial<typeof opts> = {}) => (buildCaddyConfig([spec], { ...opts, ...o }) as unknown as Cfg).apps.http.servers.srv0!.routes
 
-  test('report-uri relativ auf den eigenen Host, nicht auf deployer', () => {
+  test('report-uri relativ auf den eigenen Host, nicht auf Airlock', () => {
     const main = routesOf(csp).find((r) => r.match?.[0]?.host[0] === 'solar.int.example.ch' && !r.match[0].path)!
     const h = main.handle.find((x) => (x.response as { set?: Record<string, string[]> })?.set?.['Content-Security-Policy-Report-Only'])!
     const v = (h.response as { set: Record<string, string[]> }).set['Content-Security-Policy-Report-Only']![0]!
-    assert.ok(v.endsWith(`report-uri /.well-known/deployer/csp-report/${KEY}`), v)
+    assert.ok(v.endsWith(`report-uri /.well-known/airlock/csp-report/${KEY}`), v)
     assert.ok(!v.includes('deployer.int'))
   })
 
@@ -230,14 +230,14 @@ describe('Caddy: CSP-Meldungen am Host des Projekts', () => {
     const app = rs.findIndex((r) => r.match?.[0]?.host[0] === 'solar.int.example.ch' && !r.match[0].path)
     assert.ok(i >= 0 && i < app, 'vor der Route der App')
     const m = rs[i]!.match![0]!
-    assert.deepEqual(m.path, [`/.well-known/deployer/csp-report/${KEY}`])
+    assert.deepEqual(m.path, [`/.well-known/airlock/csp-report/${KEY}`])
     assert.deepEqual(m.method, ['POST'])
     assert.deepEqual(m.remote_ip, { ranges: ['100.64.0.0/10'] })
     const kinds = rs[i]!.handle.map((x) => x.handler)
     assert.deepEqual(kinds, ['request_body', 'rate_limit', 'rewrite', 'reverse_proxy'])
     assert.equal(rs[i]!.handle[0]!.max_size, 64 * 1024)
     assert.equal(rs[i]!.handle[2]!.uri, `/api/v1/csp-reports/${KEY}`)
-    assert.deepEqual((rs[i]!.handle[3]!.upstreams as { dial: string }[])[0], { dial: 'deployer-app:3000' })
+    assert.deepEqual((rs[i]!.handle[3]!.upstreams as { dial: string }[])[0], { dial: 'airlock-app:3000' })
   })
 
   test('ohne CSP-Regel, ohne Ziel oder pausiert: keine Meldungs-Route und keine report-uri', () => {

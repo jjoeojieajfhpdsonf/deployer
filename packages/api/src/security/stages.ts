@@ -23,7 +23,7 @@ import { missingLockfiles, detectJsLibs, depsSummary, sourceChecked } from './de
 export interface ScanTarget {
   /** URL, gegen die Laufzeit- und Expositions-Scanner gehen. */
   url: string
-  /** Netz, in dem Scanner laufen: das Projekt-Netz oder dep_ext-scan. */
+  /** Netz, in dem Scanner laufen: das Projekt-Netz oder air_ext-scan. */
   network: string
   host: string
   isHttps: boolean
@@ -51,7 +51,7 @@ export async function trivyImage(scanId: string, imageRef: string, network: stri
     await pipeline(await docker.exportImage(imageRef), createWriteStream(file))
     const { size } = await stat(file)
     const r = await runScanner({
-      name: `dep_scan_trivyimg_${short(scanId)}`,
+      name: `air_scan_trivyimg_${short(scanId)}`,
       image: SCANNER_IMAGES.trivy,
       network,
       // Ohne --quiet: der Fortschritt (DB-Download in MB) steht in der Live-Ausgabe.
@@ -80,7 +80,7 @@ export async function trivyImage(scanId: string, imageRef: string, network: stri
 export async function trivySource(scanId: string, srcDir: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<StageResult> {
   const [noLock, libs] = await Promise.all([missingLockfiles(srcDir), detectJsLibs(srcDir)])
   const r = await runScanner({
-    name: `dep_scan_trivysrc_${short(scanId)}`,
+    name: `air_scan_trivysrc_${short(scanId)}`,
     image: SCANNER_IMAGES.trivy,
     network,
     cmd: ['fs', '--format', 'json', '--scanners', 'vuln,secret,misconfig', '--ignore-unfixed', '--list-all-pkgs', '--output', '/scan/out.json', '/scan/src'],
@@ -101,7 +101,7 @@ export async function trivySource(scanId: string, srcDir: string, network: strin
 async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: string) {
   // Eigener Agent ohne Keep-Alive: Der Healthcheck des Deploys hat dieselbe
   // Adresse gerade angefragt, und seine Verbindung im globalen Pool ist tot,
-  // seit der deployer das Projekt-Netz verlassen hat. Wiederverwendet hiesse
+  // seit Airlock das Projekt-Netz verlassen hat. Wiederverwendet hiesse
   // das: Anfrage ins Leere, Zeitüberschreitung (gefunden in der M6-Abnahme).
   // M8: mit socketPath über Caddys Probe-Server (Host aus der URL).
   const agent = new Agent({ keepAliveTimeout: 1, pipelining: 0, ...(socketPath ? { connect: { socketPath } } : {}) })
@@ -137,7 +137,7 @@ export async function headerCheckViaCaddy(url: string, isHttps: boolean): Promis
 
 export async function headerCheck(t: ScanTarget): Promise<FindingInput[]> {
   if (t.external) return fetchForHeaders(t.url, t.isHttps)
-  // Intern: der deployer hängt sich (gezählt) ins Projekt-Netz.
+  // Intern: Airlock hängt sich (gezählt) ins Projekt-Netz.
   return withProjectNetwork(t.network, () => fetchForHeaders(t.url, t.isHttps))
 }
 
@@ -151,7 +151,7 @@ export async function zap(scanId: string, t: ScanTarget, labels: Record<string, 
     : '-silent'
   // Die URL kommt über die Umgebung, nicht in den Shell-Befehl: nichts zum Einschleusen.
   const r = await runScanner({
-    name: `dep_scan_zap_${short(scanId)}`,
+    name: `air_scan_zap_${short(scanId)}`,
     image: SCANNER_IMAGES.zap,
     network: t.network,
     entrypoint: ['sh', '-c'],
@@ -177,7 +177,7 @@ export async function nuclei(scanId: string, t: ScanTarget, labels: Record<strin
   // Abnahme). Deshalb: fehlen sie oder sind sie älter als 7 Tage, erst laden.
   const rl = t.external ? '5' : '50'
   const r = await runScanner({
-    name: `dep_scan_nuclei_${short(scanId)}`,
+    name: `air_scan_nuclei_${short(scanId)}`,
     image: SCANNER_IMAGES.nuclei,
     network: t.network,
     entrypoint: ['sh', '-c'],
@@ -203,7 +203,7 @@ export async function nuclei(scanId: string, t: ScanTarget, labels: Record<strin
 
 export async function testssl(scanId: string, t: ScanTarget, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   const r = await runScanner({
-    name: `dep_scan_testssl_${short(scanId)}`,
+    name: `air_scan_testssl_${short(scanId)}`,
     image: SCANNER_IMAGES.testssl,
     network: t.network,
     cmd: ['--jsonfile', '/tmp/r.json', '--quiet', '--fast', '--warnings', 'off', '--color', '0', t.host],
@@ -228,13 +228,13 @@ export async function startStaticTarget(slug: string, scanId: string): Promise<{
   const network = docker.projectNetworkName(slug)
   await docker.ensureNetwork(network)
   await docker.pullImage(SCANNER_IMAGES.httpd).catch(() => {})
-  const name = `dep_${slug}_scansrv_${short(scanId)}`
+  const name = `${network}_scansrv_${short(scanId)}`
   const id = await docker.createOnly({
     name,
     image: SCANNER_IMAGES.httpd,
     network,
     env: {},
-    labels: { [docker.LABEL_MANAGED]: 'true', [docker.LABEL_PROJECT]: slug, 'deployer.role': 'scanner' },
+    labels: { [docker.LABEL_MANAGED]: 'true', [docker.LABEL_PROJECT]: slug, [docker.LABEL.role]: 'scanner' },
     memoryLimitMb: 64,
     cpuLimit: 0.5,
     oneShot: true,

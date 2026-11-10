@@ -58,7 +58,7 @@ export async function runStaticBuild(o: {
 
   const script = `${installCommand(o.repoDir)} && ${o.buildCommand}`
   const id = await docker.createOnly({
-    name: `dep_${o.slug}_build_${o.deploymentId.replace(/-/g, '').slice(0, 10)}`,
+    name: `${network}_build_${o.deploymentId.replace(/-/g, '').slice(0, 10)}`,
     image: BUILD_IMAGE,
     network,
     // Kein NODE_ENV=production: sonst überspringen npm ci, pnpm und yarn die
@@ -69,7 +69,7 @@ export async function runStaticBuild(o: {
       [docker.LABEL_MANAGED]: 'true',
       [docker.LABEL_PROJECT]: o.slug,
       [docker.LABEL_DEPLOYMENT]: o.deploymentId,
-      'deployer.role': 'build',
+      [docker.LABEL.role]: 'build',
     },
     memoryLimitMb: BUILD_MEMORY_MB,
     cpuLimit: 2,

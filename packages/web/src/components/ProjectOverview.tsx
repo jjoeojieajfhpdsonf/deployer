@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@deployer/shared'
-import { browserCanProbe, splitAddresses } from '@deployer/shared'
+import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@airlock/shared'
+import { browserCanProbe, splitAddresses } from '@airlock/shared'
 import { api, ApiError, probeUrl } from '../api.js'
 import { duration, relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
@@ -181,7 +181,7 @@ function fmtCpu(v: number): string {
   return v.toLocaleString('de-CH', { minimumFractionDigits: v >= 1 && Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })
 }
 
-function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; data: import('@deployer/shared').ProjectHealthDto | null }) {
+function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; data: import('@airlock/shared').ProjectHealthDto | null }) {
   const isStatic = data?.kind === 'static' || p.runtimeKind === 'static'
   const c = data?.container
   const hc = data?.health

@@ -61,5 +61,5 @@ test('Vorlagen-Link enthält die Rechte und den Namen', () => {
   assert.equal(u.hostname, 'dash.cloudflare.com')
   const groups = JSON.parse(u.searchParams.get('permissionGroupKeys')!) as { key: string; type: string }[]
   assert.deepEqual(groups.map((g) => g.key), ['zone', 'dns', 'argotunnel', 'access'])
-  assert.equal(u.searchParams.get('name'), 'deployer')
+  assert.equal(u.searchParams.get('name'), 'airlock')
 })

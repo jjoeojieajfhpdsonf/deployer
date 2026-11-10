@@ -4,12 +4,12 @@ import { Link, useLocation } from 'react-router-dom'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { relativeTime } from '../lib/format.js'
-import { passwordChangeFormSchema, PASSWORD_MIN } from '@deployer/shared'
+import { passwordChangeFormSchema, PASSWORD_MIN } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 
 /**
- * Konto: deployer kennt genau eine Person (SPEC). Hier stehen Name,
+ * Konto: Airlock kennt genau eine Person (SPEC). Hier stehen Name,
  * Sitzung und Passwort; das Passwort lässt sich ändern.
  */
 export function Account() {
@@ -122,7 +122,7 @@ function PasswordForm({ formRef }: { formRef: React.RefObject<HTMLFormElement | 
         </button>
       </div>
       <p className="hint">
-        Vergessen? <code>ADMIN_PASSWORD</code> in <code>.env</code> ändern und deployer neu starten – ein geändertes
+        Vergessen? <code>ADMIN_PASSWORD</code> in <code>.env</code> ändern und Airlock neu starten – ein geändertes
         Passwort in <code>.env</code> setzt sich beim Start durch.
       </p>
     </form>

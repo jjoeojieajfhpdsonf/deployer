@@ -4,14 +4,14 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { CfTlsPhase } from '@deployer/shared'
+import type { CfTlsPhase } from '@airlock/shared'
 import { tlsOptionsFor, planForPhase, type StoredTls } from './tls-options.js'
 import { storedProductionWildcard, removeStagingWildcard, certDir, CA_DIR_PRODUCTION, CA_DIR_STAGING } from './caddy-storage.js'
 import { buildCaddyConfig, ACME_STAGING, ACME_PRODUCTION, needsCacheEvict, withoutCertificates, caForSubject, probeName } from '../drivers/caddy-config.js'
 
 /**
  * Stellt den Ablauf der Zertifikats-Einrichtung nach (runTls): jede Phase
- * schreibt den Stand, danach baut deployer die Caddy-Konfiguration neu.
+ * schreibt den Stand, danach baut Airlock die Caddy-Konfiguration neu.
  * Gegen echtes Caddy geprüft: scripts/caddy-tls-e2e.ts.
  */
 

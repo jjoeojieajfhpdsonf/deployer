@@ -41,7 +41,11 @@ export const ALLOWED_CREATE_FIELDS = [
   'User',
 ] as const
 
-export const PROJECT_NETWORK_RE = /^dep_[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/
+/**
+ * Neue Container entstehen nur in Netzen air_<slug>. Netze aus der
+ * deployer-Zeit (dep_<slug>) bekommen bewusst keine neuen Container mehr.
+ */
+export const PROJECT_NETWORK_RE = /^air_[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/
 
 export const REQUIRED_SECURITY_OPT = ['no-new-privileges:true']
 export const REQUIRED_LOG_CONFIG = {
@@ -76,7 +80,7 @@ export function assertCreatePolicy(
   opts: PolicyOptions = {},
 ): void {
   if (!PROJECT_NETWORK_RE.test(expectedNetwork)) {
-    fail('network.name', `Projekt-Netz "${expectedNetwork}" entspricht nicht dem Muster dep_<slug>`)
+    fail('network.name', `Projekt-Netz "${expectedNetwork}" entspricht nicht dem Muster air_<slug>`)
   }
 
   for (const key of Object.keys(options)) {
@@ -205,7 +209,7 @@ export function assertHostConfigPolicy(
   if (hostConfig.Mounts !== undefined) {
     const mounts = hostConfig.Mounts
     if (!Array.isArray(mounts)) fail('hostconfig.mounts', 'Mounts muss ein Array sein')
-    const volumePrefix = expectedNetwork.replace(/^dep_/, 'dep_') + '_'
+    const volumePrefix = expectedNetwork + '_'
     for (const m of mounts) {
       if (!isPlainObject(m)) fail('hostconfig.mounts', 'Jeder Mount muss ein Objekt sein')
       if (m.Type !== 'volume') {

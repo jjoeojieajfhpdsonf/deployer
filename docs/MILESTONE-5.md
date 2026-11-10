@@ -2,7 +2,7 @@
 
 Stand: 7. November 2026
 
-> **Neu (8.11.2026):** Den Tunnel legt deployer selbst an und startet cloudflared als eigenen Container – System → «Cloudflare verbinden», siehe [CLOUDFLARE.md](CLOUDFLARE.md). `compose.public.yaml` und die Variablen unten gelten nur noch als Rückfall.
+> **Neu (8.11.2026):** Den Tunnel legt Airlock selbst an und startet cloudflared als eigenen Container – System → «Cloudflare verbinden», siehe [CLOUDFLARE.md](CLOUDFLARE.md). `compose.public.yaml` und die Variablen unten gelten nur noch als Rückfall.
 
 Umfang laut [SPEC.md](SPEC.md): Cloudflare Tunnel, DNS-Verwaltung, optional Cloudflare Access. Dazu aus M6 die Schwelle für «öffentlich» und die Benachrichtigung «Projekt öffentlich geschaltet».
 
@@ -13,29 +13,29 @@ Umfang laut [SPEC.md](SPEC.md): Cloudflare Tunnel, DNS-Verwaltung, optional Clou
 - **Öffentlich nur auf ausdrücklichen Wunsch.** Standard bleibt «nur intern». `public` verlangt über MCP eine Bestätigung (Elicitation oder `confirmation_token`), in der UI eine Rückfrage.
 - **Schwelle aus M6:** `assertPublishable()` vor jedem Schritt, der ein Projekt öffentlich macht – kein offener kritischer Befund, und es muss ein abgeschlossener Scan vorliegen. Gilt für `create_project`, `set_targets`, `PUT /routes` und die UI gleich (gemeinsame Service-Funktion).
 - **Kein offener Port.** Öffentlicher Verkehr kommt nur über `cloudflared` (ausgehende Verbindung) zu Caddy.
-- **deployer selbst wird nie öffentlich.** Der Name `deployer` ist reserviert (M6); zusätzlich weigert sich der Tunnel-Abgleich, eine Ingress-Regel auf die deployer-Route zu setzen.
-- **Die Datenbank ist die Wahrheit.** Tunnel-Ingress und DNS werden aus den Routen abgeleitet, wie bei Caddy. Ein Abgleich beim Start und nach jeder Änderung; was deployer angelegt hat (Kommentar `managed by deployer`), räumt deployer auch wieder ab.
+- **Airlock selbst wird nie öffentlich.** Der Name `deployer` (Adresse der Oberfläche) ist reserviert (M6, ebenso `airlock`); zusätzlich weigert sich der Tunnel-Abgleich, eine Ingress-Regel auf die Airlock-Route zu setzen.
+- **Die Datenbank ist die Wahrheit.** Tunnel-Ingress und DNS werden aus den Routen abgeleitet, wie bei Caddy. Ein Abgleich beim Start und nach jeder Änderung; was Airlock angelegt hat (Kommentar `managed by airlock`, früher `managed by deployer`), räumt Airlock auch wieder ab.
 
 ## 2. Tunnel
 
 - **Remote verwalteter Tunnel** (SPEC): Konfiguration über die API, keine Datei. `cloudflared` läuft als Container im Stack mit `TUNNEL_TOKEN` aus einer Secret-Datei, nur in `compose.public.yaml` (wie `compose.tls.yaml` in M4: ohne Konfiguration startet der Basis-Stack unverändert).
-- `cloudflared` hängt nur im Netz `deployer_edge` und erreicht dort Caddy (`http://caddy:80`). Bei `TLS_MODE=cloudflare` (M4) ist das richtig so: TLS zu den Besuchern macht Cloudflare, zwischen `cloudflared` und Caddy läuft die Verbindung im Docker-Netz. Kein Zugang zu Projekt-Netzen, keiner zum internen Netz.
-- **Ingress-Regeln:** pro öffentlichem Hostnamen `{ hostname, service: "http://caddy:80" }`, am Ende die Pflicht-Regel `http_status:404`. Gesetzt mit `PUT /accounts/{account}/cfd_tunnel/{tunnel}/configurations`. Regeln, die nicht von deployer stammen, bleiben erhalten (Hostnamen, die keiner Route gehören und nicht in der deployer-Liste stehen).
-  - deployer merkt sich, welche Hostnamen es gesetzt hat (Tabelle `app_settings`, Schlüssel `tunnel_managed_hosts`), damit fremde Regeln unangetastet bleiben.
+- `cloudflared` hängt nur im Netz `airlock_edge` und erreicht dort Caddy (`http://caddy:80`). Bei `TLS_MODE=cloudflare` (M4) ist das richtig so: TLS zu den Besuchern macht Cloudflare, zwischen `cloudflared` und Caddy läuft die Verbindung im Docker-Netz. Kein Zugang zu Projekt-Netzen, keiner zum internen Netz.
+- **Ingress-Regeln:** pro öffentlichem Hostnamen `{ hostname, service: "http://caddy:80" }`, am Ende die Pflicht-Regel `http_status:404`. Gesetzt mit `PUT /accounts/{account}/cfd_tunnel/{tunnel}/configurations`. Regeln, die nicht von Airlock stammen, bleiben erhalten (Hostnamen, die keiner Route gehören und nicht in der Airlock-Liste stehen).
+  - Airlock merkt sich, welche Hostnamen es gesetzt hat (Tabelle `app_settings`, Schlüssel `tunnel_managed_hosts`), damit fremde Regeln unangetastet bleiben.
 
 ## 3. DNS
 
 - Pro öffentlicher Route ein **CNAME** `<hostname>` → `<tunnel-id>.cfargotunnel.com`, **proxied**. Die ID steht in `routes.cf_dns_record_id`.
 - **Domains:** Tabelle `domains` (`id`, `cf_zone_id`, `name`, `is_default`). `GET /domains` listet die Zonen des Kontos und welche Standard ist; `PUT /domains/default` setzt sie. Ohne Standard und ohne vollen Hostnamen ist `public` nicht möglich.
 - **Öffentlicher Name:** `subdomain` + Standard-Zone (`solar.deinedomain.ch`) oder ein voller Hostname, der auf eine Zone des Kontos endet. Abgelehnt: Namen unter der internen Basisdomain, die Zone selbst (Apex), mehr als eine Ebene unter der Zone (Universal-SSL deckt nur eine Ebene).
-- Ein bestehender DNS-Eintrag mit demselben Namen, der nicht von deployer stammt, wird **nicht** überschrieben: Fehler mit Hinweis.
+- Ein bestehender DNS-Eintrag mit demselben Namen, der nicht von Airlock stammt, wird **nicht** überschrieben: Fehler mit Hinweis.
 - **Löschen eines Projekts** oder Entfernen von `public`: CNAME weg, Ingress-Regel weg, Access-App weg. Fehler beim Aufräumen bei Cloudflare blockieren das Löschen nicht, werden aber protokolliert und als `infra_problem` gemeldet.
 
 ## 4. Caddy hinter dem Tunnel
 
 - Öffentliche Hostnamen bekommen in Caddy eigene Routen **ohne LAN-/Tailnet-Filter**, aber **nur** für Anfragen von der Adresse von `cloudflared` (`remote_ip` = `<ip>/32`, über die Docker-API gelesen). Damit ist ein öffentlicher Name nicht an Cloudflare vorbei erreichbar, und interne Namen bleiben aus dem Tunnel unerreichbar (dort gilt weiter der LAN-/Tailnet-Filter).
 - **Echte Besucher-IP** (SPEC, wichtig für M7): `trusted_proxies` = dieselbe Adresse, `client_ip_headers: ["CF-Connecting-IP"]`. Bewusst nicht das ganze edge-Subnetz: darin liegt das Docker-Gateway, über das veröffentlichte Ports weitergereicht werden (Review).
-- `cloudflared` bekommt bei jedem Neustart eine neue Adresse; deployer prüft alle 30 Sekunden und gleicht Caddy bei einer Änderung neu ab. Läuft `cloudflared` nicht, gibt es keine öffentlichen Routen.
+- `cloudflared` bekommt bei jedem Neustart eine neue Adresse; Airlock prüft alle 30 Sekunden und gleicht Caddy bei einer Änderung neu ab. Läuft `cloudflared` nicht, gibt es keine öffentlichen Routen.
 
 ## 5. Cloudflare Access (optional pro Projekt)
 
@@ -72,7 +72,7 @@ Token-Rechte: Zone DNS bearbeiten (Zonen der öffentlichen Domains), Cloudflare 
 
 ## Abnahmekriterien
 
-Stand 7.11.2026. Ohne Domain, Token und Tunnel – wie beauftragt. Geprüft gegen eine **Cloudflare-Attrappe**, mit der der laufende deployer spricht (`pnpm --filter @deployer/api e2e:cf`, `e2e/m5.e2e.ts`); nie gegen die echte API. 11 Tests gegen die Attrappe, 339 Unit-Tests, Gesamtsuite 80 von 80.
+Stand 7.11.2026. Ohne Domain, Token und Tunnel – wie beauftragt. Geprüft gegen eine **Cloudflare-Attrappe**, mit der das laufende Airlock spricht (`pnpm --filter @airlock/api e2e:cf`, `e2e/m5.e2e.ts`); nie gegen die echte API. 11 Tests gegen die Attrappe, 339 Unit-Tests, Gesamtsuite 80 von 80.
 
 - [x] Ohne Cloudflare-Konfiguration laufen alle Tests aus M1–M6 weiter; `public` wird mit klarer Meldung abgelehnt (E2E M3/M4)
 - [x] `public` ohne abgeschlossenen Scan wird abgelehnt (409 `not_publishable`), die internen Ziele bleiben; nach Akzeptieren der kritischen Befunde geht es (Attrappe)

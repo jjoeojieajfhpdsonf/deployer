@@ -8,19 +8,29 @@ import type { PausePage } from './pause-page.js'
 /** 1-40 Zeichen, Kleinbuchstaben, Ziffern, Bindestrich; nicht am Rand. */
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/
 
+/** Produktname in Texten. */
+export const PRODUCT_NAME = 'Airlock'
+
 /**
- * Vergeben an deployer selbst: "deployer" ist die Adresse der Oberfläche
- * (sonst hätte ein Projekt sie überdeckt – Fehler aus M1), "ext-scan" das
- * Netz für Scans externer Ziele (M6).
+ * Label der Oberfläche im Hostnamen: <label>.<basisdomain> und <label>.<ip>.nip.io.
+ * Bleibt vorerst "deployer" (deployer.int.jherren.com), obwohl das Produkt
+ * Airlock heisst; die Umstellung auf "airlock" kommt separat (docs/RENAME.md).
  */
-export const RESERVED_SLUGS = ['deployer', 'ext-scan'] as const
+export const UI_HOST_LABEL = 'deployer'
+
+/**
+ * Vergeben an Airlock selbst: "deployer" ist die Adresse der Oberfläche
+ * (sonst hätte ein Projekt sie überdeckt – Fehler aus M1), "airlock" ihre
+ * künftige Adresse, "ext-scan" das Netz für Scans externer Ziele (M6).
+ */
+export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan'] as const
 
 export const slugSchema = z
   .string()
   .min(1, 'Gib einen Kurznamen an, z.B. solar-heute')
   .max(40, 'Höchstens 40 Zeichen, z.B. solar-heute')
   .regex(SLUG_RE, 'Nur Kleinbuchstaben, Ziffern und Bindestrich, nicht am Anfang oder Ende, z.B. solar-heute')
-  .refine((s) => !(RESERVED_SLUGS as readonly string[]).includes(s), 'Dieser Name ist für deployer selbst reserviert; wähle einen anderen, z.B. mein-deployer')
+  .refine((s) => !(RESERVED_SLUGS as readonly string[]).includes(s), 'Dieser Name ist für Airlock selbst reserviert; wähle einen anderen, z.B. mein-airlock')
 
 export function slugify(name: string): string {
   const base = name
@@ -455,7 +465,7 @@ export const putInternalRoutesSchema = z.object({
 /**
  * Ergebnis der Prüfung einer Adresse vom Server aus (GET
  * /projects/:id/address-check). routed: Caddy kennt den Namen, der IP-Filter
- * hält aber den deployer selbst ab – die Antwort des Projekts bleibt offen.
+ * hält aber Airlock selbst ab – die Antwort des Projekts bleibt offen.
  */
 export interface AddressCheckDto {
   url: string
@@ -553,6 +563,11 @@ export interface ProjectDto {
   } | null
   /** Letzter Deploy-Versuch, auch laufend oder gescheitert (für Übersicht und Banner) */
   lastDeployment: DeploymentDto | null
+  /**
+   * Übergang deployer → Airlock: läuft noch mit Containern aus der
+   * deployer-Zeit (alte Labels und Namen). «Neu erstellen» ersetzt sie.
+   */
+  legacyContainers: boolean
 }
 
 export interface FindingDto {
@@ -658,7 +673,7 @@ export interface SystemStatusDto {
   /** M5: Cloudflare Tunnel */
   publicTunnel: { configured: boolean; status: string | null; connections: number }
   /**
-   * Absender, die Caddy bei Anfragen auf deployer sieht (letzte 30 Minuten,
+   * Absender, die Caddy bei Anfragen auf Airlock sieht (letzte 30 Minuten,
    * Zugriffs-Log). fromGateway > 0: Anfragen kamen maskiert von einem
    * Docker-Gateway an (Tailscale als Subnet-Router, docs/INSTALL.md).
    * null: Log nicht lesbar.
@@ -789,7 +804,7 @@ export const tokenNameSchema = z.object({
 
 const HOST_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
-/** Namen, die nie öffentlich auflösen oder deployer selbst gehören. */
+/** Namen, die nie öffentlich auflösen oder Airlock selbst gehören. */
 export const RESERVED_HOST_SUFFIXES = ['localhost', 'local', 'internal', 'invalid', 'test', 'example', 'lan', 'home.arpa', 'nip.io']
 
 /**
@@ -865,9 +880,9 @@ export const ntfySettingsSchema = z.object({
   topic: z
     .string()
     .trim()
-    .min(1, 'Gib das Topic an, auf das du in der ntfy-App hörst, z.B. deployer-joel')
+    .min(1, 'Gib das Topic an, auf das du in der ntfy-App hörst, z.B. airlock-joel')
     .max(64, 'Höchstens 64 Zeichen')
-    .regex(/^[A-Za-z0-9_-]+$/, 'Nur Buchstaben, Ziffern, _ und -, z.B. deployer-joel'),
+    .regex(/^[A-Za-z0-9_-]+$/, 'Nur Buchstaben, Ziffern, _ und -, z.B. airlock-joel'),
   token: z.string().max(500, 'Höchstens 500 Zeichen').nullable().optional(),
 })
 
@@ -885,9 +900,9 @@ export const emailSettingsSchema = z.object({
   from: z
     .string()
     .trim()
-    .min(1, 'Gib die Absender-Adresse an, z.B. deployer@meine-domain.ch')
+    .min(1, 'Gib die Absender-Adresse an, z.B. airlock@meine-domain.ch')
     .max(200, 'Höchstens 200 Zeichen')
-    .regex(emailList, 'Das ist keine E-Mail-Adresse, z.B. deployer@meine-domain.ch'),
+    .regex(emailList, 'Das ist keine E-Mail-Adresse, z.B. airlock@meine-domain.ch'),
   to: z
     .string()
     .trim()

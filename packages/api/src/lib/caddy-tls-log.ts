@@ -1,7 +1,7 @@
 /**
  * Caddys JSON-Log nach dem Stand des Wildcard-Zertifikats auswerten. Ergänzt
  * die TLS-Prüfung: Caddy meldet «certificate obtained successfully», sobald
- * die CA ausgestellt hat – unabhängig davon, ob deployer es schon sieht.
+ * die CA ausgestellt hat – unabhängig davon, ob Airlock es schon sieht.
  *
  * Rein: bekommt den Log-Text, liest nichts selbst.
  */
@@ -50,7 +50,7 @@ function summary(j: Line): string {
 
 export function parseCaddyTlsLog(text: string, wildcard: string, sinceMs: number): CaddyTlsLog {
   const out: CaddyTlsLog = { obtained: null, lastError: null, lastLine: null }
-  // 5 s Spielraum: Uhr von Caddy und deployer laufen gleich, der Start aber vor dem Reload
+  // 5 s Spielraum: Uhr von Caddy und Airlock laufen gleich, der Start aber vor dem Reload
   const since = sinceMs - 5_000
   for (const raw of text.split('\n')) {
     const l = raw.trim()

@@ -108,6 +108,6 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
     case 'expiry':
       return { title: `${s('project')} ${data.stopped ? 'wurde gestoppt' : `läuft am ${s('date')} ab`}`, body: data.stopped ? `Das Chat-Projekt wurde nach ${s('days')} Tagen ohne Änderung gestoppt. Starten mit einem Klick oder per MCP (start).` : `Ohne Änderung wird das Chat-Projekt am ${s('date')} gestoppt. «Behalten» schaltet den Ablauf ab.`, priority: PRIORITY[event] }
     case 'weekly_summary':
-      return { title: 'deployer: Wochenübersicht', body: s('text'), priority: PRIORITY[event] }
+      return { title: 'Airlock: Wochenübersicht', body: s('text'), priority: PRIORITY[event] }
   }
 }

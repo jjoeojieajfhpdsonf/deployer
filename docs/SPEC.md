@@ -1,12 +1,12 @@
-# deployer – Spezifikation
+# Airlock – Spezifikation
 
 Stand: 6. November 2026
 
-deployer bringt ein Projekt mit einem Befehl auf den Homeserver und macht es wahlweise öffentlich über Cloudflare Tunnel, im Heimnetz oder im Tailnet erreichbar. Jedes Deployment wird automatisch auf Sicherheit geprüft, und alles lässt sich per Web-UI oder MCP steuern.
+Airlock bringt ein Projekt mit einem Befehl auf den Homeserver und macht es wahlweise öffentlich über Cloudflare Tunnel, im Heimnetz oder im Tailnet erreichbar. Jedes Deployment wird automatisch auf Sicherheit geprüft, und alles lässt sich per Web-UI oder MCP steuern.
 
 ## Ziel und Umfang
 
-Ziel: Ein Projekt soll in unter 5 Minuten von der Idee im Chat oder vom Git-Repo zur erreichbaren URL kommen, ohne Router-Konfiguration und ohne Handarbeit an DNS oder Zertifikaten. deployer ist ein Werkzeug für eine Person (Joël) und einen Homeserver.
+Ziel: Ein Projekt soll in unter 5 Minuten von der Idee im Chat oder vom Git-Repo zur erreichbaren URL kommen, ohne Router-Konfiguration und ohne Handarbeit an DNS oder Zertifikaten. Airlock ist ein Werkzeug für eine Person (Joël) und einen Homeserver.
 
 **Im Umfang**
 
@@ -23,7 +23,7 @@ Ziel: Ein Projekt soll in unter 5 Minuten von der Idee im Chat oder vom Git-Repo
 - Mehrere Server oder Cluster (kein Kubernetes)
 - Mehrere Benutzer und Rollen
 - Datenbanken als Managed Service (eine Datenbank läuft als normaler Container im Compose-Projekt)
-- Aktive Angriffe auf fremde Systeme: Der Scanner prüft ausschliesslich Projekte, die deployer selbst verwaltet, und externe Domains mit Besitznachweis
+- Aktive Angriffe auf fremde Systeme: Der Scanner prüft ausschliesslich Projekte, die Airlock selbst verwaltet, und externe Domains mit Besitznachweis
 
 ## Architektur
 
@@ -37,7 +37,7 @@ flowchart TB
     subgraph server["Homeserver · Ubuntu Server, Docker"]
         cfd["cloudflared<br/>Tunnel-Endpunkt"]
         caddy["Caddy<br/>Routing, TLS, IP-Filter"]
-        deployer["deployer<br/>UI, API, MCP, PostgreSQL"]
+        airlock["Airlock<br/>UI, API, MCP, PostgreSQL"]
         projects["Projekt-Container<br/>je eigenes Netzwerk"]
         scanner["Scanner<br/>Trivy, ZAP, Nuclei, testssl"]
         proxy["Docker-Socket-Proxy<br/>eingeschränkte Docker-API"]
@@ -48,21 +48,21 @@ flowchart TB
     cfd --> caddy
     claude -- "MCP, Token" --> caddy
     you -- "LAN oder Tailnet" --> caddy
-    caddy --> deployer
+    caddy --> airlock
     caddy -- "leitet weiter" --> projects
-    deployer -- "startet Scans" --> scanner
-    deployer -- "startet Container" --> proxy
+    airlock -- "startet Scans" --> scanner
+    airlock -- "startet Container" --> proxy
     scanner -- prüft --> projects
-    deployer -. "API: DNS, Tunnel, Access" .-> cf
+    airlock -. "API: DNS, Tunnel, Access" .-> cf
 ```
 
-Am Router ist kein Port offen: Öffentlicher Verkehr kommt über den ausgehenden Cloudflare Tunnel, alles andere über LAN oder Tailnet zu Caddy. deployer selbst ist nur intern erreichbar und steuert Cloudflare (DNS, Tunnel, Access) über deren API.
+Am Router ist kein Port offen: Öffentlicher Verkehr kommt über den ausgehenden Cloudflare Tunnel, alles andere über LAN oder Tailnet zu Caddy. Airlock selbst ist nur intern erreichbar und steuert Cloudflare (DNS, Tunnel, Access) über deren API.
 
 ## Funktionen
 
 ### Deploy-Quellen
 
-| Quelle | Eingabe | Was deployer tut |
+| Quelle | Eingabe | Was Airlock tut |
 | --- | --- | --- |
 | **Direkt aus dem Chat (MCP)** | Dateien, die Claude im Gespräch schreibt (Pfad und Inhalt), kein Repo nötig | Dateien in ein lokales Git-Repo auf dem Server schreiben, Typ erkennen, deployen |
 | Git-Repo mit Dockerfile | Repo-URL, Branch oder Tag, Port im Container | Klonen, `docker build`, Container starten |
@@ -72,11 +72,11 @@ Am Router ist kein Port offen: Öffentlicher Verkehr kommt über den ausgehenden
 
 ### Direkt aus dem Chat
 
-Du beschreibst im Chat, was du willst («Mach mir eine Seite, die den Solarertrag von heute zeigt, nur intern»). Claude schreibt den Code und übergibt die Dateien per MCP an deployer. Ein GitHub-Repo brauchst du dafür nicht.
+Du beschreibst im Chat, was du willst («Mach mir eine Seite, die den Solarertrag von heute zeigt, nur intern»). Claude schreibt den Code und übergibt die Dateien per MCP an Airlock. Ein GitHub-Repo brauchst du dafür nicht.
 
 1. Claude ruft `create_project` mit `source.type: files` und den Dateien auf (Pfad und Inhalt, max. 20 MB pro Aufruf).
-2. deployer legt pro Projekt ein lokales Git-Repo auf dem Server an und committet die Dateien. Jede Änderung ist damit eine Version, Rollback funktioniert wie bei jedem anderen Projekt.
-3. deployer erkennt den Typ selbst: `compose.yaml` vorhanden → Compose, `Dockerfile` → Image bauen, sonst `package.json` mit Build-Skript → statischer Build, sonst reine HTML-Dateien → statisch ausliefern.
+2. Airlock legt pro Projekt ein lokales Git-Repo auf dem Server an und committet die Dateien. Jede Änderung ist damit eine Version, Rollback funktioniert wie bei jedem anderen Projekt.
+3. Airlock erkennt den Typ selbst: `compose.yaml` vorhanden → Compose, `Dockerfile` → Image bauen, sonst `package.json` mit Build-Skript → statischer Build, sonst reine HTML-Dateien → statisch ausliefern.
 4. Der normale Deploy-Ablauf mit Healthcheck und Security-Scan folgt.
 5. Spätere Änderungen («mach den Titel grösser») schickt Claude mit `update_files` nur als geänderte Dateien. Mit `read_files` holt sich Claude den aktuellen Stand, auch in einem neuen Chat.
 
@@ -102,11 +102,11 @@ Pro Projekt lassen sich die Ziele frei kombinieren. Standard für neue Projekte 
 
 | Ziel | Adresse | Technik |
 | --- | --- | --- |
-| Öffentlich | `projekt.deinedomain.ch` (frei wählbar) | Cloudflare Tunnel: deployer setzt per API eine Ingress-Regel und einen proxied CNAME auf den Tunnel. TLS übernimmt Cloudflare. Keine offenen Ports am Router. |
+| Öffentlich | `projekt.deinedomain.ch` (frei wählbar) | Cloudflare Tunnel: Airlock setzt per API eine Ingress-Regel und einen proxied CNAME auf den Tunnel. TLS übernimmt Cloudflare. Keine offenen Ports am Router. |
 | LAN | `projekt.int.deinedomain.ch` | Lokaler DNS (Router, AdGuard oder Pi-hole) zeigt `*.int.deinedomain.ch` auf die LAN-IP des Servers |
 | Tailnet | `projekt.int.deinedomain.ch` (dieselbe Adresse) | Cloudflare-DNS-Eintrag `*.int.deinedomain.ch` (nicht proxied) auf die Tailscale-IP des Servers |
 
-**Tailscale ist die Hauptadresse des Servers;** eine feste LAN-IP gibt es nicht. Neue Projekte sind standardmässig nur im Tailnet erreichbar, «LAN» ist wählbar (für eigene Namen mit lokalem DNS). nip.io-Namen bilden sich aus der Tailscale-IP, sonst aus der LAN-IP. deployer liest LAN-IP, LAN-Netz und Tailscale-IP beim Start und stündlich vom Host und zieht IP-Filter und Adressen ohne Zutun nach (siehe INSTALL.md).
+**Tailscale ist die Hauptadresse des Servers;** eine feste LAN-IP gibt es nicht. Neue Projekte sind standardmässig nur im Tailnet erreichbar, «LAN» ist wählbar (für eigene Namen mit lokalem DNS). nip.io-Namen bilden sich aus der Tailscale-IP, sonst aus der LAN-IP. Airlock liest LAN-IP, LAN-Netz und Tailscale-IP beim Start und stündlich vom Host und zieht IP-Filter und Adressen ohne Zutun nach (siehe INSTALL.md).
 
 Damit gilt im Heimnetz und unterwegs dieselbe interne Adresse. Caddy holt dafür ein Wildcard-Zertifikat von Let's Encrypt über die DNS-Challenge bei Cloudflare, also gültiges HTTPS ohne Warnungen. Caddy beantwortet interne Hostnamen nur für Anfragen aus dem LAN-Subnetz und aus dem Tailscale-Bereich `100.64.0.0/10`.
 
@@ -117,7 +117,7 @@ Cloudflare wird vollständig in der Oberfläche eingerichtet (System → «Cloud
 1. **Token einfügen.** Ein Link öffnet die Token-Seite bei Cloudflare mit vorausgefüllten Rechten; die Seite listet die nötigen Rechte mit Zweck auf.
 2. **Token sofort prüfen:** gültig, aktiv, jedes Recht vorhanden. Fehlende Rechte werden konkret genannt (welches Recht, für welche Zone oder welches Konto). Geprüft wird ohne Seiteneffekt.
 3. **Domains wählen:** interne Basisdomain (Präfix + Zone, z.B. `int.deinedomain.ch`) und Standard-Domain für öffentliche Projekte; optional Tailscale-IP, E-Mail für Access und für Let's Encrypt.
-4. **Tunnel per API anlegen,** Tunnel-Token holen, `cloudflared` als Container durch deployer selbst starten und verwalten – in einem eigenen Netz nur mit Caddy, damit der Tunnel nie den deployer erreicht. Die Systemseite warnt vor Ingress-Regeln, die nicht auf Caddy zeigen, zeigt die cloudflared-Version und bietet ein Update per Knopf.
+4. **Tunnel per API anlegen,** Tunnel-Token holen, `cloudflared` als Container durch Airlock selbst starten und verwalten – in einem eigenen Netz nur mit Caddy, damit der Tunnel nie Airlock erreicht. Die Systemseite warnt vor Ingress-Regeln, die nicht auf Caddy zeigen, zeigt die cloudflared-Version und bietet ein Update per Knopf.
 5. **Wildcard-Zertifikat:** erst ACME-Staging, dann Produktion, mit sichtbarem Fortschritt. `https://` in Adressen und die Weiterleitung erst, wenn das echte Zertifikat da ist.
 
 Dazu: Verbindung trennen (erst wenn kein Projekt öffentlich ist) und Token ersetzen. Das Token liegt verschlüsselt in der Datenbank wie die übrigen Secrets; Änderungen nur mit Anmeldung, nicht mit einem API-Token. Caddy bekommt das Token als Datei in einem eigenen Volume; seine Konfiguration und `autosave.json` enthalten nur den Pfad. In `.env` bleibt nur, was zum Starten nötig ist; die alten Variablen (`INTERNAL_BASE_DOMAIN`, `TLS_MODE`, `CLOUDFLARE_*`) gelten weiter als Rückfall, solange in der Oberfläche nichts gesetzt ist.
@@ -130,7 +130,7 @@ Dazu: Verbindung trennen (erst wenn kein Projekt öffentlich ist) und Token erse
 
 ### Benachrichtigungen
 
-deployer meldet wichtige Ereignisse per Push und E-Mail. Für Push bietet sich ntfy an (self-hosted als eigenes Projekt oder ntfy.sh), für E-Mail ein beliebiger SMTP-Zugang.
+Airlock meldet wichtige Ereignisse per Push und E-Mail. Für Push bietet sich ntfy an (self-hosted als eigenes Projekt oder ntfy.sh), für E-Mail ein beliebiger SMTP-Zugang.
 
 | Ereignis | Standard |
 | --- | --- |
@@ -160,19 +160,19 @@ Jedes Deployment wird automatisch in drei Stufen geprüft, und ein Projekt mit k
 
 **Regeln für den Scanner**
 
-- Ziele sind ausschliesslich Hostnamen, die deployer verwaltet, oder externe Domains mit Besitznachweis (siehe unten). Eine beliebige URL lässt sich nicht scannen, weder über UI noch über MCP.
+- Ziele sind ausschliesslich Hostnamen, die Airlock verwaltet, oder externe Domains mit Besitznachweis (siehe unten). Eine beliebige URL lässt sich nicht scannen, weder über UI noch über MCP.
 - Aktive Scans laufen nur gegen die interne Adresse, nie über Cloudflare, und nur nach ausdrücklicher Bestätigung.
 - Wöchentlicher Rescan aller laufenden Projekte, weil neue CVEs auch alte Images betreffen.
 - Jeder Befund hat Schweregrad, Beschreibung, betroffene Stelle und einen Lösungsvorschlag. Befunde lassen sich mit Begründung als akzeptiert markieren.
 
 **Externe Domains (Freigabeliste)**
 
-Eigene Seiten, die nicht über deployer laufen (z.B. bei einem Hoster), lassen sich scannen, sobald du den Besitz per DNS nachweist:
+Eigene Seiten, die nicht über Airlock laufen (z.B. bei einem Hoster), lassen sich scannen, sobald du den Besitz per DNS nachweist:
 
 1. Hostnamen in der UI oder per MCP (`add_external_target`) eintragen, z.B. `shop.deinedomain.ch`.
-2. deployer erzeugt ein zufälliges Token und verlangt einen TXT-Eintrag `_deployer-verify.shop.deinedomain.ch` mit dem Wert `deployer-verify=<token>`. Liegt die Zone im verbundenen Cloudflare-Konto, setzt deployer den Eintrag auf Wunsch selbst.
+2. Airlock erzeugt ein zufälliges Token und verlangt einen TXT-Eintrag `_airlock-verify.shop.deinedomain.ch` mit dem Wert `airlock-verify=<token>`. Liegt die Zone im verbundenen Cloudflare-Konto, setzt Airlock den Eintrag auf Wunsch selbst.
 3. `verify_external_target` prüft den Eintrag über öffentliche DNS-Resolver. Erst danach ist das Ziel freigegeben.
-4. Vor jedem Scan prüft deployer den Eintrag erneut. Fehlt er, ist die Freigabe aufgehoben.
+4. Vor jedem Scan prüft Airlock den Eintrag erneut. Fehlt er, ist die Freigabe aufgehoben.
 
 Für externe Ziele gelten zusätzliche Grenzen: nur Stufe 2 und 3 (Stufe 1 entfällt, es gibt kein Image), höchstens 5 Anfragen pro Sekunde, aktive Scans nur auf Knopfdruck. Vorher die Bedingungen des Hosters prüfen, manche verbieten Angriffs-Scans auch auf eigene Seiten. Gespeichert wird das im Objekt `ExternalTarget` (`id`, `hostname`, `txt_token`, `verified_at`, `last_check_at`).
 
@@ -188,38 +188,38 @@ Schwelle für «öffentlich»: kein offener kritischer Befund. Wer trotzdem ver�
 
 Der Scanner beantwortet, ob ein Angriff klappen *würde*. Die Angriffserkennung beantwortet, ob jemand angreift und ob etwas durchgekommen ist. Sie arbeitet auf drei Ebenen:
 
-| Ebene | Frage | Werkzeug | Was deployer zeigt |
+| Ebene | Frage | Werkzeug | Was Airlock zeigt |
 | --- | --- | --- | --- |
 | Versuche, intern und über den Tunnel | Wird ein Projekt gerade angegriffen? | CrowdSec liest die Zugriffs-Logs von Caddy | Angreifer-IP, erkanntes Muster (Port- und Pfad-Scans, Brute-Force auf Logins, bekannte Exploit-Muster), Zeitpunkt, betroffenes Projekt |
 | Versuche, öffentlich | Was hat Cloudflare abgefangen? | Cloudflare Security Events über die Analytics-API | Blockierte Anfragen pro Projekt, auslösende Regel, Herkunftsland |
 | Erfolg | Ist etwas durchgekommen? | Drift-Prüfung über die Docker-API, optional Falco | Neue oder geänderte Dateien im Container gegenüber dem Image, unerwartete Prozesse (z.B. eine Shell im Web-Container), unerwartete ausgehende Verbindungen |
 
-**Drift-Prüfung.** deployer vergleicht regelmässig das Dateisystem jedes laufenden Containers mit seinem Image (`docker diff`). Ein Web-Container, in dem plötzlich neue ausführbare Dateien liegen, ist ein starkes Einbruchsindiz. Bekannte, gewollte Änderungen (Upload-Ordner, Cache) lassen sich pro Projekt ausnehmen. Falco überwacht zusätzlich Prozesse und Systemaufrufe in Echtzeit, braucht aber Kernel-Zugriff und mehr Ressourcen; es ist deshalb optional.
+**Drift-Prüfung.** Airlock vergleicht regelmässig das Dateisystem jedes laufenden Containers mit seinem Image (`docker diff`). Ein Web-Container, in dem plötzlich neue ausführbare Dateien liegen, ist ein starkes Einbruchsindiz. Bekannte, gewollte Änderungen (Upload-Ordner, Cache) lassen sich pro Projekt ausnehmen. Falco überwacht zusätzlich Prozesse und Systemaufrufe in Echtzeit, braucht aber Kernel-Zugriff und mehr Ressourcen; es ist deshalb optional.
 
 **Reaktion.**
 
 - CrowdSec sperrt erkannte Angreifer-IPs automatisch über einen Bouncer in Caddy, standardmässig für 4 Stunden.
-- Für öffentliche Projekte kann deployer gesperrte IPs zusätzlich als Cloudflare-Regel setzen, damit sie gar nicht erst durch den Tunnel kommen.
+- Für öffentliche Projekte kann Airlock gesperrte IPs zusätzlich als Cloudflare-Regel setzen, damit sie gar nicht erst durch den Tunnel kommen.
 - Bei Einbruchsindizien (Drift, unerwarteter Prozess) kommt eine kritische Benachrichtigung per Push und E-Mail. Das Projekt lässt sich mit einem Klick oder per MCP in **Quarantäne** setzen: Container stoppen, Routen entfernen, Zustand für die Analyse aufbewahren. Automatische Quarantäne ist einstellbar, standardmässig aus.
 
 **Wichtig für öffentliche Projekte.** Über den Cloudflare Tunnel kommen alle Anfragen von `cloudflared`. Caddy muss deshalb die echte Besucher-IP aus dem Header `CF-Connecting-IP` übernehmen, und zwar nur von `cloudflared`. Sonst sieht CrowdSec nur eine einzige IP und würde im Ernstfall den eigenen Tunnel sperren.
 
 **Ablage.** Neues Objekt `SecurityEvent` (siehe Datenmodell). Zugriffs-Logs von Caddy werden 30 Tage aufbewahrt; sie enthalten IP-Adressen, also Personendaten von Besuchern öffentlicher Projekte.
 
-**Grenze.** Ob ein Angriff erfolgreich war, lässt sich nie lückenlos beweisen. deployer liefert Indizien und meldet sie früh; die Beurteilung bleibt bei dir.
+**Grenze.** Ob ein Angriff erfolgreich war, lässt sich nie lückenlos beweisen. Airlock liefert Indizien und meldet sie früh; die Beurteilung bleibt bei dir.
 
 ## Fix-Assistent
 
-Neben jedem Befund bietet deployer einen Weg an, ihn zu beheben statt nur zu akzeptieren. Welcher Weg angeboten wird, hängt vom Befund und von der Quelle des Projekts ab. Jede Änderung braucht deine Zustimmung, erzeugt eine neue Version und wird durch einen Nachscan bestätigt.
+Neben jedem Befund bietet Airlock einen Weg an, ihn zu beheben statt nur zu akzeptieren. Welcher Weg angeboten wird, hängt vom Befund und von der Quelle des Projekts ab. Jede Änderung braucht deine Zustimmung, erzeugt eine neue Version und wird durch einen Nachscan bestätigt.
 
 ### Header über Caddy setzen
 
-Fehlende Security-Header behebt deployer ohne Codeänderung: Caddy ergänzt sie in der Antwort des Projekts. Kein Redeploy nötig, ein Neuladen von Caddy genügt.
+Fehlende Security-Header behebt Airlock ohne Codeänderung: Caddy ergänzt sie in der Antwort des Projekts. Kein Redeploy nötig, ein Neuladen von Caddy genügt.
 
 | Header | Vorgehen |
 | --- | --- |
 | `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors` | Ein Klick, sofort aktiv |
-| `Content-Security-Policy` | Zuerst als `Content-Security-Policy-Report-Only`. deployer sammelt die Verstösse, die Browser melden, und schlägt daraus eine Regel vor. Erst nach Bestätigung wird sie scharf geschaltet. |
+| `Content-Security-Policy` | Zuerst als `Content-Security-Policy-Report-Only`. Airlock sammelt die Verstösse, die Browser melden, und schlägt daraus eine Regel vor. Erst nach Bestätigung wird sie scharf geschaltet. |
 | `Strict-Transport-Security` | Nur bei HTTPS und erst, wenn TLS stabil läuft; kurze `max-age` zum Start |
 
 Setzt die App einen Header selbst, gewinnt der Wert der App; Caddy ergänzt nur, was fehlt. Jede Header-Regel lässt sich pro Projekt wieder entfernen.
@@ -232,33 +232,33 @@ Für Befunde, die eine Codeänderung brauchen (veraltete Pakete, Dockerfile-Fehl
 
 | Quelle | Was passiert |
 | --- | --- |
-| Chat (`files`) | Vorschlag als Diff in deployer. Nach Bestätigung neue Version im lokalen Repo, Deploy, Nachscan. |
-| GitHub- oder GitLab-Repo | Claude erstellt einen Branch `deployer/fix-<befund>`, committet die Änderung und öffnet einen Pull Request bzw. Merge Request mit Befund, Erklärung und Link zum Scan. Nach dem Merge deployt deployer automatisch und scannt nach. |
-| Fertiges Image | Kein Eingriff möglich; deployer zeigt nur, welche Image-Version das Problem behebt. |
+| Chat (`files`) | Vorschlag als Diff in Airlock. Nach Bestätigung neue Version im lokalen Repo, Deploy, Nachscan. |
+| GitHub- oder GitLab-Repo | Claude erstellt einen Branch `airlock/fix-<befund>`, committet die Änderung und öffnet einen Pull Request bzw. Merge Request mit Befund, Erklärung und Link zum Scan. Nach dem Merge deployt Airlock automatisch und scannt nach. |
+| Fertiges Image | Kein Eingriff möglich; Airlock zeigt nur, welche Image-Version das Problem behebt. |
 
 Nie direkt auf den Standard-Branch pushen, immer über einen eigenen Branch. Branch-Schutzregeln des Repos gelten unverändert.
 
 **Zwei Wege zu Claude:**
 
 1. **Über MCP (Standard).** Der Knopf erzeugt einen fertigen Auftrag («Behebe Befund X in Projekt Y») und kopiert ihn. In Claude oder Claude Code holt sich Claude Befund und Dateien über MCP, schlägt die Änderung vor und spielt sie nach Zustimmung ein bzw. öffnet den PR selbst. Kein API-Schlüssel nötig, läuft über das eigene Abo.
-2. **Direkt in deployer (optional).** Mit `ANTHROPIC_API_KEY` in `.env` fragt deployer Claude selbst und zeigt den Vorschlag als Diff in der Oberfläche. Abrechnung pro Nutzung über die API. Ohne Schlüssel ist dieser Weg ausgeblendet.
+2. **Direkt in Airlock (optional).** Mit `ANTHROPIC_API_KEY` in `.env` fragt Airlock Claude selbst und zeigt den Vorschlag als Diff in der Oberfläche. Abrechnung pro Nutzung über die API. Ohne Schlüssel ist dieser Weg ausgeblendet.
 
 An Claude gehen nur der Befund und die betroffenen Dateien, nie Secrets oder Werte aus der Projekt-Env.
 
 ### Mit GitHub und GitLab verbinden
 
-- **GitHub:** über eine eigene GitHub App, angelegt per App-Manifest mit wenigen Klicks. Du wählst die Repos, für die sie gilt. Rechte nur «Contents: write» und «Pull requests: write». deployer holt pro Vorgang ein Installations-Token, das nach einer Stunde abläuft. Der private Schlüssel der App liegt verschlüsselt wie die Projekt-Secrets.
+- **GitHub:** über eine eigene GitHub App, angelegt per App-Manifest mit wenigen Klicks. Du wählst die Repos, für die sie gilt. Rechte nur «Contents: write» und «Pull requests: write». Airlock holt pro Vorgang ein Installations-Token, das nach einer Stunde abläuft. Der private Schlüssel der App liegt verschlüsselt wie die Projekt-Secrets.
 - **GitLab:** über eine OAuth-App (Rechte `api`, `write_repository`) oder ein Projekt-Zugangstoken pro Repo.
-- Die Rückleitung nach der Anmeldung läuft über den Browser, deployer muss dafür nicht öffentlich erreichbar sein.
+- Die Rückleitung nach der Anmeldung läuft über den Browser, Airlock muss dafür nicht öffentlich erreichbar sein.
 - Damit werden auch private Repos als Quelle möglich (bisher nur öffentliche).
 
 ### Automatisch deployen nach Merge
 
-Pro Projekt einstellbar (`auto_deploy`): deployer prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil deployer nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt deployer einen Kommentar mit dem Ergebnis.
+Pro Projekt einstellbar (`auto_deploy`): Airlock prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil Airlock nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt Airlock einen Kommentar mit dem Ergebnis.
 
 ## MCP-Schnittstelle
 
-deployer bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.deinedomain.ch/mcp`. Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
+Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.deinedomain.ch/mcp`. Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
 
 | Tool | Parameter | Bestätigung nötig |
 | --- | --- | --- |
@@ -285,15 +285,15 @@ deployer bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.d
 | `get_fix_context` | `project`, `finding` | Nein |
 | `set_security_header` | `project`, `header`, `value`, `mode` (`report-only` oder `enforce`) | Ja bei `enforce` für CSP und HSTS |
 
-**Bestätigungen.** Unterstützt der Client MCP-Elicitation, fragt deployer direkt dort nach. Sonst antwortet das Tool mit einer Zusammenfassung und einem `confirmation_token`; erst ein zweiter Aufruf mit diesem Token innerhalb von 5 Minuten führt die Aktion aus. So kann ein Agent nichts versehentlich öffentlich machen oder löschen.
+**Bestätigungen.** Unterstützt der Client MCP-Elicitation, fragt Airlock direkt dort nach. Sonst antwortet das Tool mit einer Zusammenfassung und einem `confirmation_token`; erst ein zweiter Aufruf mit diesem Token innerhalb von 5 Minuten führt die Aktion aus. So kann ein Agent nichts versehentlich öffentlich machen oder löschen.
 
-**Beispiel.** «Bau mir eine Seite mit dem Solarertrag von heute und stell sie intern bereit.» → Claude schreibt die Dateien → `create_project` mit `source.type: files` und `targets: [lan, tailnet]` → deployer deployt und scannt → `get_scan_report`. Die Antwort enthält URL, Status, Score und die drei wichtigsten Befunde.
+**Beispiel.** «Bau mir eine Seite mit dem Solarertrag von heute und stell sie intern bereit.» → Claude schreibt die Dateien → `create_project` mit `source.type: files` und `targets: [lan, tailnet]` → Airlock deployt und scannt → `get_scan_report`. Die Antwort enthält URL, Status, Score und die drei wichtigsten Befunde.
 
 Alle MCP-Aufrufe landen im Audit-Log, mit Client-Name, Tool, Parametern (Secrets maskiert) und Ergebnis.
 
 ## Datenmodell und API
 
-Alle Daten liegen in PostgreSQL, als eigener Container im deployer-Stack; Web-UI, REST-API und MCP-Server nutzen dieselbe Service-Schicht, damit sich alle Wege gleich verhalten.
+Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI, REST-API und MCP-Server nutzen dieselbe Service-Schicht, damit sich alle Wege gleich verhalten.
 
 | Objekt | Wichtige Felder |
 | --- | --- |
@@ -322,12 +322,12 @@ Alle Daten liegen in PostgreSQL, als eigener Container im deployer-Stack; Web-UI
 - `GET/POST /external-targets`, `POST /external-targets/{id}/verify`
 - `GET /domains`, `GET /audit`
 
-## Sicherheit von deployer und Betrieb
+## Sicherheit von Airlock und Betrieb
 
-deployer selbst ist das wertvollste Ziel auf dem Server, weil es Container starten und DNS ändern kann. Deshalb gelten diese Regeln:
+Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starten und DNS ändern kann. Deshalb gelten diese Regeln:
 
 - **Nie öffentlich.** UI, API und MCP laufen nur unter `deployer.int.deinedomain.ch`, erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
-- **Docker-Socket abschirmen.** deployer spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
+- **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
 - **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.
 - **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen.
@@ -339,12 +339,12 @@ deployer selbst ist das wertvollste Ziel auf dem Server, weil es Container start
 | --- | --- |
 | Deploy-Zeit, fertiges Image oder statische Seite | unter 2 Minuten bis zur erreichbaren URL |
 | Deploy-Zeit, Dockerfile-Build | unter 5 Minuten (abhängig vom Build) |
-| Speicherbedarf von deployer im Leerlauf | unter 300 MB RAM (Server: ThinkPad, 16 GB) |
+| Speicherbedarf von Airlock im Leerlauf | unter 300 MB RAM (Server: ThinkPad, 16 GB) |
 | Standardlimits pro Projekt | 1 CPU, 512 MB RAM, anpassbar |
 | Container-Logs | Rotation fest eingestellt: max. 10 MB pro Datei, 5 Dateien pro Container |
 | Neustart des Servers | Alle aktiven Projekte, Caddy und `cloudflared` starten von selbst wieder |
 | Backup | PostgreSQL-Dump und Projekt-Volumes nächtlich, 7 Generationen |
-| Update von deployer | Neues Image ziehen, Datenbank-Migrationen laufen automatisch |
+| Update von Airlock | Neues Image ziehen, Datenbank-Migrationen laufen automatisch |
 
 Die feste Log-Rotation ist Absicht: Ohne Grössenlimit können Container-Logs eine Festplatte unbemerkt füllen.
 
@@ -361,12 +361,12 @@ Vorschlag mit Technik, die du aus dem Alltag kennst (TypeScript, React, Vite, Do
 | MCP | Offizielles TypeScript-SDK `@modelcontextprotocol/sdk`, Streamable HTTP | Standard, funktioniert mit Claude |
 | Cloudflare | Schlanker eigener Client über `fetch` | DNS, Tunnel anlegen und konfigurieren, Access, Token-Prüfung (siehe MILESTONE-4.md) |
 | Reverse Proxy | Caddy mit Modul `caddy-dns/cloudflare` | Konfiguration per Admin-API zur Laufzeit, automatische Zertifikate |
-| Tunnel | `cloudflared` als Container, von deployer gestartet, remote verwaltet | Tunnel und Ingress-Regeln per API, Token als Datei im Container |
+| Tunnel | `cloudflared` als Container, von Airlock gestartet, remote verwaltet | Tunnel und Ingress-Regeln per API, Token als Datei im Container |
 | Scanner | Trivy, OWASP ZAP, Nuclei, testssl.sh als Container | Etablierte Open-Source-Werkzeuge, nur bei Bedarf gestartet |
 | Angriffserkennung | CrowdSec mit Caddy-Bouncer, Cloudflare Analytics-API, `docker diff`, optional Falco | Etablierte Werkzeuge, CrowdSec läuft als eigener Container |
 | Benachrichtigungen | ntfy (Push), SMTP (E-Mail) | Self-hosted möglich, einfache HTTP-API |
 | Frontend | React mit Vite | Bekannt aus anderen Projekten |
-| Betrieb | Docker Compose auf Ubuntu Server | deployer, Caddy, `cloudflared`, Socket-Proxy und PostgreSQL als ein Stack |
+| Betrieb | Docker Compose auf Ubuntu Server | Airlock, Caddy, `cloudflared`, Socket-Proxy und PostgreSQL als ein Stack |
 
 ### Meilensteine
 
@@ -381,7 +381,7 @@ Jeder Meilenstein ist für sich nutzbar.
 7. **Angriffserkennung:** CrowdSec mit Caddy-Bouncer, Cloudflare Security Events, Drift-Prüfung, Quarantäne; Falco optional. Setzt Meilenstein 5 (Tunnel) und 6 (Benachrichtigungen) voraus.
 8. **Fix-Assistent:** Header über Caddy (CSP mit Report-Only), Header-Check über Caddy, Mit Claude lösen über MCP und optional API, GitHub App und GitLab, private Repos, Auto-Deploy nach Merge.
 
-MCP kommt bewusst früh (Meilenstein 3): Ab dann kann Claude beim Weiterbauen von deployer selbst schon Testprojekte deployen.
+MCP kommt bewusst früh (Meilenstein 3): Ab dann kann Claude beim Weiterbauen von Airlock selbst schon Testprojekte deployen.
 
 ## Offene Fragen
 

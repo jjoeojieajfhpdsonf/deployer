@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@deployer/shared'
+import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@airlock/shared'
 import { toast } from 'sonner'
 import { PausePageDialog, pageKind } from './PausePageEditor.js'
 import { api } from '../api.js'

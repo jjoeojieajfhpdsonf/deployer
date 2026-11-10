@@ -1,4 +1,4 @@
-# Nur das Noetigste, damit Caddy startet und der deployer uebernehmen kann.
+# Nur das Noetigste, damit Caddy startet und Airlock uebernehmen kann.
 # Die gesamte Routing-Konfiguration wird zur Laufzeit ueber die Admin-API
 # geladen (POST /load), gebaut aus der Datenbank. Siehe docs/MILESTONE-1.md:
 # "Die Datenbank ist die Wahrheit, Caddys Zustand ist abgeleitet."
@@ -13,5 +13,5 @@
 }
 
 :80 {
-	respond "deployer startet noch nicht konfiguriert" 503
+	respond "Airlock startet, noch nicht konfiguriert" 503
 }

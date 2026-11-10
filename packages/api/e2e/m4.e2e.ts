@@ -34,7 +34,7 @@ describe('M4: LAN und Tailnet', () => {
   })
 
   test('in der Datenbank: zwei Zeilen mit demselben Namen', () => {
-    const rows = docker('exec', 'deployer-postgres-1', 'psql', '-U', 'deployer', '-d', 'deployer', '-tAc',
+    const rows = docker('exec', 'airlock-postgres', 'psql', '-U', 'airlock', '-d', 'airlock', '-tAc',
       `SELECT target || '=' || hostname FROM routes r JOIN projects p ON p.id = r.project_id WHERE p.slug = '${slug}' ORDER BY target`).split('\n')
     assert.equal(rows.length, 2)
     assert.equal(rows[0]!.split('=')[1], rows[1]!.split('=')[1])

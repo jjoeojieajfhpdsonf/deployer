@@ -6,10 +6,10 @@ import { AppError } from '../lib/errors.js'
 /**
  * Die Compose-CLI. Sie geht an drivers/policy.ts vorbei; ihre Schranke ist
  * lib/compose.ts. Diese Datei sorgt nur dafür, dass die CLI ausschliesslich
- * die normalisierte Datei sieht und nichts aus der Umgebung des deployers:
+ * die normalisierte Datei sieht und nichts aus der Umgebung von Airlock:
  *
  * - leere Umgebung bis auf PATH, HOME und DOCKER_HOST. Ohne das könnte
- *   Compose `${DATABASE_URL}` & Co. aus dem deployer-Prozess einsetzen
+ *   Compose `${DATABASE_URL}` & Co. aus dem Airlock-Prozess einsetzen
  *   (zusätzlich zur Maskierung von "$" beim Normalisieren);
  * - --env-file auf /dev/null und --project-directory auf den Ordner der
  *   normalisierten Datei: keine .env von irgendwoher.

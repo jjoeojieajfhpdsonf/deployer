@@ -8,7 +8,10 @@
  * Das Token erscheint nie in Fehlermeldungen oder Logs.
  */
 
-export const MANAGED_COMMENT = 'managed by deployer'
+export const MANAGED_COMMENT = 'managed by airlock'
+/** Übergang: Einträge aus der deployer-Zeit gelten weiter als eigene (docs/RENAME.md). */
+export const LEGACY_MANAGED_COMMENT = 'managed by deployer'
+export const isManagedComment = (c: string | null | undefined): boolean => c === MANAGED_COMMENT || c === LEGACY_MANAGED_COMMENT
 
 export interface CfOptions {
   token: string
@@ -196,7 +199,7 @@ export class Cloudflare {
       domain: app.domain,
       type: 'self_hosted',
       session_duration: '24h',
-      policies: [{ name: 'deployer: nur Besitzer', decision: 'allow', include: [{ email: { email: app.email } }] }],
+      policies: [{ name: 'Airlock: nur Besitzer', decision: 'allow', include: [{ email: { email: app.email } }] }],
     })
   }
 
@@ -223,7 +226,8 @@ export function zoneFor(hostname: string, zones: Zone[]): Zone | null {
 
 /**
  * Legt einen Eintrag an oder bringt ihn auf den gewünschten Stand.
- * Fremde Einträge (ohne deployer-Kommentar) werden nicht überschrieben.
+ * Fremde Einträge (ohne Airlock-Kommentar) werden nicht überschrieben;
+ * eigene aus der deployer-Zeit bekommen dabei den neuen Kommentar.
  */
 export async function upsertManagedRecord(
   cf: Cloudflare,
@@ -233,10 +237,10 @@ export async function upsertManagedRecord(
   const existing = (await cf.listRecords(zoneId, want.name)).filter((r) => ['A', 'AAAA', 'CNAME'].includes(r.type))
   const body = { ...want, comment: MANAGED_COMMENT }
   if (existing.length === 0) return { record: await cf.createRecord(zoneId, body), action: 'created' }
-  const foreign = existing.find((r) => r.comment !== MANAGED_COMMENT)
+  const foreign = existing.find((r) => !isManagedComment(r.comment))
   if (foreign) {
     throw new CloudflareError(
-      `Für ${want.name} gibt es schon einen DNS-Eintrag (${foreign.type} → ${foreign.content}), der nicht von deployer stammt. Bitte in Cloudflare prüfen und entfernen.`,
+      `Für ${want.name} gibt es schon einen DNS-Eintrag (${foreign.type} → ${foreign.content}), der nicht von Airlock stammt. Bitte in Cloudflare prüfen und entfernen.`,
       409,
     )
   }

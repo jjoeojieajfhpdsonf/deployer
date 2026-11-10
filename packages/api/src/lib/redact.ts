@@ -29,7 +29,7 @@ export function clearSecrets(): void {
   known.clear()
 }
 
-// Ausgenommen: cfm_ – deployers eigene MCP-Bestätigungscodes (mcp/confirm.ts),
+// Ausgenommen: cfm_ – Airlocks eigene MCP-Bestätigungscodes (mcp/confirm.ts),
 // kurzlebig und im Audit-Log gewollt.
 const PREFIXED = /\bcf(?!m_)[a-z]{1,4}_[A-Za-z0-9_-]{16,}/g
 const TUNNEL = /\beyJhIjoi[A-Za-z0-9+/_=-]{20,}/g

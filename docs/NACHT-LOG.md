@@ -22,7 +22,7 @@ Neu: Quellen `dockerfile` (Clone + Build), `compose` (Upload oder Repo, mit eige
 
 **Getestet:**
 - 165 Unit-Tests, darunter 50 für die Compose-Prüfung, die Repo-URL-Sperren, Zip Slip/Tar Slip und `.dockerignore`.
-- Neue Ende-zu-Ende-Suite gegen den laufenden Stack (`pnpm --filter @deployer/api e2e`): 33 Tests für M1 und M2, alle grün. Darin: ein echter Git-Server (Smart HTTP) auf dem Host, Builds über den Socket-Proxy, Compose mit Redis und Datenpersistenz, Rollbacks, und ein Umschalt-Test, der alle 100 ms abfragt – keine einzige Antwort ohne 200.
+- Neue Ende-zu-Ende-Suite gegen den laufenden Stack (`pnpm --filter @airlock/api e2e`): 33 Tests für M1 und M2, alle grün. Darin: ein echter Git-Server (Smart HTTP) auf dem Host, Builds über den Socket-Proxy, Compose mit Redis und Datenpersistenz, Rollbacks, und ein Umschalt-Test, der alle 100 ms abfragt – keine einzige Antwort ohne 200.
 - `/code-review high`: zehn Befunde, alle behoben (Tabelle in MILESTONE-2.md).
 
 **Nicht getestet:**
@@ -33,7 +33,7 @@ Neu: Quellen `dockerfile` (Clone + Build), `compose` (Upload oder Repo, mit eige
 **Bekannte Probleme / Hinweise:**
 - Der Mac hat nachts per DHCP eine neue IP bekommen; `SERVER_LAN_IP` musste nachgezogen werden. Für den Server: feste IP oder DHCP-Reservierung.
 - Compose-Deploys haben einen kurzen Ausfall der geänderten Dienste (bewusst, siehe OFFENE-FRAGEN).
-- Das deployer-Image ist durch git und die Docker-CLI grösser geworden.
+- Das Airlock-Image ist durch git und die Docker-CLI grösser geworden.
 
 ## Meilenstein 3 – MCP und Chat-Deploy
 
@@ -55,7 +55,7 @@ Neu: API-Tokens (Anlegen, Widerrufen, nur der Hash gespeichert), MCP-Server unte
 
 **Bekannte Probleme / Hinweise:**
 - Ein Image-Redeploy lädt Caddy weiterhin neu (neuer Upstream). Auf Projekt-Routen mit Keep-Alive kann ein Client dabei eine Anfrage verlieren; Browser wiederholen GET-Anfragen von selbst. Verbesserung wäre ein stabiler Netz-Alias pro Projekt (siehe OFFENE-FRAGEN).
-- MCP-Sitzungen liegen im Speicher und enden mit einem Neustart des deployers.
+- MCP-Sitzungen liegen im Speicher und enden mit einem Neustart von Airlock.
 
 ## Meilenstein 6 – Security
 
@@ -113,7 +113,7 @@ Neu: öffentliche Route pro Projekt über Cloudflare Tunnel (`compose.public.yam
 **Getestet:**
 - 339 Unit-Tests (neu: Hostname-Regeln, Ingress-Abgleich, Caddy-Konfiguration); `caddy validate` nimmt die Konfiguration mit `trusted_proxies` an.
 - Gesamtsuite M1–M6 + M4 danach: **80 von 80 grün** (die M5-Suite läuft nur mit der Attrappe und wird dort übersprungen).
-- **Gegen eine Cloudflare-Attrappe** (der laufende deployer spricht mit ihr): `pnpm --filter @deployer/api e2e:cf`, 11 Tests grün – Domains, Schwelle, CNAME, Ingress, Access, Umbenennen, fremde Einträge, unzulässige Namen, Token-Sperre, MCP-Bestätigung, Entfernen, Löschen.
+- **Gegen eine Cloudflare-Attrappe** (das laufende Airlock spricht mit ihr): `pnpm --filter @airlock/api e2e:cf`, 11 Tests grün – Domains, Schwelle, CNAME, Ingress, Access, Umbenennen, fremde Einträge, unzulässige Namen, Token-Sperre, MCP-Bestätigung, Entfernen, Löschen.
 - `/code-review high`: zehn Befunde, alle behoben – darunter, dass ein erneuter Aufruf ohne `access` Cloudflare Access still abschaltete.
 
 **Nicht getestet:**

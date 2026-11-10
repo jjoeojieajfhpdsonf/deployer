@@ -1,5 +1,5 @@
-import type { FixWay } from '@deployer/shared'
-import { headerFixFor } from '@deployer/shared'
+import type { FixWay } from '@airlock/shared'
+import { headerFixFor } from '@airlock/shared'
 
 /**
  * M8, Etappe 2: Kontext für «Mit Claude lösen». Reine Funktionen: welcher
@@ -9,9 +9,9 @@ import { headerFixFor } from '@deployer/shared'
  */
 
 /** Ersetzt eine Zeile, in der Trivy ein Secret gefunden hat. */
-export const SECRET_LINE_MARK = '«deployer: Zeile entfernt, sie enthält ein Secret»'
+export const SECRET_LINE_MARK = '«Airlock: Zeile entfernt, sie enthält ein Secret»'
 /** Ersetzt einen Wert aus der Projekt-Env. */
-export const ENV_VALUE_MARK = '«deployer: Wert aus der Projekt-Env»'
+export const ENV_VALUE_MARK = '«Airlock: Wert aus der Projekt-Env»'
 
 /** Dateien, die nie an Claude gehen (Env-Dateien, Schlüssel). */
 export function isWithheld(path: string): boolean {
@@ -110,13 +110,13 @@ export function wayExplanation(way: FixWay): string {
     case 'header':
       return 'Ein fehlender Security-Header: Caddy ergänzt ihn ohne Codeänderung (set_security_header bzw. «Header setzen»).'
     case 'files':
-      return 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, deployer deployt und scannt nach.'
+      return 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, Airlock deployt und scannt nach.'
     case 'github':
-      return 'Repo mit verbundener GitHub App: Der Vorschlag wird als Branch deployer/fix-… mit Pull Request angelegt; nach dem Merge deployt deployer und scannt nach.'
+      return 'Repo mit verbundener GitHub App: Der Vorschlag wird als Branch airlock/fix-… mit Pull Request angelegt; nach dem Merge deployt Airlock und scannt nach.'
     case 'repo':
-      return 'Git-Repo ohne Verbindung zu deployer: Die Änderung gehört ins Repo, auf einen eigenen Branch. deployer deployt nach dem nächsten Deploy und scannt nach.'
+      return 'Git-Repo ohne Verbindung zu Airlock: Die Änderung gehört ins Repo, auf einen eigenen Branch. Airlock deployt nach dem nächsten Deploy und scannt nach.'
     case 'image':
-      return 'Fertiges Image: deployer kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.'
+      return 'Fertiges Image: Airlock kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.'
     case 'none':
       return 'Für diese Quelle gibt es keinen Weg zum Code (etwa ein Upload). Neue Fassung hochladen oder den Befund mit Begründung akzeptieren.'
   }

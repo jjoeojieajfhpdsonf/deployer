@@ -1,10 +1,10 @@
-import { uiPrefsSchema, type UiPrefs } from '@deployer/shared'
+import { uiPrefsSchema, type UiPrefs } from '@airlock/shared'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 
 /**
  * Darstellung der Oberfläche (Hell/Dunkel/System), auf dem Server gespeichert,
- * damit die Wahl auf jedem Gerät gilt. deployer hat genau ein Konto: «pro
+ * damit die Wahl auf jedem Gerät gilt. Airlock hat genau ein Konto: «pro
  * Nutzer» heisst die Wahl dieses Kontos.
  */
 const KEY = 'ui_prefs'

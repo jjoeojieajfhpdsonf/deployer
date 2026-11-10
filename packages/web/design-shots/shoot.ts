@@ -3,7 +3,7 @@
  * Startet Vite selbst; die API kommt aus fixtures.ts (page.route), externe
  * Adressen antworten leer.
  *
- *   pnpm --filter @deployer/web exec tsx design-shots/shoot.ts --out docs/design-cal/3a-shell --only shell,login
+ *   pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/3a-shell --only shell,login
  *
  *   --out    Zielordner relativ zum Repo (Standard docs/design-cal/aktuell)
  *   --only   Komma-Liste von Gruppen oder Namen (Standard: alle)
@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
-import { DEFAULT_PAUSE_PAGE } from '@deployer/shared'
+import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -322,7 +322,7 @@ try {
     const t = theme === 'hell' ? 'light' : 'dark'
     for (const s of selected) {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce', locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t })
-      await ctx.addInitScript({ content: `try { localStorage.setItem('deployer.theme', '${t}') } catch {}` })
+      await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if ((url.port === String(PORT) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {

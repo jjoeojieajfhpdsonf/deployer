@@ -2,7 +2,7 @@
 # Alter Weg (compose.tls.yaml): Cloudflare-Token aus dem Compose-Secret in
 # die Umgebung von Caddy; die Konfiguration enthält dann {env.CF_API_TOKEN}.
 #
-# Neu (System → Cloudflare verbinden): Der deployer schreibt das Token nach
+# Neu (System → Cloudflare verbinden): Airlock schreibt das Token nach
 # /run/caddy-secrets/cloudflare_token, die Konfiguration enthält nur
 # {file./run/caddy-secrets/cloudflare_token}. In beiden Fällen steht das
 # Token weder in docker inspect noch in Caddys autosave.json.

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { parse } from 'yaml'
-import { normalizeCompose, parseDotenv, withServiceEnv, type ComposeContext } from './compose.js'
+import { normalizeCompose, parseDotenv, withServiceEnv, retargetCompose, type ComposeContext } from './compose.js'
 
 const files: Record<string, string> = {
   'app.env': 'FROM_FILE=1\n# Kommentar\nQUOTED="mit leerzeichen"\n',
@@ -13,7 +13,7 @@ function ctx(over: Partial<ComposeContext> = {}): ComposeContext {
     deploymentShort: 'abc123',
     deploymentId: '11111111-2222-3333-4444-555555555555',
     webService: 'web',
-    network: 'dep_shop',
+    network: 'air_shop',
     memoryLimitMb: 512,
     cpuLimit: 1,
     projectEnv: { SECRET_KEY: 's3cr$t' },
@@ -63,10 +63,10 @@ services:
 volumes:
   daten:
 `)
-    assert.equal(r.projectName, 'dep_shop')
-    assert.equal(r.webContainer, 'dep_shop-web-1')
+    assert.equal(r.projectName, 'air_shop')
+    assert.equal(r.webContainer, 'air_shop-web-1')
     assert.deepEqual(r.services, ['web', 'db'])
-    assert.deepEqual(r.doc.networks, { default: { name: 'dep_shop', external: true } })
+    assert.deepEqual(r.doc.networks, { default: { name: 'air_shop', external: true } })
     assert.deepEqual(r.doc.volumes, { daten: {} })
     assert.deepEqual(r.doc.services.db.volumes, ['daten:/var/lib/postgresql/data'])
   })
@@ -79,8 +79,9 @@ volumes:
     assert.deepEqual(web.security_opt, ['no-new-privileges:true'])
     assert.deepEqual(web.logging, { driver: 'json-file', options: { 'max-size': '10m', 'max-file': '5' } })
     assert.equal(web.restart, 'unless-stopped')
-    assert.equal(web.labels['deployer.project'], 'shop')
-    assert.equal(web.labels['deployer.managed'], 'true')
+    assert.equal(web.labels['airlock.project'], 'shop')
+    assert.equal(web.labels['airlock.managed'], 'true')
+    assert.equal(web.labels['deployer.project'], undefined)
   })
 
   test('Projekt-Env nur beim Web-Dienst', async () => {
@@ -89,7 +90,7 @@ volumes:
     assert.equal(doc.services.worker.environment, undefined)
   })
 
-  test('"$" bleibt wörtlich: keine Interpolation aus der Umgebung des deployers', async () => {
+  test('"$" bleibt wörtlich: keine Interpolation aus der Umgebung von Airlock', async () => {
     const r = await norm(`
 services:
   web:
@@ -107,9 +108,9 @@ services:
 
   test('build bekommt einen eigenen Tag pro Fassung', async () => {
     const r = await norm('services:\n  web:\n    build: .\n')
-    assert.equal(r.doc.services.web.image, 'deployer/shop-web:abc123')
+    assert.equal(r.doc.services.web.image, 'airlock/shop-web:abc123')
     assert.equal(r.doc.services.web.build.context, '/data/work/x/.')
-    assert.deepEqual(r.builtImages, ['deployer/shop-web:abc123'])
+    assert.deepEqual(r.builtImages, ['airlock/shop-web:abc123'])
   })
 
   test('env_file wird aus dem Repo gelesen und übernommen', async () => {
@@ -144,7 +145,7 @@ describe('Compose: Ausbrüche werden abgelehnt', () => {
     ['security_opt', 'security_opt: ["seccomp=unconfined"]', /security_opt/],
     ['sysctls', 'sysctls: {net.ipv4.ip_forward: 1}', /sysctls/],
     ['volumes_from', 'volumes_from: [db]', /volumes_from/],
-    ['container_name', 'container_name: deployer-app', /container_name/],
+    ['container_name', 'container_name: airlock-app', /container_name/],
     ['eigene Netze', 'networks: [x]', /networks/],
     ['Grenzen selbst setzen', 'mem_limit: 64g', /Grenzen kommen aus dem Projekt/],
     ['Log-Rotation abschalten', 'logging: {driver: none}', /Log-Rotation/],
@@ -175,7 +176,7 @@ describe('Compose: Ausbrüche werden abgelehnt', () => {
   })
 
   test('Volume mit name zeigt auf ein fremdes Projekt', async () => {
-    await rejects('services:\n  web:\n    image: a\n    volumes: [v:/x]\nvolumes:\n  v:\n    name: dep_anderes_db\n', /ausserhalb des Projekts/)
+    await rejects('services:\n  web:\n    image: a\n    volumes: [v:/x]\nvolumes:\n  v:\n    name: air_anderes_db\n', /ausserhalb des Projekts/)
   })
 
   test('external Volume', async () => {
@@ -194,7 +195,7 @@ describe('Compose: Ausbrüche werden abgelehnt', () => {
     await rejects(WEB + 'networks:\n  x: {}\n', /networks/)
   })
 
-  test('environment ohne Wert (Liste) zöge Werte aus der Umgebung des deployers', async () => {
+  test('environment ohne Wert (Liste) zöge Werte aus der Umgebung von Airlock', async () => {
     await rejects('services:\n  web:\n    image: a\n    environment: [DATABASE_URL]\n', /keinen Wert/)
   })
 
@@ -203,6 +204,7 @@ describe('Compose: Ausbrüche werden abgelehnt', () => {
   })
 
   test('reservierte Labels', async () => {
+    await rejects('services:\n  web:\n    image: a\n    labels: {airlock.project: anderes}\n', /reserviert/)
     await rejects('services:\n  web:\n    image: a\n    labels: {deployer.project: anderes}\n', /reserviert/)
     await rejects('services:\n  web:\n    image: a\n    labels: ["com.docker.compose.project=x"]\n', /reserviert/)
   })
@@ -278,5 +280,36 @@ describe('parseDotenv', () => {
   })
   test('lehnt kaputte Zeilen ab', () => {
     assert.throws(() => parseDotenv('nicht gueltig\n', 'f'), /keine Zuweisung/)
+  })
+})
+
+describe('retargetCompose (Übergang deployer → Airlock)', () => {
+  const OLD = `# Erzeugt von deployer aus geprüften Werten. Nicht von Hand ändern.
+name: dep_shop
+services:
+  web:
+    image: deployer/shop-web:abc123
+    labels:
+      app: eigen
+      deployer.managed: "true"
+      deployer.project: shop
+      deployer.compose-service: web
+networks:
+  default:
+    name: dep_shop
+    external: true
+`
+
+  test('Name, Netz und Labels gehen auf die neuen Namen, Images und eigene Labels bleiben', () => {
+    const doc = parse(retargetCompose(OLD, 'air_shop'))
+    assert.equal(doc.name, 'air_shop')
+    assert.deepEqual(doc.networks, { default: { name: 'air_shop', external: true } })
+    assert.deepEqual(doc.services.web.labels, { app: 'eigen', 'airlock.managed': 'true', 'airlock.project': 'shop', 'airlock.compose-service': 'web' })
+    assert.equal(doc.services.web.image, 'deployer/shop-web:abc123')
+  })
+
+  test('eine Datei mit neuen Namen bleibt inhaltlich gleich', async () => {
+    const r = await normalizeCompose('services:\n  web:\n    image: alpine\n', ctx())
+    assert.deepEqual(parse(retargetCompose(r.yaml, 'air_shop')), parse(r.yaml))
   })
 })

@@ -20,7 +20,7 @@ services:
     secrets:
       - cloudflare_token
 
-  deployer:
+  airlock:
     environment:
       TLS_MODE: cloudflare
       ACME_CA: ${ACME_CA:-production}

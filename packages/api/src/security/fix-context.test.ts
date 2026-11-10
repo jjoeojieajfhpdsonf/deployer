@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { fixPrompt } from '@deployer/shared'
+import { fixPrompt } from '@airlock/shared'
 import {
   fixWay, affectedPaths, secretLocation, maskContent, containsMask, isWithheld, tagCandidates, parseTag, fixedInFrom,
   SECRET_LINE_MARK, ENV_VALUE_MARK,
@@ -58,7 +58,7 @@ describe('Betroffene Dateien', () => {
   })
   test('Container-Einstellungen: Dockerfile und Compose', () => {
     assert.deepEqual(affectedPaths({ tool: 'trivy', title: 'Container läuft als root', location: 'Dockerfile' }, repo), ['Dockerfile', 'compose.yaml'])
-    assert.deepEqual(affectedPaths({ tool: 'trivy', title: 'openssl: 1 bekannte Schwachstelle', location: 'deployer/solar:abc (debian 12.4) · openssl 3.0.11' }, repo), ['Dockerfile', 'compose.yaml'])
+    assert.deepEqual(affectedPaths({ tool: 'trivy', title: 'openssl: 1 bekannte Schwachstelle', location: 'airlock/solar:abc (debian 12.4) · openssl 3.0.11' }, repo), ['Dockerfile', 'compose.yaml'])
   })
   test('offen erreichbare Datei über ihren Pfad', () => {
     assert.deepEqual(affectedPaths({ tool: 'nuclei', title: 'Backup offen', location: 'http://x.example/index.html' }, repo), ['public/index.html'])

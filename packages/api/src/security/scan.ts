@@ -16,7 +16,7 @@ import { score, grade, fingerprint, dedupe, bySeverity, publishable, type Findin
 import { trivyImage, trivySource, headerCheck, headerCheckViaCaddy, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { probeTargetFor } from '../domain/routes.js'
-import type { HeaderRecheckDto } from '@deployer/shared'
+import type { HeaderRecheckDto } from '@airlock/shared'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
 
@@ -27,7 +27,7 @@ import { notify } from '../notify/send.js'
 
 type Run = typeof schema.scanRuns.$inferSelect
 
-export const EXT_SCAN_NETWORK = 'dep_ext-scan'
+export const EXT_SCAN_NETWORK = 'air_ext-scan'
 /** Quellordner eines Deploys, den die Pipeline für den Scan aufhebt. */
 export const scanSourceDir = (deploymentId: string) => join(config.DATA_DIR, 'scan-src', deploymentId)
 
@@ -78,7 +78,7 @@ function pump(): void {
 /** Scanner-Container eines Scans beenden (Abbruch, Zeitlimit-Wächter). */
 async function killScanners(runId: string): Promise<void> {
   for (const c of await docker.listManagedContainers().catch(() => [])) {
-    if (c.labels['deployer.scan'] !== runId) continue
+    if (c.labels[docker.LABEL.scan] !== runId) continue
     await docker.stopContainer(c.id, 2).catch(() => {})
   }
 }
@@ -115,10 +115,10 @@ export async function cancelScan(runId: string, actor: string): Promise<void> {
 export async function abandonUnfinishedScans(): Promise<void> {
   await db
     .update(schema.scanRuns)
-    .set({ status: 'failed', error: 'Abgebrochen durch Neustart des deployers', finishedAt: new Date() })
+    .set({ status: 'failed', error: 'Abgebrochen durch Neustart von Airlock', finishedAt: new Date() })
     .where(inArray(schema.scanRuns.status, ['queued', 'running']))
   for (const c of await docker.listManagedContainers().catch(() => [])) {
-    if (c.labels['deployer.role'] !== 'scanner') continue
+    if (c.labels[docker.LABEL.role] !== 'scanner') continue
     await docker.stopContainer(c.id).catch(() => {})
     await docker.removeContainer(c.id).catch(() => {})
     log.info('Verwaisten Scanner entfernt', { id: c.id.slice(0, 12) })
@@ -186,7 +186,7 @@ async function runScan(runId: string): Promise<void> {
   // Der Plan aus enqueue*; jede Stufe aktualisiert ihren Eintrag
   const stages: ScanStages = { ...run.stages }
   const all: FindingInput[] = []
-  const labels = { 'deployer.scan': runId }
+  const labels = { [docker.LABEL.scan]: runId }
   const cancelledBy = () => (current?.id === runId ? current.cancelledBy : null)
 
   // Zwischenstand in die Datenbank, gedrosselt: Oberfläche und MCP lesen ihn
@@ -299,7 +299,7 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
   if ((kind === 'image' || kind === 'dockerfile') && active.imageRef) images.add(active.imageRef)
   if (kind === 'compose') {
     for (const c of await docker.listManagedContainers()) {
-      if (c.labels[docker.LABEL_PROJECT] !== project.slug || !c.labels['deployer.compose-service']) continue
+      if (c.labels[docker.LABEL_PROJECT] !== project.slug || !c.labels[docker.LABEL.composeService]) continue
       const info = await docker.docker.getContainer(c.id).inspect().catch(() => null) as { Config?: { Image?: string } } | null
       if (info?.Config?.Image) images.add(info.Config.Image)
     }
@@ -327,8 +327,17 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
     stopStatic = s.stop
     target = { url: s.url, network: s.network, host: new URL(s.url).hostname, isHttps: false, external: false }
   } else {
-    const host = active.artifact?.webContainer ?? docker.containerName(project.slug, active.id)
     if (!project.port) throw new Error('Projekt ohne Port')
+    // Übergang: eine Fassung aus der deployer-Zeit läuft noch in dep_<slug>.
+    // Scanner entstehen nur in air_<slug> (Policy); der alte Container wird
+    // für die Dauer des Scans zusätzlich dort eingehängt.
+    const legacy = await docker.legacyState()
+    const ref = { id: active.id, webContainer: active.artifact?.webContainer ?? null }
+    const host = docker.webContainerOf(project.slug, ref, legacy)
+    if (docker.networkOf(project.slug, ref, legacy) !== network) {
+      await docker.connectToNetwork(network, host)
+      stopStatic = () => docker.disconnectFromNetwork(network, host)
+    }
     target = { url: `http://${host}:${project.port}/`, network, host, isHttps: false, external: false }
   }
 

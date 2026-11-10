@@ -1,6 +1,6 @@
 # ALT – nur noch für bestehende Installationen.
 #
-# Neu legt deployer den Tunnel selbst an und startet cloudflared als eigenen
+# Neu legt Airlock den Tunnel selbst an und startet cloudflared als eigenen
 # Container: System → «Cloudflare verbinden». Diese Datei und
 # secrets/tunnel_token braucht es dafür nicht. Nicht beides gleichzeitig:
 # läuft cloudflared aus dieser Datei, lehnt die Oberfläche den Tunnel ab.
@@ -10,7 +10,7 @@
 #   docker compose -f compose.yaml -f compose.tls.yaml -f compose.public.yaml up -d --build
 #
 # (compose.tls.yaml ist nicht zwingend, liefert aber das Cloudflare-Token für
-#  deployer. Ohne sie die beiden secrets-Einträge unten für deployer ergänzen.)
+#  Airlock. Ohne sie die beiden secrets-Einträge unten für airlock ergänzen.)
 #
 # Voraussetzungen (siehe docs/MILESTONE-5.md):
 #   - Tunnel im Cloudflare-Dashboard anlegen, Typ "remote verwaltet"
@@ -27,12 +27,12 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2025.8.1
     restart: unless-stopped
-    container_name: deployer-cloudflared
+    container_name: airlock-cloudflared
     # Token aus der Datei, nicht aus der Umgebung (sonst in docker inspect).
     command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
     secrets:
       - tunnel_token
-    # Nur im Netz tunnel: erreicht Caddy, nicht den deployer, keine Projekt-Netze.
+    # Nur im Netz tunnel: erreicht Caddy, nicht Airlock, keine Projekt-Netze.
     networks:
       - tunnel
     depends_on:
@@ -43,7 +43,7 @@ services:
         max-size: 10m
         max-file: "5"
 
-  deployer:
+  airlock:
     environment:
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       CLOUDFLARE_TUNNEL_ID: ${CLOUDFLARE_TUNNEL_ID:-}

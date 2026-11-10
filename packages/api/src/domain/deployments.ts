@@ -2,7 +2,7 @@ import { eq, and, desc } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import type { DeploymentArtifact } from '../db/schema.js'
 import { notFound } from '../lib/errors.js'
-import type { DeploymentDto } from '@deployer/shared'
+import type { DeploymentDto } from '@airlock/shared'
 
 type Row = typeof schema.deployments.$inferSelect
 

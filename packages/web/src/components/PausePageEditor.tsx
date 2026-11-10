@@ -1,11 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { pausePageSchema, renderPausePage, renderPauseForm, forcePreviewScheme, PAUSE_HTML_MAX, type PausePage } from '@deployer/shared'
+import { pausePageSchema, renderPausePage, renderPauseForm, forcePreviewScheme, PAUSE_HTML_MAX, type PausePage } from '@airlock/shared'
 import { Field } from './Field.js'
 
 /**
  * Pause-Seite bearbeiten: Felder (Formular) oder eigenes HTML (Code) links,
  * Live-Vorschau rechts. Die Vorschau nutzt denselben Renderer wie der Server
- * (@deployer/shared) in einem iframe ohne Rechte (sandbox), hell oder dunkel.
+ * (@airlock/shared) in einem iframe ohne Rechte (sandbox), hell oder dunkel.
  * Für Projekte im Dialog (PausePageDialog), für die Vorlage auf der
  * System-Seite.
  */

@@ -12,7 +12,7 @@ const tight: UnzipLimits = { maxArchiveBytes: 65536, maxTotalBytes: 8192, maxEnt
 let work: string
 
 before(() => {
-  work = mkdtempSync(join(tmpdir(), 'deployer-unzip-'))
+  work = mkdtempSync(join(tmpdir(), 'airlock-unzip-'))
 })
 after(() => {
   rmSync(work, { recursive: true, force: true })

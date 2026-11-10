@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { loginSchema } from '@deployer/shared'
-import { passwordChangeSchema } from '@deployer/shared'
+import { loginSchema } from '@airlock/shared'
+import { passwordChangeSchema } from '@airlock/shared'
 import { login, setSessionCookie, clearSessionCookie, isLoggedIn, changePassword, passwordInfo, sessionStart, viaHttps } from '../auth.js'
 import { config } from '../../config.js'
 import { audit } from '../../domain/audit.js'

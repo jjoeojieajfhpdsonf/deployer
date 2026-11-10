@@ -6,7 +6,8 @@ import { normalizeCompose } from '../lib/compose.js'
 import { badRequest } from '../lib/errors.js'
 import { repoUrlPolicy } from './git-policy.js'
 import { composeUploadPath, COMPOSE_MAX_BYTES } from '../deploy/sources/compose.js'
-import type { Source } from '@deployer/shared'
+import type { Source } from '@airlock/shared'
+import { projectNetwork } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
 import { checkImageInRegistry, parseImageRef } from '../lib/registry.js'
 import { log } from '../lib/log.js'
@@ -36,7 +37,7 @@ export async function checkSourceEarly(source: Source, slug: string): Promise<vo
       deploymentId: '00000000-0000-0000-0000-000000000000',
       deploymentShort: 'pruefung',
       webService: source.webService,
-      network: `dep_${slug}`,
+      network: projectNetwork(slug),
       memoryLimitMb: 512,
       cpuLimit: 1,
       projectEnv: {},
@@ -47,7 +48,7 @@ export async function checkSourceEarly(source: Source, slug: string): Promise<vo
 
 /**
  * Gibt es das Image? Liegt es schon auf dem Server, reicht das. Sonst fragt
- * der deployer die Registry. Ist sie nicht erreichbar, wird nicht blockiert:
+ * Airlock die Registry. Ist sie nicht erreichbar, wird nicht blockiert:
  * dann sagt es der Deploy.
  */
 async function checkImageEarly(image: string): Promise<void> {
@@ -62,6 +63,6 @@ async function checkImageEarly(image: string): Promise<void> {
   const where = registry === 'registry-1.docker.io' ? 'Docker Hub' : registry
   const message = result === 'missing'
     ? `Das Image «${image}» gibt es bei ${where} nicht. Prüfe Name und Tag («${reference}»), z.B. nginx:alpine.`
-    : `«${image}» ist bei ${where} nicht öffentlich abrufbar – es existiert nicht oder ist privat. Private Images unterstützt der deployer nicht; prüfe den Namen, z.B. nginx:alpine.`
+    : `«${image}» ist bei ${where} nicht öffentlich abrufbar – es existiert nicht oder ist privat. Private Images unterstützt Airlock nicht; prüfe den Namen, z.B. nginx:alpine.`
   throw badRequest(message, [{ path: 'source.image', message }])
 }

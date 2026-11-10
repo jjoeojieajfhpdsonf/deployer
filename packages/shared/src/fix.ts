@@ -84,13 +84,13 @@ export function headerValueProblem(header: HeaderKey, value: string, mode: Heade
     case 'frame-ancestors':
       return /^('none'|'self'|[\w*.:/-]+)( ('self'|[\w*.:/-]+))*$/.test(value) ? null : "Quellen wie 'self' oder https://example.ch"
     case 'content-security-policy':
-      if (/report-uri|report-to/i.test(value)) return 'report-uri setzt deployer selbst'
+      if (/report-uri|report-to/i.test(value)) return 'report-uri setzt Airlock selbst'
       return /^[a-z-]+\s/.test(value) || /^[a-z-]+$/.test(value) ? null : "Regel wie default-src 'self'"
     case 'strict-transport-security': {
       if (mode !== 'enforce') return 'HSTS kennt keinen Report-Only-Modus'
       const m = /^max-age=(\d+)(;\s*includeSubDomains)?(;\s*preload)?$/i.exec(value)
       if (!m) return 'Form: max-age=<Sekunden>, optional ; includeSubDomains'
-      if (/preload/i.test(value)) return 'preload setzt deployer nicht: das lässt sich kaum rückgängig machen'
+      if (/preload/i.test(value)) return 'preload setzt Airlock nicht: das lässt sich kaum rückgängig machen'
       return null
     }
   }
@@ -236,14 +236,14 @@ export const githubManifestRequestSchema = z.object({
 export function fixPrompt(o: { projectName: string; slug: string; findingId: string; title: string; severity: string; way: FixWay }): string {
   const how =
     o.way === 'files'
-      ? 'Schlage die Änderung mit propose_fix vor (nicht mit update_files); ich prüfe den Diff in deployer und übernehme ihn dort.'
+      ? 'Schlage die Änderung mit propose_fix vor (nicht mit update_files); ich prüfe den Diff in Airlock und übernehme ihn dort.'
       : o.way === 'github'
-        ? 'Schlage die Änderung mit propose_fix vor; deployer öffnet dafür einen Pull Request auf einem eigenen Branch.'
+        ? 'Schlage die Änderung mit propose_fix vor; Airlock öffnet dafür einen Pull Request auf einem eigenen Branch.'
         : 'Das Projekt kommt aus einem Git-Repo: Ändere es im Repo auf einem eigenen Branch, nie direkt auf dem Standard-Branch.'
   const sev: Record<string, string> = { critical: 'kritisch', high: 'hoch', medium: 'mittel', low: 'niedrig' }
   return [
-    `Behebe den Befund «${o.title}» (Schwere ${sev[o.severity] ?? o.severity}) im deployer-Projekt «${o.projectName}» (${o.slug}).`,
-    `Hole dir zuerst Befund, Erklärung und betroffene Dateien mit dem deployer-MCP: get_fix_context mit project "${o.slug}" und finding "${o.findingId}".`,
+    `Behebe den Befund «${o.title}» (Schwere ${sev[o.severity] ?? o.severity}) im Airlock-Projekt «${o.projectName}» (${o.slug}).`,
+    `Hole dir zuerst Befund, Erklärung und betroffene Dateien mit dem Airlock-MCP: get_fix_context mit project "${o.slug}" und finding "${o.findingId}".`,
     how,
     'Erkläre kurz, was die Änderung behebt und was sie sonst beeinflussen könnte.',
   ].join('\n')

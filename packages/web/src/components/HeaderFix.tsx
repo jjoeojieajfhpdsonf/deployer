@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@deployer/shared'
+import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@airlock/shared'
 import { api, ApiError, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
 import { IconWarn } from './Security.js'
@@ -148,7 +148,7 @@ export function HeaderFixAction({
       {key === 'strict-transport-security' && c.open ? (
         <span className="confirm-inline" role="group" aria-label="HSTS bestätigen">
           <span className="confirm-note">
-            <IconWarn />Browser erzwingen danach HTTPS für diesen Namen. deployer startet mit {HEADER_DEFAULT['strict-transport-security']} (5 Minuten); länger erst, wenn alles läuft.
+            <IconWarn />Browser erzwingen danach HTTPS für diesen Namen. Airlock startet mit {HEADER_DEFAULT['strict-transport-security']} (5 Minuten); länger erst, wenn alles läuft.
           </span>
           <button type="button" className="button-small" onClick={c.close} autoFocus>Abbrechen</button>
           <button
@@ -254,7 +254,7 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
           {d.csp.violations.length === 0 ? (
             <p className="hint">
               Noch keine Meldungen. Benutze die Seite im Browser; Browser melden jeden Verstoss an die Seite selbst
-              (<code>/.well-known/deployer/csp-report/…</code>), Caddy reicht die Meldung an deployer weiter.
+              (<code>/.well-known/airlock/csp-report/…</code>), Caddy reicht die Meldung an Airlock weiter.
             </p>
           ) : (
             <div className="table-scroll">

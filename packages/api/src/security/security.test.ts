@@ -145,8 +145,8 @@ describe('Parser gegen echte Ausgaben', () => {
 describe('stabile Fingerabdrücke (Review M6)', () => {
   const base = { tool: 'trivy', severity: 'high' as const, description: '', fix: '' }
   test('mit Schlüssel zählen Titel und Ort nicht', () => {
-    const a = fingerprint({ ...base, title: 'openssl: 3 bekannte Schwachstellen', location: 'deployer/x:abc · openssl 3.0.1', key: 'vuln:os-pkgs:alpine::openssl' })
-    const b = fingerprint({ ...base, title: 'openssl: 4 bekannte Schwachstellen', location: 'deployer/x:def · openssl 3.0.2', key: 'vuln:os-pkgs:alpine::openssl' })
+    const a = fingerprint({ ...base, title: 'openssl: 3 bekannte Schwachstellen', location: 'airlock/x:abc · openssl 3.0.1', key: 'vuln:os-pkgs:alpine::openssl' })
+    const b = fingerprint({ ...base, title: 'openssl: 4 bekannte Schwachstellen', location: 'airlock/x:def · openssl 3.0.2', key: 'vuln:os-pkgs:alpine::openssl' })
     assert.equal(a, b)
   })
   test('Schlüssel mit URL: nur der Pfad zählt', () => {
@@ -161,7 +161,7 @@ describe('parseTrivy/parseZap/parseNuclei liefern Schlüssel', () => {
   test('Trivy: OS-Pakete ohne Image-Tag im Schlüssel', async () => {
     const { parseTrivy } = await import('./parsers.js')
     const mk = (target: string, n: number) => parseTrivy({ Results: [{ Target: target, Class: 'os-pkgs', Type: 'alpine', Vulnerabilities: Array.from({ length: n }, (_, i) => ({ VulnerabilityID: `CVE-${i}`, PkgName: 'zlib', InstalledVersion: '1.2', FixedVersion: '1.3', Severity: 'HIGH' })) }] })
-    assert.equal(fingerprint(mk('deployer/a:111 (alpine 3.20)', 1)[0]!), fingerprint(mk('deployer/a:222 (alpine 3.20)', 2)[0]!))
+    assert.equal(fingerprint(mk('airlock/a:111 (alpine 3.20)', 1)[0]!), fingerprint(mk('airlock/a:222 (alpine 3.20)', 2)[0]!))
   })
   test('ZAP: unabhängig von der ersten Fundstelle', async () => {
     const { parseZap } = await import('./parsers.js')

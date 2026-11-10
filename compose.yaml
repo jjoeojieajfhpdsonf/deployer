@@ -1,4 +1,8 @@
-name: deployer
+name: airlock
+
+# Bestehende Installation unter dem alten Namen «deployer»: nicht einfach
+# hochfahren, sondern mit scripts/rename-to-airlock.sh umziehen (docs/RENAME.md).
+# Sonst startet ein leerer Stack neben dem alten.
 
 x-logging: &logging
   # Feste Rotation, siehe SPEC: ohne Groessenlimit fuellen Container-Logs
@@ -13,15 +17,16 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     logging: *logging
+    container_name: airlock-postgres
     environment:
-      POSTGRES_USER: deployer
+      POSTGRES_USER: airlock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt (siehe .env.example)}
-      POSTGRES_DB: deployer
+      POSTGRES_DB: airlock
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks: [internal]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U deployer -d deployer"]
+      test: ["CMD-SHELL", "pg_isready -U airlock -d airlock"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -33,6 +38,7 @@ services:
     image: tecnativa/docker-socket-proxy:0.3.0
     restart: unless-stopped
     logging: *logging
+    container_name: airlock-socket-proxy
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -65,17 +71,17 @@ services:
   caddy:
     # Caddy mit dem DNS-Modul für Cloudflare: das Wildcard-Zertifikat lässt
     # sich so jederzeit über die Systemseite einrichten, ohne Compose-Ergänzung.
-    image: deployer/caddy-cloudflare:local
+    image: airlock/caddy-cloudflare:local
     build:
       context: ./caddy
       dockerfile: Dockerfile
     restart: unless-stopped
     logging: *logging
-    container_name: deployer-caddy
-    # --resume: nach einem Neustart von Caddy allein die zuletzt vom deployer
+    container_name: airlock-caddy
+    # --resume: nach einem Neustart von Caddy allein die zuletzt von Airlock
     # geladene Konfiguration (autosave.json) wiederherstellen. Ohne das laedt
     # Caddy nur das Bootstrap-Caddyfile, und alle Projekt-Routen fehlen, bis
-    # der deployer selbst neu startet. Beim allerersten Start gibt es noch
+    # Airlock selbst neu startet. Beim allerersten Start gibt es noch
     # keine Sicherung; dann gilt das Caddyfile.
     command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     ports:
@@ -89,29 +95,29 @@ services:
       # Admin-Socket. Kein TCP :2019 - siehe docs/MILESTONE-1.md.
       - caddy_admin:/run/caddy
       - sites:/srv/sites:ro
-      # Cloudflare-Token als Datei, geschrieben vom deployer. Die Konfiguration
+      # Cloudflare-Token als Datei, geschrieben von Airlock. Die Konfiguration
       # (und autosave.json) enthält nur den Pfad: {file./run/caddy-secrets/...}
       - caddy_secrets:/run/caddy-secrets:ro
     networks:
       edge:
-        # Caddy wird zur Laufzeit in Projekt-Netze (dep_*) gehaengt. Bei
+        # Caddy wird zur Laufzeit in Projekt-Netze (air_*) gehaengt. Bei
         # gleicher Prioritaet waehlt Docker das alphabetisch erste Netz als
-        # Gateway - "dep_" sortiert vor "deployer_edge". Dann laeuft Caddys
+        # Gateway - "air_" sortiert vor "airlock_edge". Dann laeuft Caddys
         # Standardroute durch das Projekt-Netz, und beim Trennen reisst die
         # Port-Veroeffentlichung von :80 ab. Die hohe Prioritaet haelt das
         # Gateway fest auf edge.
         gw_priority: 100
       # Nur cloudflared und Caddy: was durch den Tunnel kommt, erreicht nur
-      # Caddy – nie den deployer, nie ein Projekt-Netz.
+      # Caddy – nie Airlock, nie ein Projekt-Netz.
       tunnel: {}
 
-  deployer:
+  airlock:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     logging: *logging
-    container_name: deployer-app
+    container_name: airlock-app
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,14 +126,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      DATABASE_URL: postgres://deployer:${POSTGRES_PASSWORD}@postgres:5432/deployer
+      DATABASE_URL: postgres://airlock:${POSTGRES_PASSWORD}@postgres:5432/airlock
       DOCKER_HOST: tcp://socket-proxy:2375
       CADDY_ADMIN_SOCKET: /run/caddy/admin.sock
       DATA_DIR: /data
       SITES_DIR: /srv/sites
-      DEPLOYER_CONTAINER: deployer-app
-      CADDY_CONTAINER: deployer-caddy
-      DEPLOYER_UPSTREAM: deployer-app:3000
+      AIRLOCK_CONTAINER: airlock-app
+      CADDY_CONTAINER: airlock-caddy
+      AIRLOCK_UPSTREAM: airlock-app:3000
       INTERNAL_BASE_DOMAIN: ${INTERNAL_BASE_DOMAIN:-}
       SERVER_LAN_IP: ${SERVER_LAN_IP:-}
       SERVER_NAME: ${SERVER_NAME:-}
@@ -143,14 +149,14 @@ services:
       - caddy_admin:/run/caddy
       - caddy_secrets:/run/caddy-secrets
       - sites:/srv/sites
-      - deployer_data:/data
+      - data:/data
       # Caddys Zertifikatsspeicher: vorhandenes produktives Zertifikat erkennen,
       # Staging-Wildcards früherer Probeläufe löschen (CADDY_DATA_DIR)
       - caddy_data:/caddy-data
     networks:
       internal: {}
       edge:
-        # Wie bei Caddy: der deployer haengt sich fuer den Healthcheck kurz in
+        # Wie bei Caddy: Airlock haengt sich fuer den Healthcheck kurz in
         # Projekt-Netze. Sein Gateway soll dabei nicht dorthin wandern.
         gw_priority: 100
     healthcheck:
@@ -162,15 +168,17 @@ services:
 
 networks:
   internal:
-    name: deployer_internal
+    name: airlock_internal
     internal: true
   edge:
-    name: deployer_edge
-  # cloudflared (von deployer gestartet) und Caddy. Nicht internal: cloudflared
+    name: airlock_edge
+  # cloudflared (von Airlock gestartet) und Caddy. Nicht internal: cloudflared
   # braucht die ausgehende Verbindung zu Cloudflare.
   tunnel:
-    name: deployer_tunnel
+    name: airlock_tunnel
 
+# Docker-Namen: airlock_<schlüssel> (airlock_pgdata, airlock_data, …).
+# Früher deployer_<schlüssel>; das Daten-Volume hiess deployer_deployer_data.
 volumes:
   pgdata:
   caddy_data:
@@ -178,4 +186,4 @@ volumes:
   caddy_admin:
   caddy_secrets:
   sites:
-  deployer_data:
+  data:

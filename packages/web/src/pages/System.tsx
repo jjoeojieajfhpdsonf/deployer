@@ -105,7 +105,7 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
       {ci && ci.fromGateway > 0 && (
         <div role="alert" className="banner banner-warn">
           <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
-          In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} Anfragen auf deployer von{' '}
+          In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} Anfragen auf Airlock von{' '}
           {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
           {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
           Meist maskiert Tailscale als Subnet-Router den Verkehr aus dem Tailnet in die Docker-Netze; dann sperrt der

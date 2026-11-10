@@ -4,7 +4,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from '../config.js'
 import { redactSecrets } from '../lib/redact.js'
-import type { DeploymentStatus } from '@deployer/shared'
+import type { DeploymentStatus } from '@airlock/shared'
 
 /**
  * Fortschritt und Log eines Deployments.

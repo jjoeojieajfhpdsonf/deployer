@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { browserCanProbe, splitAddresses, type RouteDto } from '@deployer/shared'
+import { browserCanProbe, splitAddresses, type RouteDto } from '@airlock/shared'
 import { interpretProbe, hostOf, probeViaCaddy } from './address-probe.js'
 
 describe('Adressen-Prüfung im Browser (Mixed Content)', () => {

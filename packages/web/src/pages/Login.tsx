@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api.js'
-import { loginSchema } from '@deployer/shared'
+import { loginSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 
@@ -23,7 +23,7 @@ export function Login({ onDone }: { onDone: () => void }) {
     } catch (err) {
       // Falsches Passwort: Meldung direkt am Feld, mit dem Weg zurück.
       if (err instanceof ApiError && err.status === 401) {
-        form.setErrors({ password: 'Das Passwort stimmt nicht. Vergessen? ADMIN_PASSWORD in .env ändern und deployer neu starten.' })
+        form.setErrors({ password: 'Das Passwort stimmt nicht. Vergessen? ADMIN_PASSWORD in .env ändern und Airlock neu starten.' })
         requestAnimationFrame(() => document.getElementById(form.idFor('password'))?.focus())
       } else setError(err instanceof ApiError ? err.message : 'Anmeldung fehlgeschlagen')
     } finally {
@@ -38,7 +38,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           <span className="brand-mark" aria-hidden="true">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
           </span>
-          <span className="brand-name">deployer</span>
+          <span className="brand-name">Airlock</span>
         </div>
         <h1>Anmelden</h1>
         <p className="muted login-lede">Mit dem Admin-Passwort dieses Servers.</p>

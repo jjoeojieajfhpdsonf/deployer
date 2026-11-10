@@ -9,7 +9,8 @@ import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
 import { labelOf } from '../lib/hostnames.js'
 import { effectiveKind } from './deployments.js'
-import { effectivePausePage, renderPausePage, type RouteTarget, type RouteDto, type PausePage } from '@deployer/shared'
+import { effectivePausePage, renderPausePage, UI_HOST_LABEL, type RouteTarget, type RouteDto, type PausePage } from '@airlock/shared'
+import { isProjectScoped } from '../lib/names.js'
 import { pausePageTemplate, displayTimeZone, writePauseFile } from './pause-page.js'
 import type { HeaderRuleSpec } from '../security/header-rules.js'
 
@@ -106,7 +107,7 @@ export async function setRoutes(
     // Seit Migration 0005 verhindert die Datenbank nicht mehr, dass zwei
     // Projekte denselben Namen unter verschiedenen Zielen tragen. Deshalb
     // Prüfung und Einfügen unter einer Sperre, in einer Transaktion (Review M4).
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('deployer.routes'))`)
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('airlock.routes'))`)
     const clash = await tx.select().from(schema.routes).where(eq(schema.routes.hostname, host))
     if (clash.some((r) => r.projectId !== projectId)) {
       throw conflict(`Der Hostname ${host} ist schon von einem anderen Projekt belegt`)
@@ -189,9 +190,11 @@ async function currentRouteRows(): Promise<RouteRow[]> {
 }
 
 /** Container, an den Caddy den Verkehr eines Projekts gibt. */
-export function upstreamHost(r: { sourceType: string; slug: string; deploymentId: string; webContainer: string | null }): string {
-  if (r.webContainer) return r.webContainer
-  return docker.containerName(r.slug, r.deploymentId)
+export function upstreamHost(
+  r: { sourceType: string; slug: string; deploymentId: string; webContainer: string | null },
+  legacy: docker.LegacyState = docker.legacySnapshot(),
+): string {
+  return docker.webContainerOf(r.slug, { id: r.deploymentId, webContainer: r.webContainer }, legacy)
 }
 
 export function siteRootFor(slug: string): string {
@@ -213,8 +216,8 @@ export async function cloudflaredCidrs(): Promise<string[]> {
 
 /**
  * M8: Header-Regeln aller Projekte, je Projekt, mit dem Schlüssel der
- * CSP-Meldungen (Browser melden an /.well-known/deployer/csp-report/<key>
- * am Host des Projekts, Caddy leitet an deployer weiter).
+ * CSP-Meldungen (Browser melden an /.well-known/airlock/csp-report/<key>
+ * am Host des Projekts, Caddy leitet an Airlock weiter).
  */
 async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSpec[]; cspReportKey: string | null }>> {
   const all = await db.select().from(schema.headerRules)
@@ -247,13 +250,15 @@ export async function probeTargetFor(projectId: string): Promise<{ host: string;
 export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.RouteSpec[]> {
   const rows = await currentRouteRows()
   const headers = await headerRulesByProject()
+  // Übergang: Fassungen aus der deployer-Zeit heissen noch dep_<slug>_…
+  const legacy = await docker.legacyState().catch(() => docker.legacySnapshot())
   const specs: caddy.RouteSpec[] = []
 
-  // Die deployer-UI selbst, immer vorhanden.
+  // Die Oberfläche von Airlock selbst, immer vorhanden (Adresse vorerst deployer.<basis>).
   specs.push({
-    hosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
+    hosts: [primaryHost(UI_HOST_LABEL), ...aliasHosts(UI_HOST_LABEL)],
     kind: 'proxy',
-    upstream: config.DEPLOYER_UPSTREAM,
+    upstream: config.AIRLOCK_UPSTREAM,
     // Siehe RouteSpec.noKeepAlive: MCP-Aufrufe nach einem Deploy.
     noKeepAlive: true,
   })
@@ -290,7 +295,7 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
       specs.push({
         hosts,
         kind: 'proxy',
-        upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId })}:${r.port}`,
+        upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId }, legacy)}:${r.port}`,
         cidrs,
         ...extra,
       })
@@ -306,21 +311,35 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
  */
 export async function syncCaddyNetworks(): Promise<void> {
   const rows = await currentRouteRows()
+  const legacy = await docker.legacyState()
   const needed = new Set(
-    // Die Wartungsseite braucht kein Projekt-Netz.
-    rows.filter((r) => r.sourceType !== 'static' && !r.paused).map((r) => docker.projectNetworkName(r.slug)),
+    // Die Wartungsseite braucht kein Projekt-Netz. Fassungen aus der
+    // deployer-Zeit laufen noch in dep_<slug> (Übergang).
+    rows
+      .filter((r) => r.sourceType !== 'static' && !r.paused && r.deploymentId)
+      .map((r) => docker.networkOf(r.slug, { id: r.deploymentId!, webContainer: r.webContainer }, legacy)),
   )
   const current = await docker.networksOfContainer(config.CADDY_CONTAINER)
 
   for (const net of current) {
-    if (net.startsWith('dep_') && !needed.has(net)) {
+    if (isProjectScoped(net) && !needed.has(net)) {
       await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
       log.info('Caddy aus Projekt-Netz getrennt', { net })
     }
   }
   for (const net of needed) {
     if (!current.includes(net)) {
-      await docker.connectToNetwork(net, config.CADDY_CONTAINER)
+      try {
+        await docker.connectToNetwork(net, config.CADDY_CONTAINER)
+      } catch (err) {
+        // Netz fehlt (Container weg, Projekt noch nicht neu deployt): die
+        // übrigen Projekte nicht mit hinunterziehen.
+        if ((err as { statusCode?: number }).statusCode === 404) {
+          log.warn('Projekt-Netz fehlt, Caddy nicht verbunden', { net })
+          continue
+        }
+        throw err
+      }
       log.info('Caddy in Projekt-Netz gehängt', { net })
     }
   }
@@ -369,7 +388,7 @@ export function reconcileCaddy(o: { force?: boolean } = {}): Promise<void> {
 }
 
 let lastBuildHadTls = false
-/** M8: Caddy hat das Ratenlimit-Modul nicht (altes Image) – bis zum Neustart des deployers */
+/** M8: Caddy hat das Ratenlimit-Modul nicht (altes Image) – bis zum Neustart von Airlock */
 let cspForwardUnsupported = false
 
 async function reconcileCaddyNow(force: boolean): Promise<void> {
@@ -388,12 +407,12 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       tls: caddyTlsOptions(),
       // M5: nur wenn es öffentliche Routen geben kann
       trustedProxies: edge,
-      // Zugriffs-Log für deployer selbst (Systemseite: welche Absender sieht Caddy?)
-      accessLogHosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
+      // Zugriffs-Log für Airlock selbst (Systemseite: welche Absender sieht Caddy?)
+      accessLogHosts: [primaryHost(UI_HOST_LABEL), ...aliasHosts(UI_HOST_LABEL)],
       // M8: Header-Check über Caddy, ohne den IP-Filter zu öffnen
       probeSocket: config.CADDY_PROBE_SOCKET || null,
-      // M8: CSP-Meldungen vom Host des Projekts an deployer (Body-Limit, Ratenlimit in Caddy)
-      cspReportUpstream: cspForward ? config.DEPLOYER_UPSTREAM : null,
+      // M8: CSP-Meldungen vom Host des Projekts an Airlock (Body-Limit, Ratenlimit in Caddy)
+      cspReportUpstream: cspForward ? config.AIRLOCK_UPSTREAM : null,
     })
   let build = buildWith(!cspForwardUnsupported)
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das

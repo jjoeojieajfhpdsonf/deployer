@@ -24,7 +24,7 @@ async function makeTar(entries: E[]): Promise<Readable> {
 
 let work: string
 before(() => {
-  work = mkdtempSync(join(tmpdir(), 'deployer-untar-'))
+  work = mkdtempSync(join(tmpdir(), 'airlock-untar-'))
 })
 after(() => rmSync(work, { recursive: true, force: true }))
 

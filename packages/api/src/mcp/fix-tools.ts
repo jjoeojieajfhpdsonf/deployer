@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { headerKeys, headerModes, needsConfirmation, HEADER_LABEL, fileInputSchema } from '@deployer/shared'
+import { headerKeys, headerModes, needsConfirmation, HEADER_LABEL, fileInputSchema } from '@airlock/shared'
 import { getFixContext, proposeFix, applyFix, listFixRequests } from '../security/fix-service.js'
 import { findProject } from '../domain/projects.js'
 import { setHeaderRule, removeHeaderRule, listHeaderRules, describeRule } from '../security/header-service.js'
@@ -39,7 +39,7 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
     'set_security_header',
     'Fehlenden Security-Header über Caddy ergänzen (ohne Redeploy; setzt die App den Header selbst, gewinnt ihr Wert). ' +
       'header: x-content-type-options, referrer-policy, frame-ancestors, content-security-policy, strict-transport-security. ' +
-      'CSP zuerst mit mode "report-only" (Browser melden Verstösse an deployer), dann "enforce". ' +
+      'CSP zuerst mit mode "report-only" (Browser melden Verstösse an Airlock), dann "enforce". ' +
       'enforce für CSP und HSTS verlangt eine Bestätigung; HSTS nur bei HTTPS mit stabilem Zertifikat. ' +
       'remove: true entfernt die Regel. Danach läuft automatisch ein Nachscan der Header.',
     {
@@ -99,8 +99,8 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
   tool(
     'propose_fix',
     'Änderung zu einem Befund vorschlagen. files: geänderte Dateien vollständig [{path, content}], delete: Pfade. ' +
-      'Chat-Projekte: deployer zeigt den Vorschlag als Diff; übernommen wird er erst nach Zustimmung (Oberfläche oder apply_fix). ' +
-      'Mit GitHub App: deployer öffnet einen Pull Request auf einem eigenen Branch.',
+      'Chat-Projekte: Airlock zeigt den Vorschlag als Diff; übernommen wird er erst nach Zustimmung (Oberfläche oder apply_fix). ' +
+      'Mit GitHub App: Airlock öffnet einen Pull Request auf einem eigenen Branch.',
     {
       project,
       finding: z.string().uuid(),
@@ -113,7 +113,7 @@ export function registerFixTools({ tool, confirm, actor, ok, fail }: FixToolsCon
       return ok({
         fix: fix.id, status: fix.status, ...(fix.prUrl ? { pull_request: fix.prUrl, branch: fix.branch } : { diff: fix.diff }),
         next: fix.way === 'github'
-          ? 'Pull Request prüfen und mergen; deployer deployt danach automatisch und scannt nach.'
+          ? 'Pull Request prüfen und mergen; Airlock deployt danach automatisch und scannt nach.'
           : 'Joël prüft den Diff im Security-Reiter und übernimmt ihn dort – oder apply_fix (verlangt Bestätigung).',
       })
     },

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
   createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
-} from '@deployer/shared'
+} from '@airlock/shared'
 import { checkSourceEarly } from '../../domain/source-checks.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import {
@@ -14,7 +14,7 @@ import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject } from '../../domain/lifecycle.js'
-import { startDeploy, startRollback } from '../../deploy/pipeline.js'
+import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
 import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
@@ -190,6 +190,13 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const project = await findProject(request.params.id)
     const { deploymentId } = rollbackSchema.parse(request.body ?? {})
     const deployment = await startRollback(project.id, actorFor(request), deploymentId)
+    return { deployment }
+  })
+
+  /** Übergang: aktive Fassung mit den Namen von Airlock neu anlegen (docs/RENAME.md). 409 bei laufendem Deploy. */
+  app.post<{ Params: IdParams }>('/projects/:id/recreate', async (request) => {
+    const project = await findProject(request.params.id)
+    const deployment = await startRecreate(project.id, actorFor(request))
     return { deployment }
   })
 

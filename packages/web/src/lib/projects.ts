@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ProjectDto } from '@deployer/shared'
+import type { ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 
 /**

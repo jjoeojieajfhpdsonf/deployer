@@ -2,7 +2,7 @@ import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 
 /**
- * Hängt den deployer kurz in ein Projekt-Netz (Healthcheck, Header-Check)
+ * Hängt Airlock kurz in ein Projekt-Netz (Healthcheck, Header-Check)
  * und löst ihn danach wieder. Gezählt pro Netz: Laufen ein Healthcheck und
  * ein Scan gleichzeitig, darf das Ende des einen dem anderen die Verbindung
  * nicht wegziehen. Getrennt wird erst, wenn niemand sie mehr braucht.
@@ -19,8 +19,8 @@ export interface NetOps {
 }
 
 const dockerOps: NetOps = {
-  connect: (n) => docker.connectToNetwork(n, config.DEPLOYER_CONTAINER),
-  disconnect: (n) => docker.disconnectFromNetwork(n, config.DEPLOYER_CONTAINER),
+  connect: (n) => docker.connectToNetwork(n, config.AIRLOCK_CONTAINER),
+  disconnect: (n) => docker.disconnectFromNetwork(n, config.AIRLOCK_CONTAINER),
 }
 
 export function createNetworkAttacher(ops: NetOps) {

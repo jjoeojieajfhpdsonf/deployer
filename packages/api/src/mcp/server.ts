@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets } from '@deployer/shared'
+import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets } from '@airlock/shared'
 import { listProjects, findProject, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
 import { listDeployments, getDeployment, activeDeployment } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
@@ -20,20 +20,20 @@ import { readLog } from '../deploy/journal.js'
 import * as docker from '../drivers/docker.js'
 import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
-import { slugify } from '@deployer/shared'
+import { slugify } from '@airlock/shared'
 import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
 import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/pause-page.js'
-import { pausePageSchema, formatBackAt, PAUSE_HTML_MAX, type PauseOptions } from '@deployer/shared'
+import { pausePageSchema, formatBackAt, PAUSE_HTML_MAX, type PauseOptions } from '@airlock/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
-import type { DeploymentDto, ProjectDto } from '@deployer/shared'
+import type { DeploymentDto, ProjectDto } from '@airlock/shared'
 
 /**
- * MCP-Server von deployer. Pro Sitzung eine Instanz mit der Identität des
+ * MCP-Server von Airlock. Pro Sitzung eine Instanz mit der Identität des
  * API-Tokens fest eingebunden: kein Werkzeug kann unter einer anderen
  * Identität laufen. Alle Werkzeuge rufen dieselbe Service-Schicht wie REST
  * und UI auf (SPEC).
@@ -94,10 +94,10 @@ async function waitFor(dep: DeploymentDto, timeoutMs = 10 * 60_000) {
 export function createMcpServer(identity: TokenIdentity): McpServer {
   const actor = `token:${identity.name}`
   const server = new McpServer(
-    { name: 'deployer', version: '0.3.0' },
+    { name: 'airlock', version: '0.3.0' },
     {
       instructions:
-        'deployer bringt Projekte auf den Homeserver. Für eine Seite aus dem Chat: create_project mit ' +
+        'Airlock bringt Projekte auf den Homeserver. Für eine Seite aus dem Chat: create_project mit ' +
         'source {type: "files"} und den Dateien; spätere Änderungen mit update_files. Löschen und Rollback ' +
         'verlangen eine Bestätigung, ebenso öffentlich pausieren (pause_public), fortsetzen (resume_public) ' +
         'und ganz offline nehmen (unpublish).',
@@ -284,7 +284,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       return {
         content: [
           { type: 'text', text: JSON.stringify({ commit, bytes: zip.length }) },
-          { type: 'resource', resource: { uri: `deployer://export/${p.slug}.zip`, mimeType: 'application/zip', blob: zip.toString('base64') } },
+          { type: 'resource', resource: { uri: `airlock://export/${p.slug}.zip`, mimeType: 'application/zip', blob: zip.toString('base64') } },
         ],
       }
     }
@@ -430,7 +430,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     return ok({ accepted: a.finding, score: last ? (await scanReport(last.id)).scan.score : null })
   })
 
-  tool('add_external_target', 'Eigene Domain ausserhalb von deployer zum Scannen eintragen; liefert den nötigen TXT-Eintrag', {
+  tool('add_external_target', 'Eigene Domain ausserhalb von Airlock zum Scannen eintragen; liefert den nötigen TXT-Eintrag', {
     hostname: z.string().min(1).max(253),
   }, async (a) => {
     const t = await addExternalTarget(a.hostname, actor)

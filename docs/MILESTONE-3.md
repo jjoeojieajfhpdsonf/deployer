@@ -2,7 +2,7 @@
 
 Stand: 7. November 2026
 
-Umfang laut [SPEC.md](SPEC.md): MCP-Server mit Token, Quelle `files` mit lokalem Git-Repo, Bestätigungen. Dazu der automatische Ablauf von Chat-Deploys nach 30 Tagen. Ab hier kann Claude beim Weiterbauen von deployer selbst Testprojekte deployen.
+Umfang laut [SPEC.md](SPEC.md): MCP-Server mit Token, Quelle `files` mit lokalem Git-Repo, Bestätigungen. Dazu der automatische Ablauf von Chat-Deploys nach 30 Tagen. Ab hier kann Claude beim Weiterbauen von Airlock selbst Testprojekte deployen.
 
 Die Werkzeuge für Scans und externe Ziele (`run_scan`, `get_scan_report`, `accept_finding`, `add_external_target`, `verify_external_target`) kommen mit M6, `list_domains` liefert bis M5 eine leere Liste, und `public` als Ziel lehnt der Server bis M5 ab.
 
@@ -39,7 +39,7 @@ Streamable HTTP unter `/mcp`, über das offizielle SDK `@modelcontextprotocol/sd
 
 ## 3. Bestätigungen
 
-Unterstützt der Client **Elicitation**, fragt deployer dort nach («Projekt shop löschen?»). Sonst antwortet das Tool mit einer Zusammenfassung und einem `confirmation_token`; erst ein zweiter Aufruf **mit denselben Parametern** und diesem Token innerhalb von **5 Minuten** führt die Aktion aus.
+Unterstützt der Client **Elicitation**, fragt Airlock dort nach («Projekt shop löschen?»). Sonst antwortet das Tool mit einer Zusammenfassung und einem `confirmation_token`; erst ein zweiter Aufruf **mit denselben Parametern** und diesem Token innerhalb von **5 Minuten** führt die Aktion aus.
 
 Das Bestätigungs-Token ist gebunden an: das API-Token des Aufrufers, das Werkzeug, einen Hash der Parameter. Es gilt genau einmal. So kann ein Agent weder ein Token für «Projekt A löschen» für Projekt B benutzen noch ein Token eines anderen Clients.
 
@@ -48,7 +48,7 @@ Das Bestätigungs-Token ist gebunden an: das API-Token des Aufrufers, das Werkze
 Pro Projekt ein Repo unter `/data/repos/<slug>`. Dateien kommen als Pfad und Inhalt (UTF-8 oder Base64), **höchstens 20 MB pro Aufruf**, höchstens 2 000 Dateien.
 
 - **Pfade** werden geprüft wie beim ZIP: relativ, kein `..`, kein `.git/`, keine Nullbytes, höchstens 255 Zeichen. Es gibt keinen Weg, einen Symlink anzulegen – Dateien sind immer reguläre Dateien.
-- Jede Änderung ist ein Commit (Autor `deployer`, Nachricht vom Aufrufer). Die Version eines Deploys ist der Commit-Hash; Rollback funktioniert wie bei jeder anderen Quelle.
+- Jede Änderung ist ein Commit (Autor `airlock`, Nachricht vom Aufrufer). Die Version eines Deploys ist der Commit-Hash; Rollback funktioniert wie bei jeder anderen Quelle.
 - **Deploy:** `git archive <commit>` wird mit den Regeln aus `lib/untar.ts` in den Arbeitsordner entpackt – auch der eigene Repo-Inhalt geht durch die sichere Strecke.
 - **Typ-Erkennung** in dieser Reihenfolge (SPEC): `compose.yaml`/`compose.yml`/`docker-compose.yml` → Compose; `Dockerfile` → Build; `package.json` mit Skript `build` → statischer Build (Ausgabe `dist`, über `output_dir` änderbar); sonst → statisch, so wie es ist.
 - Die erkannte Art wird beim Deploy gewählt, nicht beim Anlegen festgeschrieben: ein Chat-Projekt, das mit HTML beginnt und später ein Dockerfile bekommt, wird ab dann gebaut.
@@ -100,7 +100,7 @@ Stand 7.11.2026. Geprüft mit dem offiziellen MCP-Client (SDK 1.32, Streamable H
 
 ## Befunde aus der Umsetzung
 
-1. **Verlorene MCP-Aufrufe nach einem Deploy.** MCP antwortet per SSE, die Header gehen also vor dem Deploy hinaus. Der Deploy lädt Caddy neu, Caddy schliesst die Verbindung nach der Antwort, der Client weiss es nicht und schickt seinen nächsten Aufruf ins Leere. Genau der Hauptfall der SPEC (`create_project`, dann `update_files`) scheiterte daran. Behoben mit `Connection: close` auf der Route des deployers und mit Neuladen nur bei echter Änderung.
+1. **Verlorene MCP-Aufrufe nach einem Deploy.** MCP antwortet per SSE, die Header gehen also vor dem Deploy hinaus. Der Deploy lädt Caddy neu, Caddy schliesst die Verbindung nach der Antwort, der Client weiss es nicht und schickt seinen nächsten Aufruf ins Leere. Genau der Hauptfall der SPEC (`create_project`, dann `update_files`) scheiterte daran. Behoben mit `Connection: close` auf der Route von Airlock und mit Neuladen nur bei echter Änderung.
 2. **Tokens können keine Tokens verwalten** – nicht im Plan, aber nötig: Ein gestohlenes Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern.
 
 ## Code-Review

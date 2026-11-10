@@ -19,11 +19,11 @@ Vorab geprüft (Docker Desktop 29.9, API 1.56):
 
 ## 2. Git
 
-`lib/git.ts` ruft die `git`-CLI im deployer-Container auf, immer per `execFile` (keine Shell) und mit `--` vor der URL.
+`lib/git.ts` ruft die `git`-CLI im Airlock-Container auf, immer per `execFile` (keine Shell) und mit `--` vor der URL.
 
 **Erlaubte URLs:** nur `https://` und `http://`. Abgelehnt werden `file://`, `ssh://`, `git://` und Remote-Helfer wie `ext::` – Letztere führen beliebige Befehle aus. Zusätzlich setzt jeder Aufruf `-c protocol.allow=never -c protocol.https.allow=always -c protocol.http.allow=always`. Damit greift das Verbot auch für Weiterleitungen und Submodule; Submodule werden ohnehin nicht geholt.
 
-**Kein Zugriff auf den eigenen Stack:** Die Repo-URL darf nicht auf `localhost`, Loopback-Adressen, die Dienstnamen des Stacks (`postgres`, `socket-proxy`, `caddy`, `deployer-*`) oder eine Adresse in den Netzen `deployer_internal`/`deployer_edge` zeigen. Sonst könnte ein Clone – ab M3 auch von einem Agenten angestossen – interne Dienste abtasten. Ein Git-Server im LAN bleibt erlaubt.
+**Kein Zugriff auf den eigenen Stack:** Die Repo-URL darf nicht auf `localhost`, Loopback-Adressen, die Dienstnamen des Stacks (`postgres`, `socket-proxy`, `caddy`, `airlock-*`) oder eine Adresse in den Netzen `airlock_internal`/`airlock_edge` zeigen. Sonst könnte ein Clone – ab M3 auch von einem Agenten angestossen – interne Dienste abtasten. Ein Git-Server im LAN bleibt erlaubt.
 
 **Version:** der Commit-Hash nach dem Checkout (`git rev-parse HEAD`). Ein Ref kann Branch, Tag oder Commit sein; Commits werden per `git fetch --depth 1 origin <sha>` geholt.
 
@@ -33,14 +33,14 @@ Vorab geprüft (Docker Desktop 29.9, API 1.56):
 
 1. Clone nach `/data/work/<deployment>/`, `.git` wird nicht mitgeschickt.
 2. Kontext als Tar packen, `.dockerignore` beachten. Kontext und Dockerfile-Pfad müssen nach dem Auflösen im Repo liegen (dieselbe Prüfung wie bei Zip Slip).
-3. `POST /build` mit Tag `deployer/<slug>:<deployment-kurz>`, Labels `deployer.managed`/`deployer.project`, Speicher- und CPU-Grenze, **Zeitlimit 10 Minuten** (Abbruch per AbortSignal).
+3. `POST /build` mit Tag `airlock/<slug>:<deployment-kurz>`, Labels `airlock.managed`/`airlock.project`, Speicher- und CPU-Grenze, **Zeitlimit 10 Minuten** (Abbruch per AbortSignal).
 4. Ab hier wie `image`: Container über die Erlaubnisliste, Healthcheck, Umschalten.
 
 Ein Build führt fremde `RUN`-Schritte auf dem Host-Daemon aus. Er läuft isoliert in einem Build-Container ohne `privileged` (das bräuchte eine Entitlement, die die API hier nicht setzt), aber mit Netzzugang – sonst scheitert jedes `npm install`. Die Image-Prüfung mit Trivy kommt in M6.
 
 ## 4. Compose
 
-Die Compose-CLI geht **an der Erlaubnisliste in `drivers/policy.ts` vorbei** – darauf hat M1 bereits hingewiesen. Die Schranke ist deshalb eine eigene, gleich strenge Prüfung der `compose.yaml`, und die CLI bekommt nie die Datei des Nutzers, sondern nur eine Datei, die deployer aus geprüften Werten neu schreibt.
+Die Compose-CLI geht **an der Erlaubnisliste in `drivers/policy.ts` vorbei** – darauf hat M1 bereits hingewiesen. Die Schranke ist deshalb eine eigene, gleich strenge Prüfung der `compose.yaml`, und die CLI bekommt nie die Datei des Nutzers, sondern nur eine Datei, die Airlock aus geprüften Werten neu schreibt.
 
 **Erlaubnisliste pro Dienst** (alles andere wird abgelehnt, mit Name des Feldes):
 
@@ -58,9 +58,9 @@ Abgelehnt, weil sie aus dem Container ausbrechen oder den Host berühren: `privi
 
 **Auf oberster Ebene:** `services` und `volumes`; Volumes ohne `driver`, `driver_opts` und `external` – über `driver_opts: {type: none, o: bind, device: /}` liesse sich sonst ein Bind-Mount durch die Hintertür bauen. `x-*`-Erweiterungen werden verworfen, alles andere abgelehnt.
 
-**Warum keine Bind-Mounts, auch keine relativen ins Repo:** Die CLI läuft im deployer-Container und schickt den aufgelösten Pfad an den Host-Daemon. `./nginx.conf` würde zu `/data/work/...` – ein Pfad, den es auf dem Host nicht gibt. Docker legt dann einen leeren Ordner an, der Dienst startet mit leerer Konfiguration. Abgelehnt mit dem Hinweis, die Datei ins Image zu bauen.
+**Warum keine Bind-Mounts, auch keine relativen ins Repo:** Die CLI läuft im Airlock-Container und schickt den aufgelösten Pfad an den Host-Daemon. `./nginx.conf` würde zu `/data/work/...` – ein Pfad, den es auf dem Host nicht gibt. Docker legt dann einen leeren Ordner an, der Dienst startet mit leerer Konfiguration. Abgelehnt mit dem Hinweis, die Datei ins Image zu bauen.
 
-**Normalisiert** wird jeder Dienst auf: Netz `dep_<slug>` (extern), feste Log-Rotation, `mem_limit`/`cpus` aus dem Projekt, `security_opt: [no-new-privileges:true]`, `restart: unless-stopped`, Labels `deployer.*`. Dienste mit `build` bekommen `image: deployer/<slug>-<dienst>:<deployment-kurz>` – so hat jede Fassung ihr eigenes Image, und ein Rollback findet es wieder.
+**Normalisiert** wird jeder Dienst auf: Netz `air_<slug>` (extern), feste Log-Rotation, `mem_limit`/`cpus` aus dem Projekt, `security_opt: [no-new-privileges:true]`, `restart: unless-stopped`, Labels `airlock.*`. Dienste mit `build` bekommen `image: airlock/<slug>-<dienst>:<deployment-kurz>` – so hat jede Fassung ihr eigenes Image, und ein Rollback findet es wieder.
 
 **Projektname** ist fest `dep_<slug>`. Benannte Volumes heissen damit `dep_<slug>_<name>` und überleben jeden Deploy.
 
@@ -118,7 +118,7 @@ Ein Rollback ist ein eigener Eintrag in `deployments` (`trigger = rollback`, `ro
 
 ## Abnahmekriterien
 
-Stand 7.11.2026, geprüft lokal auf Docker Desktop 29 mit der Ende-zu-Ende-Suite (`pnpm --filter @deployer/api e2e`, Dateien `e2e/m1.e2e.ts` und `e2e/m2.e2e.ts`). Ein kleiner Git-Server auf dem Host (Smart HTTP) liefert die Test-Repos; der deployer erreicht ihn über `host.docker.internal`.
+Stand 7.11.2026, geprüft lokal auf Docker Desktop 29 mit der Ende-zu-Ende-Suite (`pnpm --filter @airlock/api e2e`, Dateien `e2e/m1.e2e.ts` und `e2e/m2.e2e.ts`). Ein kleiner Git-Server auf dem Host (Smart HTTP) liefert die Test-Repos; Airlock erreicht ihn über `host.docker.internal`.
 
 - [x] Ein Repo mit Dockerfile wird geklont, gebaut und ist erreichbar; die Version ist der Commit-Hash
 - [x] Ein Repo mit `npm run build` wird im Wegwerf-Container gebaut und als statische Seite ausgeliefert; danach steht kein Build-Container mehr – *die Seite zeigt die Node-Version des Build-Containers (v22)*
@@ -140,13 +140,13 @@ Die Abnahme und das Schreiben der Tests haben Fehler gefunden, die über den Pla
 
 1. **Secrets der Umgebung über Compose abgreifbar.** Compose ersetzt `${DATABASE_URL}` aus der Umgebung der CLI, und `environment: [ADMIN_PASSWORD]` ohne Wert übernimmt sie ebenso. Gegenmittel: `$` wird zu `$$` maskiert, Einträge ohne Wert werden abgelehnt, die CLI läuft mit leerer Umgebung und `--env-file /dev/null`.
 2. **Secrets im Klartext in Rollback-Artefakten.** Die normalisierte Datei wird fünf Fassungen lang aufbewahrt. Sie wird jetzt ohne Projekt-Env gespeichert; die Env kommt nur für die Dauer von `compose up` in eine Temporärdatei.
-3. **Fremde Volumes und Labels.** `volumes: {x: {name: dep_anderes_db}}` hätte das Volume eines anderen Projekts eingehängt, Labels `deployer.*` hätten Aufräumen und Löschen getäuscht. Beides abgelehnt.
-4. **Symlinks im Repo.** Ein `env_file` als Symlink auf `/proc/self/environ` hätte die Umgebung des deployers in einen Container geleitet. Git checkt Symlinks jetzt als Textdateien aus; Dateizugriffe lehnen Symlinks zusätzlich ab.
+3. **Fremde Volumes und Labels.** `volumes: {x: {name: dep_anderes_db}}` (heute `air_…`) hätte das Volume eines anderen Projekts eingehängt, Labels `airlock.*` hätten Aufräumen und Löschen getäuscht. Beides abgelehnt.
+4. **Symlinks im Repo.** Ein `env_file` als Symlink auf `/proc/self/environ` hätte die Umgebung von Airlock in einen Container geleitet. Git checkt Symlinks jetzt als Textdateien aus; Dateizugriffe lehnen Symlinks zusätzlich ab.
 5. **DNS-Rebinding beim Clone.** Die geprüfte Adresse wird mit `http.curloptResolve` festgeschrieben. Dabei ein eigener Fehler: zwei Einträge für denselben Host ersetzen sich in curl gegenseitig, übrig blieb eine nicht routbare IPv6-Adresse. Jetzt ein Eintrag mit allen Adressen, IPv4 zuerst.
 6. **409 direkt nach «active».** Das Deployment meldete `active`, hielt den Lock aber noch fürs Aufräumen. Ein Client, der darauf wartet und sofort neu deployt (ab M3 typischerweise ein Agent), bekam 409. Jetzt erst aufräumen, dann Endstatus, dann sofort Lock frei.
 7. **Caddy scheitert nach dem Umschalten.** Die alte Fassung stand in der Datenbank schon auf «abgelöst», obwohl Caddy sie weiter ausliefert. Jetzt wird sie in diesem Fall wieder aktiv gesetzt.
 8. **Build-Container mit `unless-stopped`** hätten sich nach Ende endlos neu gestartet. Die Erlaubnisliste erlaubt zusätzlich `no`.
-9. **Label `deployer.deployment` bei Compose** hätte bei jedem Deploy alle Dienste neu erzeugt, auch die Datenbank. Compose-Dienste tragen es nicht.
+9. **Label `airlock.deployment` bei Compose** hätte bei jedem Deploy alle Dienste neu erzeugt, auch die Datenbank. Compose-Dienste tragen es nicht.
 10. **Ungültige Eingaben erst beim Deploy erkannt.** Gesperrte Repo-URLs und unzulässige hochgeladene `compose.yaml` kommen jetzt schon beim Anlegen als 400 mit Feldnamen zurück.
 
 ## Code-Review
@@ -162,10 +162,10 @@ Das Review (`/code-review high`) hat zehn Befunde geliefert; alle waren berechti
 | 5 | `.output/public` wurde zu `output/public` | eigene Funktion, nur führendes `./` wird entfernt | Unit |
 | 6 | Statischer Build ignorierte geänderte Env | Env gehört zum Fassungs-Hash | Unit |
 | 7 | Caddy-Rückfall setzte bei statisch/Compose die falsche Fassung aktiv | Rückfall nur bei Container-Quellen; sonst Warnung, neue Fassung bleibt aktiv | – |
-| 8 | Start und Abgleich starteten Einmal-Dienste (`restart: no`) erneut | Label `deployer.compose-restart`, nur dauerhafte Dienste werden gestartet | E2E |
+| 8 | Start und Abgleich starteten Einmal-Dienste (`restart: no`) erneut | Label `airlock.compose-restart`, nur dauerhafte Dienste werden gestartet | E2E |
 | 9 | Compose holte `:latest` beim Redeploy nicht neu | `compose pull --ignore-buildable` vor `up`, nicht bei Rollbacks | – |
 | 10 | `.dockerignore` verwarf eigene Dockerfile-Pfade und `!`-Ausnahmen | Dockerfile immer dabei; mit `!` wird Datei für Datei entschieden | Unit |
 
-Beim Beheben von 8 fiel ein eigener Fehler auf, den das Review nicht gemeldet hat: Das Label `deployer.deployment` stand trotz Plan noch an den Compose-Diensten und hätte bei jedem Deploy alle Dienste neu erzeugt. Entfernt.
+Beim Beheben von 8 fiel ein eigener Fehler auf, den das Review nicht gemeldet hat: Das Label `airlock.deployment` stand trotz Plan noch an den Compose-Diensten und hätte bei jedem Deploy alle Dienste neu erzeugt. Entfernt.
 
 **Nicht mit Docker geprüft:** Nr. 3, 7 und 9. Für 9 bräuchte es eine Registry, in der sich ein Tag ändert; 3 und 7 sind Fehlerpfade, die sich lokal nur mit absichtlich kaputtem Caddy bzw. kaputtem Healthcheck beim Rollback erzwingen liessen.

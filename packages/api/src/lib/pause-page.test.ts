@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   renderMarkdown, renderPausePage, pauseHeaders, escapeHtml, pausePageSchema, pauseOptionsSchema, effectivePausePage,
   DEFAULT_PAUSE_PAGE, PAUSE_CSP, forcePreviewScheme, type PausePage,
-} from '@deployer/shared'
+} from '@airlock/shared'
 
 const page = (over: Partial<PausePage> = {}): PausePage => ({ ...DEFAULT_PAUSE_PAGE, ...over })
 
@@ -96,7 +96,7 @@ describe('Pause-Seite: Header', () => {
     assert.deepEqual(h['Cache-Control'], ['no-store'])
     assert.deepEqual(h['Content-Security-Policy'], [PAUSE_CSP])
     assert.equal(PAUSE_CSP, "default-src 'none'; style-src 'unsafe-inline'")
-    assert.deepEqual(h['X-Deployer-State'], ['paused'])
+    assert.deepEqual(h['X-Airlock-State'], ['paused'])
   })
 
   test('Retry-After nur mit «Voraussichtlich zurück» in der Zukunft, als HTTP-Datum', () => {

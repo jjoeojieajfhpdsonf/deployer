@@ -11,7 +11,7 @@ import { repoUrlPolicy } from './git-policy.js'
 import { findProject, createProject } from './projects.js'
 import { audit } from './audit.js'
 import { rm } from 'node:fs/promises'
-import type { CreateProjectInput } from '@deployer/shared'
+import type { CreateProjectInput } from '@airlock/shared'
 
 /**
  * Dateien eines Chat-Projekts (Quelle files, M3). Gemeinsame Schicht für

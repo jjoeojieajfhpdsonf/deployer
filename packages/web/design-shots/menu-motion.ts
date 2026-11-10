@@ -2,8 +2,8 @@
  * Menü-Animation prüfen und aufnehmen (Profilmenü, «…» der Projektkarten).
  * Startet Vite selbst, die API kommt aus fixtures.ts. Nur Desktop (1440 px).
  *
- *   pnpm --filter @deployer/web exec tsx design-shots/menu-motion.ts            # Prüfungen + GIF
- *   pnpm --filter @deployer/web exec tsx design-shots/menu-motion.ts --no-gif   # nur Prüfungen
+ *   pnpm --filter @airlock/web exec tsx design-shots/menu-motion.ts            # Prüfungen + GIF
+ *   pnpm --filter @airlock/web exec tsx design-shots/menu-motion.ts --no-gif   # nur Prüfungen
  *
  * Prüft: Esc, Klick daneben und Auswahl schliessen gleich (Fokus zurück auf
  * den Auslöser), schnelles Auf/Zu/Auf bleibt weder hängen noch flackert,
@@ -54,7 +54,7 @@ async function newContext(browser: Browser, opts: { reduced?: boolean; theme?: '
     timezoneId: 'Europe/Zurich',
     colorScheme: theme,
   })
-  await ctx.addInitScript({ content: `try { localStorage.setItem('deployer.theme', '${theme}') } catch {}` })
+  await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${theme}') } catch {}` })
   // tsx/esbuild hängt an benannte Funktionen __name(); in page.evaluate gibt es das nicht
   await ctx.addInitScript({ content: 'globalThis.__name = globalThis.__name || ((f) => f)' })
   await ctx.route('**/*', async (route) => {

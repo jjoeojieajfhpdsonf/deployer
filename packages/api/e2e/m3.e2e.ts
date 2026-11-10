@@ -266,7 +266,7 @@ describe('M3: Review-Fälle', () => {
     })
     assert.equal(u.data.deploy.status, 'active', JSON.stringify(u.data))
     assert.match((await get(host(p.data.project))).body, /statisch jetzt/)
-    const svc = docker('ps', '-a', '--filter', `label=deployer.project=${p.data.project}`, '--format', '{{.Names}} {{.Label "deployer.role"}}')
+    const svc = docker('ps', '-a', '--filter', `label=airlock.project=${p.data.project}`, '--format', '{{.Names}} {{.Label "airlock.role"}}')
       .split('\n').filter((l) => l && !l.endsWith(' scanner'))
     assert.deepEqual(svc, [], 'Compose-Dienste laufen noch')
     await c.close()
@@ -275,9 +275,9 @@ describe('M3: Review-Fälle', () => {
   test('Start eines abgelaufenen Projekts setzt die Frist neu', async () => {
     const c = await connect()
     const p = await call(c, 'create_project', { name: `${P}neustart`, source: { type: 'files' }, files: [{ path: 'index.html', content: 'n' }] })
-    docker('exec', 'deployer-postgres-1', 'psql', '-U', 'deployer', '-d', 'deployer', '-qc',
+    docker('exec', 'airlock-postgres', 'psql', '-U', 'airlock', '-d', 'airlock', '-qc',
       `UPDATE projects SET last_change_at = now() - interval '40 days' WHERE slug = '${p.data.project}'`)
-    const runJob = () => JSON.parse(docker('exec', 'deployer-app', 'node', '--input-type=module', '-e',
+    const runJob = () => JSON.parse(docker('exec', 'airlock-app', 'node', '--input-type=module', '-e',
       "const m = await import('/app/packages/api/dist/jobs/expiry.js'); console.log(JSON.stringify(await m.runExpiry())); process.exit(0)")
       .split('\n').filter((l) => l.startsWith('{')).pop()!)
     assert.ok(runJob().stopped.includes(p.data.project))
@@ -299,12 +299,12 @@ describe('M3: Ablauf von Chat-Deploys', () => {
 
     // 40 Tage zurückdatieren: letzte Änderung und letzter Deploy.
     for (const slug of [alt.data.project, keep.data.project]) {
-      docker('exec', 'deployer-postgres-1', 'psql', '-U', 'deployer', '-d', 'deployer', '-qc',
+      docker('exec', 'airlock-postgres', 'psql', '-U', 'airlock', '-d', 'airlock', '-qc',
         `UPDATE projects SET last_change_at = now() - interval '40 days' WHERE slug = '${slug}';
          UPDATE deployments SET started_at = now() - interval '40 days' WHERE project_id = (SELECT id FROM projects WHERE slug = '${slug}');`)
     }
     // Den stündlichen Job einmal sofort laufen lassen.
-    const out = docker('exec', 'deployer-app', 'node', '--input-type=module', '-e',
+    const out = docker('exec', 'airlock-app', 'node', '--input-type=module', '-e',
       "const m = await import('/app/packages/api/dist/jobs/expiry.js'); console.log(JSON.stringify(await m.runExpiry())); process.exit(0)")
     const r = JSON.parse(out.split('\n').filter((l) => l.startsWith('{')).pop()!)
     assert.ok(r.stopped.includes(alt.data.project), out)

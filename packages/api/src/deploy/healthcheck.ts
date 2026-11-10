@@ -10,7 +10,7 @@ export interface HealthcheckResult {
 /**
  * Pollt HTTP GET auf dem Container, bis 2xx/3xx kommt oder die Zeit ablaeuft.
  *
- * Laeuft, waehrend der deployer voruebergehend im Projekt-Netz haengt - der
+ * Laeuft, waehrend Airlock voruebergehend im Projekt-Netz haengt - der
  * Aufrufer verbindet vorher und trennt danach im finally.
  */
 export async function waitForHealthy(opts: {

@@ -3,17 +3,17 @@
  *
  * Läuft die Oberfläche über https, darf der Browser http-Adressen (nip.io)
  * nicht abfragen (Mixed Content) – er meldet dann «nicht erreichbar», obwohl
- * die Adresse geht. Deshalb fragt der deployer Caddy direkt, mit dem
+ * die Adresse geht. Deshalb fragt Airlock Caddy direkt, mit dem
  * Hostnamen im Host-Header. Getestet wird so Caddys Route samt Projekt, nicht
  * DNS oder der Weg vom Gerät.
  *
- * Mit IP-Filter sperrt Caddy den deployer selbst aus (seine Adresse im
+ * Mit IP-Filter sperrt Caddy Airlock selbst aus (seine Adresse im
  * Docker-Netz liegt weder im LAN noch im Tailnet). Die Sperrseite gibt es nur
  * für bekannte Namen: sie belegt, dass Caddy den Namen weiterleitet – nur die
  * Antwort des Projekts selbst bleibt dann ungeprüft.
  */
 
-import type { AddressCheckDto } from '@deployer/shared'
+import type { AddressCheckDto } from '@airlock/shared'
 
 /** Text der Sperrseite in caddy-config.ts (403 bei fremder Absenderadresse). */
 const BLOCKED_PREFIX = 'Kein Zugriff von '
@@ -47,7 +47,7 @@ export function hostOf(url: string): string | null {
 }
 
 /**
- * Fragt Caddy (caddyAddr = "deployer-caddy:80", im Docker-Netz edge) mit
+ * Fragt Caddy (caddyAddr = "airlock-caddy:80", im Docker-Netz edge) mit
  * dem Namen im Host-Header.
  * Keine Weiterleitungen folgen; ein 3xx gilt als Antwort.
  */

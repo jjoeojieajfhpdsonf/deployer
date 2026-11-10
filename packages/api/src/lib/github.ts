@@ -5,7 +5,7 @@ import { createSign } from 'node:crypto'
  * Tests mit einer Attrappe) und reine Hilfen: Manifest, App-JWT, Repo aus URL.
  *
  * Rechte der App: nur «Contents: write» und «Pull requests: write» (SPEC);
- * GitHub fügt «Metadata: read» immer hinzu. Kein Webhook: deployer ist nie
+ * GitHub fügt «Metadata: read» immer hinzu. Kein Webhook: Airlock ist nie
  * öffentlich erreichbar, Merges erkennt ein Polling.
  */
 
@@ -24,11 +24,11 @@ export interface GithubManifest {
 }
 
 /**
- * App-Manifest. Rückleitungen zeigen auf deployer selbst; sie laufen über
- * den Browser (der deployer erreicht), deployer muss nicht öffentlich sein.
+ * App-Manifest. Rückleitungen zeigen auf Airlock selbst; sie laufen über
+ * den Browser (der Airlock erreicht), Airlock muss nicht öffentlich sein.
  */
-export function githubManifest(o: { name: string; deployerUrl: string }): GithubManifest {
-  const base = o.deployerUrl.replace(/\/+$/, '')
+export function githubManifest(o: { name: string; airlockUrl: string }): GithubManifest {
+  const base = o.airlockUrl.replace(/\/+$/, '')
   return {
     name: o.name.slice(0, 34),
     url: base,
@@ -39,7 +39,7 @@ export function githubManifest(o: { name: string; deployerUrl: string }): Github
     default_permissions: { ...GITHUB_PERMISSIONS },
     // Keine Ereignisse und kein hook_attributes: ohne Webhook
     default_events: [],
-    description: 'deployer auf dem Homeserver: Fixes zu Security-Befunden als Pull Request.',
+    description: 'Airlock auf dem Homeserver: Fixes zu Security-Befunden als Pull Request.',
   }
 }
 
@@ -78,7 +78,13 @@ export function githubRepoOf(url: string | null | undefined, web = 'https://gith
   }
 }
 
-/** Branch für einen Fix: deployer/fix-<befund>-<kurz-id>, gültig für git. */
+export const FIX_BRANCH_PREFIX = 'airlock/'
+/** Übergang: Fix-Branches aus der deployer-Zeit (deployer/fix-…) bleiben eigene. */
+export const LEGACY_FIX_BRANCH_PREFIX = 'deployer/'
+export const isFixBranch = (branch: string): boolean =>
+  (branch.startsWith(`${FIX_BRANCH_PREFIX}fix-`) || branch.startsWith(`${LEGACY_FIX_BRANCH_PREFIX}fix-`))
+
+/** Branch für einen Fix: airlock/fix-<befund>-<kurz-id>, gültig für git. */
 export function fixBranchName(title: string, id: string): string {
   const slug = title
     .toLowerCase()
@@ -88,7 +94,7 @@ export function fixBranchName(title: string, id: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
     .replace(/-+$/, '')
-  return `deployer/fix-${slug || 'befund'}-${id.replace(/-/g, '').slice(0, 8)}`
+  return `${FIX_BRANCH_PREFIX}fix-${slug || 'befund'}-${id.replace(/-/g, '').slice(0, 8)}`
 }
 
 export class GithubError extends Error {
@@ -135,7 +141,7 @@ export class GitHub {
     const headers: Record<string, string> = {
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
-      'user-agent': 'deployer',
+      'user-agent': 'airlock',
     }
     if (auth?.bearer) headers.authorization = `Bearer ${auth.bearer}`
     if (auth?.token) headers.authorization = `token ${auth.token}`
@@ -219,7 +225,7 @@ export class GitHub {
    * Commit, Ref, Pull Request.
    */
   async createFixPullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
-    if (i.branch === i.base || !i.branch.startsWith('deployer/')) throw new GithubError(400, 'Fixes nur auf einem eigenen Branch deployer/…')
+    if (i.branch === i.base || !isFixBranch(i.branch)) throw new GithubError(400, 'Fixes nur auf einem eigenen Branch airlock/fix-…')
     const repo = `/repos/${i.owner}/${i.repo}`
     const baseSha = await this.branchHead(token, i.owner, i.repo, i.base)
     const baseCommit = await this.request<{ tree: { sha: string } }>('GET', `${repo}/git/commits/${baseSha}`, { token })

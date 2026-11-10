@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
-import { githubManifestRequestSchema } from '@deployer/shared'
+import { githubManifestRequestSchema } from '@airlock/shared'
 import { githubStatus, startManifest, finishManifest, finishInstall, refreshRepos, disconnect, connectedRepo } from '../../domain/github.js'
 import { findProject } from '../../domain/projects.js'
 import { audit } from '../../domain/audit.js'
@@ -13,7 +13,7 @@ import { GithubError } from '../../lib/github.js'
 
 /**
  * M8, Etappe 3: GitHub App. Die Rückleitungen sind gewöhnliche GET-Aufrufe
- * des Browsers (mit der Anmeldung bei deployer); deployer muss dafür nicht
+ * des Browsers (mit der Anmeldung bei Airlock); Airlock muss dafür nicht
  * öffentlich erreichbar sein. Danach geht es zurück auf die Systemseite.
  */
 

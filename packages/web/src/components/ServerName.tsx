@@ -7,5 +7,5 @@ export function useSystem() {
 }
 
 export function useServerName(): string {
-  return useSystem().data?.server.name ?? 'deployer'
+  return useSystem().data?.server.name ?? 'Airlock'
 }

@@ -1,4 +1,4 @@
-import type { PublicOp, PublicProgressDto, PublicStepDto, PublicStepState } from '@deployer/shared'
+import type { PublicOp, PublicProgressDto, PublicStepDto, PublicStepState } from '@airlock/shared'
 
 /**
  * Fortschritt eines Übergangs der Veröffentlichung (veröffentlichen,

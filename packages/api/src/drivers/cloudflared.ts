@@ -2,9 +2,10 @@ import tarStream from 'tar-stream'
 import { config } from '../config.js'
 import * as docker from './docker.js'
 import { AppError } from '../lib/errors.js'
+import { LABEL, LEGACY_LABEL_NS } from '../lib/names.js'
 
 /**
- * cloudflared als Container, den deployer selbst startet und verwaltet
+ * cloudflared als Container, den Airlock selbst startet und verwaltet
  * (seit «Cloudflare verbinden»; früher compose.public.yaml).
  *
  * Das Tunnel-Token steht weder in der Umgebung noch in den Argumenten
@@ -13,7 +14,28 @@ import { AppError } from '../lib/errors.js'
  * Projekt-Erlaubnisliste – der Container ist Teil des Stacks.
  */
 
-export const SYSTEM_LABEL = 'deployer.system'
+export const SYSTEM_LABEL = LABEL.system
+
+/**
+ * Übergang (docs/RENAME.md): der cloudflared-Container aus der deployer-Zeit.
+ * Er hängt am alten Tunnel-Netz und erreicht nach dem Umzug kein Caddy mehr;
+ * liefe er weiter, ginge ein Teil der Besucher ins Leere. Er wird nur
+ * gestoppt, nicht gelöscht: der Rückweg startet ihn wieder.
+ */
+const LEGACY_CLOUDFLARED = { name: 'deployer-cloudflared', label: `${LEGACY_LABEL_NS}.system` }
+
+export async function stopLegacyCloudflared(): Promise<boolean> {
+  if (config.CLOUDFLARED_CONTAINER === LEGACY_CLOUDFLARED.name) return false
+  try {
+    const i = (await docker.docker.getContainer(LEGACY_CLOUDFLARED.name).inspect()) as { State: { Running: boolean }; Config: { Labels?: Record<string, string> } }
+    if (i.Config.Labels?.[LEGACY_CLOUDFLARED.label] !== 'cloudflared' || !i.State.Running) return false
+    await docker.stopContainer(LEGACY_CLOUDFLARED.name, 5)
+    return true
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return false
+    throw err
+  }
+}
 const TOKEN_DIR = '/etc/cloudflared'
 const NONROOT_UID = 65532 // Benutzer im offiziellen Image
 
@@ -61,11 +83,12 @@ export async function startCloudflared(tunnelToken: string, image = config.CLOUD
   if (existing.exists && !existing.ours) {
     throw new AppError(
       'cloudflared_foreign',
-      `Es läuft schon ein Container «${config.CLOUDFLARED_CONTAINER}», vermutlich aus compose.public.yaml. Stack ohne diese Datei neu starten, dann übernimmt deployer.`,
+      `Es läuft schon ein Container «${config.CLOUDFLARED_CONTAINER}», vermutlich aus compose.public.yaml. Stack ohne diese Datei neu starten, dann übernimmt Airlock.`,
       409,
     )
   }
   if (existing.exists) await removeCloudflared()
+  await stopLegacyCloudflared()
 
   await docker.pullImage(image)
   const c = await docker.docker.createContainer({
@@ -75,7 +98,7 @@ export async function startCloudflared(tunnelToken: string, image = config.CLOUD
     Labels: { [SYSTEM_LABEL]: 'cloudflared' },
     HostConfig: {
       // Nur im Netz «tunnel» (mit Caddy): nicht im edge-Netz, also nie direkt
-      // beim deployer; keine Projekt-Netze, nicht das interne Netz.
+      // bei Airlock; keine Projekt-Netze, nicht das interne Netz.
       NetworkMode: config.TUNNEL_NETWORK,
       RestartPolicy: { Name: 'unless-stopped' },
       CapDrop: ['ALL'],
@@ -96,8 +119,9 @@ export async function removeCloudflared(): Promise<void> {
   await docker.removeContainer(config.CLOUDFLARED_CONTAINER).catch(() => {})
 }
 
-/** Beim Start des deployers: eigener Container gestoppt? Wieder starten (Neustart-Regel greift sonst nur bei Docker). */
+/** Beim Start von Airlock: eigener Container gestoppt? Wieder starten (Neustart-Regel greift sonst nur bei Docker). */
 export async function ensureCloudflaredRunning(tunnelToken: string, image = config.CLOUDFLARED_IMAGE): Promise<'running' | 'started' | 'created'> {
+  await stopLegacyCloudflared()
   const s = await cloudflaredState()
   // Ein älterer eigener Container im falschen Netz (vor «tunnel» im edge-Netz) wird neu angelegt
   if (s.exists && s.ours && s.networks.join() !== config.TUNNEL_NETWORK) {

@@ -74,9 +74,18 @@ describe('upsertManagedRecord', () => {
     await cf.createRecord(zoneId, { type: 'CNAME', name: 'blog.example.ch', content: 'ghs.example.net', proxied: true })
     await assert.rejects(
       upsertManagedRecord(cf, zoneId, { type: 'CNAME', name: 'blog.example.ch', content: 't.cfargotunnel.com', proxied: true }),
-      (err: unknown) => err instanceof CloudflareError && err.status === 409 && /nicht von deployer/.test(err.message),
+      (err: unknown) => err instanceof CloudflareError && err.status === 409 && /nicht von Airlock/.test(err.message),
     )
     assert.equal([...fake.records.values()].find((x) => x.name === 'blog.example.ch')!.content, 'ghs.example.net')
+  })
+
+  test('Übergang: Eintrag aus der deployer-Zeit gilt als eigener und bekommt den neuen Kommentar', async () => {
+    await cf.createRecord(zoneId, { type: 'CNAME', name: 'alt.example.ch', content: 'alt.cfargotunnel.com', proxied: true, comment: 'managed by deployer' })
+    const r = await upsertManagedRecord(cf, zoneId, { type: 'CNAME', name: 'alt.example.ch', content: 'neu.cfargotunnel.com', proxied: true })
+    assert.equal(r.action, 'updated')
+    const stored = [...fake.records.values()].find((x) => x.name === 'alt.example.ch')!
+    assert.equal(stored.content, 'neu.cfargotunnel.com')
+    assert.equal(stored.comment, MANAGED_COMMENT)
   })
 
   test('Typwechsel A -> CNAME ersetzt den eigenen Eintrag', async () => {

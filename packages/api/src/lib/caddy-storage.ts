@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 /**
  * Caddys Zertifikatsspeicher lesen und aufräumen (Volume caddy_data, im
- * deployer unter CADDY_DATA_DIR eingebunden). Aufbau wie bei CertMagic:
+ * Airlock unter CADDY_DATA_DIR eingebunden). Aufbau wie bei CertMagic:
  *
  *   <dir>/caddy/certificates/<ca-schlüssel>/<name>/<name>.crt
  *

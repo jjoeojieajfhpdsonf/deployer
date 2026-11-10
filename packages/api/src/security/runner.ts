@@ -23,8 +23,8 @@ export const SCANNER_IMAGES = {
 
 /** Caches der Scanner (Trivy-Datenbank, Nuclei-Vorlagen), über Scans hinweg. */
 export const SCANNER_CACHES = {
-  trivy: 'deployer_scan-trivy',
-  nuclei: 'deployer_scan-nuclei',
+  trivy: 'airlock_scan-trivy',
+  nuclei: 'airlock_scan-nuclei',
 } as const
 
 const MAX_REPORT_BYTES = 50 * 1024 * 1024
@@ -75,7 +75,7 @@ export async function runScanner(o: ScannerRun): Promise<ScannerResult> {
     image: o.image,
     network: o.network,
     env: o.env ?? {},
-    labels: { [docker.LABEL_MANAGED]: 'true', 'deployer.role': 'scanner', ...o.labels },
+    labels: { [docker.LABEL_MANAGED]: 'true', [docker.LABEL.role]: 'scanner', ...o.labels },
     memoryLimitMb: o.memoryMb ?? 1024,
     cpuLimit: 2,
     oneShot: true,

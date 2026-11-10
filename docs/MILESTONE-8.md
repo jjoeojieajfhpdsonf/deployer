@@ -12,7 +12,7 @@ Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Paralle
 - **Die App gewinnt.** Caddy ergänzt einen Header nur, wenn die Antwort ihn nicht schon hat. Setzt die App später eigene Header, verdrängt Caddy sie nie.
 - **Prüfen wie Besucher.** Der Header-Check geht künftig durch Caddy, also mit allen Headern, die Caddy ergänzt.
 - **Nie Secrets an Claude.** `get_fix_context` liefert Befund, Erklärung und betroffene Dateien. Werte aus der Projekt-Env und Zeilen, in denen Trivy ein Secret gefunden hat, werden vorher ersetzt; `.env`-Dateien gehen nie hinaus.
-- **Nie direkt auf den Standard-Branch.** Über GitHub immer ein eigener Branch `deployer/fix-<befund>` und ein Pull Request.
+- **Nie direkt auf den Standard-Branch.** Über GitHub immer ein eigener Branch `airlock/fix-<befund>` und ein Pull Request.
 
 ## 2. Etappe 1 – Header über Caddy
 
@@ -28,7 +28,7 @@ Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Paralle
 | `x-content-type-options` | `X-Content-Type-Options: nosniff` | ein Klick |
 | `referrer-policy` | `Referrer-Policy: strict-origin-when-cross-origin` | ein Klick |
 | `frame-ancestors` | `Content-Security-Policy: frame-ancestors 'self'` und `X-Frame-Options: SAMEORIGIN`, jeweils nur wenn die App keinen eigenen setzt | ein Klick |
-| `content-security-policy` | zuerst `Content-Security-Policy-Report-Only: <regel>; report-uri /.well-known/deployer/csp-report/<key>`; nach Bestätigung `Content-Security-Policy` | Report-Only ein Klick, scharf mit Rückfrage |
+| `content-security-policy` | zuerst `Content-Security-Policy-Report-Only: <regel>; report-uri /.well-known/airlock/csp-report/<key>`; nach Bestätigung `Content-Security-Policy` | Report-Only ein Klick, scharf mit Rückfrage |
 | `strict-transport-security` | `Strict-Transport-Security: max-age=300` (5 Minuten zum Start) | Rückfrage; nur bei HTTPS und wenn TLS stabil läuft |
 
 - **Nur ergänzen:** pro Header ein eigener `headers`-Handler mit `require` (Header fehlt) und `deferred` – entspricht `header ?Name Wert` im Caddyfile.
@@ -37,20 +37,20 @@ Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Paralle
 
 ### CSP mit Report-Only
 
-1. «Report-Only starten» setzt eine Ausgangsregel (`default-src 'self'; …`) mit relativer `report-uri /.well-known/deployer/csp-report/<report_key>`.
-2. Browser melden Verstösse an diesen Pfad **am Host des Projekts**. Caddy hat dafür je Projekt eine eigene Route vor der App: nur `POST` auf genau den Pfad mit dem Schlüssel dieses Projekts, Body höchstens 64 KB (`request_body`), Ratenlimit 60 pro Minute und Absender (`rate_limit`, Modul `mholt/caddy-ratelimit` im Caddy-Image), Cookies werden entfernt, Ziel ist fest `/api/v1/csp-reports/<report_key>` bei deployer. deployer nimmt nur gültige Schlüssel an (sonst 404), liest die Formate `application/csp-report` und `application/reports+json` und schreibt ins Log nur Direktive und blockierte Quelle neuer Verstösse.
-3. deployer fasst sie zusammen und schlägt daraus eine Regel vor (reine Funktion `suggestCsp`): erlaubte Quellen je Direktive, `'self'` für die eigene Herkunft; Inline-Skript wird nicht stillschweigend mit `'unsafe-inline'` erlaubt, sondern als Hinweis gezeigt.
+1. «Report-Only starten» setzt eine Ausgangsregel (`default-src 'self'; …`) mit relativer `report-uri /.well-known/airlock/csp-report/<report_key>`.
+2. Browser melden Verstösse an diesen Pfad **am Host des Projekts**. Caddy hat dafür je Projekt eine eigene Route vor der App: nur `POST` auf genau den Pfad mit dem Schlüssel dieses Projekts, Body höchstens 64 KB (`request_body`), Ratenlimit 60 pro Minute und Absender (`rate_limit`, Modul `mholt/caddy-ratelimit` im Caddy-Image), Cookies werden entfernt, Ziel ist fest `/api/v1/csp-reports/<report_key>` bei Airlock. Airlock nimmt nur gültige Schlüssel an (sonst 404), liest die Formate `application/csp-report` und `application/reports+json` und schreibt ins Log nur Direktive und blockierte Quelle neuer Verstösse.
+3. Airlock fasst sie zusammen und schlägt daraus eine Regel vor (reine Funktion `suggestCsp`): erlaubte Quellen je Direktive, `'self'` für die eigene Herkunft; Inline-Skript wird nicht stillschweigend mit `'unsafe-inline'` erlaubt, sondern als Hinweis gezeigt.
 4. «Vorschlag übernehmen» ändert die Report-Only-Regel; «Scharf schalten» (mit Rückfrage) setzt `Content-Security-Policy`.
 
-**Woher Meldungen kommen dürfen:** von denselben Absendern wie die Seite selbst – die Meldungs-Route hat den IP-Filter der Projekt-Route (LAN/Tailnet bzw. bei öffentlichen Projekten cloudflared). Öffentliche Besucher melden damit auch; deployer selbst bleibt intern, erreichbar ist von aussen nur dieser eine Pfad mit gültigem Schlüssel. (Erste Fassung: `report-uri` auf deployers eigene Adresse – geändert nach Durchsicht, damit deployers Name nie in fremden Seiten steht und öffentliche Verstösse nicht fehlen.)
+**Woher Meldungen kommen dürfen:** von denselben Absendern wie die Seite selbst – die Meldungs-Route hat den IP-Filter der Projekt-Route (LAN/Tailnet bzw. bei öffentlichen Projekten cloudflared). Öffentliche Besucher melden damit auch; Airlock selbst bleibt intern, erreichbar ist von aussen nur dieser eine Pfad mit gültigem Schlüssel. (Erste Fassung: `report-uri` auf die eigene Adresse von Airlock – geändert nach Durchsicht, damit der Name von Airlock nie in fremden Seiten steht und öffentliche Verstösse nicht fehlen.)
 
-**Caddy neu bauen:** Das Ratenlimit braucht das Modul im Caddy-Image (`docker compose up -d --build caddy`). Kennt ein altes Image `rate_limit` nicht, lädt deployer die Konfiguration ohne Meldungs-Route und ohne `report-uri` und warnt im Log, statt Caddy ganz scheitern zu lassen.
+**Caddy neu bauen:** Das Ratenlimit braucht das Modul im Caddy-Image (`docker compose up -d --build caddy`). Kennt ein altes Image `rate_limit` nicht, lädt Airlock die Konfiguration ohne Meldungs-Route und ohne `report-uri` und warnt im Log, statt Caddy ganz scheitern zu lassen.
 
 ### Header-Check über Caddy
 
-Caddys IP-Filter würde den deployer selbst aussperren: seine Adresse im Netz `edge` liegt weder im LAN noch im Tailnet, und das Netz freizugeben hiesse, auch Verkehr durchzulassen, den Docker über das Gateway desselben Netzes weiterreicht (Begründung in MILESTONE-6, Abschnitt 1).
+Caddys IP-Filter würde Airlock selbst aussperren: seine Adresse im Netz `edge` liegt weder im LAN noch im Tailnet, und das Netz freizugeben hiesse, auch Verkehr durchzulassen, den Docker über das Gateway desselben Netzes weiterreicht (Begründung in MILESTONE-6, Abschnitt 1).
 
-Lösung: ein **dritter Caddy-Server auf einem Unix-Socket** (`/run/caddy/probe.sock`, im selben Volume wie der Admin-Socket). Er kennt dieselben Namen und Handler wie die Besucher-Server – inklusive der ergänzten Header –, aber ohne IP-Filter. Über das Netz ist ein Unix-Socket nicht erreichbar; nur deployer und Caddy sehen die Datei. Der Filter für fremde Absender bleibt unverändert.
+Lösung: ein **dritter Caddy-Server auf einem Unix-Socket** (`/run/caddy/probe.sock`, im selben Volume wie der Admin-Socket). Er kennt dieselben Namen und Handler wie die Besucher-Server – inklusive der ergänzten Header –, aber ohne IP-Filter. Über das Netz ist ein Unix-Socket nicht erreichbar; nur Airlock und Caddy sehen die Datei. Der Filter für fremde Absender bleibt unverändert.
 
 - Für Namen unter der Basisdomain (bei aktivem Zertifikat) bildet der Probe-Server die HTTPS-Route nach: dieselben Header inklusive HSTS, und die App bekommt `X-Forwarded-Proto: https` wie bei einem Besucher.
 - Der Header-Check fragt `http://<projektname>/` über den Socket. Hat das Projekt keine Caddy-Route (etwa nur öffentlich ohne Tunnel), prüft er wie bisher direkt am Container und vermerkt das an der Stufe.
@@ -62,7 +62,7 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 
 ### Schnittstellen
 
-- REST: `GET /projects/{id}/header-rules` (Regeln, gesammelte Verstösse, Vorschlag, ob HSTS möglich ist), `PUT /projects/{id}/header-rules/{header}` (`value`, `mode`, `confirm`), `DELETE /projects/{id}/header-rules/{header}`, `POST /csp-reports/{key}` (offen; Browser erreichen ihn über `/.well-known/deployer/csp-report/{key}` am Projekt-Host).
+- REST: `GET /projects/{id}/header-rules` (Regeln, gesammelte Verstösse, Vorschlag, ob HSTS möglich ist), `PUT /projects/{id}/header-rules/{header}` (`value`, `mode`, `confirm`), `DELETE /projects/{id}/header-rules/{header}`, `POST /csp-reports/{key}` (offen; Browser erreichen ihn über `/.well-known/airlock/csp-report/{key}` am Projekt-Host).
 - MCP: `set_security_header` mit `project`, `header`, `value`, `mode` (`report-only`, `enforce`), `remove`; Bestätigung bei `enforce` für CSP und HSTS.
 - UI: neben jedem Header-Befund «Header setzen» (bzw. «Report-Only starten», «HSTS setzen …») statt nur «Akzeptieren»; Abschnitt «Header über Caddy» im Security-Reiter mit aktiven Regeln, Entfernen, CSP-Verstössen und Vorschlag.
 
@@ -79,7 +79,7 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 3. Je nach Quelle:
    - **Header-Befund:** Hinweis auf `set_security_header`, keine Codeänderung.
    - **Chat (`files`):** `propose_fix(project, finding, files, delete, explanation)` legt einen Vorschlag mit Diff an. Er erscheint im Security-Reiter; «Übernehmen» (Rückfrage) bzw. `apply_fix` mit Bestätigungs-Token erzeugt eine neue Version im lokalen Repo, deployt und scannt nach. Verschwindet der Befund, wird der Vorschlag «bestätigt».
-   - **Fertiges Image:** kein Eingriff. deployer zeigt, welche Paketversion den Fehler behebt, und sucht in der Registry nach neueren Tags derselben Linie (z.B. `1.21-alpine` → `1.27-alpine`) als Kandidaten.
+   - **Fertiges Image:** kein Eingriff. Airlock zeigt, welche Paketversion den Fehler behebt, und sucht in der Registry nach neueren Tags derselben Linie (z.B. `1.21-alpine` → `1.27-alpine`) als Kandidaten.
    - **Git-Repo:** Pull Request über die GitHub App (Etappe 3); bis dahin der Hinweis, die Änderung im Repo zu machen.
 4. Ein Vorschlag gilt nur für den Stand, auf dem er beruht (`base_commit`); hat sich das Repo inzwischen geändert, verweigert «Übernehmen» und verlangt einen neuen Vorschlag.
 
@@ -91,18 +91,18 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 
 ### GitHub App per Manifest
 
-- System → GitHub: «GitHub App anlegen» schickt ein Formular mit dem App-Manifest an GitHub (`/settings/apps/new`). Name `deployer-<server>`, nicht öffentlich, ohne Webhook (deployer ist nie öffentlich erreichbar), Rechte nur **Contents: write** und **Pull requests: write** (GitHub fügt «Metadata: read» immer hinzu).
-- GitHub leitet den Browser zurück auf deployer (`/api/v1/github/manifest/callback?code=…&state=…`); deployer tauscht den Code gegen App-ID, privaten Schlüssel und Client-Secret und speichert sie verschlüsselt wie die Projekt-Secrets. Die Rückleitung läuft über den Browser, deployer muss dafür nicht öffentlich sein.
+- System → GitHub: «GitHub App anlegen» schickt ein Formular mit dem App-Manifest an GitHub (`/settings/apps/new`). Name `airlock-<server>`, nicht öffentlich, ohne Webhook (Airlock ist nie öffentlich erreichbar), Rechte nur **Contents: write** und **Pull requests: write** (GitHub fügt «Metadata: read» immer hinzu).
+- GitHub leitet den Browser zurück auf Airlock (`/api/v1/github/manifest/callback?code=…&state=…`); Airlock tauscht den Code gegen App-ID, privaten Schlüssel und Client-Secret und speichert sie verschlüsselt wie die Projekt-Secrets. Die Rückleitung läuft über den Browser, Airlock muss dafür nicht öffentlich sein.
 - Danach «App installieren» (Repos auswählen); GitHub leitet mit `installation_id` zurück.
 - Pro Vorgang ein Installations-Token (JWT mit dem App-Schlüssel signiert, Token läuft nach einer Stunde ab), beschränkt auf das eine Repo.
 
 ### Fix als Pull Request
 
-`propose_fix` für ein GitHub-Projekt legt Branch `deployer/fix-<kurz-id>` an, committet die Änderung über die Git-Data-API und öffnet einen Pull Request mit Befund, Erklärung und Link zum Scan. Status `pr_open`.
+`propose_fix` für ein GitHub-Projekt legt Branch `airlock/fix-<kurz-id>` an, committet die Änderung über die Git-Data-API und öffnet einen Pull Request mit Befund, Erklärung und Link zum Scan. Status `pr_open`.
 
 ### Auto-Deploy nach Merge
 
-Alle 5 Minuten (kein Webhook): Projekte mit `auto_deploy` vergleichen den Kopf des Deploy-Branches mit der aktiven Version und deployen bei einem neuen Commit. Offene Pull Requests von deployer werden abgefragt; nach dem Merge Status `merged`, nach dem Nachscan `verified` und ein Kommentar mit dem Ergebnis am Pull Request.
+Alle 5 Minuten (kein Webhook): Projekte mit `auto_deploy` vergleichen den Kopf des Deploy-Branches mit der aktiven Version und deployen bei einem neuen Commit. Offene Pull Requests von Airlock werden abgefragt; nach dem Merge Status `merged`, nach dem Nachscan `verified` und ein Kommentar mit dem Ergebnis am Pull Request.
 
 ### Wo Joël übernimmt
 
@@ -112,7 +112,7 @@ GitLab (OAuth-App oder Projekt-Token) ist im Datenmodell vorgesehen, aber nicht 
 
 ## 5. Prüfung pro Etappe
 
-- Unit-Tests: `pnpm --filter @deployer/api test`; Typecheck: `pnpm -r typecheck`.
+- Unit-Tests: `pnpm --filter @airlock/api test`; Typecheck: `pnpm -r typecheck`.
 - Etappe 1 zusätzlich gegen ein echtes Caddy (Wegwerf-Container): `scripts/caddy-headers-e2e.ts`.
 - Screenshots Hell und Dunkel mit `packages/web/design-shots/` (nur Desktop), Impeccable nur als Gutachter.
 - Pro Etappe ein lokaler Commit, kein Push.
@@ -126,13 +126,13 @@ Stand 10.11.2026. Geprüft mit Unit-Tests (468, alle grün), gegen ein echtes Ca
 - [x] Ein Klick auf «Header setzen» bei «X-Content-Type-Options: nosniff fehlt», «Referrer-Policy fehlt» und «Schutz gegen Einbetten fehlt» lässt Caddy den Header ergänzen, ohne Redeploy – *Konfiguration gegen echtes Caddy; Knopf → API im Screenshot-Werkzeug, nicht im Stack*
 - [x] Setzt die App einen Header selbst, bleibt ihr Wert (echtes Caddy)
 - [x] CSP startet als `Content-Security-Policy-Report-Only` mit `report-uri`; gemeldete Verstösse erscheinen zusammengefasst, der Vorschlag lässt sich übernehmen; scharf erst nach Rückfrage bzw. Bestätigungs-Token
-- [x] HSTS lässt sich nur bei HTTPS mit Produktions-Zertifikat setzen, mit `max-age=300`; ohne TLS lehnt deployer mit Begründung ab, und ein Rückfall auf Staging nimmt HSTS aus der Konfiguration – *HTTPS-Fall nur als Konfiguration (Unit), ohne echtes Zertifikat*
+- [x] HSTS lässt sich nur bei HTTPS mit Produktions-Zertifikat setzen, mit `max-age=300`; ohne TLS lehnt Airlock mit Begründung ab, und ein Rückfall auf Staging nimmt HSTS aus der Konfiguration – *HTTPS-Fall nur als Konfiguration (Unit), ohne echtes Zertifikat*
 - [x] Der Header-Check geht über Caddy (Probe-Socket) und sieht die ergänzten Header; der IP-Filter für fremde Absender ist unverändert (echtes Caddy: Besucher-Port 403, Probe-Socket 200; Socket übersteht einen Neustart von Caddy mit Volume)
 - [x] Nach dem Setzen läuft der Nachscan der Stufe «headers» automatisch; behobene Befunde stehen als «behoben», Score und Note steigen – *Planung als reine Funktion getestet; der Ablauf im Stack ist offen*
 - [x] Jede Regel lässt sich entfernen; danach fehlt der Header wieder und der Befund ist wieder offen (echtes Caddy, Unit)
 - [x] `set_security_header` über MCP, mit Bestätigung bei `enforce` für CSP und HSTS; Audit-Log
 - [x] Report-Endpunkt: ohne gültigen Schlüssel 404, zu grosse Meldungen 413, höchstens 300 verschiedene Verstösse pro Projekt, ohne Anmeldung nur dieser eine Pfad
-- [x] Meldungen über den Host des Projekts (echtes Caddy mit Ratenlimit-Modul): Weiterleitung auf den festen Pfad, falscher Schlüssel und GET gehen nicht an deployer, über 64 KB 413, Ratenlimit 429, keine Cookies an deployer; altes Caddy ohne Modul: Rückfall ohne Meldungen statt Ausfall
+- [x] Meldungen über den Host des Projekts (echtes Caddy mit Ratenlimit-Modul): Weiterleitung auf den festen Pfad, falscher Schlüssel und GET gehen nicht an Airlock, über 64 KB 413, Ratenlimit 429, keine Cookies an Airlock; altes Caddy ohne Modul: Rückfall ohne Meldungen statt Ausfall
 
 **Fehler, den erst das echte Caddy gezeigt hat:** Die kleine CSP `frame-ancestors 'self'` liess den Header-Check glauben, es gebe eine CSP – «Content-Security-Policy fehlt» verschwand, ohne dass etwas vor XSS schützte. Jetzt zählt eine CSP nur mit `default-src` oder `script-src`. Titel unverändert, damit Fingerabdrücke und Akzeptanzen bleiben. Folge: Apps mit einer CSP ganz ohne Quellen-Direktive bekommen den Befund jetzt neu.
 
@@ -153,7 +153,7 @@ Stand 10.11.2026. Unit-Tests (Diff, Weg, betroffene Dateien, Bereinigen, Tag-Kan
 
 **Fehler aus dem Echttest der Tag-Suche:** ghcr.io liefert Tags in Seiten zu 1000 – ohne Weiterblättern fehlten alle neueren Versionen (Home Assistant: keine Kandidaten statt `2024.12.5`, `2026.11.1`). Bei nginx kam `1.31-alpine3.24` statt `1.31-alpine`; jetzt gewinnt bei gleicher Version die exakt gleiche Variante.
 
-Nicht gebaut: der optionale Weg «Direkt in deployer» mit `ANTHROPIC_API_KEY` (SPEC, Abschnitt «Zwei Wege zu Claude»). Das Datenmodell (`way = 'api'`) ist vorbereitet.
+Nicht gebaut: der optionale Weg «Direkt in Airlock» mit `ANTHROPIC_API_KEY` (SPEC, Abschnitt «Zwei Wege zu Claude»). Das Datenmodell (`way = 'api'`) ist vorbereitet.
 
 **Gutachten (Impeccable, nur audit/critique):** behoben – abgedämpfte Karten (opacity) fielen unter AA, Diff-Scrollbereich nicht per Tastatur erreichbar und ohne Namen (jetzt Region mit `tabIndex`), Fokus nach Fehlern und nach Übernehmen/Verwerfen verloren (Meldung im Live-Bereich), Panel lag in der Tab-Reihenfolge vor «Akzeptieren» (jetzt unter der Knopfzeile; bleibt offen, während das Akzeptieren-Formular offen ist), «Mit Claude lösen» bei fertigen Images irreführend (jetzt «Abhilfe zeigen»), Vorschläge erschienen nach dem Kopieren erst nach 30 s (jetzt 5 s), Einzahl/Mehrzahl, Zähler ohne Wort für Screenreader, neues Fenster nicht angekündigt, Verwerfen ohne Rückfrage. Nicht umgesetzt (Stil): Pillen für Tags – stattdessen ein Komma als Trenner.
 
@@ -166,7 +166,7 @@ Stand 10.11.2026. Unit-Tests mit einer fetch-Attrappe (Manifest, JWT mit echtem 
 - [x] Manifest für die GitHub App mit genau Contents: write und Pull requests: write, ohne Webhook, nicht öffentlich; für das eigene Konto oder eine Organisation
 - [x] Rückleitung tauscht den Code gegen die App-Daten und speichert Schlüssel und Secrets verschlüsselt; der state gilt eine Stunde und nur einmal (Attrappe)
 - [x] Installations-Token pro Vorgang, auf das Repo und die beiden Rechte beschränkt; JWT RS256, höchstens 10 Minuten
-- [x] Fix als Branch `deployer/fix-<befund>-<kurz-id>` und Pull Request mit Befund, Erklärung und Link zum Scan; der Standard-Branch wird nie geändert (Attrappe)
+- [x] Fix als Branch `airlock/fix-<befund>-<kurz-id>` und Pull Request mit Befund, Erklärung und Link zum Scan; der Standard-Branch wird nie geändert (Attrappe)
 - [x] `get_fix_context` liest bei verbundenen Repos die betroffenen Dateien über die App, mit derselben Bereinigung wie bei Chat-Projekten
 - [x] Auto-Deploy-Polling (alle 5 Minuten, `AUTO_DEPLOY_INTERVAL_S`) deployt bei neuem Commit, markiert gemergte bzw. geschlossene Pull Requests und kommentiert nach dem Nachscan einmal am Pull Request (Attrappe); öffentliche Repos ohne App über `git ls-remote`
 - [x] GitHub-Verbindung nur mit Anmeldung, nicht mit einem API-Token (wie Tokens und Benachrichtigungen)
@@ -174,6 +174,6 @@ Stand 10.11.2026. Unit-Tests mit einer fetch-Attrappe (Manifest, JWT mit echtem 
 
 **Gutachten (Impeccable, nur audit/critique):** behoben – Fehler bei «Repos neu laden» und «Trennen» waren unsichtbar, Fokus nach dem Trennen auf `body`, Auto-Deploy-Checkbox verlor beim Speichern den Fokus (jetzt `aria-disabled`), Rechte ohne Einordnung und auf Englisch, Text versprach automatisches Deploy (ist pro Projekt aus), Knopf verschwieg den Wechsel zu GitHub («Weiter zu GitHub …»), leerer Schritt 2 im Randfall, Banner breiter als die Karten, Fehler beim Laden der Auto-Deploy-Einstellung unsichtbar, **Meldungen der Rückleitung als Freitext aus der URL** (ein präparierter Link hätte Meldungen fälschen können; jetzt feste Codes). Nicht umgesetzt (Stil): Zeilenlänge des Erklärtexts.
 
-**Offen (bewusst nicht gebaut):** private Repos als Quelle (Klonen mit dem Installations-Token; `lsRemoteHead` nimmt das Token schon an, `cloneRepo` noch nicht), GitLab (OAuth-App oder Projekt-Token; Datenmodell vorbereitet), Kommentar am Pull Request auch dann, wenn der Befund nach dem Merge bleibt (heute nur bei «behoben»), der optionale Weg «Direkt in deployer» mit `ANTHROPIC_API_KEY`.
+**Offen (bewusst nicht gebaut):** private Repos als Quelle (Klonen mit dem Installations-Token; `lsRemoteHead` nimmt das Token schon an, `cloneRepo` noch nicht), GitLab (OAuth-App oder Projekt-Token; Datenmodell vorbereitet), Kommentar am Pull Request auch dann, wenn der Befund nach dem Merge bleibt (heute nur bei «behoben»), der optionale Weg «Direkt in Airlock» mit `ANTHROPIC_API_KEY`.
 
 Screenshots: `docs/design-cal/m8-etappe3/`.

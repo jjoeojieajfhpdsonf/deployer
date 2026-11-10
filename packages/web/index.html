@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>deployer</title>
+    <title>Airlock</title>
     <meta name="theme-color" content="#ffffff" />
     <meta name="color-scheme" content="light dark" />
     <!-- Favicon inline: kein Abruf, kein 404 -->
@@ -14,14 +14,14 @@
     <script>
       (function () {
         var p = 'system'
-        try { p = localStorage.getItem('deployer.theme') || 'system' } catch (e) {}
+        try { p = localStorage.getItem('airlock.theme') || localStorage.getItem('deployer.theme') || 'system' } catch (e) {}
         var dark = p === 'dark' || (p !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
         document.documentElement.dataset.theme = dark ? 'dark' : 'light'
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
       })()
     </script>
     <!-- Schriften kommen lokal über @fontsource (siehe main.tsx), nicht von
-         Google Fonts: der deployer läuft im LAN und soll beim Aufruf nichts
+         Google Fonts: Airlock läuft im LAN und soll beim Aufruf nichts
          von aussen nachladen. -->
   </head>
   <body>

@@ -73,7 +73,7 @@ export function decodeFiles(files: FileInput[]): { path: string; data: Buffer }[
 
 /* --- git --------------------------------------------------------------------- */
 
-const IDENTITY = ['-c', 'user.name=deployer', '-c', 'user.email=deployer@localhost.invalid', '-c', 'core.symlinks=false', '-c', 'core.hooksPath=/dev/null']
+const IDENTITY = ['-c', 'user.name=airlock', '-c', 'user.email=airlock@localhost.invalid', '-c', 'core.symlinks=false', '-c', 'core.hooksPath=/dev/null']
 
 function gitEnv(): NodeJS.ProcessEnv {
   return { PATH: process.env.PATH, HOME: '/tmp', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', LANG: 'C' }
@@ -160,7 +160,7 @@ export function commitFiles(
         if (!head) throw rejected('Das Projekt hat noch keine Dateien')
         return { commit: head, changed: false }
       }
-      const message = o.message.trim().slice(0, 500) || 'Änderung über deployer'
+      const message = o.message.trim().slice(0, 500) || 'Änderung über Airlock'
       await gitText(dir, ['commit', '-q', '-m', message])
       return { commit: (await headCommit(dir))!, changed: true }
     } catch (err) {

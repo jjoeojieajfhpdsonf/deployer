@@ -8,7 +8,7 @@ import { bearerFrom } from '../lib/tokens.js'
 import { verifyToken } from '../domain/tokens.js'
 import { log } from '../lib/log.js'
 
-export const SESSION_COOKIE = 'deployer_session'
+export const SESSION_COOKIE = 'airlock_session'
 const SESSION_MAX_AGE_S = 7 * 24 * 60 * 60
 
 /**
@@ -19,6 +19,9 @@ const SESSION_MAX_AGE_S = 7 * 24 * 60 * 60
  */
 
 /** Fingerabdruck des Passworts aus .env – nur um eine Änderung dort zu erkennen. */
+// Bewusst weiter «deployer-env»: der gespeicherte Fingerabdruck stammt aus
+// der deployer-Zeit. Ein anderer Text liesse ihn nicht mehr passen, und das
+// in der Oberfläche geänderte Passwort würde auf ADMIN_PASSWORD zurückgesetzt.
 const envFingerprint = () => createHash('sha256').update(`deployer-env\0${config.ADMIN_PASSWORD}`).digest('hex')
 
 /**

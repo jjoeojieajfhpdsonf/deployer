@@ -1,4 +1,4 @@
-import type { CfTlsPhase } from '@deployer/shared'
+import type { CfTlsPhase } from '@airlock/shared'
 import type { TlsOptions } from '../drivers/caddy-config.js'
 
 /**

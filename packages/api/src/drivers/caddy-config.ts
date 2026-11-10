@@ -5,7 +5,7 @@
 
 import { coveredByWildcard } from '../lib/hostnames.js'
 import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
-import { DEFAULT_PAUSE_PAGE, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, type PausePage } from '@deployer/shared'
+import { DEFAULT_PAUSE_PAGE, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, type PausePage } from '@airlock/shared'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
@@ -26,7 +26,7 @@ export interface RouteSpec {
   root?: string
   /**
    * Keine Keep-Alive-Verbindungen (Connection: close). Für die Route des
-   * deployers selbst: MCP antwortet per SSE, die Header gehen also vor einem
+   * Oberfläche von Airlock: MCP antwortet per SSE, die Header gehen also vor einem
    * Deploy hinaus. Lädt der Deploy Caddy neu, schliesst Caddy die
    * Verbindung danach – ohne dass der Client es aus den Headern wüsste. Seine
    * nächste Anfrage über diese Verbindung scheitert dann. Mit
@@ -42,16 +42,16 @@ export interface RouteSpec {
   headers?: HeaderRuleSpec[]
   /**
    * M8: Schlüssel der CSP-Regel. Browser melden Verstösse an
-   * /.well-known/deployer/csp-report/<schlüssel> am Host des Projekts; Caddy
-   * leitet nur diesen Pfad (POST, höchstens 64 KB, Ratenlimit) an deployer.
+   * /.well-known/airlock/csp-report/<schlüssel> am Host des Projekts; Caddy
+   * leitet nur diesen Pfad (POST, höchstens 64 KB, Ratenlimit) an Airlock.
    */
   cspReportKey?: string | null
 }
 
 /** Pfad am Host des Projekts, an den Browser CSP-Verstösse melden. */
-export const CSP_REPORT_PREFIX = '/.well-known/deployer/csp-report/'
+export const CSP_REPORT_PREFIX = '/.well-known/airlock/csp-report/'
 export const cspReportPath = (key: string) => `${CSP_REPORT_PREFIX}${key}`
-/** Grenzen der Weiterleitung an deployer */
+/** Grenzen der Weiterleitung an Airlock */
 export const CSP_REPORT_MAX_BYTES = 64 * 1024
 export const CSP_REPORT_RATE = { window: '1m', maxEvents: 60 }
 
@@ -68,25 +68,25 @@ export interface CaddyBuildOptions {
    */
   tls?: TlsOptions | null
   /**
-   * M5: Netz, aus dem cloudflared kommt (deployer_edge). Nur von dort wird
+   * M5: Netz, aus dem cloudflared kommt (airlock_tunnel). Nur von dort wird
    * die Besucher-IP aus CF-Connecting-IP übernommen (SPEC, wichtig für M7).
    */
   trustedProxies?: string[]
   /**
-   * Namen, für die Caddy ein Zugriffs-Log schreibt (deployer selbst). Daraus
+   * Namen, für die Caddy ein Zugriffs-Log schreibt (Airlock selbst). Daraus
    * liest die Systemseite die Absenderadressen (lib/client-ips.ts).
    */
   accessLogHosts?: string[]
   /**
    * M8: Unix-Socket für den Probe-Server. Er kennt dieselben Namen und
    * Handler wie die Besucher-Server (inklusive ergänzter Header), aber ohne
-   * IP-Filter: der Header-Check des deployers prüft darüber, wie Besucher die
+   * IP-Filter: der Header-Check von Airlock prüft darüber, wie Besucher die
    * Seite sehen. Über das Netz ist ein Unix-Socket nicht erreichbar – der
    * Filter für fremde Absender bleibt, wie er ist.
    */
   probeSocket?: string | null
   /**
-   * M8: Wohin Caddy CSP-Meldungen weiterleitet (deployer, «host:port»).
+   * M8: Wohin Caddy CSP-Meldungen weiterleitet (Airlock, «host:port»).
    * Fehlt es, setzt Caddy keine report-uri.
    */
   cspReportUpstream?: string | null
@@ -95,8 +95,8 @@ export interface CaddyBuildOptions {
 /** Name des Probe-Servers in Caddys Konfiguration */
 export const PROBE_SERVER = 'probe'
 
-/** Logger-Name des Zugriffs-Logs für deployer (im Log: http.log.access.deployer) */
-export const ACCESS_LOGGER = 'deployer'
+/** Logger-Name des Zugriffs-Logs für Airlock (im Log: http.log.access.airlock) */
+export const ACCESS_LOGGER = 'airlock'
 
 export interface TlsOptions {
   baseDomain: string
@@ -173,7 +173,7 @@ export const MAINTENANCE_HEADER = PAUSE_STATE_HEADER
 export const MAINTENANCE_VALUE = PAUSE_STATE_VALUE
 
 /**
- * Pause-Seite für pausierte öffentliche Namen (Renderer in @deployer/shared,
+ * Pause-Seite für pausierte öffentliche Namen (Renderer in @airlock/shared,
  * derselbe wie die Vorschau): Vorlage oder Text des Projekts, hell und dunkel
  * nach Systemeinstellung. 503, Retry-After nur mit «Voraussichtlich zurück»
  * (als HTTP-Datum), noindex, no-store (Cloudflare liefert sie nach dem
@@ -269,7 +269,7 @@ export function buildCaddyConfig(
   /**
    * M8: CSP-Meldungen am Host des Projekts. Nur POST auf genau den Pfad mit
    * dem Schlüssel dieses Projekts; Body höchstens 64 KB, Ratenlimit je
-   * Absender, dann an deployer (fester Zielpfad – der Pfad der Anfrage geht
+   * Absender, dann an Airlock (fester Zielpfad – der Pfad der Anfrage geht
    * nicht durch). Dieselben Absender-Netze wie die Route des Projekts.
    */
   const cspRoute = (r: RouteSpec, hosts: string[]): HttpRoute[] => {
@@ -287,7 +287,7 @@ export function buildCaddyConfig(
         {
           handler: 'reverse_proxy',
           upstreams: [{ dial: opts.cspReportUpstream }],
-          // Nur was deployer braucht; keine Cookies des Projekts an deployer
+          // Nur was Airlock braucht; keine Cookies des Projekts an Airlock
           headers: { request: { delete: ['Cookie', 'Authorization'] } },
         },
       ],
@@ -357,7 +357,7 @@ export function buildCaddyConfig(
     terminal: true,
   }
 
-  // Zugriffs-Log nur für deployer selbst: daraus liest die Systemseite, welche
+  // Zugriffs-Log nur für Airlock selbst: daraus liest die Systemseite, welche
   // Absenderadressen Caddy sieht (Warnung bei Docker-Gateway statt Gerät).
   const accessLog = opts.accessLogHosts?.length
     ? { logs: { logger_names: Object.fromEntries(opts.accessLogHosts.map((h) => [h, [ACCESS_LOGGER]])), skip_unmapped_hosts: true } }

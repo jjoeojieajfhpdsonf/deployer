@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { mkdir, rm, writeFile, chmod } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
-import type { CfStatusDto, CfTokenCheckDto, CfPermissionCheck, CfTlsPhase } from '@deployer/shared'
+import { UI_HOST_LABEL, type CfStatusDto, type CfTokenCheckDto, type CfPermissionCheck, type CfTlsPhase } from '@airlock/shared'
 import { config, setCfRuntime, cf, net, type CfRuntime } from '../config.js'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
@@ -141,7 +141,7 @@ export async function loadCloudflareSettings(): Promise<void> {
   }
 }
 
-/** cloudflared wieder hochfahren, falls deployer ihn verwaltet (beim Start, im Hintergrund). */
+/** cloudflared wieder hochfahren, falls Airlock ihn verwaltet (beim Start, im Hintergrund). */
 export async function ensureManagedTunnelOnBoot(): Promise<void> {
   if (stored.tunnel) {
     try {
@@ -213,7 +213,7 @@ export function tokenTemplateUrl(): string {
     { key: 'argotunnel', type: 'edit' },
     { key: 'access', type: 'edit' },
   ]
-  const q = new URLSearchParams({ permissionGroupKeys: JSON.stringify(groups), name: 'deployer', accountId: '*', zoneId: 'all' })
+  const q = new URLSearchParams({ permissionGroupKeys: JSON.stringify(groups), name: 'airlock', accountId: '*', zoneId: 'all' })
   return `https://dash.cloudflare.com/profile/api-tokens?${q}`
 }
 
@@ -349,7 +349,7 @@ export async function saveDomains(input: DomainChoice, actor: string): Promise<v
 export async function setupTunnel(actor: string): Promise<void> {
   if (!stored.tokenEnc || !stored.accountId) throw badRequest('Zuerst das Token speichern')
   const c = client()
-  const name = `deployer-${(config.SERVER_NAME || 'server').toLowerCase().replace(/[^a-z0-9-]/g, '-')}`
+  const name = `airlock-${(config.SERVER_NAME || 'server').toLowerCase().replace(/[^a-z0-9-]/g, '-')}`
   let tunnel: { id: string; name: string }
   let token: string
   try {
@@ -398,7 +398,7 @@ const cloudflaredImage = () => stored.cloudflaredImage ?? config.CLOUDFLARED_IMA
 
 /** cloudflared auf die neueste Version: neues Image festlegen, Container neu anlegen. */
 export async function updateCloudflared(actor: string): Promise<void> {
-  if (!stored.tunnel || !stored.accountId) throw badRequest('cloudflared wird nicht von deployer verwaltet')
+  if (!stored.tunnel || !stored.accountId) throw badRequest('cloudflared wird nicht von Airlock verwaltet')
   const latest = await latestCloudflaredVersion(true)
   if (!latest.version) throw new AppError('cloudflared_version', `Neueste Version nicht abrufbar${latest.error ? `: ${latest.error}` : ''}`, 502)
   const current = versionOf(cloudflaredImage())
@@ -539,7 +539,7 @@ function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
         log.warn('Caddy-Speicher nicht aufgeräumt', { dir: config.CADDY_DATA_DIR, err: String(err) })
       }
 
-      const first = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
+      const first = await probeCert(config.CADDY_CONTAINER, 443, `${UI_HOST_LABEL}.${base}`)
       await rememberProdCert(first, base)
       if (checkIssuedCert(first, { base, phase: 'production' }).ready) {
         await finishDone(actor, base, first.issuer, first.validTo, 'Caddy liefert es schon aus, kein neuer Bezug')
@@ -604,7 +604,7 @@ const WRONG_CERT_GRACE_MS = 60_000
 /**
  * Warten, bis Caddy das Zertifikat der Phase ausliefert.
  * - staging: acme-probe.<basis> von der Staging-CA (ohne Prüfung der Kette)
- * - production: *.<basis>, vertrauenswürdig (SNI deployer.<basis>)
+ * - production: *.<basis>, vertrauenswürdig (SNI <UI_HOST_LABEL>.<basis>, vorerst deployer.<basis>)
  * Zweite Quelle ist Caddys Log («certificate obtained successfully» für den
  * Namen). Liefert Caddy in der Produktionsphase nach 60 s noch ein Staging-
  * oder ein nicht vertrauenswürdiges Zertifikat aus, bricht die Phase sofort mit
@@ -616,7 +616,7 @@ async function waitForCert(base: string, phase: 'staging' | 'production', sinceM
   const staging = phase === 'staging'
   const wildcard = `*.${base}`
   const name = staging ? probeName(base) : wildcard
-  const host = staging ? probeName(base) : `deployer.${base}`
+  const host = staging ? probeName(base) : `${UI_HOST_LABEL}.${base}`
   const deadline = Date.now() + TLS_TIMEOUT_MS
   let lastError = ''
   let lastReason = ''
@@ -643,8 +643,8 @@ async function waitForCert(base: string, phase: 'staging' | 'production', sinceM
           return {
             ok: false,
             error: stillStaging
-              ? `Caddy liefert nach 60 s noch das Staging-Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}). Es stammt aus Caddys Zertifikats-Cache eines früheren Laufs; der Cache überlebt das Neuladen. deployer hat ihn geleert und Staging-Wildcards aus dem Speicher entfernt – greift das nicht, «docker restart deployer-caddy» und dann «Nochmals versuchen».`
-              : `Caddy liefert das produktive Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}, gültig bis ${day(c.validTo)}), aber deployer vertraut der Kette nicht: ${c.error ?? 'unbekannter Fehler'}. Es bleibt gespeichert und wird nicht neu bestellt.`,
+              ? `Caddy liefert nach 60 s noch das Staging-Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}). Es stammt aus Caddys Zertifikats-Cache eines früheren Laufs; der Cache überlebt das Neuladen. Airlock hat ihn geleert und Staging-Wildcards aus dem Speicher entfernt – greift das nicht, «docker restart ${config.CADDY_CONTAINER}» und dann «Nochmals versuchen».`
+              : `Caddy liefert das produktive Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}, gültig bis ${day(c.validTo)}), aber Airlock vertraut der Kette nicht: ${c.error ?? 'unbekannter Fehler'}. Es bleibt gespeichert und wird nicht neu bestellt.`,
           }
         }
       } else {
@@ -732,7 +732,7 @@ export async function cloudflareStatus(): Promise<CfStatusDto> {
   const tls = caddyTlsOptions()
   const base = cf.baseDomain()
   const cert = base && (tls || (stored.tls?.phase ?? (config.TLS_MODE === 'cloudflare' ? 'done' : 'off')) === 'done')
-    ? await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`, 3000).catch(() => null)
+    ? await probeCert(config.CADDY_CONTAINER, 443, `${UI_HOST_LABEL}.${base}`, 3000).catch(() => null)
     : null
   // Nach einem Fehlschlag: liefert Caddy inzwischen ein vertrauenswürdiges
   // produktives Zertifikat aus, ist HTTPS aktiv – ohne neuen Bezug.

@@ -54,7 +54,7 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
     handler: async (request, reply) => {
       const identity = await verifyToken(bearerFrom(request.headers.authorization) ?? '')
       if (!identity) {
-        reply.code(401).header('www-authenticate', 'Bearer realm="deployer"').send({
+        reply.code(401).header('www-authenticate', 'Bearer realm="airlock"').send({
           jsonrpc: '2.0', error: { code: -32001, message: 'Gültiges API-Token nötig (Authorization: Bearer dpl_…)' }, id: null,
         })
         return reply

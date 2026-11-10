@@ -5,11 +5,11 @@ import * as docker from '../drivers/docker.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { log } from '../lib/log.js'
-import type { ProjectHealthDto, ResourceSample } from '@deployer/shared'
+import type { ProjectHealthDto, ResourceSample } from '@airlock/shared'
 
 /**
  * Wie es den Projekten geht: CPU und RAM jede Minute (eine Stunde im
- * Speicher, nach einem Neustart des deployers beginnt die Reihe neu) und ein
+ * Speicher, nach einem Neustart von Airlock beginnt die Reihe neu) und ein
  * Healthcheck alle fünf Minuten – oder auf Anfrage, wenn jemand die
  * Übersicht öffnet. Nichts davon landet in der Datenbank: es ist ein Blick
  * auf den Moment, kein Monitoring-System.
@@ -26,7 +26,7 @@ const samples = new Map<string, ResourceSample[]>()
 const probes = new Map<string, Probe>()
 const probing = new Map<string, Promise<Probe | null>>()
 
-interface Target { projectId: string; slug: string; containerId: string | null; host: string; port: number | null; path: string; kind: string }
+interface Target { projectId: string; slug: string; containerId: string | null; host: string; network: string; port: number | null; path: string; kind: string }
 
 async function targetFor(projectId: string): Promise<Target | null> {
   const rows = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1)
@@ -35,8 +35,12 @@ async function targetFor(projectId: string): Promise<Target | null> {
   const active = await activeDeployment(p.id)
   if (!active) return null
   const kind = effectiveKind(p.sourceType, active.artifact)
-  const host = active.artifact?.webContainer ?? docker.containerName(p.slug, active.id)
-  return { projectId: p.id, slug: p.slug, containerId: kind === 'compose' ? host : active.containerId, host, port: p.port, path: p.healthcheckPath ?? '/', kind }
+  // Übergang: eine Fassung aus der deployer-Zeit läuft noch in dep_<slug>
+  const legacy = await docker.legacyState().catch(() => docker.legacySnapshot())
+  const ref = { id: active.id, webContainer: active.artifact?.webContainer ?? null }
+  const host = docker.webContainerOf(p.slug, ref, legacy)
+  const network = docker.networkOf(p.slug, ref, legacy)
+  return { projectId: p.id, slug: p.slug, containerId: kind === 'compose' ? host : active.containerId, host, network, port: p.port, path: p.healthcheckPath ?? '/', kind }
 }
 
 /** Docker-Stats einmal lesen: CPU in Kernen, RAM in MB (ohne Datei-Cache). */
@@ -76,7 +80,7 @@ async function probe(t: Target): Promise<Probe | null> {
   const job = (async () => {
     const started = Date.now()
     const url = `http://${t.host}:${t.port}${t.path}`
-    const result = await withProjectNetwork(docker.projectNetworkName(t.slug), async () => {
+    const result = await withProjectNetwork(t.network, async () => {
       try {
         const res = await request(url, { method: 'GET', headersTimeout: 5_000, bodyTimeout: 5_000 })
         await res.body.dump()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { DEFAULT_PAUSE_PAGE, type PausePage } from '@deployer/shared'
+import { DEFAULT_PAUSE_PAGE, type PausePage } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { PausePageEditor, pausePageErrors, samePage, type PausePageErrors } from './PausePageEditor.js'
 

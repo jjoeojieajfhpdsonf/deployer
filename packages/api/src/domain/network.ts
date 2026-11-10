@@ -3,11 +3,12 @@ import * as docker from '../drivers/docker.js'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
+import { LABEL } from '../lib/names.js'
 
 /**
  * Netz des Servers: LAN-IP, LAN-Netz und Tailscale-IP, gelesen vom Host.
  *
- * Der deployer läuft im Container und sieht die Adressen des Hosts nicht.
+ * Airlock läuft im Container und sieht die Adressen des Hosts nicht.
  * Ein kurzlebiger Hilfscontainer im Host-Netz (`ip route` / `ip addr`, aus
  * dem schon vorhandenen Caddy-Image) liest sie. Beim Start und stündlich;
  * ändert sich etwas, ziehen Adressen, Caddy-Filter und Anzeigen nach – ohne
@@ -78,7 +79,7 @@ async function readHostNetwork(): Promise<Detected | null> {
     Image: image,
     Entrypoint: ['sh', '-c'],
     Cmd: ['ip -4 route get 1.1.1.1 2>/dev/null; echo ---; ip -4 -o addr show'],
-    Labels: { 'deployer.system': 'netcheck' },
+    Labels: { [LABEL.system]: 'netcheck' },
     NetworkDisabled: false,
     HostConfig: {
       NetworkMode: 'host',

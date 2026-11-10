@@ -10,7 +10,7 @@ import { AppError } from './errors.js'
  * kommt die zweite Absicherung: kein Pfad aus dem Repo heraus, keine
  * Symlinks, auch nicht in Zwischenordnern. Sonst könnte ein Repo z.B.
  * env_file auf /proc/self/environ zeigen lassen und so die Umgebung des
- * deployers (Datenbank-URL, Passwörter) in einen Container leiten.
+ * Airlocks (Datenbank-URL, Passwörter) in einen Container leiten.
  */
 
 const outside = (rel: string) =>

@@ -72,7 +72,9 @@ export const DEFAULT_PAUSE_PAGE: PausePage = {
 }
 
 /** Kennung der Wartungsseite; die Prüfung von aussen erkennt daran «pausiert». */
-export const PAUSE_STATE_HEADER = 'X-Deployer-State'
+export const PAUSE_STATE_HEADER = 'X-Airlock-State'
+/** Übergang: Wartungsseiten, die noch von deployer ausgeliefert werden (docs/RENAME.md) */
+export const LEGACY_PAUSE_STATE_HEADER = 'X-Deployer-State'
 export const PAUSE_STATE_VALUE = 'paused'
 export const PAUSE_CSP = "default-src 'none'; style-src 'unsafe-inline'"
 

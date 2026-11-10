@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 /**
  * Abnahme Netz «tunnel»: Aus dem cloudflared-Container (sein eigener
  * Netz-Namensraum, `--network container:`) ist Caddy erreichbar, der
- * deployer nicht – weder über den Namen noch über seine Adressen.
+ * Airlock nicht – weder über den Namen noch über seine Adressen.
  *
  * Voraussetzung: cloudflared läuft (System → Cloudflare verbinden, oder mit
  * der Attrappe, siehe docs/CLOUDFLARE.md «Prüfung»). Sonst übersprungen.
@@ -17,30 +17,30 @@ const docker = (...args: string[]) => execFileSync('docker', args, { encoding: '
 /** HTTP-Status aus Sicht von cloudflared, oder «000», wenn keine Verbindung zustande kommt. */
 function fromCloudflared(url: string): string {
   try {
-    return docker('run', '--rm', '--network', 'container:deployer-cloudflared', CURL, '-s', '-o', '/dev/null', '-w', '%{http_code}', '-m', '4', url)
+    return docker('run', '--rm', '--network', 'container:airlock-cloudflared', CURL, '-s', '-o', '/dev/null', '-w', '%{http_code}', '-m', '4', url)
   } catch (err) {
     return ((err as { stdout?: string }).stdout ?? '').trim() || '000'
   }
 }
 
 let running = false
-let deployerIps: string[] = []
+let airlockIps: string[] = []
 
 before(() => {
   try {
-    running = docker('inspect', '-f', '{{.State.Running}} {{.State.Restarting}}', 'deployer-cloudflared') === 'true false'
+    running = docker('inspect', '-f', '{{.State.Running}} {{.State.Restarting}}', 'airlock-cloudflared') === 'true false'
   } catch {
     running = false
   }
   if (running) docker('pull', '-q', CURL)
-  deployerIps = docker('inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}', 'deployer-app').split(/\s+/).filter(Boolean)
+  airlockIps = docker('inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}', 'airlock-app').split(/\s+/).filter(Boolean)
 })
 
 describe('Netz tunnel', { skip: false }, () => {
-  test('cloudflared hängt nur im Netz deployer_tunnel', (t) => {
+  test('cloudflared hängt nur im Netz airlock_tunnel', (t) => {
     if (!running) return t.skip('cloudflared läuft nicht')
-    const nets = docker('inspect', '-f', '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}', 'deployer-cloudflared').split(/\s+/).filter(Boolean)
-    assert.deepEqual(nets, ['deployer_tunnel'])
+    const nets = docker('inspect', '-f', '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}', 'airlock-cloudflared').split(/\s+/).filter(Boolean)
+    assert.deepEqual(nets, ['airlock_tunnel'])
   })
 
   test('Caddy ist erreichbar (http://caddy:80)', (t) => {
@@ -49,11 +49,11 @@ describe('Netz tunnel', { skip: false }, () => {
     assert.notEqual(code, '000', 'keine Verbindung zu Caddy')
   })
 
-  test('deployer-Port ist nicht erreichbar: weder Name noch Adressen', (t) => {
+  test('Airlock-Port ist nicht erreichbar: weder Name noch Adressen', (t) => {
     if (!running) return t.skip('cloudflared läuft nicht')
-    assert.equal(fromCloudflared('http://deployer-app:3000/health'), '000')
-    assert.equal(fromCloudflared('http://deployer:3000/health'), '000')
-    assert.ok(deployerIps.length > 0)
-    for (const ip of deployerIps) assert.equal(fromCloudflared(`http://${ip}:3000/health`), '000', `deployer über ${ip} erreichbar`)
+    assert.equal(fromCloudflared('http://airlock-app:3000/health'), '000')
+    assert.equal(fromCloudflared('http://airlock:3000/health'), '000')
+    assert.ok(airlockIps.length > 0)
+    for (const ip of airlockIps) assert.equal(fromCloudflared(`http://${ip}:3000/health`), '000', `Airlock über ${ip} erreichbar`)
   })
 })

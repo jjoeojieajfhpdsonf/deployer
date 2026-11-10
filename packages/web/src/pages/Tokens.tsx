@@ -4,7 +4,7 @@ import { api, ApiError, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../components/Status.js'
 import { copyText } from '../lib/clipboard.js'
 import { PageHead } from '../components/PageHead.js'
-import { tokenNameSchema } from '@deployer/shared'
+import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
 
@@ -53,7 +53,7 @@ export function Tokens() {
   }
 
   const cli = fresh
-    ? `claude mcp add --transport http deployer ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
+    ? `claude mcp add --transport http airlock${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
     : ''
 
   return (

@@ -4,7 +4,7 @@ import { ApiError } from '../api.js'
 /**
  * Eigene Formular-Prüfung statt der des Browsers (Formulare mit noValidate).
  *
- * - Geprüft wird mit den Zod-Schemas aus @deployer/shared – dieselben Regeln
+ * - Geprüft wird mit den Zod-Schemas aus @airlock/shared – dieselben Regeln
  *   und Meldungen wie in der API.
  * - Beim Absenden alles; danach live beim Verlassen eines Felds.
  * - Beim Absenden springt der Fokus zum ersten fehlerhaften Feld.
@@ -14,7 +14,7 @@ import { ApiError } from '../api.js'
  */
 export type Errors = Record<string, string>
 
-/** Nur was gebraucht wird – jedes Zod-Schema aus @deployer/shared passt. */
+/** Nur was gebraucht wird – jedes Zod-Schema aus @airlock/shared passt. */
 export interface Schema {
   safeParse(v: unknown): { success: true } | { success: false; error: { issues: { path: (string | number)[]; message: string }[] } }
 }

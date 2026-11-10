@@ -1,5 +1,5 @@
 {
-  "name": "@deployer/api",
+  "name": "@airlock/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,11 +9,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "e2e": "tsx --test --test-concurrency=1 --test-timeout=900000 \"e2e/*.e2e.ts\"",
-    "e2e:cf": "docker compose -f ../../compose.yaml -f e2e/compose.cf-fake.yaml --project-directory ../.. up -d --build deployer && sleep 8 && E2E_CF_FAKE=1 tsx --test --test-concurrency=1 --test-timeout=900000 e2e/m5.e2e.ts; rc=$?; docker compose -f ../../compose.yaml --project-directory ../.. up -d deployer; exit $rc"
+    "e2e:cf": "docker compose -f ../../compose.yaml -f e2e/compose.cf-fake.yaml --project-directory ../.. up -d --build airlock && sleep 8 && E2E_CF_FAKE=1 tsx --test --test-concurrency=1 --test-timeout=900000 e2e/m5.e2e.ts; rc=$?; docker compose -f ../../compose.yaml --project-directory ../.. up -d airlock; exit $rc"
   },
   "dependencies": {
     "@balena/dockerignore": "^1.0.2",
-    "@deployer/shared": "workspace:*",
+    "@airlock/shared": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.0.3",
     "@fastify/static": "^8.0.4",

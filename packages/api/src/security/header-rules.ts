@@ -1,4 +1,4 @@
-import type { HeaderKey, HeaderMode } from '@deployer/shared'
+import type { HeaderKey, HeaderMode } from '@airlock/shared'
 
 /**
  * M8, Etappe 1: Security-Header über Caddy. Reine Funktionen – ohne
@@ -200,11 +200,11 @@ export function suggestCsp(base: string, violations: { directive: string; blocke
     const d = v.directive
     if (d === 'default-src' || d === 'report-uri' || d === 'report-to') continue
     if (v.blocked === 'inline') {
-      notes.add(`Inline-Code in ${d}: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt deployer nicht vor.`)
+      notes.add(`Inline-Code in ${d}: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt Airlock nicht vor.`)
       continue
     }
     if (v.blocked === 'eval') {
-      notes.add(`eval() bzw. new Function in ${d}: Code ohne eval schreiben – 'unsafe-eval' schlägt deployer nicht vor.`)
+      notes.add(`eval() bzw. new Function in ${d}: Code ohne eval schreiben – 'unsafe-eval' schlägt Airlock nicht vor.`)
       continue
     }
     if (!m.has(d)) m.set(d, NO_FALLBACK.has(d) ? [] : [...fallback.filter((s) => s !== "'none'")])

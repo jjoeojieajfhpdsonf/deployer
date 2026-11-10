@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { githubManifestRequestSchema } from '@deployer/shared'
+import { githubManifestRequestSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
@@ -26,8 +26,8 @@ const OK_TEXT: Record<string, string> = {
 const ERR_TEXT: Record<string, string> = {
   state: 'Die Rückleitung passt nicht zu einem eben gestarteten Anlegen (älter als eine Stunde oder schon benutzt). Bitte neu starten.',
   vorhanden: 'Es gibt schon eine GitHub App. Zuerst die Verbindung trennen.',
-  github: 'GitHub hat die Anfrage abgelehnt. Einzelheiten stehen im Log von deployer.',
-  unbekannt: 'Der Schritt wurde nicht abgeschlossen. Einzelheiten stehen im Log von deployer.',
+  github: 'GitHub hat die Anfrage abgelehnt. Einzelheiten stehen im Log von Airlock.',
+  unbekannt: 'Der Schritt wurde nicht abgeschlossen. Einzelheiten stehen im Log von Airlock.',
 }
 
 const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
@@ -98,8 +98,8 @@ export function GithubSetup() {
   return (
     <>
       <p className="lede lede-tight">
-        Mit einer eigenen GitHub App legt deployer Fixes zu Befunden als Pull Request an – auf einem eigenen Branch, nie direkt auf dem Standard-Branch –
-        und kann nach dem Merge selbst deployen (pro Projekt unter Einstellungen einschalten). Kein Webhook: deployer bleibt intern und fragt alle 5 Minuten nach.
+        Mit einer eigenen GitHub App legt Airlock Fixes zu Befunden als Pull Request an – auf einem eigenen Branch, nie direkt auf dem Standard-Branch –
+        und kann nach dem Merge selbst deployen (pro Projekt unter Einstellungen einschalten). Kein Webhook: Airlock bleibt intern und fragt alle 5 Minuten nach.
       </p>
 
       {ok && <div role="status" className="banner banner-info"><strong>Erledigt.</strong> {ok} <button type="button" className="link-button" onClick={closeBanner}>Ausblenden</button></div>}
@@ -138,7 +138,7 @@ export function GithubSetup() {
               </Field>
               <p className="hint">
                 Du wechselst zu GitHub und bestätigst dort mit «Create GitHub App». GitHub schickt dich danach hierher zurück
-                (<code>{s.callbackUrl}</code>); deployer speichert den Schlüssel der App verschlüsselt.
+                (<code>{s.callbackUrl}</code>); Airlock speichert den Schlüssel der App verschlüsselt.
               </p>
               <div className="form-actions">
                 <button type="submit" className="button-primary" disabled={start.isPending}>
@@ -187,12 +187,12 @@ export function GithubSetup() {
       {s.connected && (
         <div className="danger-zone">
           <h2>Verbindung trennen</h2>
-          <p>Löscht Schlüssel und Secrets der App in deployer. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
+          <p>Löscht Schlüssel und Secrets der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
           {!confirmDisconnect ? (
             <button ref={disconnectRef} type="button" className="button-danger" onClick={() => setConfirmDisconnect(true)}>Verbindung trennen …</button>
           ) : (
             <span className="confirm-inline" role="group" aria-label="Verbindung trennen bestätigen">
-              <span className="confirm-note"><IconWarn />Offene Pull Requests bleiben bei GitHub, deployer verfolgt sie nicht mehr.</span>
+              <span className="confirm-note"><IconWarn />Offene Pull Requests bleiben bei GitHub, Airlock verfolgt sie nicht mehr.</span>
               <button type="button" onClick={() => { setConfirmDisconnect(false); requestAnimationFrame(() => disconnectRef.current?.focus()) }} autoFocus>Abbrechen</button>
               <button type="button" className="button-danger-solid" aria-disabled={disconnect.isPending || undefined} onClick={() => !disconnect.isPending && disconnect.mutate()}>
                 {disconnect.isPending ? 'Wird getrennt …' : 'Ja, trennen'}
@@ -227,7 +227,7 @@ export function AutoDeploySetting({ projectId }: { projectId: string }) {
         <span>
           Nach einem Merge neu deployen{' '}
           <small>
-            deployer prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat{d.viaGithubApp ? ' (über die GitHub App)' : ' (öffentliches Repo, ohne Anmeldung)'}; der Scan danach bestätigt Fixes.
+            Airlock prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat{d.viaGithubApp ? ' (über die GitHub App)' : ' (öffentliches Repo, ohne Anmeldung)'}; der Scan danach bestätigt Fixes.
             {d.autoDeploy && d.checkedAt && <> Zuletzt geprüft {relativeTime(d.checkedAt).replace(/\.$/, '')}.</>}
           </small>
         </span>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FIX_STATUS_LABEL, headerFixFor } from '@deployer/shared'
+import { FIX_STATUS_LABEL, headerFixFor } from '@airlock/shared'
 import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
@@ -79,7 +79,7 @@ export function ClaudeFixAction({
               <p className="hint">{h.explanation}</p>
               {h.prompt && (
                 <>
-                  <p className="claude-fix-label">Auftrag für Claude oder Claude Code (mit dem deployer-MCP verbunden):</p>
+                  <p className="claude-fix-label">Auftrag für Claude oder Claude Code (mit dem Airlock-MCP verbunden):</p>
                   <pre className="code-block">{h.prompt}</pre>
                   <div className="claude-fix-actions">
                     <button
