@@ -659,11 +659,54 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
   background: var(--surface);
   box-shadow: var(--sh-pop);
   text-align: left;
+  /* Zu: aus dem Layout, leicht kleiner und 4px zum Auslöser hin versetzt.
+     Schliessen 100 ms ease-in, Liste und Einträge gemeinsam. `display`
+     springt dank allow-discrete erst am Ende (Rückfall: .closing, useMenu). */
+  display: none;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
   transform-origin: top right;
+  transition: opacity 100ms ease-in, transform 100ms ease-in;
+  transition: opacity 100ms ease-in, transform 100ms ease-in, display 100ms allow-discrete;
+}
+/* Nach oben geöffnet (RowMenu, unten wenig Platz): wächst aus der unteren Ecke */
+.menu-list[data-side='top'] { transform-origin: bottom right; transform: translateY(4px) scale(0.96); }
+.menu-list[data-open] { display: block; }
+/* Ausblendend: nimmt keine Klicks mehr an (sonst fängt das unsichtbare Menü
+   den Klick daneben ab). display hält allow-discrete; nur wo das fehlt, hält
+   es die Klasse bis transitionend. */
+.menu-list:not([data-open]) { pointer-events: none; }
+@supports not (transition-behavior: allow-discrete) {
+  .menu-list.closing { display: block; }
+}
+/* Auf: 150 ms, kräftiges ease-out. Wieder öffnen während des Schliessens
+   kehrt die laufende Transition um, statt neu zu starten. */
+.menu-list[data-open] {
+  opacity: 1;
+  transform: none;
   transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out);
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out), display 150ms allow-discrete;
 }
 @starting-style {
-  .menu-list { opacity: 0; transform: scale(0.97); }
+  .menu-list[data-open] { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  .menu-list[data-open][data-side='top'] { transform: translateY(4px) scale(0.96); }
+}
+/* Einträge beim Öffnen leicht gestaffelt: nur Deckkraft (die Bewegung trägt
+   die Liste), Abstände schrumpfend 20/16/14/12/10 ms, ab dem 6. alle mit
+   dem letzten. Trennlinien kommen mit der Liste. Beim Schliessen keine
+   Staffel: ohne data-open gilt die normale Transition, alle gehen gemeinsam. */
+@media (prefers-reduced-motion: no-preference) {
+  .menu-list[data-open] > :not(.menu-sep) {
+    transition: opacity 150ms var(--ease-out) var(--menu-delay, 0ms), background-color 150ms ease;
+  }
+  @starting-style {
+    .menu-list[data-open] > :not(.menu-sep) { opacity: 0; }
+  }
+  .menu-list > :nth-child(2 of :not(.menu-sep)) { --menu-delay: 20ms; }
+  .menu-list > :nth-child(3 of :not(.menu-sep)) { --menu-delay: 36ms; }
+  .menu-list > :nth-child(4 of :not(.menu-sep)) { --menu-delay: 50ms; }
+  .menu-list > :nth-child(5 of :not(.menu-sep)) { --menu-delay: 62ms; }
+  .menu-list > :nth-child(n + 6 of :not(.menu-sep)) { --menu-delay: 72ms; }
 }
 .menu-list button, .menu-list a {
   display: flex;
@@ -986,7 +1029,7 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .pcard-foot { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
 .pcard-actions, .pcard .chips { position: relative; z-index: 1; }
 /* Offenes Menü liegt über den Nachbarkarten (sonst schieben sich deren Pillen darüber) */
-.pcard:has(.menu-list) { z-index: 10; }
+.pcard:has(.menu-list[data-open], .menu-list.closing) { z-index: 10; }
 .pcard-actions { display: flex; gap: 6px; align-items: center; }
 
 /* --- Projekt-Übersicht: Zustand statt Konfiguration ---------------------------------- */
@@ -1219,8 +1262,14 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
   button:active:not(:disabled), a.button:active { transform: none; }
-  .menu-list, .dialog, .pnew-source:active { transform: none; }
+  .dialog, .pnew-source:active { transform: none; }
   @starting-style {
-    .menu-list, .dialog[open] { transform: none; }
+    .dialog[open] { transform: none; }
+  }
+  /* Menüs: nur Deckkraft, 80 ms, ohne Staffel (schlägt die 0.01ms oben) */
+  .menu-list { transform: none !important; }
+  .menu-list {
+    transition: opacity 80ms ease !important;
+    transition: opacity 80ms ease, display 80ms allow-discrete !important;
   }
 }
