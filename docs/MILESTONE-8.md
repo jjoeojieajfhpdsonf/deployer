@@ -4,7 +4,7 @@ Stand: 10. November 2026
 
 Umfang laut [SPEC.md](SPEC.md), Abschnitt «Fix-Assistent»: Befunde beheben statt nur akzeptieren. Fehlende Security-Header ergänzt Caddy, Codeänderungen schlägt Claude über MCP vor, und für Git-Repos kommt ein Weg über Pull Requests dazu. Jede Änderung braucht eine Zustimmung, erzeugt eine neue Version oder Caddy-Konfiguration und wird durch einen Nachscan bestätigt.
 
-Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Parallel entstehen auf `main` die live sichtbaren Scan-Stufen (Migration `0007_scan_live.sql`); M8 nimmt deshalb die Migrationsnummern ab `0008`. Beim Zusammenführen sind Konflikte in `security/stages.ts`, `security/scan.ts`, `Security.tsx` und `mcp/server.ts` zu erwarten.
+Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Parallel entstehen auf `main` die live sichtbaren Scan-Stufen (Migration `0007_scan_live.sql`); M8 nimmt deshalb `0008`, `0011` und `0012` – `0009` und `0010` hat main inzwischen für «öffentlich» belegt (`0009_public_pause`, `0010_public_requests`). Beim Zusammenführen sind Konflikte in `security/stages.ts`, `security/scan.ts`, `Security.tsx` und `mcp/server.ts` zu erwarten.
 
 ## 1. Grundsätze
 
@@ -66,7 +66,7 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 
 ## 3. Etappe 2 – «Mit Claude lösen» über MCP
 
-### Datenmodell (Migration 0009)
+### Datenmodell (Migration 0011)
 
 `fix_requests`: `id`, `project_id`, `finding_id`, `fingerprint`, `finding_title`, `way` (`mcp`, `api`, `github`), `status` (`proposed`, `applied`, `pr_open`, `merged`, `verified`, `rejected`, `failed`), `explanation`, `diff`, `changes` (Dateien zum Anwenden), `base_commit`, `commit`, `deployment_id`, `branch`, `pr_url`, `note`, `created_at`, `updated_at`.
 
@@ -83,7 +83,7 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 
 ## 4. Etappe 3 – GitHub (vorbereitet, Anlegen der App durch Joël)
 
-### Datenmodell (Migration 0010)
+### Datenmodell (Migration 0012)
 
 `git_connections`: `id`, `provider` (`github`, `gitlab`), `app_id`, `app_slug`, `client_id`, `installation_id`, `repos`, `private_key_encrypted`, `client_secret_encrypted`, `webhook_secret_encrypted`, `created_at`. Dazu `projects.auto_deploy` (falls noch nicht vorhanden) und `projects.auto_deploy_checked_at`.
 
