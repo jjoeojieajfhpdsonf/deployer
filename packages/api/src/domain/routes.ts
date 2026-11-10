@@ -10,6 +10,7 @@ import { conflict } from '../lib/errors.js'
 import { labelOf } from '../lib/hostnames.js'
 import { effectiveKind } from './deployments.js'
 import type { RouteTarget, RouteDto } from '@deployer/shared'
+import type { HeaderRuleSpec } from '../security/header-rules.js'
 
 /**
  * Hostnamen und Caddy-Abgleich.
@@ -120,6 +121,7 @@ export async function setRoutes(
 /* --- Caddy-Abgleich ------------------------------------------------------- */
 
 interface RouteRow {
+  projectId: string
   slug: string
   hostname: string
   target: string
@@ -133,6 +135,7 @@ interface RouteRow {
 async function currentRouteRows(): Promise<RouteRow[]> {
   const rows = await db
     .select({
+      projectId: schema.projects.id,
       slug: schema.projects.slug,
       hostname: schema.routes.hostname,
       target: schema.routes.target,
@@ -156,6 +159,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
   return rows
     .filter((r) => r.deploymentId !== null && r.desiredState === 'running')
     .map((r) => ({
+      projectId: r.projectId,
       slug: r.slug,
       hostname: r.hostname,
       target: r.target as string,
@@ -190,8 +194,41 @@ export async function cloudflaredCidrs(): Promise<string[]> {
   return ip ? [`${ip}/32`] : []
 }
 
+/** M8: Adresse, an die Browser CSP-Verstösse eines Projekts melden (deployer selbst). */
+export const cspReportUri = (reportKey: string) => `${urlForHost(primaryHost('deployer'))}/api/v1/csp-reports/${reportKey}`
+
+/** M8: Header-Regeln aller Projekte, je Projekt. */
+async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSpec[]; reportUri: string | null }>> {
+  const all = await db.select().from(schema.headerRules)
+  const out = new Map<string, { rules: HeaderRuleSpec[]; reportUri: string | null }>()
+  for (const r of all) {
+    const e = out.get(r.projectId) ?? { rules: [], reportUri: null }
+    e.rules.push({ header: r.header, value: r.value, mode: r.mode })
+    if (r.reportKey) e.reportUri = cspReportUri(r.reportKey)
+    out.set(r.projectId, e)
+  }
+  return out
+}
+
+/**
+ * M8: Unter welchem Namen fragt der Header-Check ein Projekt über Caddys
+ * Probe-Server? Der interne Name (LAN/Tailnet), sonst der öffentliche, wenn
+ * es dafür eine Caddy-Route gibt. null: Caddy bedient das Projekt nicht.
+ */
+export async function probeTargetFor(projectId: string): Promise<{ host: string; url: string; secure: boolean } | null> {
+  if (!config.CADDY_PROBE_SOCKET) return null
+  const rows = (await currentRouteRows()).filter((r) => r.projectId === projectId)
+  const internal = rows.find((r) => r.target !== 'public')
+  const pub = rows.find((r) => r.target === 'public')
+  const row = internal ?? (pub && (await cloudflaredCidrs()).length ? pub : null)
+  if (!row) return null
+  const url = `${urlForHost(row.hostname)}/`
+  return { host: row.hostname, url, secure: url.startsWith('https:') }
+}
+
 export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.RouteSpec[]> {
   const rows = await currentRouteRows()
+  const headers = await headerRulesByProject()
   const specs: caddy.RouteSpec[] = []
 
   // Die deployer-UI selbst, immer vorhanden.
@@ -216,14 +253,17 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     if (isPublic && edgeCidrs.length === 0) continue
     const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
     const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
+    const h = headers.get(r.projectId)
+    const extra = h ? { headers: h.rules, reportUri: h.reportUri } : {}
     if (r.sourceType === 'static') {
-      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs })
+      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra })
     } else if (r.port && r.deploymentId) {
       specs.push({
         hosts,
         kind: 'proxy',
         upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId })}:${r.port}`,
         cidrs,
+        ...extra,
       })
     }
   }
@@ -318,6 +358,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       trustedProxies: edge,
       // Zugriffs-Log für deployer selbst (Systemseite: welche Absender sieht Caddy?)
       accessLogHosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
+      // M8: Header-Check über Caddy, ohne den IP-Filter zu öffnen
+      probeSocket: config.CADDY_PROBE_SOCKET || null,
     })
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
   const withTls = Boolean((build as { apps?: { tls?: unknown } }).apps?.tls)

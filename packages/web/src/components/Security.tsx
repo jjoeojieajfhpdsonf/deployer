@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
 import { acceptFindingSchema } from '@deployer/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
+import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 
 /**
  * Ergebnis eines Scans: Note, Score, offene Befunde, Stufen, Zeit. Wird am
@@ -77,11 +78,17 @@ export function ScanReport({
   report,
   onAccepted,
   runningSince,
+  findingAction,
+  after,
 }: {
   report: ScanReportDto
   onAccepted?: () => void
   /** Ein neuerer Scan läuft gerade (dieser Bericht ist der letzte fertige). */
   runningSince?: string | null
+  /** M8: Weg zum Beheben neben «Akzeptieren» (Header setzen, Mit Claude lösen) */
+  findingAction?: (f: FindingDto) => ReactNode
+  /** M8: Abschnitt unter den Befunden (Header über Caddy) */
+  after?: ReactNode
 }) {
   const s = report.scan
   const running = s.status === 'queued' || s.status === 'running'
@@ -177,7 +184,7 @@ export function ScanReport({
       {open.length === 0 && !running && <p className="state state-empty">Keine offenen Befunde.</p>}
       {shown.length > 0 && (
         <ul className="finding-list">
-          {shown.map((f) => <Finding key={f.id} f={f} onAccepted={onAccepted} />)}
+          {shown.map((f) => <Finding key={f.id} f={f} onAccepted={onAccepted} action={findingAction?.(f)} />)}
         </ul>
       )}
       {other.length > 0 && (
@@ -186,11 +193,12 @@ export function ScanReport({
           <ul className="finding-list">{other.map((f) => <Finding key={f.id} f={f} />)}</ul>
         </details>
       )}
+      {after}
     </div>
   )
 }
 
-function Finding({ f, onAccepted }: { f: FindingDto; onAccepted?: () => void }) {
+function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => void; action?: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const v = useFormErrors({
@@ -218,7 +226,12 @@ function Finding({ f, onAccepted }: { f: FindingDto; onAccepted?: () => void }) 
       {f.fix && <p><span className="muted">Behebung:</span> {f.fix}</p>}
       {f.status === 'accepted' && <p className="muted">✓ akzeptiert: {f.acceptReason}</p>}
       {f.status === 'fixed' && <p className="muted">✓ behoben</p>}
-      {f.status === 'open' && onAccepted && !open && <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button>}
+      {f.status === 'open' && !open && (action || onAccepted) && (
+        <div className="finding-actions">
+          {action}
+          {onAccepted && <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button>}
+        </div>
+      )}
       {open && (
         <form
           className="inline-form"
@@ -271,6 +284,19 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
     },
   })
   const report = running && done.data?.report ? done.data.report : latest
+  // M8: Header über Caddy; Ergebnis des Nachscans als Meldung über den Befunden
+  const headerRules = useHeaderRules(projectId)
+  const [fixNotice, setFixNotice] = useState<string | null>(null)
+  const noticeRef = useRef<HTMLDivElement>(null)
+  // Die Karte des behobenen Befunds verschwindet; die Meldung oben einblenden.
+  // Erst leeren, dann setzen: auch eine gleichlautende Meldung wird angesagt.
+  const showFixNotice = (msg: string) => {
+    setFixNotice(null)
+    setTimeout(() => {
+      setFixNotice(msg)
+      requestAnimationFrame(() => noticeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    }, 50)
+  }
 
   return (
     <div className="tab-panel">
@@ -300,11 +326,16 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
       ) : !report ? (
         <p className="state state-empty">Noch kein Scan. Nach jedem Deploy läuft einer automatisch.</p>
       ) : (
-        <ScanReport
-          report={report}
-          runningSince={running && report !== latest ? latest!.scan.startedAt : null}
-          onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
-        />
+        <>
+          <div ref={noticeRef} role="status" aria-live="polite" className="fix-live">{fixNotice && <p className="fix-notice">{fixNotice}</p>}</div>
+          <ScanReport
+            report={report}
+            runningSince={running && report !== latest ? latest!.scan.startedAt : null}
+            onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
+            findingAction={(f) => <HeaderFixAction projectId={projectId} finding={f} rules={headerRules.data} onDone={showFixNotice} />}
+            after={<HeaderRulesSection projectId={projectId} />}
+          />
+        </>
       )}
     </div>
   )

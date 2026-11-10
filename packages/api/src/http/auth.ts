@@ -173,7 +173,8 @@ declare module 'fastify' {
  * Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern.
  */
 export function registerAuthGuard(app: FastifyInstance): void {
-  const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health'])
+  // M8: CSP-Meldungen kommen von Browsern ohne Anmeldung (Schlüssel im Pfad)
+  const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key'])
   app.decorateRequest('actor', '')
   app.decorateRequest('tokenId', null)
   app.addHook('onRequest', async (request) => {

@@ -4,6 +4,7 @@
  */
 
 import { coveredByWildcard } from '../lib/hostnames.js'
+import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
@@ -29,6 +30,10 @@ export interface RouteSpec {
    * Tailnet oder beides). Fehlt es, gelten die allgemeinen opts.cidrs.
    */
   cidrs?: string[]
+  /** M8: Security-Header, die Caddy ergänzt (nur wenn die App sie nicht setzt). */
+  headers?: HeaderRuleSpec[]
+  /** M8: Ziel der CSP-Meldungen dieses Projekts (absolute URL). */
+  reportUri?: string | null
 }
 
 export interface CaddyBuildOptions {
@@ -51,7 +56,18 @@ export interface CaddyBuildOptions {
    * liest die Systemseite die Absenderadressen (lib/client-ips.ts).
    */
   accessLogHosts?: string[]
+  /**
+   * M8: Unix-Socket für den Probe-Server. Er kennt dieselben Namen und
+   * Handler wie die Besucher-Server (inklusive ergänzter Header), aber ohne
+   * IP-Filter: der Header-Check des deployers prüft darüber, wie Besucher die
+   * Seite sehen. Über das Netz ist ein Unix-Socket nicht erreichbar – der
+   * Filter für fremde Absender bleibt, wie er ist.
+   */
+  probeSocket?: string | null
 }
+
+/** Name des Probe-Servers in Caddys Konfiguration */
+export const PROBE_SERVER = 'probe'
 
 /** Logger-Name des Zugriffs-Logs für deployer (im Log: http.log.access.deployer) */
 export const ACCESS_LOGGER = 'deployer'
@@ -150,29 +166,49 @@ export function buildCaddyConfig(
   const remote = opts.ipFilter ? { remote_ip: { ranges: opts.cidrs } } : {}
   const remoteFor = (r: RouteSpec) => (opts.ipFilter ? { remote_ip: { ranges: r.cidrs ?? opts.cidrs } } : {})
 
-  const toRoute = (r: RouteSpec, hosts: string[]): HttpRoute => {
+  // M8: HSTS nur, solange Caddy das Wildcard-Zertifikat der Produktions-CA
+  // verwaltet. Fällt TLS zurück (Staging, Probelauf, aus), fällt HSTS mit.
+  const hstsAllowed = Boolean(tls && tls.acmeCa === 'production' && (tls.mode ?? 'wildcard') === 'wildcard')
+
+  /**
+   * Handler einer Route. secure: Route auf :443 bzw. deren Abbild im
+   * Probe-Server. probe: Abbild im Probe-Server – die App bekommt dort
+   * X-Forwarded-Proto wie ein Besucher (sonst sähe sie «http» vom Socket).
+   */
+  const handlersFor = (r: RouteSpec, secure: boolean, probe: boolean): Handler[] => {
+    const proxy: Handler = { handler: 'reverse_proxy', upstreams: [{ dial: r.upstream }] }
+    if (probe) proxy.headers = { request: { set: { 'X-Forwarded-Proto': [secure ? 'https' : 'http'] } } }
     const handle: Handler[] =
       r.kind === 'proxy'
-        ? [{ handler: 'reverse_proxy', upstreams: [{ dial: r.upstream }] }]
+        ? [proxy]
         : [
             { handler: 'vars', root: r.root },
             { handler: 'file_server', index_names: ['index.html'] },
           ]
+    if (r.headers?.length) handle.unshift(...headerHandlers(r.headers, { secure, hstsAllowed, reportUri: r.reportUri }))
     if (r.noKeepAlive) {
       handle.unshift({ handler: 'headers', response: { set: { Connection: ['close'] } } })
     }
-    return { match: [{ host: hosts, ...remoteFor(r) }], handle, terminal: true }
+    return handle
+  }
+
+  const toRoute = (r: RouteSpec, hosts: string[], secure: boolean): HttpRoute => {
+    return { match: [{ host: hosts, ...remoteFor(r) }], handle: handlersFor(r, secure, false), terminal: true }
   }
 
   // Ohne TLS: alle Namen auf :80. Mit TLS: Namen unter der Basisdomain auf
   // :443, der Rest (nip.io) bleibt auf :80 - dafür gibt es kein Zertifikat.
   const plainRoutes: HttpRoute[] = []
   const tlsRoutes: HttpRoute[] = []
+  const probeRoutes: HttpRoute[] = []
   for (const r of routes) {
     const secure = tls ? r.hosts.filter((h) => coveredByWildcard(h, tls.baseDomain)) : []
     const plain = r.hosts.filter((h) => !secure.includes(h))
-    if (plain.length) plainRoutes.push(toRoute(r, plain))
-    if (secure.length) tlsRoutes.push(toRoute(r, secure))
+    if (plain.length) plainRoutes.push(toRoute(r, plain, false))
+    if (secure.length) tlsRoutes.push(toRoute(r, secure, true))
+    // Probe: je Name so, wie Besucher ihn sehen (HTTPS oder HTTP), ohne IP-Filter.
+    if (secure.length) probeRoutes.push({ match: [{ host: secure }], handle: handlersFor(r, true, true), terminal: true })
+    if (plain.length) probeRoutes.push({ match: [{ host: plain }], handle: handlersFor(r, false, true), terminal: true })
   }
 
   if (tls && tls.redirect !== false) {
@@ -240,6 +276,13 @@ export function buildCaddyConfig(
         ? { trusted_proxies: { source: 'static', ranges: opts.trustedProxies }, client_ip_headers: ['CF-Connecting-IP'] }
         : {}),
     },
+  }
+  if (opts.probeSocket) {
+    servers[PROBE_SERVER] = {
+      listen: [`unix/${opts.probeSocket}`],
+      routes: [...probeRoutes, catchAll],
+      automatic_https: { disable: true },
+    }
   }
   const apps: Record<string, unknown> = { http: { servers } }
 

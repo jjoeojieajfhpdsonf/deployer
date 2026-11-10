@@ -219,3 +219,27 @@ export const domains = pgTable('domains', {
   isDefault: boolean('is_default').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- M8: Fix-Assistent ------------------------------------------------------ */
+
+export const headerRules = pgTable('header_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  header: text('header').$type<import('@deployer/shared').HeaderKey>().notNull(),
+  value: text('value').notNull(),
+  mode: text('mode').$type<'report-only' | 'enforce'>().notNull().default('enforce'),
+  reportKey: text('report_key').unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('header_rules_project_id_header_key').on(t.projectId, t.header)])
+
+export const cspViolations = pgTable('csp_violations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  directive: text('directive').notNull(),
+  blocked: text('blocked').notNull(),
+  samplePath: text('sample_path'),
+  count: integer('count').notNull().default(1),
+  firstSeen: timestamp('first_seen', { withTimezone: true }).notNull().defaultNow(),
+  lastSeen: timestamp('last_seen', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('csp_violations_project_id_directive_blocked_key').on(t.projectId, t.directive, t.blocked)])

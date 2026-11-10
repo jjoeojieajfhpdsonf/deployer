@@ -867,6 +867,24 @@ details > summary:hover { color: var(--ink); }
 .finding .form-actions { margin-top: var(--sp-3); }
 .finding-accepted, .finding-fixed { opacity: 0.7; }
 
+/* M8: Beheben neben Akzeptieren */
+.finding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+.finding-actions .error { flex-basis: 100%; margin: 0; }
+.fix-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-13); color: var(--ink-dim); }
+.fix-notice { margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink); font-size: var(--fs-14); }
+.header-value { font-size: var(--fs-13); overflow-wrap: anywhere; }
+.header-rules-table td { white-space: nowrap; }
+.header-rules-table td:nth-child(2) { white-space: normal; width: 100%; }
+.csp-reports { margin-top: var(--sp-6); }
+.csp-reports h3 { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-3); font-size: var(--fs-16); }
+.csp-reports .table-scroll { margin-bottom: var(--sp-3); }
+.csp-notes { padding-left: var(--sp-5); max-width: none; }
+.fix-live .fix-notice { margin-top: var(--sp-3); }
+.scan-actions + .fix-live .fix-notice, .tab-panel > .fix-live .fix-notice { margin-top: 0; }
+/* Gesperrt, aber fokussierbar (Begründung wird vorgelesen) */
+button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
+.csp-reports .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
 /* --- Externe Ziele, Tokens, Benachrichtigungen --------------------------------------- */
 
 .target-list { list-style: none; margin: var(--sp-5) 0 0; padding: 0; display: grid; gap: var(--sp-3); }

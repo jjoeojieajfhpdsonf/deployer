@@ -26,6 +26,10 @@ const envSchema = z.object({
 
   DOCKER_HOST: z.string().default('tcp://socket-proxy:2375'),
   CADDY_ADMIN_SOCKET: z.string().default('/run/caddy/admin.sock'),
+  // M8: Probe-Server von Caddy (gleiches Volume wie der Admin-Socket). Der
+  // Header-Check fragt darüber, wie Besucher die Seite sehen, ohne dass der
+  // IP-Filter für den deployer geöffnet werden muss. Leer = aus.
+  CADDY_PROBE_SOCKET: z.string().default('/run/caddy/probe.sock'),
 
   DATA_DIR: z.string().default('/data'),
   SITES_DIR: z.string().default('/srv/sites'),

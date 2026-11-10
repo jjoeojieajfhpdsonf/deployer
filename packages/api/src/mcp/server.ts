@@ -22,6 +22,7 @@ import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import type { TokenIdentity } from '../domain/tokens.js'
+import { registerFixTools } from './fix-tools.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 
 /**
@@ -41,7 +42,7 @@ const wait = z.boolean().default(true).describe('Auf das Ende des Deploys warten
 const PUBLIC_AT_CREATE = 'Öffentlich geht erst nach dem ersten Scan (Schwelle aus Meilenstein 6): Projekt mit "lan"/"tailnet" anlegen, get_scan_report abwarten, dann set_targets mit "public".'
 
 type Content = { type: 'text'; text: string } | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } }
-type ToolResult = { content: Content[]; isError?: boolean }
+export type ToolResult = { content: Content[]; isError?: boolean }
 
 const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] })
 const fail = (msg: string): ToolResult => ({ content: [{ type: 'text', text: msg }], isError: true })
@@ -458,6 +459,9 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     }
     return ok(summarize(await toDto(await findProject(p.id))))
   })
+
+  // M8: Fix-Assistent (eigene Datei, siehe mcp/fix-tools.ts)
+  registerFixTools({ tool, confirm, actor, ok, fail })
 
   return server
 }

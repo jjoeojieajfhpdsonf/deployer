@@ -814,3 +814,6 @@ export const cfDomainsSchema = z.object({
   accessEmail: optionalEmail,
   acmeEmail: optionalEmail,
 })
+
+/* M8: Fix-Assistent (eigene Datei, damit parallele Änderungen hier nicht kollidieren) */
+export * from './fix.js'
