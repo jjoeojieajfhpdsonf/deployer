@@ -3,6 +3,7 @@ import { loginSchema } from '@airlock/shared'
 import { passwordChangeSchema } from '@airlock/shared'
 import { login, setSessionCookie, clearSessionCookie, isLoggedIn, changePassword, passwordInfo, sessionStart, viaHttps } from '../auth.js'
 import { config } from '../../config.js'
+import { isoOrNull } from '../../lib/dates.js'
 import { audit } from '../../domain/audit.js'
 import { AppError } from '../../lib/errors.js'
 import { getUiPrefs, setUiPrefs } from '../../domain/ui-prefs.js'
@@ -33,7 +34,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return {
       loggedIn: true,
       name: config.ADMIN_NAME || 'Admin',
-      sessionSince: start ? new Date(start).toISOString() : null,
+      sessionSince: isoOrNull(start),
       viaHttps: viaHttps(request),
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,

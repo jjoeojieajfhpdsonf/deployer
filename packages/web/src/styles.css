@@ -774,6 +774,16 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .state-error { color: var(--bad); }
 .state-empty { padding: var(--sp-10) var(--sp-6); text-align: center; }
+
+/* Fehlerseite der Error Boundary: statt schwarzem Bild, im Ton der Leerzustände */
+.crash { max-width: 640px; padding: var(--sp-10) 0; }
+.crash-app { margin: 0 auto; padding: var(--sp-10) var(--sp-6); min-height: 100vh; display: grid; align-content: center; background: var(--bg); color: var(--ink); }
+.crash h1 { font-family: var(--display); font-weight: 400; font-size: var(--fs-30); line-height: 1.15; letter-spacing: var(--track-display); margin: 0 0 var(--sp-3); }
+.crash-lede { color: var(--ink-dim); margin: 0 0 var(--sp-6); max-width: var(--measure); }
+.crash-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.crash-details { margin-top: var(--sp-7); }
+.crash-details > summary { font-size: var(--fs-14); }
+.crash-details pre { margin: var(--sp-3) 0 0; padding: var(--sp-4); max-height: 320px; overflow: auto; border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-12); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .state-empty h2 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); margin-bottom: var(--sp-2); }
 .state-empty p { margin: 0 auto 18px; color: var(--muted); }
 .page-medium > .state-empty, .page-narrow > .state-empty { margin-top: var(--sp-5); }

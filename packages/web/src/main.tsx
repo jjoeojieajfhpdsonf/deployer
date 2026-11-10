@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { App } from './App.js'
+import { ErrorBoundary } from './components/ErrorBoundary.js'
 
 // Lokal gebündelt über @fontsource, nicht von Google Fonts: im LAN soll der
 // Aufruf der Oberfläche nichts von aussen nachladen.
@@ -33,7 +34,10 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        {/* Letzte Linie: statt schwarzem Bild eine Fehlerseite mit «Neu laden» */}
+        <ErrorBoundary scope="app">
+          <App />
+        </ErrorBoundary>
       </BrowserRouter>
       {/* Einmal, an der Wurzel. Farben aus den eigenen Tokens (styles.css), daher hell und dunkel ohne theme-Prop. */}
       <Toaster position="bottom-right" duration={10_000} gap={8} containerAriaLabel="Meldungen" />

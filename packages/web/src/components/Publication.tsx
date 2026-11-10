@@ -29,7 +29,10 @@ export function PublicPillFor({ p }: { p: ProjectDto }) {
   return s === 'private' ? null : <PublicPill state={s} />
 }
 
-const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' }) : '–')
+const when = (iso: string | null) => {
+  const d = iso ? new Date(iso) : null
+  return d && Number.isFinite(d.getTime()) ? d.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' }) : '–'
+}
 
 /**
  * Karte «Veröffentlichung» (Projekt → Einstellungen). Drei Zustände:

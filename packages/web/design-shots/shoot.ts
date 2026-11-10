@@ -80,6 +80,8 @@ type Shot = {
   full?: boolean
   /** Leere Daten (keine Projekte, kein Audit) */
   empty?: boolean
+  /** Kaputte Projektliste (Projekt ohne Felder): zeigt die Fehlerseite der Error Boundary */
+  broken?: boolean
   /** M8: GitHub App angelegt und installiert */
   githubConnected?: boolean
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
@@ -246,6 +248,26 @@ const shots: Shot[] = [
   },
   {
     // Pausiert mit eigenem Code: Dialog mit «Voraussichtlich zurück»
+    // Absturz von früher: Jahr 333333 im Datumsfeld – jetzt Feldmeldung statt schwarzer Seite
+    group: 'fehler', name: 'pauseseite-datum-ungueltig', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      const f = pg.locator('.pause-dialog input[type="datetime-local"]')
+      // Ganz links (Tag) beginnen, dann Tag, Monat und ein sechsstelliges Jahr wie im Absturz
+      await f.click({ position: { x: 14, y: 20 } })
+      await pg.keyboard.type('0303333333')
+      await pg.waitForTimeout(300)
+      const state = await f.evaluate((el: HTMLInputElement) => ({ value: el.value, bad: el.validity.badInput }))
+      const msg = await pg.locator('.pause-dialog .field-error').allTextContents()
+      const crashed = await pg.locator('.crash').count()
+      console.log(`  Datumsfeld: value=${JSON.stringify(state.value)} badInput=${state.bad} Meldung=${JSON.stringify(msg)} Fehlerseite=${crashed}`)
+      if (crashed) throw new Error('Fehlerseite statt Feldmeldung')
+    },
+  },
+  // Error Boundary: kaputte Daten legen nur die Seite still, mit «Neu laden» und Details
+  { group: 'fehler', name: 'fehlerseite', path: '/projekte', full: false, broken: true },
+  {
     group: 'pauseseite', name: 'pauseseite-dialog-pausiert', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
@@ -353,6 +375,8 @@ try {
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.broken && url.pathname === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
+            if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))

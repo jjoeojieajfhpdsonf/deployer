@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PAUSE_FILE } from '../drivers/caddy-config.js'
-import { DEFAULT_PAUSE_PAGE, pausePageSchema, type PausePage, type PauseOptions } from '@airlock/shared'
+import { DEFAULT_PAUSE_PAGE, pausePageSchema, backAtProblem, type PausePage, type PauseOptions } from '@airlock/shared'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 import { badRequest } from '../lib/errors.js'
@@ -43,7 +43,9 @@ export async function setPausePageTemplate(page: PausePage | null, actor: string
  * oder während der Pause). page undefined: unverändert; null: wie Vorlage.
  */
 export async function setProjectPause(projectId: string, o: PauseOptions, actor: string): Promise<boolean> {
-  if (o.backAt && new Date(o.backAt).getTime() <= Date.now()) throw badRequest('«Voraussichtlich zurück» liegt in der Vergangenheit')
+  // Gleiche Regel wie das Feld: lesbar, Zukunft, höchstens ein Jahr voraus (auch für MCP back_at)
+  const problem = backAtProblem(o.backAt)
+  if (problem) throw badRequest(`«Voraussichtlich zurück»: ${problem}`, [{ path: 'backAt', message: problem }])
   const set: Partial<typeof schema.routes.$inferInsert> = {}
   if (o.page !== undefined) set.pausePage = o.page ? pausePageSchema.parse(o.page) : null
   if (o.backAt !== undefined) set.pauseBackAt = o.backAt ? new Date(o.backAt) : null

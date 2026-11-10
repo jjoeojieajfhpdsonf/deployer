@@ -19,6 +19,7 @@ import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
+import { sinceSeconds } from '../../lib/dates.js'
 import { projectHealth } from '../../jobs/monitor.js'
 import { probeViaCaddy } from '../../lib/address-probe.js'
 import { config } from '../../config.js'
@@ -225,7 +226,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
         return { logs: '', hint: 'Kein laufender Container – es gibt noch keine Ausgabe.' }
       }
       const lines = Math.min(Number(request.query.lines ?? 200) || 200, 500)
-      const since = request.query.since ? Math.floor(new Date(request.query.since).getTime() / 1000) : undefined
+      const since = sinceSeconds(request.query.since)
       return { logs: await docker.getLogs(active.containerId, { tail: lines, ...(since ? { since } : {}) }) }
     },
   )
