@@ -339,6 +339,53 @@ export interface RouteDto {
   urls: string[]
 }
 
+/* --- Adressen-Prüfung ------------------------------------------------------ */
+
+/**
+ * Ergebnis der Prüfung einer Adresse vom Server aus (GET
+ * /projects/:id/address-check). routed: Caddy kennt den Namen, der IP-Filter
+ * hält aber den deployer selbst ab – die Antwort des Projekts bleibt offen.
+ */
+export interface AddressCheckDto {
+  url: string
+  state: 'ok' | 'routed' | 'unknown' | 'down' | 'error'
+  detail: string
+  checkedAt: string
+}
+
+/**
+ * Darf der Browser die Adresse selbst prüfen? Nicht, wenn die Oberfläche über
+ * https läuft und die Adresse http ist: das blockiert der Browser als Mixed
+ * Content, die Prüfung meldete fälschlich «nicht erreichbar».
+ */
+export function browserCanProbe(url: string, pageProtocol: string): boolean {
+  return !(pageProtocol === 'https:' && url.startsWith('http:'))
+}
+
+export interface AddressRowInput { url: string; ways: string[]; access: boolean }
+
+/**
+ * Teilt die Adressen eines Projekts in Haupt- und weitere Adressen. Läuft
+ * eine interne Route über https (Wildcard-Zertifikat aktiv), sind ihre
+ * http-Aliase (nip.io) nur noch Ausweichnamen und wandern unter «Weitere
+ * Adressen». Ohne Zertifikat bleibt alles oben.
+ */
+export function splitAddresses(routes: RouteDto[]): { primary: AddressRowInput[]; more: AddressRowInput[] } {
+  const primary: AddressRowInput[] = []
+  const more: AddressRowInput[] = []
+  for (const r of routes) {
+    const ways = (r.targets ?? [r.target]) as string[]
+    const secure = r.urls.some((u) => u.startsWith('https:'))
+    for (const url of r.urls) {
+      const host = url.replace(/^https?:\/\//, '')
+      const row = { url, ways, access: Boolean(r.accessProtected) }
+      if (secure && url.startsWith('http:') && r.aliases.includes(host)) more.push(row)
+      else primary.push(row)
+    }
+  }
+  return { primary, more }
+}
+
 export interface DeploymentDto {
   id: string
   projectId: string

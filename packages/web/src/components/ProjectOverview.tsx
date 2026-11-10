@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@deployer/shared'
+import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@deployer/shared'
+import { browserCanProbe, splitAddresses } from '@deployer/shared'
 import { api, ApiError, probeUrl } from '../api.js'
 import { duration, relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
@@ -424,27 +425,53 @@ function Activity({ projectId, p }: { projectId: string; p: ProjectDto }) {
 const WAY_LABEL: Record<string, string> = { lan: 'LAN', tailnet: 'Tailnet', public: 'Öffentlich' }
 
 function Addresses({ p, down }: { p: ProjectDto; down: boolean }) {
-  const rows = p.routes.flatMap((r) => r.urls.map((u) => ({ url: u, ways: (r.targets ?? [r.target]) as string[], access: r.accessProtected })))
+  const { primary, more } = splitAddresses(p.routes)
   const live = p.desiredState === 'running' && Boolean(p.activeDeployment) && !down
+  const idle = down ? 'antwortet nicht' : 'nicht aktiv'
+  const row = (r: AddressRowInput) => <AddressRow key={r.url} projectId={p.id} url={r.url} ways={r.ways} access={r.access} live={live} idle={idle} />
+  const viaServer = live && [...primary, ...more].some((r) => !browserCanProbe(r.url, window.location.protocol))
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-addr">
       <h2 className="ov-title" id="ov-addr">Adressen</h2>
-      {rows.length === 0 ? <p className="muted ov-empty">Keine. Unter Einstellungen → Erreichbarkeit festlegen.</p> : (
-        <ul className="addr-list">
-          {rows.map((r) => <AddressRow key={r.url} url={r.url} ways={r.ways} access={Boolean(r.access)} live={live} idle={down ? 'antwortet nicht' : 'nicht aktiv'} />)}
-        </ul>
+      {primary.length === 0 && more.length === 0 ? <p className="muted ov-empty">Keine. Unter Einstellungen → Erreichbarkeit festlegen.</p> : (
+        <ul className="addr-list">{primary.map(row)}</ul>
       )}
-      {rows.length > 0 && live && <p className="ov-foot">Geprüft von diesem Gerät aus.</p>}
+      {more.length > 0 && (
+        <details className="addr-more">
+          <summary>Weitere Adressen ({more.length})</summary>
+          <p className="hint">nip.io-Namen ohne Zertifikat, für Geräte ohne passenden DNS.</p>
+          <ul className="addr-list">{more.map(row)}</ul>
+        </details>
+      )}
+      {primary.length + more.length > 0 && live && (
+        <p className="ov-foot">{viaServer ? 'https-Adressen geprüft von diesem Gerät aus, http-Adressen vom Server aus.' : 'Geprüft von diesem Gerät aus.'}</p>
+      )}
     </section>
   )
 }
 
-function AddressRow({ url, ways, access, live, idle }: { url: string; ways: string[]; access: boolean; live: boolean; idle: string }) {
-  const [state, setState] = useState<'idle' | 'checking' | 'ok' | 'bad'>('idle')
+type AddrState = 'idle' | 'checking' | 'ok' | 'bad' | 'routed' | 'unchecked'
+
+function AddressRow({ projectId, url, ways, access, live, idle }: { projectId: string; url: string; ways: string[]; access: boolean; live: boolean; idle: string }) {
+  const [state, setState] = useState<AddrState>('idle')
+  const [detail, setDetail] = useState('')
   const [copied, setCopied] = useState(false)
+  // Auf einer https-Seite blockiert der Browser http-Adressen (Mixed Content):
+  // dann prüft der Server über Caddy, und das steht dabei.
+  const byServer = !browserCanProbe(url, window.location.protocol)
   const check = () => {
     setState('checking')
-    void probeUrl(url).then((ok) => setState(ok ? 'ok' : 'bad'))
+    if (!byServer) {
+      void probeUrl(url).then((ok) => { setDetail(''); setState(ok ? 'ok' : 'bad') })
+      return
+    }
+    api.addressCheck(projectId, url).then((r) => {
+      setDetail(r.detail)
+      setState(r.state === 'ok' ? 'ok' : r.state === 'routed' ? 'routed' : r.state === 'error' ? 'unchecked' : 'bad')
+    }).catch((err: Error) => {
+      setDetail(err.message)
+      setState('unchecked')
+    })
   }
   useEffect(() => {
     if (live) check()
@@ -471,8 +498,10 @@ function AddressRow({ url, ways, access, live, idle }: { url: string; ways: stri
         <span className="addr-ways">{ways.map((w) => WAY_LABEL[w] ?? w).join(' · ')}{access ? ' · Cloudflare Access' : ''}</span>
         {!live ? <span className={idle === 'antwortet nicht' ? 'addr-state addr-bad' : 'addr-state addr-idle'}>{idle === 'antwortet nicht' && <IconBad />}{idle}</span>
           : state === 'checking' ? <span className="addr-state addr-checking"><IconPending /> prüft…</span>
-          : state === 'ok' ? <span className="addr-state addr-ok"><IconOk /> erreichbar</span>
-          : state === 'bad' ? <button type="button" className="addr-state addr-bad link-button" onClick={check} title="Nochmals prüfen"><IconBad /> nicht erreichbar</button>
+          : state === 'ok' ? <span className="addr-state addr-ok" title={detail || undefined}><IconOk /> erreichbar{byServer ? ' · vom Server geprüft' : ''}</span>
+          : state === 'routed' ? <span className="addr-state addr-ok" title={detail}><IconOk /> Route aktiv · vom Server geprüft</span>
+          : state === 'unchecked' ? <button type="button" className="addr-state addr-idle link-button" onClick={check} title={`${detail} Nochmals prüfen.`}><IconPending /> nicht vom Browser prüfbar (http)</button>
+          : state === 'bad' ? <button type="button" className="addr-state addr-bad link-button" onClick={check} title={detail ? `${detail} Nochmals prüfen.` : 'Nochmals prüfen'}><IconBad /> nicht erreichbar{byServer ? ' · vom Server geprüft' : ''}</button>
           : null}
       </div>
     </li>

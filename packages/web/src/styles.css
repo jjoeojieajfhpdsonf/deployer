@@ -1031,7 +1031,10 @@ details > summary:hover { color: var(--ink); }
 .addr-state svg { width: 14px; height: 14px; }
 .addr-ok { color: var(--ok); }
 .addr-bad, .addr-bad.link-button { color: var(--bad); font-size: var(--fs-12); }
-.addr-checking, .addr-idle { color: var(--ink-dim); }
+.addr-checking, .addr-idle, .addr-idle.link-button { color: var(--ink-dim); font-size: var(--fs-12); }
+.addr-more { margin-top: var(--sp-3); }
+.addr-more > summary { font-size: var(--fs-14); }
+.addr-more .hint { margin: var(--sp-2) 0; }
 
 .side-facts { display: grid; gap: var(--sp-1); margin: 0; }
 .side-facts dt { font-size: var(--fs-12); color: var(--muted); margin-top: var(--sp-3); }

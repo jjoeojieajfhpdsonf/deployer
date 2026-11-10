@@ -20,6 +20,8 @@ import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
 import { projectHealth } from '../../jobs/monitor.js'
+import { probeViaCaddy } from '../../lib/address-probe.js'
+import { config } from '../../config.js'
 
 interface IdParams {
   id: string
@@ -70,6 +72,19 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams; Querystring: { fresh?: string } }>('/projects/:id/health', async (request) => {
     const project = await findProject(request.params.id)
     return projectHealth(project.id, { fresh: request.query.fresh === '1' })
+  })
+
+  /**
+   * Eine Adresse des Projekts vom Server aus prüfen (über Caddy, Host-Header).
+   * Für http-Adressen, die der Browser auf einer https-Seite nicht abfragen
+   * darf. Nur Adressen dieses Projekts – kein offener Proxy.
+   */
+  app.get<{ Params: IdParams; Querystring: { url?: string } }>('/projects/:id/address-check', async (request) => {
+    const project = await findProject(request.params.id)
+    const url = request.query.url ?? ''
+    const dto = await toDto(project)
+    if (!dto.routes.some((r) => r.urls.includes(url))) throw badRequest('Diese Adresse gehört nicht zum Projekt.')
+    return probeViaCaddy(`${config.CADDY_CONTAINER}:80`, url)
   })
 
   app.patch<{ Params: IdParams }>('/projects/:id', async (request) => {
