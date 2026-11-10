@@ -44,8 +44,8 @@ describe('Wartungsseite (öffentlich pausiert)', () => {
     assert.deepEqual(r.match?.[0]?.remote_ip?.ranges, ['172.30.0.5/32'])
   })
 
-  test('die Seite ist neutral: kein Projektname, kein deployer, kein Platzhalter', () => {
-    assert.doesNotMatch(MAINTENANCE_HTML, /deployer|haushalt/i)
+  test('die Seite ist neutral: kein Projektname, kein Produktname, kein Platzhalter', () => {
+    assert.doesNotMatch(MAINTENANCE_HTML, /airlock|deployer|haushalt/i)
     // Caddy ersetzt bekannte Platzhalter im Body; keiner darf vorkommen
     assert.doesNotMatch(MAINTENANCE_HTML, /\{(http|env|file|system|time)\./)
     assert.match(MAINTENANCE_HTML, /<html lang="de">/)

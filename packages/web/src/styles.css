@@ -549,6 +549,7 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .notice-ok::before { content: '✓'; color: var(--ok); font-weight: 600; }
 .notice-info::before { content: '●'; color: var(--info); font-size: 10px; }
 /* Übergang deployer → Airlock: Hinweis mit «Neu erstellen» rechts */
+.legacy-notice { margin-bottom: var(--sp-4); }
 .legacy-notice > span { flex: 1; }
 .legacy-notice > button { flex: none; }
 

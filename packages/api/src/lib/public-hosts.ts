@@ -16,7 +16,7 @@ const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
  * Abgelehnt: Namen unter der internen Basisdomain (die sind intern), die
  * Zone selbst (Apex), mehr als eine Ebene unter der Zone (Universal-SSL von
  * Cloudflare deckt nur eine), Namen ausserhalb der Zonen des Kontos, und
- * reservierte Labels (deployer: die Oberfläche wird nie öffentlich).
+ * reservierte Labels (deployer/airlock: die Oberfläche wird nie öffentlich).
  */
 export function resolvePublicHostname(
   input: { subdomain?: string; hostname?: string },

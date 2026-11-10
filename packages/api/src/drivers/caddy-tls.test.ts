@@ -110,7 +110,7 @@ describe('Caddy mit TLS', () => {
     assert.equal(cfg().admin.listen, 'unix//run/caddy/admin.sock')
   })
 
-  test('Connection: close bleibt auf der deployer-Route (auch auf :443)', () => {
+  test('Connection: close bleibt auf der Route der Oberfläche (auch auf :443)', () => {
     const srv1 = cfg().apps.http.servers.srv1
     const r = srv1.routes.find((x: R) => x.match?.[0]?.host.includes('deployer.int.example.ch'))
     assert.equal(r.handle[0].handler, 'headers')

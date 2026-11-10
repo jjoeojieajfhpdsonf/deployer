@@ -88,6 +88,8 @@ type Shot = {
   hang?: string[]
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
+  /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
+  legacy?: boolean
   prepare?: (page: Page) => Promise<void>
 }
 const P = fx.detailProjectId
@@ -100,6 +102,7 @@ const shots: Shot[] = [
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
   { group: 'projekte', name: 'projekte', path: '/projekte' },
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
+  { group: 'uebergang', name: 'projekt-alte-container', path: `/projekte/${P}`, full: false, legacy: true },
   { group: 'projekte', name: 'projekt-fehler', path: `/projekte/${W}` },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
@@ -335,6 +338,10 @@ try {
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
+            if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
+              const b = r.body as { project: object }
+              return json(route, { ...b, project: { ...b.project, legacyContainers: true } })
+            }
             return json(route, r.body, r.status)
           }
           if (url.pathname === '/health') return json(route, { ok: true })
