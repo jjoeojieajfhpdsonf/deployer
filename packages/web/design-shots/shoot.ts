@@ -373,6 +373,9 @@ const shots: Shot[] = [
       await pg.waitForTimeout(300)
     },
   },
+  { group: 'p2', name: '2-security-karte-offen', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p2', name: '2-security-karte-ohne-befunde', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p2', name: '2-security-karte-handlungsbedarf', path: `/projekte/${S}`, el: 'section[aria-labelledby="ov-sec"]' },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },

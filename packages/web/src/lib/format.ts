@@ -45,6 +45,21 @@ export function duration(ms: number | null): string {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`
 }
 
+/** Zeitpunkt in der Zukunft: «heute», «morgen», «in 6 Tagen» */
+export function inTime(iso: string | null | undefined): string {
+  if (!iso) return '–'
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return '–'
+  const diff = t - Date.now()
+  if (diff <= 0) return 'demnächst'
+  const h = Math.floor(diff / 3_600_000)
+  if (h < 1) return 'in weniger als einer Stunde'
+  if (h < 24) return `in ${h} Std.`
+  const d = Math.round(diff / 86_400_000)
+  if (d === 1) return 'morgen'
+  return `in ${d} Tagen`
+}
+
 /** Dauer eines Deployments: unter einer Sekunde «sofort» (statische Seiten, nur Umschalten) */
 export function deployDuration(ms: number | null): string | null {
   if (ms === null || ms < 0) return null

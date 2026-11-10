@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@airlock/shared'
+import type { AddressRowInput, DeploymentDto, EnvEntryDto, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
 import { api, probeUrl } from '../api.js'
 import { relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
-import { GradeBadge, SeverityChips, SEVERITY_LABEL, IconWarn } from './Security.js'
+import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
+import { SecurityCard } from './SecurityCard.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -66,7 +67,7 @@ export function ProjectOverview({
             </section>
           )}
           <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />
-          <SecuritySummary p={p} onTab={onTab} />
+          <SecurityCard p={p} onTab={onTab} />
           <Activity projectId={p.id} p={p} />
         </div>
 
@@ -302,48 +303,6 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
 }
 
 /* --- Security ---------------------------------------------------------------- */
-
-const SEV_ORDER: FindingDto['severity'][] = ['critical', 'high', 'medium', 'low']
-
-function SecuritySummary({ p, onTab }: { p: ProjectDto; onTab: (t: Tab) => void }) {
-  const r = useQuery({ queryKey: ['scan-done', p.id], queryFn: () => api.latestScan(p.id, true), enabled: Boolean(p.security) })
-  const report = r.data?.report
-  const top = (report?.findings ?? [])
-    .filter((f) => f.status === 'open')
-    .sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity))
-    .slice(0, 3)
-  const scanning = p.security?.status === 'running' || p.security?.status === 'queued'
-
-  return (
-    <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">
-      <div className="ov-head">
-        <h2 className="ov-title" id="ov-sec">Security</h2>
-        <button type="button" className="link-button" onClick={() => onTab('security')}>Alle Befunde</button>
-      </div>
-      {!p.security || (!report && !r.isLoading) ? (
-        <p className="muted ov-empty">{scanning ? 'Der erste Scan läuft.' : 'Noch kein Scan. Er startet nach dem ersten erfolgreichen Deploy.'}</p>
-      ) : !report ? <p className="muted ov-empty">Wird geladen…</p> : (
-        <>
-          <div className="sec-line">
-            <GradeBadge grade={report.scan.grade} score={report.scan.score} />
-            <SeverityChips counts={report.counts} />
-          </div>
-          {top.length === 0 ? <p className="muted ov-empty">Keine offenen Befunde.</p> : (
-            <ul className="top-findings">
-              {top.map((f) => (
-                <li key={f.id}>
-                  <span className={`badge sev-${f.severity}`}>{SEVERITY_LABEL[f.severity]}</span>
-                  <span className="top-finding-title">{f.title}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="ov-foot">Scan {relativeTime(report.scan.finishedAt ?? report.scan.startedAt)}{scanning ? ' · ein neuer läuft gerade' : ''}</p>
-        </>
-      )}
-    </section>
-  )
-}
 
 /* --- Aktivität ---------------------------------------------------------------- */
 

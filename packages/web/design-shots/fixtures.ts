@@ -71,7 +71,11 @@ function project(p: P): ProjectDto {
 }
 
 export const projects: ProjectDto[] = [
-  project({ id: 'p-foto', name: 'Fotoalbum', slug: 'fotoalbum', runtimeKind: 'compose', sourceType: 'compose', source: { type: 'compose', repoUrl: 'https://github.com/example/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as ProjectDto['source'], memoryLimitMb: 1024 }),
+  project({
+    id: 'p-foto', name: 'Fotoalbum', slug: 'fotoalbum', runtimeKind: 'compose', sourceType: 'compose', source: { type: 'compose', repoUrl: 'https://github.com/example/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as ProjectDto['source'], memoryLimitMb: 1024,
+    // Projektseite: der Fall «Ohne offene Befunde»
+    security: { scanId: 'p-foto-s', status: 'done', score: 100, grade: 'A', finishedAt: ago(2 * MIN), open: { critical: 0, high: 0, medium: 0, low: 0 } },
+  }),
   project({
     id: 'p-haushalt', name: 'Haushaltsbuch', slug: 'haushaltsbuch',
     routes: [route(['tailnet', 'lan'], `haushaltsbuch.${BASE}`), { ...route(['public'], 'haushalt.example.ch'), accessProtected: true, since: ago(12 * DAY), pausedAt: null }],
@@ -103,7 +107,7 @@ const halloWelt = project({
   id: 'p-hallo', name: 'hallo-welt', slug: 'hallo-welt', sourceType: 'files', runtimeKind: 'static', filesKind: 'static',
   source: { type: 'files' } as ProjectDto['source'], keep: false, expiresAt: new Date(Date.now() + 30 * DAY - HOUR).toISOString(), port: 80,
   routes: [route(['tailnet', 'lan'], `hallo-welt.${BASE}`), route(['public'], 'hallo-welt.example.ch')],
-  security: { scanId: 'p-hallo-s', status: 'done', score: 90, grade: 'A', finishedAt: ago(20 * MIN), open: { critical: 0, high: 0, medium: 2, low: 2 } },
+  security: { scanId: 'p-hallo-s', status: 'done', score: 96, grade: 'A', finishedAt: ago(48 * MIN), open: { critical: 0, high: 0, medium: 1, low: 0 } },
   lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(25 * MIN), finishedAt: ago(25 * MIN - 9_000), durationMs: 9_000 }),
 })
 
@@ -343,17 +347,34 @@ const CHECKS = {
 /** Projekt, dessen Scan in den Screenshots gerade läuft */
 export const runningScanProjectId = 'p-haushalt'
 
+/** hallo-welt: nur die fehlende CSP offen (Referenz «Mit offenem Befund») */
+const halloFindings: FindingDto[] = [
+  { id: 'h1', tool: 'header-check', severity: 'medium', title: 'Content-Security-Policy fehlt', location: 'https://hallo-welt.example.ch/', description: 'Ohne CSP kann eingeschleustes Skript (XSS) ungehindert laufen.', fix: "Header Content-Security-Policy setzen, z.B. \"default-src 'self'\".", status: 'open', acceptReason: null },
+  { id: 'h2', tool: 'header-check', severity: 'low', title: 'X-Content-Type-Options: nosniff fehlt', location: 'https://hallo-welt.example.ch/', description: 'MIME-Sniffing möglich.', fix: 'Header X-Content-Type-Options: nosniff setzen.', status: 'fixed', acceptReason: null },
+]
+
 export function scan(id: string, onlyDone = false): ScanReportDto | null {
-  const p = projects.find((x) => x.id === id)
+  const p = allProjects.find((x) => x.id === id)
   if (!p?.security) return null
   if (id === runningScanProjectId && !onlyDone) return runningScan(p)
-  const f = id === securityProjectId ? findings : findings.slice(5)
+  const f = id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
+  const isStatic = p.runtimeKind === 'static'
+  const startedAt = new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString()
+  const previous: Record<string, number> = { 'p-hallo': 90, 'p-foto': 100, 'p-kontoauszug': 41 }
   return {
     scan: {
       id: p.security.scanId, status: 'done', level: 'standard',
-      startedAt: new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString(), finishedAt: p.security.finishedAt,
+      startedAt, finishedAt: p.security.finishedAt,
       score: p.security.score, grade: p.security.grade, error: null, trigger: 'deploy', actor: 'admin', queue: null,
-      stages: {
+      previousScore: previous[id] ?? (p.security.score ?? 0) - 3,
+      nextScheduledAt: new Date(Date.parse(startedAt) + 7 * DAY).toISOString(),
+      stages: isStatic ? {
+        'trivy-image': { ran: false, state: 'skipped', note: 'kein Image, statische Seite', checks: CHECKS.trivyImage },
+        'trivy-source': { ran: true, state: 'done', findings: 0, checks: CHECKS.trivySource, durationMs: 12_000 },
+        headers: { ran: true, state: 'done', findings: 1, checks: CHECKS.headers, durationMs: 900 },
+        'zap-baseline': { ran: true, state: 'done', findings: 0, checks: CHECKS.zap, durationMs: 98_000 },
+        nuclei: { ran: true, state: 'done', findings: 0, checks: CHECKS.nuclei, durationMs: 41_000 },
+      } : {
         'trivy-image': { ran: true, state: 'done', findings: 4, checks: CHECKS.trivyImage, durationMs: 98_000 },
         'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
         // M8: Header über Caddy geprüft
@@ -403,6 +424,21 @@ function runningScan(p: ProjectDto): ScanReportDto {
 
 /** M8: Header über Caddy – CSP im Report-Only mit gesammelten Verstössen, frame-ancestors aktiv. */
 export function headerRules(id: string, reverted = false): HeaderRulesDto {
+  const none = { violations: [], total: 0, suggestion: null, notes: [], readiness: null, inlinePrompt: null }
+  if (id === 'p-hallo') {
+    // Noch keine Regel; die Analyse läuft trotzdem (Unterzeile in der Security-Karte)
+    return { rules: [], hsts: { ok: true, reason: null }, viaCaddy: true, csp: { ...none, analysis: { pages: ['/'], inlineScripts: 1, inlineStyles: 1, styleAttributes: 0, eventHandlers: 0, external: {}, conflicts: ['Inline-Skript auf /', 'Inline-Style auf /'], error: null } } }
+  }
+  if (id === 'p-foto') {
+    const r = (header: HeaderRulesDto['rules'][number]['header'], value: string) => ({ header, value, mode: 'enforce' as const, createdAt: ago(3 * DAY), updatedAt: ago(3 * DAY) })
+    return {
+      rules: [
+        r('content-security-policy', "default-src 'self'; img-src 'self' data:"), r('frame-ancestors', "'self'"), r('referrer-policy', 'strict-origin-when-cross-origin'),
+        r('strict-transport-security', 'max-age=31536000'), r('x-content-type-options', 'nosniff'),
+      ],
+      hsts: { ok: true, reason: null }, viaCaddy: true, csp: { ...none, analysis: null },
+    }
+  }
   if (id !== securityProjectId) return { rules: [], hsts: { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }, viaCaddy: true, csp: { violations: [], total: 0, suggestion: null, notes: [], analysis: null, readiness: null, inlinePrompt: null } }
   const policy = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"
   // CSP-Fix: der Fall hallo-welt – Inline-Skript und Inline-Style; nach einem Scharfschalten automatisch zurück

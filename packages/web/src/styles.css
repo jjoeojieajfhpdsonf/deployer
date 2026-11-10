@@ -1090,6 +1090,7 @@ details > summary:hover { color: var(--ink); }
 .scan-actions + .fix-live .fix-notice, .tab-panel > .fix-live .fix-notice { margin-top: 0; }
 /* M8: Mit Claude lösen – Auftrag unter den Knöpfen, Vorschläge mit Diff */
 .claude-fix { margin-top: var(--sp-3); }
+.claude-spark { display: inline-grid; place-items: center; margin-right: 6px; color: var(--claude); }
 .claude-fix .hint { margin-top: 0; }
 .claude-fix-label { margin: 0; font-size: var(--fs-13); color: var(--ink-dim); }
 .claude-fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
@@ -1356,12 +1357,57 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
   .dl-group-body, .dl-group-list > .dl, .dl-group-toggle svg { transition: none; }
 }
 
-/* Security-Zusammenfassung */
-.sec-line { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
-.top-findings { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: var(--sp-2); }
-.top-findings li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: var(--fs-13); }
-.top-findings .badge { justify-content: center; }
-.top-finding-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+/* Security-Karte: Note im Ring, Urteil in Worten */
+.sc-main { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--sp-6); align-items: center; }
+.sc-ring { position: relative; width: 88px; height: 88px; display: grid; place-content: center; text-align: center; }
+.sc-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sc-ring-track { fill: none; stroke: var(--surface-3); stroke-width: 6; }
+.sc-ring-value { fill: none; stroke: currentColor; stroke-width: 6; stroke-linecap: round; }
+.sc-ring-A { color: var(--ok); }
+.sc-ring-B { color: var(--info); }
+.sc-ring-C { color: var(--warn); }
+.sc-ring-D { color: var(--bad); }
+.sc-ring-grade { position: relative; font-family: var(--display); font-size: var(--fs-30); line-height: 1; color: currentColor; }
+.sc-ring-score { position: relative; margin-top: 3px; font-size: 11px; color: var(--muted); }
+.sc-verdict { min-width: 0; }
+.sc-verdict p { margin: 0; }
+.sc-verdict-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+.sc-verdict-word { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); line-height: 1.2; letter-spacing: var(--track-display); color: var(--ink); }
+.sc-delta { display: inline-flex; align-items: center; height: 24px; padding: 0 var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-13); font-weight: 500; white-space: nowrap; }
+.sc-delta-up { color: var(--ok); background: var(--ok-bg); }
+.sc-delta-down { color: var(--bad); background: var(--bad-bg); }
+.sc-delta-same { color: var(--muted); background: var(--surface-2); }
+.sc-summary { margin-top: var(--sp-1) !important; font-size: var(--fs-14); color: var(--muted); }
+.sc-sevs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-2) !important; font-size: var(--fs-13); }
+.sc-sev { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.sc-sev-mark { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+.sc-sev-critical, .sc-sev-high { color: var(--bad); }
+.sc-sev-medium { color: var(--warn); }
+.sc-sev-low { color: var(--ink-dim); }
+.sc-sev-zero { color: var(--muted); }
+.sc-findings { list-style: none; margin: var(--sp-6) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
+.sc-finding { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--sp-2) var(--sp-4); align-items: center; padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }
+.sc-finding .badge { justify-self: start; }
+.sc-finding-text { display: grid; gap: 2px; min-width: 0; }
+.sc-finding-title { font-size: var(--fs-14); font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.sc-finding-sub { font-size: var(--fs-13); color: var(--muted); }
+/* Knopfzeile von ClaudeFixAction rechts, das Panel über die ganze Breite darunter */
+.sc-finding-actions { display: contents; }
+.sc-finding .finding-actions { margin: 0; justify-content: flex-end; }
+.sc-finding .finding-actions button:not(.button-primary):not(.link-button) { background: var(--surface); }
+.sc-finding .claude-fix { grid-column: 1 / -1; margin: 0; }
+.sc-calm { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-6) 0 0; padding: 14px 18px; border-radius: var(--r-md); background: var(--ok-bg); color: var(--ok); font-size: var(--fs-14); font-weight: 500; max-width: none; }
+.sc-calm svg { flex: none; }
+.sc-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-5); }
+.sc-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--fs-13); }
+.sc-stage { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.sc-stage-ok { color: var(--ink-dim); }
+.sc-stage-ok svg { color: var(--ok); }
+.sc-stage-skip { color: var(--muted); }
+.sc-stage-bad { color: var(--bad); }
+.sc-stage span { color: var(--muted); }
+.sc-when { margin: 0 0 0 auto; font-size: var(--fs-13); color: var(--muted); white-space: nowrap; }
+.sc-when .link-button { font-size: var(--fs-13); }
 
 /* Aktivität eines Projekts */
 .pact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

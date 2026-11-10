@@ -1,4 +1,7 @@
-import { eq, and, desc, inArray, ne } from 'drizzle-orm'
+import { eq, and, desc, inArray, ne, lt } from 'drizzle-orm'
+
+/** Wöchentlicher Rescan laufender Projekte (jobs/security.ts) */
+export const RESCAN_EVERY_MS = 7 * 24 * 60 * 60_000
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -594,6 +597,10 @@ export interface ScanReport {
     trigger: ScanTrigger | null; actor: string | null
     /** Nur solange der Scan wartet */
     queue: { position: number; ahead: number } | null
+    /** Score des vorherigen abgeschlossenen Scans (Veränderung «seit letztem Scan») */
+    previousScore: number | null
+    /** Projekte: wann der wöchentliche Rescan (jobs/security.ts) frühestens wieder läuft */
+    nextScheduledAt: string | null
   }
   counts: Record<Severity, number>
   top: { id: string; severity: Severity; title: string; location: string; fix: string }[]
@@ -607,12 +614,20 @@ export async function scanReport(runId: string): Promise<ScanReport> {
   const open = f.filter((x) => x.status === 'open')
   const counts = { critical: 0, high: 0, medium: 0, low: 0 } as Record<Severity, number>
   for (const x of open) counts[x.severity]++
+  const owner = run.projectId ? eq(schema.scanRuns.projectId, run.projectId) : run.externalTargetId ? eq(schema.scanRuns.externalTargetId, run.externalTargetId) : null
+  const previous = owner
+    ? (await db.select({ score: schema.scanRuns.score }).from(schema.scanRuns)
+      .where(and(owner, eq(schema.scanRuns.status, 'done'), lt(schema.scanRuns.startedAt, run.startedAt)))
+      .orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
+    : undefined
   return {
     scan: {
       id: run.id, status: run.status, level: run.level, startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null, score: run.score, grade: run.grade, error: run.error, stages: run.stages,
       trigger: run.trigger ?? null, actor: run.actor ?? null,
       queue: run.status === 'queued' ? scanQueuePosition(run.id) : null,
+      previousScore: previous?.score ?? null,
+      nextScheduledAt: run.projectId ? new Date(run.startedAt.getTime() + RESCAN_EVERY_MS).toISOString() : null,
     },
     counts,
     top: open.slice(0, 3).map((x) => ({ id: x.id, severity: x.severity, title: x.title, location: x.location, fix: x.fix })),

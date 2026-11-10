@@ -661,6 +661,10 @@ export interface ScanReportDto {
     actor: string | null
     /** Solange der Scan wartet: Position (1 = als Nächstes), Scans davor */
     queue: { position: number; ahead: number } | null
+    /** Score des vorherigen abgeschlossenen Scans; null = erster Scan */
+    previousScore?: number | null
+    /** Projekte: frühester nächster automatischer Scan (wöchentlich) */
+    nextScheduledAt?: string | null
   }
   counts: Record<'critical' | 'high' | 'medium' | 'low', number>
   top: { id: string; severity: string; title: string; location: string; fix: string }[]

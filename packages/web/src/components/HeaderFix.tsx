@@ -115,7 +115,7 @@ const SET_LABEL: Record<HeaderKey, string> = {
   'x-content-type-options': 'Header setzen',
   'referrer-policy': 'Header setzen',
   'frame-ancestors': 'Header setzen',
-  'content-security-policy': 'Report-Only starten',
+  'content-security-policy': 'Als Report-Only testen',
   'strict-transport-security': 'HSTS setzen',
 }
 
