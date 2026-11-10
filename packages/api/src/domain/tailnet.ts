@@ -1,5 +1,5 @@
 import { config, net, cloudflareToken } from '../config.js'
-import { Cloudflare, zoneFor, upsertManagedRecord, CloudflareError } from '../drivers/cloudflare.js'
+import { Cloudflare, zoneFor, upsertManagedRecord, isManagedComment, CloudflareError } from '../drivers/cloudflare.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
 
@@ -80,6 +80,20 @@ export async function ensureWildcardRecord(cf: Cloudflare, baseDomain: string, i
     log.info('Tailnet-DNS-Eintrag gesetzt', { name, content: ip, action: r.action })
   }
   return { name, content: ip, action: r.action, zone: zone.name }
+}
+
+/** Beim Löschen einer Umgebung: eigenen Eintrag *.<basis> entfernen (fremde bleiben). */
+export async function removeTailnetDnsFor(base: string, token: string, actor: string): Promise<boolean> {
+  const cf = new Cloudflare({ token, base: config.CLOUDFLARE_API_BASE })
+  const zone = zoneFor(base, await cf.listZones())
+  if (!zone) return false
+  const name = `*.${base}`
+  const recs = await cf.listRecords(zone.id, name)
+  const mine = recs.find((r) => r.type === 'A' && isManagedComment(r.comment))
+  if (!mine) return false
+  await cf.deleteRecord(zone.id, mine.id)
+  await audit({ actor, action: 'dns.tailnet.remove', targetType: 'dns', targetId: mine.id, environmentId: null, params: { name }, result: 'ok' })
+  return true
 }
 
 /** Beim Start und nach einem IP-Wechsel: Einträge aller Umgebungen sicherstellen, Fehler nur melden. */

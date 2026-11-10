@@ -7,6 +7,7 @@ import { PageHead } from '../components/PageHead.js'
 import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
+import { useEnv } from '../lib/env.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -17,6 +18,7 @@ export function Tokens() {
   const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens })
   const active = (tokens.data?.tokens ?? []).filter((t) => !t.revokedAt)
   const revoked = (tokens.data?.tokens ?? []).filter((t) => t.revokedAt)
+  const { env } = useEnv()
   const [name, setName] = useState('')
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -63,6 +65,10 @@ export function Tokens() {
           Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
           MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
           mit Anmeldung – nicht mit einem Token.
+        </p>
+        <p className="lede">
+          Ein Token gilt nur für die Umgebung <strong>{env?.name}</strong>: Es sieht und ändert nur ihre Projekte,
+          Domains und externen Ziele. Für eine andere Umgebung dort ein eigenes Token anlegen.
         </p>
       </PageHead>
 

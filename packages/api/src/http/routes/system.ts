@@ -24,7 +24,9 @@ import type { SystemStatusDto } from '@airlock/shared'
 import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME } from '@airlock/shared'
 import {
   cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, skipTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
+  withCloudflareEnv,
 } from '../../domain/cloudflare-settings.js'
+import { resolveEnv } from '../../domain/environment-admin.js'
 
 async function check(name: string, fn: () => Promise<string>): Promise<{ name: string; ok: boolean; detail: string }> {
   try {
@@ -203,53 +205,47 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   /* --- Cloudflare verbinden (nur mit Anmeldung, siehe auth.ts) ------------------ */
 
-  app.get('/system/cloudflare', async () => cloudflareStatus())
-
-  // Nur prüfen, nichts speichern (Schritt 2 sofort beim Einfügen)
-  app.post('/system/cloudflare/check', async (request) => {
-    const { token } = cfTokenSchema.parse(request.body)
-    return { check: await checkToken(token) }
-  })
-
-  app.put('/system/cloudflare/token', async (request) => {
-    const { token } = cfTokenSchema.parse(request.body)
-    return { check: await saveToken(token, actorFor(request)), status: await cloudflareStatus() }
-  })
-
-  app.put('/system/cloudflare/domains', async (request) => {
-    await saveDomains(cfDomainsSchema.parse(request.body), actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel', async (request) => {
-    await setupTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/skip', async (request) => {
-    await skipTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/restart', async (request) => {
-    await restartTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/update', async (request) => {
-    await updateCloudflared(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tls', async (request) => {
-    await startTls(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.delete('/system/cloudflare', async (request) => {
-    await disconnect(actorFor(request))
-    return cloudflareStatus()
-  })
+  /*
+   * M9: dieselben Schritte je Umgebung unter /environments/:env/cloudflare;
+   * /system/cloudflare bleibt für die Standard-Umgebung (alte Oberfläche,
+   * Skripte). Beide nur mit Anmeldung (auth.ts).
+   */
+  const cfRoutes = (prefix: string, envOf: (r: FastifyRequest) => string | null) => {
+    const inEnv = <T>(r: FastifyRequest, fn: () => Promise<T>): Promise<T> => {
+      const envId = envOf(r)
+      return envId ? withCloudflareEnv(envId, fn) : fn()
+    }
+    app.get(prefix, async (r) => inEnv(r, cloudflareStatus))
+    // Nur prüfen, nichts speichern (Schritt 2 sofort beim Einfügen)
+    app.post(`${prefix}/check`, async (r) => {
+      const { token } = cfTokenSchema.parse(r.body)
+      return { check: await checkToken(token) }
+    })
+    app.put(`${prefix}/token`, async (r) => inEnv(r, async () => {
+      const { token } = cfTokenSchema.parse(r.body)
+      return { check: await saveToken(token, actorFor(r)), status: await cloudflareStatus() }
+    }))
+    app.put(`${prefix}/domains`, async (r) => inEnv(r, async () => {
+      await saveDomains(cfDomainsSchema.parse(r.body), actorFor(r))
+      return cloudflareStatus()
+    }))
+    const step = (path: string, fn: (actor: string) => Promise<void>) =>
+      app.post(`${prefix}${path}`, async (r) => inEnv(r, async () => {
+        await fn(actorFor(r))
+        return cloudflareStatus()
+      }))
+    step('/tunnel', setupTunnel)
+    step('/tunnel/skip', skipTunnel)
+    step('/tunnel/restart', restartTunnel)
+    step('/tunnel/update', updateCloudflared)
+    step('/tls', startTls)
+    app.delete(prefix, async (r) => inEnv(r, async () => {
+      await disconnect(actorFor(r))
+      return cloudflareStatus()
+    }))
+  }
+  cfRoutes('/system/cloudflare', () => null)
+  cfRoutes('/environments/:env/cloudflare', (r) => resolveEnv((r.params as { env: string }).env).id)
 
   /* --- M5: Domains und Cloudflare --------------------------------------------- */
 

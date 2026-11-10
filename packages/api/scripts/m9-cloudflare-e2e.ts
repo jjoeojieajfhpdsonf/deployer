@@ -76,6 +76,8 @@ try {
   // --- C: teilt das Token von A ------------------------------------------------------
   const C = (await envs.createEnvironment({ name: 'Labor', slug: 'labor', short: 'LA', shareAccountOf: A })).id
   await cs.loadCloudflareSettings()
+  const offered = (await cs.withCloudflareEnv(C, () => cs.cloudflareStatus())).zones.map((z) => z.name)
+  check(offered.includes('labor-beispiel.dev') && !offered.includes('jherren.com') && !offered.includes('verein-beispiel.ch'), 'C (geteiltes Token) bekommt die freie Zone des Kontos angeboten, nicht die Hauptzone von A und nichts aus Konto 2', offered)
   await cs.withCloudflareEnv(C, () => cs.saveDomains({ baseZone: 'labor-beispiel.dev', baseLabel: 'int', defaultZone: null }, 'ui:joel'))
 
   check(typeof tA === 'string' && typeof tB === 'string', 'ohne Docker startet cloudflared nicht (erwartet) – Tunnel trotzdem bei Cloudflare angelegt und gespeichert', { tA, tB })

@@ -5,9 +5,8 @@ import { copyText } from '../lib/clipboard.js'
 import { NotificationSettings } from '../components/Notifications.js'
 import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
-import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { GithubSetup } from '../components/GithubSetup.js'
-import { PausePageSettings } from '../components/PausePageSettings.js'
+import { useEnvPath } from '../lib/env.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -15,21 +14,23 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export type SystemSection = 'uebersicht' | 'cloudflare' | 'veroeffentlichung' | 'benachrichtigungen' | 'github'
+export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github'
 
+/**
+ * M9: «Server» – was für alle Umgebungen gilt. Cloudflare & HTTPS und die
+ * Vorlage der Pause-Seite gehören zur Umgebung (Einstellungen der Umgebung).
+ */
 const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
-  { key: 'uebersicht', to: '/system', label: 'Übersicht' },
-  { key: 'cloudflare', to: '/system/cloudflare', label: 'Cloudflare & HTTPS' },
-  { key: 'veroeffentlichung', to: '/system/veroeffentlichung', label: 'Veröffentlichung' },
-  { key: 'benachrichtigungen', to: '/system/benachrichtigungen', label: 'Benachrichtigungen' },
+  { key: 'uebersicht', to: '/server', label: 'Übersicht' },
+  { key: 'benachrichtigungen', to: '/server/benachrichtigungen', label: 'Benachrichtigungen' },
   // M8, Etappe 3
-  { key: 'github', to: '/system/github', label: 'GitHub' },
+  { key: 'github', to: '/server/github', label: 'GitHub' },
 ]
 
 /**
- * System in drei Unterseiten statt einer langen Seite: Übersicht (Dienste,
- * Netz, Erreichbarkeit), Cloudflare & HTTPS (Assistent, Zertifikat, Tailnet),
- * Benachrichtigungen. Die Unternavigation ist die Reiter-Steuerung der App.
+ * Server in Unterseiten statt einer langen Seite: Übersicht (Dienste, Netz,
+ * Erreichbarkeit), Benachrichtigungen, GitHub. Die Unternavigation ist die
+ * Reiter-Steuerung der App.
  */
 export function System({ section = 'uebersicht' }: { section?: SystemSection }) {
   const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: 15_000 })
@@ -68,27 +69,19 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'uebersicht' ? [{ label: 'system' }] : [{ label: 'system', to: '/system' }, { label: current.label.toLowerCase() }]}
-        title="System"
+        crumbs={section === 'uebersicht' ? [{ label: 'server' }] : [{ label: 'server', to: '/server' }, { label: current.label.toLowerCase() }]}
+        title="Server"
       />
 
-      <nav className="tabs" aria-label="Bereiche von System">
+      <nav className="tabs" aria-label="Bereiche des Servers">
         {SECTIONS.map((x) => (
           <NavLink key={x.key} to={x.to} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={x.key === section ? 'page' : undefined}>
             {x.label}
           </NavLink>
         ))}
       </nav>
+      <p className="lede lede-tight">Gilt für alle Umgebungen. Domains, Zertifikate, Standards und Tokens stehen in den Einstellungen der jeweiligen Umgebung.</p>
 
-      {section === 'cloudflare' && (
-        <>
-          <p className="lede lede-tight">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
-          <CloudflareSetup />
-          {s.baseDomain && <TlsSection s={s} />}
-        </>
-      )}
-
-      {section === 'veroeffentlichung' && <PausePageSettings />}
       {section === 'benachrichtigungen' && <NotificationSettings />}
 
       {section === 'github' && <GithubSetup />}
@@ -99,6 +92,7 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 }
 
 function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
+  const ep = useEnvPath()
   const ci = s.clientIps
   return (
     <>
@@ -163,7 +157,7 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
       {s.hostsBlock === null ? (
         <p className="hint">
           Noch keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.
-          Eigene interne Namen mit Zertifikat gibt es unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link> –
+          Eigene interne Namen mit Zertifikat gibt es unter <Link to={ep('/einstellungen/cloudflare')}>Einstellungen → Cloudflare &amp; HTTPS</Link> –
           bestehende Projekte ziehen dann mit.
         </p>
       ) : (
@@ -186,46 +180,6 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
           </button>
         </>
       )}
-    </>
-  )
-}
-
-/** M4: Zertifikat, Tailnet-Eintrag, Anleitung für den lokalen DNS. */
-function TlsSection({ s }: { s: SystemStatusDto }) {
-  const [note, setNote] = useState<string | null>(null)
-  const tailnet = useMutation({
-    mutationFn: api.tailnetDns,
-    onSuccess: (r) => setNote(`✓ ${r.record.name} → ${r.record.content} (${r.record.action === 'unchanged' ? 'schon richtig' : r.record.action === 'created' ? 'angelegt' : 'aktualisiert'})`),
-  })
-  const t = s.tls
-  const c = t.cert
-  return (
-    <>
-      <h3>Namen auflösen</h3>
-      <ul className="check-list">
-        {t.mode === 'cloudflare' && c?.problem && (
-          <li className="check-fail">
-            <span className="check-name">Zertifikat *.{s.baseDomain}</span>
-            <span className="check-detail">{c.problem}</span>
-          </li>
-        )}
-        <li className={t.tailscaleIp ? 'check-ok' : 'check-none'}>
-          <span className="check-name">Tailnet</span>
-          <span className="check-detail">{t.tailscaleIp ? `*.${s.baseDomain} → ${t.tailscaleIp} (Cloudflare, nicht proxied)` : 'keine Tailscale-IP angegeben (Schritt 3, optional)'}</span>
-        </li>
-      </ul>
-      {t.tailscaleIp && (
-        <div className="form-actions">
-          <button onClick={() => { setNote(null); tailnet.mutate() }} disabled={tailnet.isPending}>Tailnet-Eintrag prüfen</button>
-        </div>
-      )}
-      {note && <p className="hint" role="status">{note}</p>}
-      {tailnet.isError && <p role="alert" className="error">{(tailnet.error as Error).message}</p>}
-      <p className="hint">
-        <strong>Im Heimnetz:</strong> Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
-        <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
-        denselben Namen auf die Tailscale-IP auf.
-      </p>
     </>
   )
 }

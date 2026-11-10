@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useEnvPath } from '../lib/env.js'
 import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
 import { api, ApiError, probeUrl } from '../api.js'
@@ -393,6 +394,7 @@ function SecuritySummary({ p, onTab }: { p: ProjectDto; onTab: (t: Tab) => void 
 /* --- Aktivität ---------------------------------------------------------------- */
 
 function Activity({ projectId, p }: { projectId: string; p: ProjectDto }) {
+  const ep = useEnvPath()
   const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(8, projectId), refetchInterval: 15_000 })
   const byId = useMemo(() => new Map([[p.id, p]]), [p])
   const events = a.data?.events ?? []
@@ -400,7 +402,7 @@ function Activity({ projectId, p }: { projectId: string; p: ProjectDto }) {
     <section className="panel panel-pad ov-section" aria-labelledby="ov-act">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
-        <Link to="/audit">Audit-Log</Link>
+        <Link to={ep('/audit')}>Audit-Log</Link>
       </div>
       {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : events.length === 0 ? <p className="muted ov-empty">Noch nichts passiert.</p> : (
         <ul className="pact-list">

@@ -201,7 +201,8 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     )
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
     if (clash.some((r) => r.projectId !== project.id)) throw conflict(`${hostname} ist schon von einem anderen Projekt belegt`)
-    const access = input.accessProtected ?? Boolean(before?.accessProtected)
+    // M9: ohne Angabe und ohne frühere Route gilt der Access-Standard der Umgebung
+    const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     if (access && !ctx.accessEmail) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (Einstellungen → Standards → Cloudflare Access).')
     return { project, hostname, zone, access, before }
   } catch (err) {
@@ -429,7 +430,7 @@ export function publishFlow(project: Project, input: PublicInput, actor: string)
   return (async () => {
     const before = await publicRoute(project.id)
     const op = before ? 'access' : 'publish'
-    const access = input.accessProtected ?? Boolean(before?.accessProtected)
+    const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     return withProgress(project.id, op, before?.hostname ?? null, stepsFor(op, { access }), async (pr) => {
       pr.start('check')
       const plan = await planPublic(project, input)

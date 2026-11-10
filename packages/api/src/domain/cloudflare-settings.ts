@@ -1060,7 +1060,15 @@ async function reloadCaddy(force = false): Promise<void> {
 export async function cloudflareStatus(): Promise<CfStatusDto> {
   const { listDomains, tunnelStatusFor } = await import('./public.js')
   const env = currentEnv()
-  const zones = await listDomains(inEnvironment(env.id)).catch(() => [])
+  // M9: eigene Zonen plus die noch freien desselben Kontos (nicht Hauptzone einer anderen Umgebung) –
+  // so kann eine Umgebung mit mitbenutztem Token ihre Hauptzone wählen (claimZone beim Speichern)
+  const sameAccount = env.account ? allEnvironments().filter((e) => e.id !== env.id && e.account?.id === env.account!.id) : []
+  const own = await listDomains(inEnvironment(env.id)).catch(() => [])
+  const claimable = (await Promise.all(sameAccount.map((e) => listDomains(inEnvironment(e.id)).catch(() => []))))
+    .flat()
+    .filter((z) => !sameAccount.some((e) => e.zoneName === z.name))
+    .map((z) => ({ ...z, isDefault: false }))
+  const zones = [...own, ...claimable].sort((a, b) => a.name.localeCompare(b.name))
   const tunnelId = ecf.tunnelId()
   const managed = Boolean(st().tunnel)
   const container = tunnelId ? await cloudflaredState(cloudflaredName()).catch(() => null) : null

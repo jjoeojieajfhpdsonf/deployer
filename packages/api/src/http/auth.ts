@@ -213,6 +213,15 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/system/hosts')) {
         throw new AppError('forbidden', 'Die hosts-Datei gibt es nur mit einer Anmeldung, nicht mit einem Token', 403)
       }
+      // M9: Umgebungen verwalten (anlegen, ändern, Vorlagen, Cloudflare je Umgebung) nur mit
+      // Anmeldung. Ein Token liest seine Umgebung und legt darin Projekte und externe Ziele an.
+      if (route.startsWith('/api/v1/environments/:env/cloudflare')) {
+        throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)
+      }
+      const envWriteAllowed = route === '/api/v1/environments/:env/projects' || route === '/api/v1/environments/:env/external-targets'
+      if (route.startsWith('/api/v1/environments') && request.method !== 'GET' && !envWriteAllowed) {
+        throw new AppError('forbidden', 'Umgebungen lassen sich nur mit einer Anmeldung verwalten', 403)
+      }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {
         throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)

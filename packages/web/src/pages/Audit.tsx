@@ -101,7 +101,7 @@ export function Audit() {
                 <tr key={e.id}>
                   <td className="num nowrap">{new Date(e.at).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                   <td>
-                    <div>{describeAudit(e, byId)}</div>
+                    <div>{describeAudit(e, byId)}{e.server && <> <span className="badge badge-neutral" title="Server-Ereignis: gilt für alle Umgebungen">Server</span></>}</div>
                     <div className="cell-sub">{e.action}</div>
                   </td>
                   <td className="nowrap">{actorLabel(e.actor)}</td>

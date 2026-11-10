@@ -8,7 +8,7 @@ import { db, schema } from '../db/index.js'
 import { findProject } from '../domain/projects.js'
 import type { Scope } from '../lib/scope.js'
 import { probeTargetFor, reconcileCaddy } from '../domain/routes.js'
-import { caddyTlsOptions, tlsPhase } from '../domain/cloudflare-settings.js'
+import { caddyTlsOptions, tlsPhase, withCloudflareEnv } from '../domain/cloudflare-settings.js'
 import { audit } from '../domain/audit.js'
 import { AppError, badRequest, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
@@ -26,9 +26,10 @@ type Row = typeof schema.headerRules.$inferSelect
 /** Höchstens so viele verschiedene CSP-Verstösse pro Projekt */
 export const MAX_VIOLATIONS = 300
 
-const toDto = (r: Row): HeaderRuleDto => ({
+const toDto = (r: Row & { mode: 'report-only' | 'enforce' }): HeaderRuleDto => ({
   header: r.header, value: r.value, mode: r.mode, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),
 })
+const isOwnRule = (r: Row): r is Row & { mode: 'report-only' | 'enforce' } => r.mode !== 'off'
 
 /**
  * HSTS nur bei HTTPS und erst, wenn TLS stabil läuft: Wildcard-Zertifikat
@@ -36,12 +37,14 @@ const toDto = (r: Row): HeaderRuleDto => ({
  * Projekt ist unter einem Namen der Basisdomain erreichbar.
  */
 export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; reason: string | null }> {
-  const tls = caddyTlsOptions()
-  if (!tls) return { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }
+  // M9: Zertifikat der Umgebung des Projekts
+  const envId = (await db.select({ env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]?.env
+  const tls = envId ? withCloudflareEnv(envId, caddyTlsOptions) : null
+  if (!tls) return { ok: false, reason: 'HTTPS ist in dieser Umgebung nicht eingerichtet (Einstellungen → Cloudflare & HTTPS → Zertifikat).' }
   if (tls.acmeCa !== 'production' || (tls.mode ?? 'wildcard') !== 'wildcard') {
-    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter System → Cloudflare «HTTPS aktiv» steht.' }
+    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter Einstellungen → Cloudflare & HTTPS «HTTPS aktiv» steht.' }
   }
-  const phase = tlsPhase()
+  const phase = envId ? withCloudflareEnv(envId, tlsPhase) : null
   if (phase && phase !== 'done') return { ok: false, reason: `Die Zertifikats-Einrichtung ist noch nicht abgeschlossen (Phase «${phase}»).` }
   const probe = await probeTargetFor(projectId)
   if (!probe) return { ok: false, reason: 'Caddy bedient das Projekt gerade nicht (gestoppt oder ohne Adresse).' }
@@ -51,7 +54,13 @@ export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; r
 
 export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<HeaderRulesDto> {
   const p = await findProject(scope, idOrSlug)
-  const rules = await db.select().from(schema.headerRules).where(eq(schema.headerRules.projectId, p.id))
+  const stored = await db.select().from(schema.headerRules).where(eq(schema.headerRules.projectId, p.id))
+  const rules = stored.filter(isOwnRule)
+  // M9: geerbte Vorlagen der Umgebung (ohne eigene Regel), abgeschaltete markiert
+  const templates = await db.select().from(schema.headerRuleTemplates).where(eq(schema.headerRuleTemplates.environmentId, p.environmentId))
+  const inherited = templates
+    .filter((t) => !rules.some((r) => r.header === t.header))
+    .map((t) => ({ header: t.header, value: t.value, mode: t.mode, disabled: stored.some((r) => r.header === t.header && r.mode === 'off') }))
   const violations = await db
     .select()
     .from(schema.cspViolations)
@@ -61,6 +70,7 @@ export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<H
   const s = violations.length ? suggestCsp(csp?.value ?? HEADER_DEFAULT['content-security-policy'], violations) : null
   return {
     rules: rules.map(toDto).sort((a, b) => a.header.localeCompare(b.header)),
+    inherited,
     hsts: await hstsReadiness(p.id),
     viaCaddy: Boolean(await probeTargetFor(p.id)),
     csp: {
@@ -129,7 +139,7 @@ export async function setHeaderRule(
     log.warn('Nachscan der Header gescheitert', { project: p.slug, err: String(err) })
     return { ok: false, error: 'Nachscan gescheitert', fixed: [], opened: [], score: null, grade: null } satisfies HeaderRecheckDto
   })
-  return { rule: toDto(saved), recheck }
+  return { rule: toDto({ ...saved, mode }), recheck }
 }
 
 export async function removeHeaderRule(scope: Scope, idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto }> {

@@ -15,7 +15,6 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
-import * as env from './umgebungen.js'
 import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
@@ -32,9 +31,19 @@ const json = (route: Route, body: unknown, status = 200) =>
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
 function api(path: string, method: string, loggedIn: boolean, theme: 'light' | 'dark', count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
-  const p = u.pathname.replace(/^\/api\/v1/, '')
-  if (p === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
+  const full = u.pathname.replace(/^\/api\/v1/, '')
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
   let m: RegExpMatchArray | null
+  // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
+  if (full === '/environments') return { body: { environments: fx.environments } }
+  const envSlug = full.match(/^\/environments\/([^/]+)/)?.[1] ?? null
+  const p = envSlug ? full.replace(/^\/environments\/[^/]+/, '') || '/' : full
+  if (envSlug && p === '/') return { body: { environment: fx.environments.find((e) => e.slug === envSlug) } }
+  if (envSlug && p === '/cloudflare') return { body: envSlug === 'labor' ? fx.cloudflareLabor : fx.cloudflare }
+  if (envSlug && p === '/header-templates') return { body: { templates: fx.headerTemplates } }
+  if (envSlug && p === '/lan-dns') return { body: fx.lanDns }
+  if (envSlug === 'labor' && p === '/projects') return { body: { projects: [] } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/move$/)) && method === 'GET') return { body: { preview: fx.movePreview(m[1]!, u.searchParams.get('to') ?? 'verein') } }
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
   if (method !== 'GET') return { body: {} }
   if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
@@ -305,11 +314,36 @@ const shots: Shot[] = [
     },
   },
   /* Prototyp Umgebungen (SPEC «Umgebungen»): nur DOM-Einblendung, siehe umgebungen.ts */
-  { group: 'umgebungen', name: 'umgebungen-projekte', path: '/projekte', full: false, prepare: (pg) => env.railWithEnvironments(pg) },
-  { group: 'umgebungen', name: 'umgebungen-umschalter', path: '/projekte', full: false, prepare: (pg) => env.railWithEnvironments(pg, { open: true }) },
-  { group: 'umgebungen', name: 'umgebungen-cloudflare', path: '/system', prepare: env.environmentCloudflare },
-  { group: 'umgebungen', name: 'umgebungen-standards', path: '/system', prepare: env.environmentStandards },
-  { group: 'umgebungen', name: 'umgebungen-verschieben', path: `/projekte/${Z}?tab=einstellungen`, full: false, prepare: env.moveProject },
+  /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
+  { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
+  { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
+  { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
+  {
+    group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Prüfen', exact: true }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'm9', name: 'm9-einstellungen-standards', path: '/u/example/einstellungen/standards' },
+  { group: 'm9', name: 'm9-umgebungen', path: '/umgebungen' },
+  {
+    group: 'm9', name: 'm9-umgebung-anlegen', path: '/umgebungen/neu',
+    prepare: async (pg) => { await pg.locator('#ne-name').fill('Verein Beispiel'); await pg.waitForTimeout(150) },
+  },
+  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung' },
+  {
+    group: 'm9', name: 'm9-verschieben', path: `/u/example/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('.move-select').selectOption('verein')
+      await pg.waitForTimeout(300)
+      await pg.getByRole('button', { name: 'Verschieben …' }).click()
+      await pg.waitForTimeout(200)
+      await pg.locator('.move-card').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
+  { group: 'm9', name: 'm9-server', path: '/server' },
+  { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },

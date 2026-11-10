@@ -20,9 +20,10 @@ const IconOptional = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d
 const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 
-type StepState = 'done' | 'current' | 'locked'
+/* M9: Die Bausteine nutzt auch der Assistent «Umgebung anlegen» (pages/NewEnvironment.tsx). */
+export type StepState = 'done' | 'current' | 'locked'
 
-function Step({ n, title, state, summary, onEdit, children }: {
+export function Step({ n, title, state, summary, onEdit, children }: {
   n: number; title: string; state: StepState; summary?: React.ReactNode; onEdit?: () => void; children?: React.ReactNode
 }) {
   return (
@@ -113,7 +114,7 @@ export function CloudflareSetup() {
 
 /* --- 1 + 2: Token ----------------------------------------------------------------- */
 
-function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
+export function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
   s: CfStatusDto; replacing: boolean; onChecked: (c: CfTokenCheckDto | null) => void; onSaved: (s: CfStatusDto) => void; onCancel?: () => void
 }) {
   const [token, setToken] = useState('')
@@ -188,7 +189,7 @@ function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
   )
 }
 
-function CheckResult({ check }: { check: CfTokenCheckDto }) {
+export function CheckResult({ check }: { check: CfTokenCheckDto }) {
   if (!check.valid) return <p className="cf-bad cf-check-msg"><IconBad /> {check.message}</p>
   return (
     <>
@@ -218,7 +219,7 @@ function PermissionSummary({ check }: { check: CfTokenCheckDto | null }) {
 
 /* --- 3: Domains ------------------------------------------------------------------- */
 
-function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: CfStatusDto) => void; onCancel?: () => void }) {
+export function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: CfStatusDto) => void; onCancel?: () => void }) {
   const zones = s.zones
   const current = s.baseDomain ? zones.find((z) => s.baseDomain === z.name || s.baseDomain!.endsWith(`.${z.name}`)) : undefined
   const [baseZone, setBaseZone] = useState(current?.name ?? zones[0]?.name ?? '')
@@ -297,7 +298,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
 
 /* --- 4: Tunnel -------------------------------------------------------------------- */
 
-function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
+export function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
   const run = useMutation({ mutationFn: api.cloudflareTunnel, onSuccess: onDone })
   const skip = useMutation({ mutationFn: api.cloudflareTunnelSkip, onSuccess: onDone })
   return (
@@ -327,7 +328,7 @@ function TunnelSkippedSummary({ onDone }: { onDone: (s: CfStatusDto) => void }) 
   )
 }
 
-function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void }) {
+export function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void }) {
   const restart = useMutation({ mutationFn: api.cloudflareTunnelRestart, onSuccess: onChanged })
   const t = s.tunnel
   if (!t) return null
@@ -400,7 +401,7 @@ const PHASES: { key: 'staging' | 'production' | 'done'; label: string }[] = [
   { key: 'done', label: 'HTTPS aktiv' },
 ]
 
-function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto) => void }) {
+export function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto) => void }) {
   const start = useMutation({ mutationFn: api.cloudflareTls, onSuccess: onStarted })
   const phase = s.tls.phase
   const running = phase === 'staging' || phase === 'production'
@@ -464,7 +465,7 @@ function useUntil(until: Date | null): boolean {
   return ms > 0
 }
 
-function CertSummary({ s }: { s: CfStatusDto }) {
+export function CertSummary({ s }: { s: CfStatusDto }) {
   const c = s.tls.cert
   if (!c) return <>HTTPS aktiv für <code>*.{s.baseDomain}</code></>
   return <>Gültig bis {c.validTo ? new Date(c.validTo).toLocaleDateString('de-CH') : '–'}{c.daysLeft !== null ? ` (${c.daysLeft} Tage)` : ''} · {c.issuer ?? 'Let\'s Encrypt'} · erneuert sich selbst</>

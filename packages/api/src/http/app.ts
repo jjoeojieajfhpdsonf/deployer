@@ -8,6 +8,7 @@ import { config } from '../config.js'
 import { AppError } from '../lib/errors.js'
 import { registerAuthGuard, sessionSecret } from './auth.js'
 import { registerScopeGuard } from './scope.js'
+import { environmentRoutes } from './routes/environments.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -142,6 +143,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(deploymentRoutes)
       await api.register(systemRoutes)
       await api.register(uploadRoutes)
+      // M9: Umgebungen
+      await api.register(environmentRoutes)
     },
     { prefix: '/api/v1' },
   )

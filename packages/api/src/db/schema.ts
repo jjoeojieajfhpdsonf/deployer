@@ -265,7 +265,8 @@ export const headerRules = pgTable('header_rules', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   header: text('header').$type<import('@airlock/shared').HeaderKey>().notNull(),
   value: text('value').notNull(),
-  mode: text('mode').$type<'report-only' | 'enforce'>().notNull().default('enforce'),
+  /** M9: «off» schaltet eine Header-Vorlage der Umgebung für dieses Projekt ab */
+  mode: text('mode').$type<'report-only' | 'enforce' | 'off'>().notNull().default('enforce'),
   reportKey: text('report_key').unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

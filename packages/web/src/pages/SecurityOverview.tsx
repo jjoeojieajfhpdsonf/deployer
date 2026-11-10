@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useEnvPath } from '../lib/env.js'
 import type { ProjectDto } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
@@ -12,6 +13,7 @@ import { relativeTime } from '../lib/format.js'
  * Scan. Sortiert nach Dringlichkeit – oben, was zuerst angeschaut werden soll.
  */
 export function SecurityOverview() {
+  const ep = useEnvPath()
   const qc = useQueryClient()
   const projects = useProjects()
   const list = projects.data?.projects ?? []
@@ -61,7 +63,7 @@ export function SecurityOverview() {
       <div className="section">
         <div className="section-head">
           <h2>Projekte nach Dringlichkeit</h2>
-          <Link to="/extern" className="muted">Externe Ziele</Link>
+          <Link to={ep('/extern')} className="muted">Externe Ziele</Link>
         </div>
         {projects.isLoading ? (
           <p className="state state-loading">Wird geladen…</p>
@@ -79,7 +81,7 @@ export function SecurityOverview() {
                   const running = s?.status === 'running' || s?.status === 'queued'
                   return (
                     <tr key={p.id}>
-                      <td className="cell-main"><Link to={`/projekte/${p.id}?tab=security`}>{p.name}</Link></td>
+                      <td className="cell-main"><Link to={ep(`/projekte/${p.id}?tab=security`)}>{p.name}</Link></td>
                       <td>
                         {s?.grade
                           ? <div className="grade-cell"><span className={`grade grade-${s.grade}`}>{s.grade}</span>{s.score} / 100</div>

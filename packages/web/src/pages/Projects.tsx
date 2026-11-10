@@ -10,6 +10,7 @@ import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
+import { useEnvPath } from '../lib/env.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 
@@ -19,6 +20,7 @@ type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
 export function Projects() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const ep = useEnvPath()
   const projects = useProjects()
   const system = useSystem()
   const [query, setQuery] = useState('')
@@ -102,7 +104,7 @@ export function Projects() {
               <IconSearch />
               <input ref={searchRef} type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
-            <Link className="button button-primary" to="/projekte/neu"><IconPlus /> Neues Projekt</Link>
+            <Link className="button button-primary" to={ep('/projekte/neu')}><IconPlus /> Neues Projekt</Link>
           </>
         }
       />
@@ -120,7 +122,7 @@ export function Projects() {
               Ein fertiges Image, ein Repo mit Dockerfile, eine Compose-Datei oder eine statische Seite.
               Aus dem Chat geht es über MCP auch ohne Repo.
             </p>
-            <Link className="button button-primary" to="/projekte/neu"><IconPlus /> Erstes Projekt anlegen</Link>
+            <Link className="button button-primary" to={ep('/projekte/neu')}><IconPlus /> Erstes Projekt anlegen</Link>
           </div>
         </>
       ) : (
@@ -131,7 +133,7 @@ export function Projects() {
             <FailedBanner
               key={p.id}
               p={p}
-              onLog={() => navigate(`/projekte/${p.id}?tab=deployments`)}
+              onLog={() => navigate(ep(`/projekte/${p.id}?tab=deployments`))}
               onRetry={() => act.mutate({ id: p.id, what: 'deploy' })}
               busy={act.isPending}
             />
@@ -290,6 +292,7 @@ const SOURCES: { key: 'git' | 'image' | 'upload' | 'chat'; title: string; hint: 
  * nur Titel und Knopf, ab zwei Spalten die vier Quellen als Kacheln.
  */
 function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) {
+  const ep = useEnvPath()
   const head = (
     <div className="pnew-head">
       <span className="pnew-mark" aria-hidden="true"><IconPlus /></span>
@@ -300,7 +303,7 @@ function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) 
     return (
       <li className="pnew pnew-compact">
         {head}
-        <Link className="button" to="/projekte/neu">Quelle wählen</Link>
+        <Link className="button" to={ep('/projekte/neu')}>Quelle wählen</Link>
       </li>
     )
   }
@@ -315,7 +318,7 @@ function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) 
             <li key={key}>
               {key === 'chat'
                 ? <button type="button" className="pnew-source" aria-haspopup="dialog" onClick={onChat}>{body}</button>
-                : <Link className="pnew-source" to={`/projekte/neu?quelle=${key}`}>{body}</Link>}
+                : <Link className="pnew-source" to={ep(`/projekte/neu?quelle=${key}`)}>{body}</Link>}
             </li>
           )
         })}
@@ -326,6 +329,7 @@ function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) 
 
 /** Kurze Anleitung: Projekte aus dem Chat über den MCP-Server anlegen. */
 function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const ep = useEnvPath()
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const d = ref.current
@@ -341,13 +345,13 @@ function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
         <h2 id="chat-guide-h">Per Chat deployen</h2>
         <p className="dialog-lede">Claude legt Projekte über den MCP-Server von Airlock an, ohne Repo und ohne Formular. Einmal einrichten:</p>
         <ol className="dialog-steps">
-          <li>Auf der Seite <Link to="/tokens">Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop».</li>
+          <li>Auf der Seite <Link to={ep('/tokens')}>Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop». Das Token gilt nur für diese Umgebung.</li>
           <li>In Claude den MCP-Server <code>{mcpUrl}</code> mit diesem Token eintragen. Für Claude Code steht dort der fertige Befehl.</li>
           <li>Im Chat sagen, was auf den Server soll, z.B. «Stell diese Seite als hallo-welt online». Das Projekt erscheint danach hier.</li>
         </ol>
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>Schliessen</button>
-          <Link className="button button-primary" to="/tokens">Zu den Tokens</Link>
+          <Link className="button button-primary" to={ep('/tokens')}>Zu den Tokens</Link>
         </div>
       </div>
     </dialog>
@@ -400,6 +404,7 @@ const STEP: Record<string, { n: number; label: string }> = {
 
 /** Menü «…» eines Projekts. */
 function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | undefined; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
+  const ep = useEnvPath()
   const [confirmStop, setConfirmStop] = useState(false)
   const [confirmOffline, setConfirmOffline] = useState(false)
   const pub = usePublicActions(p)
@@ -411,8 +416,8 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
       {(close) => (
         <>
           {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}
-          <Link role="menuitem" to={`/projekte/${p.id}?tab=logs`} onClick={close}>Logs</Link>
-          <Link role="menuitem" to={`/projekte/${p.id}?tab=deployments`} onClick={close}>Deployments</Link>
+          <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=logs`)} onClick={close}>Logs</Link>
+          <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=deployments`)} onClick={close}>Deployments</Link>
           <div className="menu-sep" />
           <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
           {state !== 'private' && (
@@ -469,6 +474,7 @@ function Reach({ p, className }: { p: ProjectDto; className: string }) {
 /* --- Projekt-Karte (Prototyp «cal») ------------------------------------------------- */
 
 function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
+  const ep = useEnvPath()
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
   const host = url?.replace(/^https?:\/\//, '')
   const d = p.lastDeployment
@@ -480,7 +486,7 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
       <div className="pcard-head">
         <div className="pcard-title">
           {/* Der Name ist der Link; ::after macht die ganze Karte klickbar */}
-          <h3><Link className="pcard-link" to={`/projekte/${p.id}`}>{p.name}</Link></h3>
+          <h3><Link className="pcard-link" to={ep(`/projekte/${p.id}`)}>{p.name}</Link></h3>
           {host ? <span className="pcard-host" title={host}>{host}</span> : <span className="pcard-host">keine Adresse</span>}
         </div>
         <StatusBadge status={rt.status} />
@@ -587,6 +593,7 @@ function SecurityCell({ p }: { p: ProjectDto }) {
 /* --- Unterer Bereich ------------------------------------------------------------------ */
 
 function Activity({ projects }: { projects: ProjectDto[] }) {
+  const ep = useEnvPath()
   const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: 10_000 })
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login').slice(0, 6)
@@ -595,7 +602,7 @@ function Activity({ projects }: { projects: ProjectDto[] }) {
     <section className="panel panel-pad" aria-labelledby="activity-h">
       <div className="panel-head">
         <h2 id="activity-h">Letzte Aktivität</h2>
-        <Link to="/audit" className="muted">Alles im Audit-Log</Link>
+        <Link to={ep('/audit')} className="muted">Alles im Audit-Log</Link>
       </div>
       {events.length === 0 ? (
         <p className="muted">{audit.isLoading ? 'Wird geladen…' : 'Noch nichts passiert.'}</p>
@@ -627,7 +634,7 @@ function ServerPanel({ s }: { s: SystemStatusDto | undefined }) {
     <section className="panel panel-pad" aria-labelledby="server-h">
       <div className="panel-head">
         <h2 id="server-h">Server</h2>
-        <Link to="/system" className="muted">System</Link>
+        <Link to="/server" className="muted">Server</Link>
       </div>
       <div className="meters">
         {rows.map((r) => (

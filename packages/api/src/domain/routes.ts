@@ -248,9 +248,23 @@ async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSp
   const out = new Map<string, { rules: HeaderRuleSpec[]; cspReportKey: string | null }>()
   for (const r of all) {
     const e = out.get(r.projectId) ?? { rules: [], cspReportKey: null }
-    e.rules.push({ header: r.header, value: r.value, mode: r.mode })
+    // M9: «off» schaltet nur eine Vorlage ab, ist selbst keine Regel
+    if (r.mode !== 'off') e.rules.push({ header: r.header, value: r.value, mode: r.mode })
     if (r.reportKey) e.cspReportKey = r.reportKey
     out.set(r.projectId, e)
+  }
+  // M9: Header-Vorlagen der Umgebung gelten für jedes Projekt ohne eigene Regel (live geerbt)
+  const templates = await db.select().from(schema.headerRuleTemplates)
+  if (templates.length) {
+    const projects = await db.select({ id: schema.projects.id, env: schema.projects.environmentId }).from(schema.projects)
+    for (const p of projects) {
+      const own = all.filter((r) => r.projectId === p.id)
+      const inherit = templates.filter((t) => t.environmentId === p.env && !own.some((r) => r.header === t.header))
+      if (!inherit.length) continue
+      const e = out.get(p.id) ?? { rules: [], cspReportKey: null }
+      e.rules.push(...inherit.map((t) => ({ header: t.header, value: t.value, mode: t.mode })))
+      out.set(p.id, e)
+    }
   }
   return out
 }

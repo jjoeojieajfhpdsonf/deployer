@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEnvPath } from '../lib/env.js'
 import { slugify, createProjectSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
@@ -32,6 +33,7 @@ const PRESET: Record<string, { kind: Kind; origin: Origin }> = {
 
 export function NewProject() {
   const navigate = useNavigate()
+  const ep = useEnvPath()
   const [params] = useSearchParams()
   const preset = PRESET[params.get('quelle') ?? '']
   const [kind, setKind] = useState<Kind>(preset?.kind ?? 'image')
@@ -109,7 +111,7 @@ export function NewProject() {
     try {
       const uploadId = usesUpload && file ? (await api.upload(file)).upload.id : undefined
       const { project } = await api.createProject(payload(uploadId))
-      navigate(`/projekte/${project.id}`)
+      navigate(ep(`/projekte/${project.id}`))
     } catch (err) {
       // Prüft die API anders als erwartet, landet ihre Meldung trotzdem am Feld.
       if (!form.setServerErrors(err)) setError(err instanceof ApiError ? err.message : (err as Error).message)
@@ -120,7 +122,7 @@ export function NewProject() {
 
   return (
     <section className="page page-narrow">
-      <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }, { label: 'neu' }]} title="Neues Projekt">
+      <PageHead crumbs={[{ label: 'projekte', to: ep('/projekte') }, { label: 'neu' }]} title="Neues Projekt">
         <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>
       </PageHead>
 

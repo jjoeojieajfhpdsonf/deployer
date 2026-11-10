@@ -38,6 +38,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
       theme: (await getUiPrefs()).theme,
+      lastEnvironment: (await getUiPrefs()).lastEnvironment ?? null,
     }
   })
 
