@@ -14,6 +14,14 @@ import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
+import { SiteAccess } from '../components/SiteAccess.js'
+
+const IconGear = () => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="8" cy="8" r="2" />
+    <path d="M6.9 1.8h2.2l.4 1.6 1.1.5 1.4-.9 1.6 1.6-.9 1.4.5 1.1 1.6.4v2.2l-1.6.4-.5 1.1.9 1.4-1.6 1.6-1.4-.9-1.1.5-.4 1.6H6.9l-.4-1.6-1.1-.5-1.4.9-1.6-1.6.9-1.4-.5-1.1-1.6-.4V6.9l1.6-.4.5-1.1-.9-1.4 1.6-1.6 1.4.9 1.1-.5Z" />
+  </svg>
+)
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
@@ -28,7 +36,8 @@ export function ProjectDetail() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const TABS: Tab[] = ['uebersicht', 'deployments', 'logs', 'security', 'einstellungen']
+  // Reihenfolge nach Wichtigkeit; Einstellungen rechts abgesetzt
+  const TABS: Tab[] = ['uebersicht', 'security', 'deployments', 'logs', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
@@ -76,6 +85,8 @@ export function ProjectDetail() {
   })
 
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
+  // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
+  const deployList = useDeployments(id)
   const keep = useMutation({
     mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
@@ -101,6 +112,17 @@ export function ProjectDetail() {
   // Der Container fehlt oder ist beendet, obwohl er laufen sollte: dann zählt das, nicht die Datenbank
   const down = Boolean(health.data?.container && !health.data.container.running)
   const rt = down && dbRt.status === 'running' ? { status: 'failed' as const, deployFailed: dbRt.deployFailed } : dbRt
+  const isStatic = p.runtimeKind === 'static'
+  const openFindings = p.security ? Object.values(p.security.open).reduce((a, b) => a + b, 0) : 0
+  const deployCount = deployList.data?.deployments[0]?.seq ?? deployList.data?.deployments.length
+  const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn'; countLabel?: string; live?: boolean }> = {
+    uebersicht: { label: 'Übersicht' },
+    security: { label: 'Security', count: openFindings, tone: 'warn', countLabel: `${openFindings} offene Befunde` },
+    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} Deployments` },
+    // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
+    logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
+    einstellungen: { label: 'Einstellungen' },
+  }
 
   return (
     <section className="page page-project">
@@ -145,34 +167,38 @@ export function ProjectDetail() {
         role="tablist"
         aria-label="Bereiche des Projekts"
         onKeyDown={(e) => {
-          // Pfeiltasten wechseln den Reiter (Tablist-Muster)
-          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+          // Pfeiltasten wechseln den Reiter (Tablist-Muster), Pos1/Ende springen
           const i = TABS.indexOf(tab)
-          const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!
+          const next = e.key === 'ArrowRight' ? TABS[(i + 1) % TABS.length]
+            : e.key === 'ArrowLeft' ? TABS[(i + TABS.length - 1) % TABS.length]
+            : e.key === 'Home' ? TABS[0] : e.key === 'End' ? TABS.at(-1) : null
+          if (!next) return
+          e.preventDefault()
           setTab(next)
           requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
         }}
       >
-        {([
-          ['uebersicht', 'Übersicht'],
-          ['deployments', 'Deployments'],
-          ['logs', 'Logs'],
-          ['security', 'Security'],
-          ['einstellungen', 'Einstellungen'],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            id={`tab-${key}`}
-            aria-selected={tab === key}
-            aria-controls="tab-panel"
-            tabIndex={tab === key ? 0 : -1}
-            className={tab === key ? 'tab tab-active' : 'tab'}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
+        {TABS.map((key) => {
+          const t = tabInfo[key]
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls="tab-panel"
+              tabIndex={tab === key ? 0 : -1}
+              className={`tab${tab === key ? ' tab-active' : ''}${key === 'einstellungen' ? ' tab-end' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {key === 'einstellungen' && <IconGear />}
+              {t.label}
+              {t.count !== undefined && t.count > 0 && <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`} aria-label={t.countLabel}>{t.count}</span>}
+              {t.live && <span className="tab-live" role="img" aria-label="Container läuft" title="Container läuft" />}
+            </button>
+          )
+        })}
       </nav>
       <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
 
@@ -210,7 +236,7 @@ export function ProjectDetail() {
           }}
         />
       )}
-      {tab === 'logs' && <LiveLogs projectId={id} />}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} /> : <LiveLogs projectId={id} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && <Publication p={p} />}
       {tab === 'einstellungen' && <Reachability p={p} />}

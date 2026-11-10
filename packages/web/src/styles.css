@@ -558,10 +558,9 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .legacy-notice > span { flex: 1; }
 .legacy-notice > button { flex: none; }
 
-/* Reiter und segmentierte Auswahl: graue Schiene, weisses Feld */
-.segmented, .tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); width: fit-content; max-width: 100%; overflow-x: auto; }
-.tabs { margin: 0 0 var(--sp-8); }
-.segmented button, .tab {
+/* Segmentierte Auswahl: graue Schiene, weisses Feld */
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); width: fit-content; max-width: 100%; overflow-x: auto; }
+.segmented button {
   min-height: 32px;
   padding: 0 14px;
   border: none;
@@ -572,11 +571,47 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
   font-size: var(--fs-14);
   font-weight: 500;
 }
-a.tab { display: inline-flex; align-items: center; text-decoration: none; }
-.segmented button:hover:not(:disabled), .tab:hover:not(:disabled) { background: transparent; color: var(--ink); }
-.segmented button[aria-pressed='true'], .tab-active, .tab[aria-selected='true'] { background: var(--surface); color: var(--ink); box-shadow: var(--sh-card); }
-:root[data-theme='dark'] :is(.segmented button[aria-pressed='true'], .tab-active, .tab[aria-selected='true']) { background: var(--surface-3); }
+.segmented button:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.segmented button[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: var(--sh-card); }
+:root[data-theme='dark'] .segmented button[aria-pressed='true'] { background: var(--surface-3); }
 .segmented .num { margin-left: 2px; font-size: var(--fs-12); color: var(--muted); }
+
+/*
+ * Reiter: unterstrichen statt Kapsel. Hover nur Textfarbe (eine Stufe
+ * dunkler, nie so dunkel wie aktiv), kein Gewicht – nie zwei Reiter «aktiv».
+ */
+.tabs { display: flex; align-items: stretch; gap: var(--sp-6); margin: 0 0 var(--sp-8); border-bottom: 1px solid var(--line); max-width: 100%; overflow-x: auto; }
+.tab {
+  position: relative; display: inline-flex; align-items: center; gap: var(--sp-2);
+  min-height: 44px; padding: 0 2px; margin-bottom: -1px;
+  border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; box-shadow: none;
+  color: var(--muted); font-size: var(--fs-15); font-weight: 500; white-space: nowrap;
+  transition: color 120ms var(--ease-out);
+}
+a.tab { text-decoration: none; }
+.tab:hover:not(:disabled) { background: transparent; border-color: transparent; border-bottom-color: transparent; color: var(--ink-dim); }
+.tab-active, .tab[aria-selected='true'], .tab-active:hover:not(:disabled), .tab[aria-selected='true']:hover:not(:disabled) { color: var(--ink); border-bottom-color: var(--primary); }
+.tab:focus-visible { outline-offset: -2px; }
+/* Einstellungen rechts abgesetzt */
+.tab-end { margin-left: auto; }
+.tab-end svg { color: currentColor; }
+.tab-count { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-dim); font-size: var(--fs-12); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tab-count-warn { background: var(--warn-bg); color: var(--warn); }
+.tab-count-bad { background: var(--bad-bg); color: var(--bad); }
+.tab-live { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+@media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
+
+/* Reiter «Zugriffe» (statische Seiten) */
+.access-since { font-size: var(--fs-13); }
+.access-filter { margin-bottom: var(--sp-4); }
+.access-table code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.access-path { max-width: 420px; }
+.access-path code { overflow-wrap: anywhere; }
+.access-status { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-12); font-weight: 500; white-space: nowrap; }
+.access-status-2 { color: var(--ok); background: var(--ok-bg); }
+.access-status-3 { color: var(--info); background: var(--info-bg); }
+.access-status-4 { color: var(--warn); background: var(--warn-bg); }
+.access-status-5 { color: var(--bad); background: var(--bad-bg); }
 .tab-panel { min-width: 0; }
 .tab-panel > .panel + .panel, .tab-panel > .panel + .field-group, .tab-panel > .field-group + .panel { margin-top: var(--sp-4); }
 

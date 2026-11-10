@@ -707,6 +707,25 @@ export const externalTargets: ExternalTargetDto[] = [
 
 export const externalScan: ScanReportDto | null = null
 
+/** Zugriffs-Log einer statischen Seite (Reiter «Zugriffe») */
+export function siteAccess(id: string) {
+  if (id !== 'p-hallo') return { entries: [], since: ago(DAY), error: null }
+  const rows: [number, string, string, number, number, string][] = [
+    [12_000, 'GET', '/', 200, 1.4, '84.72.10.x'],
+    [12_400, 'GET', '/style.css', 200, 0.6, '84.72.10.x'],
+    [12_500, 'GET', '/app.js', 200, 0.5, '84.72.10.x'],
+    [13_000, 'GET', '/favicon.ico', 404, 0.3, '84.72.10.x'],
+    [4 * MIN, 'GET', '/', 200, 1.1, '100.88.41.x'],
+    [9 * MIN, 'HEAD', '/', 200, 0.4, '172.25.0.x'],
+    [26 * MIN, 'GET', '/wp-login.php', 404, 0.2, '45.155.205.x'],
+    [26 * MIN + 2_000, 'GET', '/.env', 404, 0.2, '45.155.205.x'],
+    [47 * MIN, 'GET', '/alt', 301, 0.3, '2a02:1210:4e3a:…'],
+    [2 * HOUR, 'POST', '/', 405, 0.4, '193.32.249.x'],
+    [3 * HOUR, 'GET', '/', 200, 1.6, '2a02:1210:4e3a:…'],
+  ]
+  return { entries: rows.map(([t, method, path, status, durationMs, ip]) => ({ at: ago(t), method, path, status, durationMs, bytes: null, ip, host: 'hallo-welt.example.ch' })), since: ago(DAY), error: null }
+}
+
 /** Dateien eines Chat-Projekts (Eckdaten «Inhalt», Dialog «Dateien ansehen») */
 export function files(id: string): { commit: string | null; files: { path: string; size: number }[] } {
   if (id !== 'p-hallo') return { commit: null, files: [] }

@@ -147,12 +147,15 @@ describe('Aufrufe im Report-Only (Caddys Zugriffs-Log)', () => {
     assert.equal(countPageViews(log, { hosts: ['hallo-welt.example.ch'], sinceMs: t0 * 1000 }), 2)
   })
 
-  test('Caddy schreibt das Log nur für Namen mit Report-Only-CSP', () => {
-    const r = (mode: 'report-only' | 'enforce'): RouteSpec => ({
-      hosts: ['hallo-welt.example.ch'], kind: 'files', root: '/srv', headers: [{ header: 'content-security-policy', value: "default-src 'self'", mode }],
+  test('Caddy schreibt das CSP-Log nur für Namen mit Report-Only-CSP', () => {
+    const r = (mode: 'report-only' | 'enforce', kind: RouteSpec['kind'] = 'proxy'): RouteSpec => ({
+      hosts: ['hallo-welt.example.ch'], kind, ...(kind === 'files' ? { root: '/srv' } : { upstream: 'app:80' }), headers: [{ header: 'content-security-policy', value: "default-src 'self'", mode }],
     })
     const logsOf = (spec: RouteSpec) => (buildCaddyConfig([spec], { ipFilter: false, cidrs: [], adminSocket: '/a.sock' }) as { apps: { http: { servers: { srv0: { logs?: { logger_names: Record<string, string[]> } } } } } }).apps.http.servers.srv0.logs
     assert.deepEqual(logsOf(r('report-only'))?.logger_names, { 'hallo-welt.example.ch': ['csp'] })
     assert.equal(logsOf(r('enforce')), undefined)
+    // Statische Seiten haben dazu immer das Zugriffs-Log für den Reiter «Zugriffe»
+    assert.deepEqual(logsOf(r('report-only', 'files'))?.logger_names, { 'hallo-welt.example.ch': ['site', 'csp'] })
+    assert.deepEqual(logsOf(r('enforce', 'files'))?.logger_names, { 'hallo-welt.example.ch': ['site'] })
   })
 })

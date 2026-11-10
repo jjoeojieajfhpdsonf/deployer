@@ -3,6 +3,7 @@ import type {
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
+  SiteAccessEntryDto,
 } from '@airlock/shared'
 
 export type {
@@ -168,6 +169,8 @@ export const api = {
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */
+  /** Statische Seiten: Aufrufe aus Caddys Zugriffs-Log (24 Stunden) */
+  siteAccess: (id: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access`),
   listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
 
   /* Security (M6) */

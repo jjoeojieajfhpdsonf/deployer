@@ -9,7 +9,8 @@ import {
   assertSourceSupported,
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
-import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
+import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
+import { parseSiteAccess } from '../../lib/site-access.js'
 import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
@@ -235,6 +236,23 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       return { logs: await docker.getLogs(active.containerId, { tail: lines, ...(since ? { since } : {}) }) }
     },
   )
+
+  /**
+   * Projektseite, Reiter «Zugriffe»: Aufrufe einer statischen Seite aus
+   * Caddys Zugriffs-Log (letzte 24 Stunden, höchstens 500, IP gekürzt).
+   */
+  app.get<{ Params: IdParams }>('/projects/:id/access', async (request) => {
+    const project = await findProject(request.params.id)
+    const routes = await routeDtosFor(project.id, project.slug)
+    const hosts = routes.flatMap((r) => [r.hostname, ...r.aliases])
+    const sinceMs = Date.now() - 24 * 60 * 60_000
+    try {
+      const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
+      return { entries: parseSiteAccess(logs, { hosts, sinceMs }), since: new Date(sinceMs).toISOString(), error: null }
+    } catch (err) {
+      return { entries: [], since: new Date(sinceMs).toISOString(), error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
+    }
+  })
 
   app.get<{ Params: IdParams }>('/projects/:id/logs/stream', async (request, reply) => {
     const project = await findProject(request.params.id)

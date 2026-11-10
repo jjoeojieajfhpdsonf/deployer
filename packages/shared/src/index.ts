@@ -731,6 +731,19 @@ export interface SystemStatusDto {
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }
 
+/** Projektseite, Reiter «Zugriffe» (statische Seiten): ein Aufruf aus Caddys Zugriffs-Log */
+export interface SiteAccessEntryDto {
+  at: string
+  method: string
+  path: string
+  status: number
+  durationMs: number | null
+  bytes: number | null
+  /** gekürzt: «192.168.1.x» */
+  ip: string
+  host: string
+}
+
 export interface AuditEventDto {
   id: string
   at: string

@@ -49,6 +49,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/access$/))) return { body: fx.siteAccess(m[1]!) }
   if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
   // M8: Fix-Assistent
@@ -394,6 +395,17 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Dateien ansehen' }).click(); await pg.waitForTimeout(300) },
   },
   { group: 'p4', name: '4-system-frist', path: '/system', el: '.expiry-settings' },
+  { group: 'p5', name: '5-reiter-container', path: `/projekte/${L}`, full: false },
+  { group: 'p5', name: '5-reiter-statisch', path: `/projekte/${H}?tab=security`, full: false },
+  {
+    group: 'p5', name: '5-reiter-hover', path: `/projekte/${L}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('tab', { name: /^Deployments/ }).hover(); await pg.waitForTimeout(200) },
+  },
+  { group: 'p5', name: '5-zugriffe', path: `/projekte/${H}?tab=logs` },
+  {
+    group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
