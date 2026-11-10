@@ -1,0 +1,23 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "/scan/src",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "pnpm-lock.yaml",
+      "Class": "lang-pkgs",
+      "Type": "pnpm",
+      "Packages": [
+        { "ID": "lodash@4.17.20", "Name": "lodash", "Version": "4.17.20" },
+        { "ID": "minimist@1.2.5", "Name": "minimist", "Version": "1.2.5" }
+      ],
+      "Vulnerabilities": [
+        { "VulnerabilityID": "CVE-2021-23337", "PkgName": "lodash", "InstalledVersion": "4.17.20", "FixedVersion": "4.17.21", "Severity": "HIGH", "Title": "nodejs-lodash: command injection via template" },
+        { "VulnerabilityID": "CVE-2026-4800", "PkgName": "lodash", "InstalledVersion": "4.17.20", "FixedVersion": "4.18.0", "Severity": "HIGH", "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports" },
+        { "VulnerabilityID": "CVE-2020-28500", "PkgName": "lodash", "InstalledVersion": "4.17.20", "FixedVersion": "4.17.21", "Severity": "MEDIUM", "Title": "nodejs-lodash: ReDoS via the toNumber, trim and trimEnd functions" },
+        { "VulnerabilityID": "CVE-2025-13465", "PkgName": "lodash", "InstalledVersion": "4.17.20", "FixedVersion": "4.17.23", "Severity": "MEDIUM", "Title": "lodash: prototype pollution in _.unset and _.omit functions" },
+        { "VulnerabilityID": "CVE-2021-44906", "PkgName": "minimist", "InstalledVersion": "1.2.5", "FixedVersion": "1.2.6, 0.2.4", "Severity": "CRITICAL", "Title": "minimist: prototype pollution" }
+      ]
+    }
+  ]
+}

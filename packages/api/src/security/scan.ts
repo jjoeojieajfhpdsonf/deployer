@@ -13,7 +13,7 @@ import { AppError, badRequest, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import { siteDir } from '../deploy/sources/static.js'
 import { score, grade, fingerprint, dedupe, bySeverity, publishable, type FindingInput, type Severity } from './score.js'
-import { trivyImage, trivySource, headerCheck, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs } from './stages.js'
+import { trivyImage, trivySource, headerCheck, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
@@ -215,9 +215,11 @@ async function runScan(runId: string): Promise<void> {
       }, info.timeoutMs + 60_000)
     })
     try {
-      const f = await Promise.race([fn(onLogs), timeout])
+      const res = await Promise.race([fn(onLogs), timeout])
+      const f = Array.isArray(res) ? res : res.findings
+      const checked = Array.isArray(res) ? undefined : res.checked
       all.push(...f)
-      stages[name] = { ...st, ran: true, state: 'done', findings: f.length, finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
+      stages[name] = { ...st, ran: true, state: 'done', findings: f.length, ...(checked ? { checked } : {}), finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
       log.info('Scan-Stufe fertig', { scan: runId, stage: name, dauerMs: Date.now() - t0, befunde: f.length })
     } catch (err) {
       const state = cancelledBy() ? 'cancelled' : err instanceof StageTimeout ? 'timeout' : 'failed'
@@ -262,7 +264,7 @@ async function runScan(runId: string): Promise<void> {
   }
 }
 
-type StageFn = (name: string, fn: (onLogs: OnLogs) => Promise<FindingInput[]>) => Promise<void>
+type StageFn = (name: string, fn: (onLogs: OnLogs) => Promise<StageResult>) => Promise<void>
 
 /**
  * Scannt ein Projekt. Gibt eine Funktion zurück, die in Fundstellen die

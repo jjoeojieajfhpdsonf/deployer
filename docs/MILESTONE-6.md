@@ -33,6 +33,13 @@ Bei externen Zielen: nur Stufe 2 und 3, höchstens 5 Anfragen pro Sekunde (Nucle
 
 **Secrets aus Trivy**: Gespeichert werden Regel, Datei und Zeile, **nie** die gefundene Zeichenfolge.
 
+**Abhängigkeiten im Quellcode** (Nachtrag 10.11.2026): `trivy fs` lief anfangs nur mit `--scanners secret,misconfig`. Projekte ohne Image (statische Seite mit Build, Chat-Projekte) wurden so nie auf verwundbare Abhängigkeiten geprüft. Jetzt `vuln,secret,misconfig` mit `--ignore-unfixed` wie beim Image und `--list-all-pkgs`. Trivy liest die Lockfiles (package-lock.json, pnpm-lock.yaml, yarn.lock, poetry.lock/uv.lock/requirements.txt, go.sum, Cargo.lock, composer.lock, Gemfile.lock). Dazu kommt `security/deps.ts`:
+- Manifest mit Abhängigkeiten, aber ohne Lockfile daneben → Befund «niedrig»: «Ohne Lockfile keine verlässliche Prüfung der Abhängigkeiten».
+- Die Stufe nennt, was geprüft wurde: «Abhängigkeiten: 214 Pakete aus pnpm-lock.yaml» bzw. «keine Abhängigkeiten gefunden». Ein Lauf ohne Lockfile sieht so nie wie «alles sicher» aus.
+- Statische Seiten ohne Build: Bibliotheken als Einzeldateien im Ausgabeordner (`jquery-3.4.1.min.js`, Kopfkommentar `Bootstrap v4.3.1`) werden erkannt und in der Stufe genannt.
+
+**Offener Punkt – JS-Bibliotheken als Einzeldateien:** Trivy erkennt sie nicht; es liest nur Paket-Metadaten, gegen die Fixture `fixtures/deps/static-site` geprüft. Nuclei deckt es mit unseren Tags (`exposure,config,misconfig,panel,default-login`) auch nicht ab. Nur ZAP Baseline meldet sie über Retire.js (Regel 10003 «Vulnerable JS Library»), und nur, wenn eine gecrawlte Seite die Datei lädt. Eine Bibliothek, die im Ordner liegt, aber nicht verlinkt ist, bleibt ungeprüft. Möglicher Weg: Retire.js-Datenbank (`jsrepository.json`) als Cache wie die Trivy-DB und die erkannten Versionen selbst abgleichen.
+
 ## 3. Score und Note
 
 Pro offenem Befund: kritisch −25, hoch −10, mittel −4, niedrig −1, Minimum 0. Note A ab 90, B ab 75, C ab 50, sonst D. Akzeptierte Befunde zählen nicht. Reine Funktion mit Tests.

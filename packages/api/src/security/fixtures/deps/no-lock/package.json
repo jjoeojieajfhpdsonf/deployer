@@ -1,0 +1,12 @@
+{
+  "name": "fixture-no-lock",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "build": "vite build" },
+  "dependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -13,6 +13,7 @@ import { parseTrivy, parseZap, parseNuclei, parseTestssl } from './parsers.js'
 import { checkHeaders } from './headers.js'
 import type { FindingInput } from './score.js'
 import { STAGE_INFO } from './progress.js'
+import { missingLockfiles, detectJsLibs, depsSummary, sourceChecked } from './deps.js'
 
 /**
  * Die einzelnen Scan-Stufen. Jede liefert Befunde oder wirft; der Aufrufer
@@ -36,6 +37,9 @@ const scanDir = (scanId: string) => join(config.DATA_DIR, 'scan', scanId)
 
 /** Live-Ausgabe eines Scanners (letzte Logzeilen) an die Anzeige. */
 export type OnLogs = (text: string) => void
+
+/** Befunde einer Stufe, optional mit dem, was tatsächlich abgedeckt wurde. */
+export type StageResult = FindingInput[] | { findings: FindingInput[]; checked?: string }
 
 export async function trivyImage(scanId: string, imageRef: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   // Image als Tar auf die Platte (die Grösse muss für den Tar-Kopf bekannt sein),
@@ -67,12 +71,19 @@ export async function trivyImage(scanId: string, imageRef: string, network: stri
   }
 }
 
-export async function trivySource(scanId: string, srcDir: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
+/**
+ * Quellcode: verwundbare Abhängigkeiten aus Lockfiles (vuln, wie bei Images
+ * nur mit verfügbarem Fix), Secrets, Fehlkonfiguration. Dazu Manifeste ohne
+ * Lockfile und JS-Bibliotheken als Einzeldateien (deps.ts). --list-all-pkgs:
+ * für die Anzeige «214 Pakete aus pnpm-lock.yaml».
+ */
+export async function trivySource(scanId: string, srcDir: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<StageResult> {
+  const [noLock, libs] = await Promise.all([missingLockfiles(srcDir), detectJsLibs(srcDir)])
   const r = await runScanner({
     name: `dep_scan_trivysrc_${short(scanId)}`,
     image: SCANNER_IMAGES.trivy,
     network,
-    cmd: ['fs', '--format', 'json', '--scanners', 'secret,misconfig', '--output', '/scan/out.json', '/scan/src'],
+    cmd: ['fs', '--format', 'json', '--scanners', 'vuln,secret,misconfig', '--ignore-unfixed', '--list-all-pkgs', '--output', '/scan/out.json', '/scan/src'],
     inputs: [{ tar: await packDir(srcDir, { prefix: 'scan/src', exclude: ['node_modules'] }), path: '/' }],
     reportPath: '/scan/out.json',
     cache: { volume: SCANNER_CACHES.trivy, target: '/root/.cache' },
@@ -81,7 +92,8 @@ export async function trivySource(scanId: string, srcDir: string, network: strin
     onLogs,
   })
   if (!r.report) throw new Error(`Trivy lieferte keinen Bericht (Code ${r.exitCode}): ${r.logs.slice(-300)}`)
-  return parseTrivy(JSON.parse(r.report.toString('utf8')))
+  const json = JSON.parse(r.report.toString('utf8'))
+  return { findings: [...parseTrivy(json), ...noLock], checked: sourceChecked(depsSummary(json), libs, noLock.length) }
 }
 
 /* --- Stufe 2: Header ------------------------------------------------------------ */

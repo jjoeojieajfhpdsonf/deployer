@@ -30,6 +30,9 @@ interface TrivySecret { RuleID?: string; Title?: string; Severity?: string; Star
 interface TrivyMisconf { ID?: string; Title?: string; Severity?: string; Status?: string; Resolution?: string; Description?: string }
 interface TrivyResult { Target?: string; Class?: string; Type?: string; Vulnerabilities?: TrivyVuln[] | null; Secrets?: TrivySecret[] | null; Misconfigurations?: TrivyMisconf[] | null }
 
+/** Trivy-Typen aus Lockfiles im Quellcode (nicht: installierte Pakete im Image). */
+const LOCKFILE_TYPES = new Set(['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pipenv', 'poetry', 'uv', 'gomod', 'cargo', 'composer', 'bundler', 'nuget', 'pub', 'mix', 'swift', 'cocoapods'])
+
 /**
  * CVEs werden je Paket zusammengefasst (höchster Schweregrad, Liste der IDs,
  * eine Behebung: auf die höchste Fix-Version aktualisieren). Ein altes Image
@@ -66,7 +69,9 @@ export function parseTrivy(json: unknown): FindingInput[] {
         // Mit Schweregrad: wird ein akzeptiertes Paket kritischer, ist es ein neuer Befund.
         key: `vuln:${r.Class ?? ''}:${r.Type ?? ''}:${r.Class === 'os-pkgs' ? '' : target}:${pkg}:${e.sev}`,
         description: `${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` und ${ids.length - 8} weitere` : ''}${e.title ? `. Schwerste: ${e.title}` : ''}`,
-        fix: `${pkg} auf ${[...e.fixed].join(' bzw. ')} oder neuer aktualisieren (meist: Basis-Image aktualisieren und neu bauen).`,
+        fix: LOCKFILE_TYPES.has(r.Type ?? '')
+          ? `${pkg} auf ${[...e.fixed].join(' bzw. ')} oder neuer aktualisieren und ${target.split('/').pop()} neu erzeugen.`
+          : `${pkg} auf ${[...e.fixed].join(' bzw. ')} oder neuer aktualisieren (meist: Basis-Image aktualisieren und neu bauen).`,
       })
     }
 
