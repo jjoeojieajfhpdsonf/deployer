@@ -16,6 +16,9 @@ function ago(ms: number): string {
  * Zustand «Veraltet»: Der Server antwortet nicht mehr, die Seite zeigt die
  * letzten Daten. Leiste oben im Inhalt mit dem Alter der Daten und «Erneut
  * versuchen»; verschwindet von selbst, sobald eine Abfrage wieder gelingt.
+ * Der Behälter mit role="status" bleibt immer im DOM, damit Screenreader den
+ * Wechsel ansagen (eine Live-Region, die schon mit Inhalt erscheint, sagen
+ * viele nicht an).
  */
 export function StaleBar() {
   const c = useConnection()
@@ -27,22 +30,26 @@ export function StaleBar() {
     const t = window.setInterval(() => tick((n) => n + 1), 30_000)
     return () => window.clearInterval(t)
   }, [c.offline])
-  if (!c.offline) return null
   const age = c.lastOkAt ? ago(Date.now() - c.lastOkAt) : null
   const retry = async () => {
+    if (busy) return
     setBusy(true)
     try { await qc.refetchQueries({ type: 'active' }) } finally { setBusy(false) }
   }
   return (
-    <div className="stale-bar" role="status">
-      <span className="stale-bar-icon" aria-hidden="true"><IconWarn size={16} /></span>
-      <p>
-        <strong>Keine Verbindung zum Server.</strong>{' '}
-        {age ? <>Angezeigt ist der Stand {age}. </> : null}Aktionen gehen erst wieder, wenn der Server antwortet.
-      </p>
-      <button type="button" className="button-small" onClick={() => void retry()} aria-disabled={busy || undefined}>
-        Erneut versuchen
-      </button>
+    <div role="status" className="stale-bar-region">
+      {c.offline && (
+        <div className="stale-bar">
+          <span className="stale-bar-icon" aria-hidden="true"><IconWarn size={16} /></span>
+          <p>
+            <strong>Keine Verbindung zum Server.</strong>{' '}
+            {age ? <>Angezeigt ist der Stand {age}. </> : null}Änderungen scheitern, bis der Server wieder antwortet.
+          </p>
+          <button type="button" className="button-small" onClick={() => void retry()} aria-disabled={busy || undefined}>
+            Erneut versuchen
+          </button>
+        </div>
+      )}
     </div>
   )
 }

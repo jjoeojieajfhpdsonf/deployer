@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { ApiError } from '../api.js'
 import { IconWarn } from './Icons.js'
+import { isUnreachable } from '../lib/connection.js'
 
 /**
  * Die fünf Zustände jeder Ansicht an einem Ort:
@@ -156,11 +157,7 @@ export function EmptyState({ title, children, action, compact }: { title: string
 
 /* --- Fehler ----------------------------------------------------------------- */
 
-/** Ist das «Server nicht erreichbar» (Netz weg, Gateway-Fehler) statt eines inhaltlichen Fehlers? */
-export function isUnreachable(e: unknown): boolean {
-  if (e instanceof ApiError) return e.status === 502 || e.status === 503 || e.status === 504 || e.status === 0
-  return e instanceof TypeError
-}
+export { isUnreachable }
 
 /** Verständlicher Grund in einem Satz. */
 export function errorReason(e: unknown): string {
@@ -185,14 +182,15 @@ export function ErrorState({ what, error, onRetry, compact, retrying, plural }: 
   plural?: boolean
 }) {
   return (
-    <div className={compact ? 'error-state error-state-compact' : 'error-state'} role="alert">
+    // Seitenfehler als Alarm; Fehler in Karten nur als Status (mehrere Karten = sonst mehrere Alarme)
+    <div className={compact ? 'error-state error-state-compact' : 'error-state'} role={compact ? 'status' : 'alert'}>
       <span className="error-state-icon" aria-hidden="true"><IconWarn size={16} /></span>
       <div className="error-state-body">
         <p className="error-state-title">{what} {plural ? 'konnten' : 'konnte'} nicht geladen werden.</p>
         <p className="error-state-reason">{errorReason(error)}</p>
       </div>
       {onRetry && (
-        <button type="button" className={compact ? 'button-small' : undefined} onClick={onRetry} aria-disabled={retrying || undefined}>
+        <button type="button" className={compact ? 'button-small' : undefined} onClick={() => { if (!retrying) onRetry() }} aria-disabled={retrying || undefined}>
           Erneut versuchen
         </button>
       )}

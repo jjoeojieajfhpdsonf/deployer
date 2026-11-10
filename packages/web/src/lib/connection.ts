@@ -27,8 +27,10 @@ function set(next: Partial<ConnectionState>) {
   for (const l of listeners) l()
 }
 
-const unreachable = (e: unknown) =>
+/** Server nicht erreichbar (Netz weg, Gateway-Fehler) statt eines inhaltlichen Fehlers? Gemeinsam für Leiste und Fehlerkasten. */
+export const isUnreachable = (e: unknown): boolean =>
   (e instanceof ApiError && (e.status === 0 || e.status === 502 || e.status === 503 || e.status === 504)) || e instanceof TypeError
+const unreachable = isUnreachable
 
 /** Einmal beim Start: hört auf alle Abfragen des QueryClient. */
 export function watchConnection(qc: QueryClient): () => void {
