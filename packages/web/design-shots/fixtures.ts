@@ -515,7 +515,13 @@ export const system: SystemStatusDto = {
   scanQueue: 0,
   publicTunnel: { configured: false, status: null, connections: 0 },
   // Wie auf dem Server vor dem Fix: Tailnet-Anfragen kommen maskiert vom Docker-Gateway
-  clientIps: { total: 14, fromGateway: 9, gatewayIps: ['172.20.0.1'], gatewayOnly: false, blocked: 9, since: ago(30 * MIN) },
+  clientIps: {
+    total: 14, fromGateway: 9, gatewayIps: ['172.20.0.1'], gatewayOnly: false, blocked: 9, since: ago(30 * MIN), ownProbes: 31,
+    groups: [
+      { source: 'server', count: 6, blocked: 6, hosts: ['deployer.int.example.ch'], paths: ['GET /health', 'GET /api/v1/system/status'], userAgents: ['curl/8.5.0'], last: ago(2 * MIN) },
+      { source: 'tailnet', count: 3, blocked: 3, hosts: ['deployer.int.example.ch'], paths: ['GET /projekte', 'GET /api/v1/projects'], userAgents: ['Safari 18'], last: ago(9 * MIN) },
+    ],
+  },
   reachability: [
     { way: 'dns', label: `Interner Name (deployer.${BASE})`, url: `https://deployer.${BASE}/health` },
     { way: 'nipio', label: 'nip.io (100-88-41-12)', url: 'http://deployer.100-88-41-12.nip.io/health' },

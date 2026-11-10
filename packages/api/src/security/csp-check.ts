@@ -8,6 +8,7 @@ import * as docker from '../drivers/docker.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { aliasesForHost, probeTargetFor } from '../domain/routes.js'
 import { log } from '../lib/log.js'
+import { probeUa } from '../lib/probe-ua.js'
 import { runScanner, SCANNER_IMAGES } from './runner.js'
 import { analyzeHtml, mergeAnalyses, parseChromeCsp, countPageViews, CHROME_SCRIPT, type PageAnalysis } from './csp-analysis.js'
 
@@ -29,7 +30,7 @@ type Fetched = { status: number; headers: Record<string, string | string[]>; bod
 async function viaProbe(host: string, path: string, method: 'GET' | 'HEAD' = 'GET'): Promise<Fetched> {
   const agent = new Agent({ keepAliveTimeout: 1, pipelining: 0, connect: { socketPath: config.CADDY_PROBE_SOCKET } })
   try {
-    const res = await request(`http://${host}${path}`, { method, headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close', 'user-agent': 'airlock-csp-check' } })
+    const res = await request(`http://${host}${path}`, { method, headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close', 'user-agent': probeUa('csp') } })
     const chunks: Buffer[] = []
     let size = 0
     for await (const c of res.body) {

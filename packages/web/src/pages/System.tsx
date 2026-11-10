@@ -98,21 +98,54 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   )
 }
 
+type ClientIps = NonNullable<SystemStatusDto['clientIps']>
+
+const SOURCE_TEXT: Record<'tailnet' | 'server', { title: string; hint: string }> = {
+  tailnet: {
+    title: 'Vermutlich aus dem Tailnet maskiert',
+    hint: 'Browser-Anfragen, deren Absender Tailscale als Subnet-Router auf das Docker-Gateway umschreibt. Abhilfe: docs/INSTALL.md, Abschnitt «Tailscale als Subnet-Router».',
+  },
+  server: {
+    title: 'Vom Server selbst',
+    hint: 'Werkzeuge ohne Browser-Kennung, z. B. curl auf dem Host oder ein Container, der den Namen über die Host-Ports anfragt. Eigene Prüfungen von Airlock sind schon herausgefiltert.',
+  },
+}
+
+/** Warnung mit Details: woher, welche Hosts, Beispiel-Pfade, letzte Zeit. */
+function GatewayWarning({ ci }: { ci: ClientIps }) {
+  return (
+    <div role="alert" className="banner banner-warn gateway-warning">
+      <p>
+        <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
+        In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} fremden Anfragen auf Airlock von{' '}
+        {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
+        {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
+        {ci.ownProbes > 0 ? <> Nicht mitgezählt: {ci.ownProbes} eigene Prüfungen von Airlock.</> : null}
+      </p>
+      {ci.groups.map((g) => (
+        <div key={g.source} className="gateway-group">
+          <p className="gateway-group-head">
+            <strong>{SOURCE_TEXT[g.source].title}</strong> · {g.count} {g.count === 1 ? 'Anfrage' : 'Anfragen'}
+            {g.blocked > 0 ? `, ${g.blocked} gesperrt` : ''} · zuletzt {new Date(g.last).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+          <dl className="gateway-facts">
+            <dt>Hosts</dt><dd>{g.hosts.map((h, i) => <span key={h}>{i > 0 ? ', ' : ''}<code>{h}</code></span>)}</dd>
+            <dt>Pfade</dt><dd>{g.paths.map((p, i) => <span key={p}>{i > 0 ? ', ' : ''}<code>{p}</code></span>)}</dd>
+            <dt>Absender</dt><dd>{g.userAgents.join(', ')}</dd>
+          </dl>
+          <p className="gateway-hint">{SOURCE_TEXT[g.source].hint}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
   const ci = s.clientIps
   return (
     <>
-      {ci && ci.fromGateway > 0 && (
-        <div role="alert" className="banner banner-warn">
-          <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
-          In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} Anfragen auf Airlock von{' '}
-          {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
-          {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
-          Meist maskiert Tailscale als Subnet-Router den Verkehr aus dem Tailnet in die Docker-Netze; dann sperrt der
-          IP-Filter Zugriffe aus dem Tailnet. Abhilfe: <code>docs/INSTALL.md</code>, Abschnitt «Tailscale als Subnet-Router».
-          Anfragen vom Server selbst (z. B. <code>curl</code> auf localhost) erscheinen ebenfalls mit dieser Adresse.
-        </div>
-      )}
+      {/* Nur fremde Anfragen: eigene Prüfungen von Airlock («airlock-probe») zählen nie */}
+      {ci && ci.fromGateway > 0 && <GatewayWarning ci={ci} />}
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
           <strong>IP-Filter ist ausgeschaltet.</strong> Interne Hostnamen sind ohne

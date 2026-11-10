@@ -541,6 +541,14 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .banner { display: block; margin: 0 0 var(--sp-5); padding: 18px 22px; border-radius: var(--r-lg); color: var(--ink); max-width: none; }
 .banner-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
 .banner-warn strong { color: var(--warn); }
+/* Gateway-Warnung (System): Details je vermuteter Herkunft */
+.gateway-warning > p { margin: 0; }
+.gateway-group { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--warn-line); }
+.gateway-group-head { margin: 0 0 var(--sp-2); }
+.gateway-facts { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 4px var(--sp-3); margin: 0; font-size: var(--fs-13); }
+.gateway-facts dt { color: var(--muted); }
+.gateway-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.gateway-hint { margin: var(--sp-2) 0 0; font-size: var(--fs-13); color: var(--ink-dim); }
 .banner-info { background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--info-line); font-size: var(--fs-14); }
 .error { color: var(--bad); background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); padding: 10px 14px; border-radius: var(--r-md); margin: var(--sp-3) 0; max-width: none; overflow-wrap: anywhere; }
 .error-inline { color: var(--bad); }

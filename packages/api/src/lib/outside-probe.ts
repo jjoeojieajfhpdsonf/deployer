@@ -1,4 +1,5 @@
 import type { OutsideCheckDto } from '@airlock/shared'
+import { probeUa } from './probe-ua.js'
 
 /**
  * Prüfung eines öffentlichen Namens von aussen: eine Anfrage an
@@ -68,7 +69,7 @@ export async function observe(hostname: string, timeoutMs = 6000): Promise<Obser
     const res = await fetch(`https://${hostname}/`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { 'user-agent': 'airlock-outside-check', 'cache-control': 'no-cache' },
+      headers: { 'user-agent': probeUa('aussen'), 'cache-control': 'no-cache' },
     })
     const body = (await res.text().catch(() => '')).slice(0, 200)
     return {

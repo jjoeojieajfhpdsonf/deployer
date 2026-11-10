@@ -1,4 +1,5 @@
 import { request } from 'undici'
+import { probeUa } from '../lib/probe-ua.js'
 
 export interface HealthcheckResult {
   ok: boolean
@@ -36,6 +37,7 @@ export async function waitForHealthy(opts: {
       // gesund, es muss nicht verfolgt werden.
       const res = await request(opts.url, {
         method: 'GET',
+        headers: { 'user-agent': probeUa('healthcheck') },
         headersTimeout: 5_000,
         bodyTimeout: 5_000,
       })
