@@ -58,12 +58,13 @@ export function Tokens() {
 
   return (
     <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'tokens' }]} title="Tokens" />
-      <p className="lede" style={{ marginBottom: 20 }}>
-        Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
-        MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
-        mit Anmeldung – nicht mit einem Token.
-      </p>
+      <PageHead crumbs={[{ label: 'tokens' }]} title="Tokens">
+        <p className="lede">
+          Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
+          MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
+          mit Anmeldung – nicht mit einem Token.
+        </p>
+      </PageHead>
 
       <form onSubmit={submit} className="inline-form" noValidate ref={form.formRef}>
         <div className="inline-form-field">
@@ -137,17 +138,21 @@ function TokenTable({ rows, confirming, setConfirming, revoke }: {
               <td>{t.name}</td>
               <td>{new Date(t.createdAt).toLocaleDateString('de-CH')}</td>
               <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
-              <td>{t.revokedAt ? '✕ widerrufen' : '✓ gültig'}</td>
+              <td>
+                <span className={t.revokedAt ? 'status status-stopped' : 'status status-running'}>
+                  <span className="status-dot" aria-hidden="true" />{t.revokedAt ? 'widerrufen' : 'gültig'}
+                </span>
+              </td>
               <td className="row-actions">
                 {!t.revokedAt && confirming !== t.id && (
-                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
+                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen …</button>
                 )}
                 {confirming === t.id && (
                   <>
-                    <button className="button-danger" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
+                    <button onClick={() => setConfirming(null)}>Abbrechen</button>
+                    <button className="button-danger-solid" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
                       Ja, widerrufen
                     </button>
-                    <button onClick={() => setConfirming(null)}>Abbrechen</button>
                   </>
                 )}
               </td>

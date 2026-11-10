@@ -54,9 +54,9 @@ export function productionIssued(c: CertInfo, base: string, now = new Date()): b
  *   *.<basis> steht im Zertifikat, es ist jetzt gültig.
  * - production: zusätzlich vertrauenswürdige Kette, und nicht mehr Staging.
  */
-export function checkIssuedCert(c: CertInfo, o: { base: string; phase: 'staging' | 'production'; now?: Date }): CertVerdict {
+export function checkIssuedCert(c: CertInfo, o: { base: string; phase: 'staging' | 'production'; now?: Date; /** erwarteter Name; Standard *.<basis> (Probelauf: acme-probe.<basis>) */ name?: string }): CertVerdict {
   const now = o.now ?? new Date()
-  const wildcard = `*.${o.base}`
+  const wildcard = o.name ?? `*.${o.base}`
   if (!c.validTo) return { ready: false, reason: c.error ?? 'kein Zertifikat ausgeliefert' }
   if (/caddy local authority/i.test(c.issuer ?? '')) return { ready: false, reason: `Caddy liefert noch sein eigenes Zertifikat aus (${c.issuer})` }
   const names = c.sans?.length ? c.sans : c.subject ? [c.subject] : []

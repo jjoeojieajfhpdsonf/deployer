@@ -38,8 +38,8 @@ export function Domains() {
           <span className="check-name">HTTPS</span>
           <span className="check-detail">
             {s?.tls.mode === 'cloudflare'
-              ? s.tls.cert?.problem ?? `Wildcard-Zertifikat, noch ${s.tls.cert?.daysLeft ?? '–'} Tage gültig`
-              : 'aus – nur HTTP im LAN (compose.tls.yaml)'}
+              ? s.tls.cert?.problem ?? (s.tls.cert?.daysLeft != null ? `Wildcard-Zertifikat, noch ${s.tls.cert.daysLeft} Tage gültig` : 'Wildcard-Zertifikat eingerichtet, Laufzeit noch nicht geprüft')
+              : <>aus – nur HTTP; einrichten unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link></>}
           </span>
         </li>
         <li className={s?.tls.tailscaleIp ? 'check-ok' : 'check-none'}>
@@ -54,9 +54,10 @@ export function Domains() {
         <div className="state state-empty">
           <h2>Cloudflare Tunnel nicht eingerichtet</h2>
           <p>
-            Projekte sind nur im LAN und im Tailnet erreichbar. Öffentlich schalten geht mit{' '}
-            <code>compose.public.yaml</code>: Tunnel, Konto-ID und Token – Schritte in docs/MILESTONE-5.md.
+            Projekte sind nur im LAN und im Tailnet erreichbar. Öffentlich schalten geht, sobald der
+            Tunnel steht – eingerichtet wird er unter System.
           </p>
+          <Link className="button" to="/system/cloudflare">Cloudflare &amp; HTTPS öffnen</Link>
         </div>
       ) : (
         <>
@@ -85,7 +86,7 @@ export function Domains() {
                 <tbody>
                   {(d.data?.domains ?? []).map((dom) => (
                     <tr key={dom.id}>
-                      <td className="mono">{dom.name}</td>
+                      <td>{dom.name}</td>
                       <td>{dom.isDefault ? <span className="status status-running"><span className="status-dot" aria-hidden="true" />Standard</span> : <span className="muted">–</span>}</td>
                       <td className="row-actions">
                         {!dom.isDefault && <button className="button-small" onClick={() => setDefault.mutate(dom.name)} disabled={setDefault.isPending}>Als Standard</button>}

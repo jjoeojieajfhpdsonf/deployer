@@ -82,11 +82,11 @@ export function Audit() {
             </thead>
             <tbody>
               {list.map((e) => (
-                <tr key={e.id} className={e.result === 'error' ? 'row-error' : undefined}>
-                  <td className="mono nowrap">{new Date(e.at).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                <tr key={e.id}>
+                  <td className="num nowrap">{new Date(e.at).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                   <td>
                     <div>{describeAudit(e, byId)}</div>
-                    <div className="cell-sub mono">{e.action}</div>
+                    <div className="cell-sub">{e.action}</div>
                   </td>
                   <td className="nowrap">{actorLabel(e.actor)}</td>
                   <td>{e.result === 'ok' ? <span className="status status-running"><span className="status-dot" aria-hidden="true" />ok</span> : <span className="status status-failed"><span className="status-dot" aria-hidden="true" />Fehler</span>}</td>

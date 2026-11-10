@@ -5,6 +5,7 @@ import { login, setSessionCookie, clearSessionCookie, isLoggedIn, changePassword
 import { config } from '../../config.js'
 import { audit } from '../../domain/audit.js'
 import { AppError } from '../../lib/errors.js'
+import { getUiPrefs, setUiPrefs } from '../../domain/ui-prefs.js'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/auth/login', async (request, reply) => {
@@ -36,8 +37,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       viaHttps: viaHttps(request),
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
+      theme: (await getUiPrefs()).theme,
     }
   })
+
+  // Darstellung (Hell/Dunkel/System) – nur mit Anmeldung (Wächter: /auth/* nie mit Token)
+  app.put('/auth/preferences', async (request) => setUiPrefs(request.body, request.actor))
 
   // Nur mit Anmeldung (Wächter), nie mit API-Token.
   app.post('/auth/password', async (request, reply) => {

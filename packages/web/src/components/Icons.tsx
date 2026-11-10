@@ -11,7 +11,11 @@ export const IconPlus = ({ size, className }: P) => (
 export const IconAlert = ({ size = 20, className }: P) => (
   <svg {...base(size)} viewBox="0 0 16 16" className={className}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.6M8 10.9v.1" /></svg>
 )
-export const IconMore = ({ size, className }: P) => (
+/** Warnung (Dreieck) – zu einer Warnung gehört immer auch das Wort */
+export const IconWarn = ({ size = 14, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 2.2 14.3 13H1.7Z" /><path d="M8 6.4v3M8 11.3v.1" /></svg>
+)
+export const IconMore =({ size, className }: P) => (
   // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer
   <svg {...base(size)} className={className}><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.35" /><circle cx="8" cy="8" r="1.35" /><circle cx="12.5" cy="8" r="1.35" /></g></svg>
 )

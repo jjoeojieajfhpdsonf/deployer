@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { NotificationSettings } from '../components/Notifications.js'
+import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 
@@ -12,7 +13,20 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export function System() {
+export type SystemSection = 'uebersicht' | 'cloudflare' | 'benachrichtigungen'
+
+const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
+  { key: 'uebersicht', to: '/system', label: 'Übersicht' },
+  { key: 'cloudflare', to: '/system/cloudflare', label: 'Cloudflare & HTTPS' },
+  { key: 'benachrichtigungen', to: '/system/benachrichtigungen', label: 'Benachrichtigungen' },
+]
+
+/**
+ * System in drei Unterseiten statt einer langen Seite: Übersicht (Dienste,
+ * Netz, Erreichbarkeit), Cloudflare & HTTPS (Assistent, Zertifikat, Tailnet),
+ * Benachrichtigungen. Die Unternavigation ist die Reiter-Steuerung der App.
+ */
+export function System({ section = 'uebersicht' }: { section?: SystemSection }) {
   const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: 15_000 })
   const [reach, setReach] = useState<Record<string, boolean | null>>({})
   const [copied, setCopied] = useState(false)
@@ -45,10 +59,40 @@ export function System() {
   }
   const s = status.data
 
+  const current = SECTIONS.find((x) => x.key === section)!
   return (
     <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'system' }]} title="System" />
+      <PageHead
+        crumbs={section === 'uebersicht' ? [{ label: 'system' }] : [{ label: 'system', to: '/system' }, { label: current.label.toLowerCase() }]}
+        title="System"
+      />
 
+      <nav className="tabs" aria-label="Bereiche von System">
+        {SECTIONS.map((x) => (
+          <NavLink key={x.key} to={x.to} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={x.key === section ? 'page' : undefined}>
+            {x.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {section === 'cloudflare' && (
+        <>
+          <p className="lede lede-tight">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
+          <CloudflareSetup />
+          {s.baseDomain && <TlsSection s={s} />}
+        </>
+      )}
+
+      {section === 'benachrichtigungen' && <NotificationSettings />}
+
+      {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
+    </section>
+  )
+}
+
+function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
+  return (
+    <>
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
           <strong>IP-Filter ist ausgeschaltet.</strong> Interne Hostnamen sind ohne
@@ -99,7 +143,7 @@ export function System() {
       {s.hostsBlock === null ? (
         <p className="hint">
           Noch keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.
-          Eigene interne Namen mit Zertifikat gibt es mit «Cloudflare verbinden» weiter unten –
+          Eigene interne Namen mit Zertifikat gibt es unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link> –
           bestehende Projekte ziehen dann mit.
         </p>
       ) : (
@@ -122,15 +166,7 @@ export function System() {
           </button>
         </>
       )}
-
-      <h2 id="cloudflare">Cloudflare verbinden</h2>
-      <p className="hint">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
-      <CloudflareSetup />
-      {s.baseDomain && <TlsSection s={s} />}
-
-      <h2>Benachrichtigungen</h2>
-      <NotificationSettings />
-    </section>
+    </>
   )
 }
 

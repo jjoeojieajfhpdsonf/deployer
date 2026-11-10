@@ -9,6 +9,7 @@ import { ProjectSecurity } from '../components/Security.js'
 import { Reachability } from '../components/Reachability.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
+import { IconWarn } from '../components/Icons.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { putEnvSchema } from '@deployer/shared'
@@ -94,9 +95,10 @@ export function ProjectDetail() {
             {p.desiredState === 'running' ? (
               confirmStop ? (
                 <span className="confirm-inline" role="group" aria-label="Stoppen bestätigen">
-                  <span className="warn">! {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}danach offline.</span>
-                  <button className="button-danger" onClick={() => act.mutate('stop')} disabled={act.isPending} autoFocus>Ja, stoppen</button>
+                  <span className="confirm-note"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}danach offline.</span>
                   <button onClick={() => setConfirmStop(false)}>Abbrechen</button>
+                  {/* Während der Bestätigung ist «Ja, stoppen» der eine gefüllte Knopf */}
+                  <button className="button-danger-solid" onClick={() => act.mutate('stop')} disabled={act.isPending} autoFocus>Ja, stoppen</button>
                 </span>
               ) : (
                 <button onClick={() => setConfirmStop(true)} disabled={act.isPending}>Stoppen …</button>
@@ -104,13 +106,13 @@ export function ProjectDetail() {
             ) : (
               <button onClick={() => act.mutate('start')} disabled={act.isPending}>Starten</button>
             )}
-            <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
+            <button className={confirmStop ? undefined : 'button-primary'} onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
               Neu deployen
             </button>
           </>
         }
       >
-        <p className="lede mono">{KIND_LABEL[p.sourceType] ?? p.sourceType} · {shortVersion(p.activeDeployment?.version)}{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
+        <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
       </PageHead>
 
       {notice && <p role="status" className="notice notice-ok">{notice}</p>}
@@ -252,14 +254,19 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
           </thead>
           <tbody>
             {rows.map((d) => (
-              <tr key={d.id} className={d.status === 'failed' ? 'row-error' : undefined}>
+              <tr key={d.id}>
                 <td>
                   {new Date(d.startedAt).toLocaleString('de-CH')}
                   {d.trigger === 'rollback' && <span className="muted"> · Rollback</span>}
                 </td>
                 <td><code className="version" title={d.version ?? undefined}>{shortVersion(d.version)}</code></td>
                 <td>{duration(d.durationMs)}</td>
-                <td>{DEPLOY_STATUS[d.status] ?? d.status}</td>
+                <td>
+                  {/* Ergebnis als Pille: Punkt + Wort, Farbe nur für aktiv und fehlgeschlagen */}
+                  <span className={`status ${d.status === 'active' ? 'status-running' : d.status === 'failed' ? 'status-failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'status-deploying' : 'status-stopped'}`}>
+                    <span className="status-dot" aria-hidden="true" />{DEPLOY_STATUS[d.status] ?? d.status}
+                  </span>
+                </td>
                 <td className="row-actions">
                   <button onClick={() => setOpen(open === d.id ? null : d.id)}>
                     {open === d.id ? 'Log schliessen' : 'Log'}
@@ -425,7 +432,7 @@ function Settings({
               <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small>
             </span>
           </label>
-          <button type="submit" className="button-danger" disabled={remove.isPending}>
+          <button type="submit" className="button-danger-solid" disabled={remove.isPending}>
             {remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}
           </button>
         </form>

@@ -106,21 +106,35 @@ export function ScanReport({
 
   return (
     <div className="scan-report">
-      <div className="panel panel-pad">
-        <dl className="facts facts-plain">
-          <dt>Ergebnis</dt>
-          <dd aria-live="polite">
+      {/* Ergebnis als Bento: Note, offene Befunde, Zeit; darunter die Stufen */}
+      <div className="bento">
+        <section className="bento-card" aria-labelledby="sec-result">
+          <h3 id="sec-result" className="bento-label">Ergebnis</h3>
+          <div aria-live="polite" className="bento-value">
             {running ? <span className="scan-running"><span className="status-dot" aria-hidden="true" />Scan läuft …</span> : <GradeBadge grade={s.grade} score={s.score} />}
-            {runningSince && !running && <span className="scan-running scan-running-inline"><span className="status-dot" aria-hidden="true" />Neuer Scan läuft seit {relativeTime(runningSince).replace(/^vor /, '')}</span>}
-            {s.status === 'failed' && <p className="error-inline">Scan fehlgeschlagen: {s.error}</p>}
-          </dd>
+          </div>
+          {runningSince && !running && <span className="scan-running scan-running-inline"><span className="status-dot" aria-hidden="true" />Neuer Scan läuft seit {relativeTime(runningSince).replace(/^vor /, '')}</span>}
+          {s.status === 'failed' && <p className="error-inline">Scan fehlgeschlagen: {s.error}</p>}
+        </section>
 
-          <dt>Offen</dt>
-          <dd><SeverityChips counts={report.counts} /></dd>
+        <section className="bento-card" aria-labelledby="sec-open">
+          <h3 id="sec-open" className="bento-label">Offene Befunde</h3>
+          <div className="bento-value"><SeverityChips counts={report.counts} /></div>
+        </section>
 
-          <dt>Stufen</dt>
-          <dd>
-            <ul className="stages">
+        <section className="bento-card" aria-labelledby="sec-time">
+          <h3 id="sec-time" className="bento-label">Zeit</h3>
+          <p className="bento-value bento-text">{t.rel}</p>
+          <p className="bento-sub">
+            {t.abs}
+            {t.took && <> · Dauer {t.took}</>}
+            {s.level === 'active' && <> · aktiver Scan</>}
+          </p>
+        </section>
+
+        <section className="bento-card bento-wide" aria-labelledby="sec-stages">
+          <h3 id="sec-stages" className="bento-label">Stufen</h3>
+          <ul className="stages">
               {Object.entries(s.stages).sort(([a], [b]) => stageOrder(a) - stageOrder(b)).map(([k, v]) => {
                 const tool = toolOf(k.split(' ')[0]!)
                 const sev = worst.get(tool)
@@ -132,7 +146,7 @@ export function ScanReport({
                     <span className="stage-icon">
                       {state === 'clean' || state === 'accepted' ? <IconClean /> : state === 'found' ? <IconFound /> : state === 'failed' ? <IconFailed /> : <IconSkipped />}
                     </span>
-                    <span className="stage-name">{STAGE_LABEL[k.split(' ')[0]!] ?? k}{k.includes(' ') ? <span className="muted mono"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
+                    <span className="stage-name">{STAGE_LABEL[k.split(' ')[0]!] ?? k}{k.includes(' ') ? <span className="muted"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
                     <span className="stage-state">
                       {state === 'clean' && 'keine Befunde'}
                       {state === 'found' && (<>
@@ -149,17 +163,8 @@ export function ScanReport({
                 )
               })}
               {Object.keys(s.stages).length === 0 && <li className="muted">{running ? 'Die Stufen erscheinen, sobald sie durchgelaufen sind.' : 'Keine Stufe gelaufen.'}</li>}
-            </ul>
-          </dd>
-
-          <dt>Zeit</dt>
-          <dd>
-            <span>{t.rel}</span>
-            <span className="muted"> · {t.abs}</span>
-            {t.took && <span className="muted"> · Dauer {t.took}</span>}
-            {s.level === 'active' && <span className="muted"> · aktiver Scan</span>}
-          </dd>
-        </dl>
+          </ul>
+        </section>
       </div>
 
       <div className="section-head findings-head" id="befunde">
@@ -279,8 +284,8 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
           </button>
         ) : (
           <span className="confirm-inline" role="group" aria-label="Aktiven Scan bestätigen">
-            <button className="button-danger" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
             <button onClick={() => setConfirmActive(false)}>Abbrechen</button>
+            <button className="button-danger-solid" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
           </span>
         )}
         <p className="scan-actions-hint">

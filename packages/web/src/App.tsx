@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Route, Routes, Navigate, Link } from 'react-router-dom'
 import { api } from './api.js'
@@ -15,7 +16,6 @@ import { Domains } from './pages/Domains.js'
 import { useSystem } from './components/ServerName.js'
 import { useProjects } from './lib/projects.js'
 import { Account } from './pages/Account.js'
-import { DemoToggle } from './components/DemoToggle.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
@@ -23,6 +23,12 @@ import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, Ico
 export function App() {
   const qc = useQueryClient()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
+
+  // Darstellung: die Wahl vom Server gewinnt über die lokale Kopie (anderes Gerät, neuer Browser)
+  const serverTheme = me.data?.theme
+  useEffect(() => {
+    if (serverTheme && serverTheme !== readLocalTheme()) applyTheme(serverTheme)
+  }, [serverTheme])
 
   if (me.isLoading) {
     return <main className="state state-loading" aria-busy="true">Einen Moment…</main>
@@ -61,14 +67,15 @@ export function App() {
           <Route path="/security" element={<SecurityOverview />} />
           <Route path="/domains" element={<Domains />} />
           <Route path="/extern" element={<ExternalTargets />} />
-          <Route path="/system" element={<System />} />
+          <Route path="/system" element={<System section="uebersicht" />} />
+          <Route path="/system/cloudflare" element={<System section="cloudflare" />} />
+          <Route path="/system/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/tokens" element={<Tokens />} />
           <Route path="/konto" element={<Account />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <DemoToggle />
     </div>
     </CrumbsProvider>
   )
@@ -133,8 +140,8 @@ function Rail() {
         ))}
       </nav>
       <div className="rail-foot">
-        <span>Server <span className="mono">{system.data?.server.name ?? '…'}</span></span>
-        <span>Version <span className="mono">{system.data?.version ?? '…'}</span></span>
+        <span>Server <strong>{system.data?.server.name ?? '…'}</strong></span>
+        <span>Version <strong className="num">{system.data?.version ?? '…'}</strong></span>
       </div>
     </aside>
   )

@@ -4,6 +4,7 @@ import { api, ApiError, type ProjectDto } from '../api.js'
 import { publicNameFormSchema } from '@deployer/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
+import { IconWarn } from './Icons.js'
 
 type Target = 'lan' | 'tailnet' | 'public'
 
@@ -78,7 +79,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
         <input type="checkbox" disabled={!publicEnabled} checked={want.has('public')} onChange={() => toggle('public')} />
         <span>
           Öffentlich im Internet{' '}
-          <small>{publicEnabled ? 'über Cloudflare Tunnel; nur mit abgeschlossenem Scan ohne kritischen Befund' : 'braucht einen Cloudflare-Tunnel – unter System → Cloudflare verbinden einrichten'}</small>
+          <small>{publicEnabled ? 'über Cloudflare Tunnel; nur mit abgeschlossenem Scan ohne kritischen Befund' : 'braucht einen Cloudflare-Tunnel – unter System → Cloudflare & HTTPS einrichten'}</small>
         </span>
       </label>
 
@@ -120,9 +121,9 @@ export function Reachability({ p }: { p: ProjectDto }) {
         )}
         {confirming && (
           <>
-            <span className="warn">! «{p.name}» wird für alle im Internet erreichbar. Sicher?</span>
-            <button className="button-danger" disabled={save.isPending} onClick={() => save.mutate()}>Ja, öffentlich machen</button>
+            <span className="confirm-note"><IconWarn /> «{p.name}» wird für alle im Internet erreichbar. Sicher?</span>
             <button onClick={() => setConfirming(false)}>Abbrechen</button>
+            <button className="button-danger-solid" disabled={save.isPending} onClick={() => save.mutate()}>Ja, öffentlich machen</button>
           </>
         )}
       </div>

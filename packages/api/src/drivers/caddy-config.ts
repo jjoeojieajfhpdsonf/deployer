@@ -61,6 +61,49 @@ export interface TlsOptions {
   tokenFile?: string | null
   /** http -> https für interne Namen. Während der Einrichtung aus, bis das echte Zertifikat da ist. */
   redirect?: boolean
+  /**
+   * wildcard: *.<basis> verwalten (Standard). probe: nur acme-probe.<basis>
+   * (Staging-Probelauf). none: :443 an, nichts verwaltet – leert Caddys Cache
+   * für *.<basis>, der ein Neuladen sonst überlebt.
+   */
+  mode?: 'wildcard' | 'probe' | 'none'
+}
+
+/** Eigener Name für den Staging-Probelauf: so liegt nie ein Staging-Wildcard in Caddys Cache. */
+export const PROBE_LABEL = 'acme-probe'
+export const probeName = (base: string) => `${PROBE_LABEL}.${base}`
+
+type TlsApp = { certificates?: { automate?: string[] }; automation?: { policies?: { subjects?: string[]; issuers?: { ca?: string }[] }[] } }
+type BuiltConfig = { apps?: { tls?: TlsApp } }
+
+/** CA, mit der eine geladene Konfiguration den Namen verwaltet (null: verwaltet ihn nicht). */
+export function caForSubject(cfg: unknown, subject: string): string | null {
+  const tls = (cfg as BuiltConfig | null)?.apps?.tls
+  if (!tls?.certificates?.automate?.includes(subject)) return null
+  const p = tls.automation?.policies?.find((x) => x.subjects?.includes(subject))
+  return p?.issuers?.[0]?.ca ?? 'default'
+}
+
+/**
+ * Muss Caddys Zertifikats-Cache vor dem Laden von `next` geleert werden?
+ * Ja, wenn beide Konfigurationen *.<basis> verwalten, aber mit anderer CA:
+ * Caddy behält dann das gecachte Zertifikat der alten CA (der Cache überlebt
+ * das Neuladen; geprüft gegen Caddy 2.10, docs/design-cal) und lädt weder aus
+ * dem Speicher noch bestellt es neu.
+ */
+export function needsCacheEvict(current: unknown, next: unknown, baseDomain: string | null): boolean {
+  if (!baseDomain) return false
+  const w = `*.${baseDomain}`
+  const a = caForSubject(current, w)
+  const b = caForSubject(next, w)
+  return a !== null && b !== null && a !== b
+}
+
+/** Dieselbe Konfiguration, aber ohne verwaltete Zertifikate (Zwischenschritt zum Leeren des Caches). */
+export function withoutCertificates<T extends Record<string, unknown>>(cfg: T): T {
+  const c = structuredClone(cfg) as T & BuiltConfig
+  if (c.apps?.tls) c.apps.tls = { certificates: { automate: [] } }
+  return c
 }
 
 /** Platzhalter, den Caddy zur Laufzeit aus seiner Umgebung füllt (Entrypoint liest das Secret). */
@@ -168,7 +211,11 @@ export function buildCaddyConfig(
   const apps: Record<string, unknown> = { http: { servers } }
 
   if (tls) {
-    const wildcard = `*.${tls.baseDomain}`
+    // Was Caddy verwaltet: das Wildcard-Zertifikat (Produktion), nur den
+    // Probe-Namen (Staging-Probelauf; nie ein Staging-Wildcard im Cache) oder
+    // nichts (Zwischenschritt, der Caddys Zertifikats-Cache für *.<basis> leert).
+    const mode = tls.mode ?? 'wildcard'
+    const subject = mode === 'probe' ? probeName(tls.baseDomain) : `*.${tls.baseDomain}`
     servers.srv1 = {
       listen: [':443'],
       routes: [...tlsRoutes, catchAll],
@@ -178,11 +225,11 @@ export function buildCaddyConfig(
       // HTTP/3 bräuchte zusätzlich UDP :443; der IP-Filter ist dafür nicht geprüft.
       protocols: ['h1', 'h2'],
     }
-    apps.tls = {
-      certificates: { automate: [wildcard] },
+    apps.tls = mode === 'none' ? { certificates: { automate: [] } } : {
+      certificates: { automate: [subject] },
       automation: {
         policies: [{
-          subjects: [wildcard],
+          subjects: [subject],
           issuers: [{
             module: 'acme',
             // CA immer ausdrücklich, auch für Produktion: genau ein Issuer
