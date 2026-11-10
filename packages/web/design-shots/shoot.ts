@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
+import * as env from './umgebungen.js'
 import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
@@ -303,6 +304,12 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
+  /* Prototyp Umgebungen (SPEC «Umgebungen»): nur DOM-Einblendung, siehe umgebungen.ts */
+  { group: 'umgebungen', name: 'umgebungen-projekte', path: '/projekte', full: false, prepare: (pg) => env.railWithEnvironments(pg) },
+  { group: 'umgebungen', name: 'umgebungen-umschalter', path: '/projekte', full: false, prepare: (pg) => env.railWithEnvironments(pg, { open: true }) },
+  { group: 'umgebungen', name: 'umgebungen-cloudflare', path: '/system', prepare: env.environmentCloudflare },
+  { group: 'umgebungen', name: 'umgebungen-standards', path: '/system', prepare: env.environmentStandards },
+  { group: 'umgebungen', name: 'umgebungen-verschieben', path: `/projekte/${Z}?tab=einstellungen`, full: false, prepare: env.moveProject },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
