@@ -494,7 +494,7 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .panel-head a { font-size: var(--fs-14); }
 
 /* Kennzahlen als Bento-Karten */
-.stats { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1.25fr; gap: var(--sp-4); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-4); }
 .stat { padding: var(--sp-6) 26px 26px; display: grid; align-content: start; gap: var(--sp-1); }
 .stat .label { font-size: var(--fs-14); }
 .stat-value { margin-top: 18px; font-family: var(--display); font-weight: 400; font-size: var(--fs-44); line-height: 1; letter-spacing: var(--track-display); font-variant-numeric: normal; overflow-wrap: anywhere; }
@@ -506,6 +506,9 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .stat-value.tone-warn::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: currentColor; vertical-align: 0.32em; }
 .stat-sub { margin-top: 10px; font-size: var(--fs-13); color: var(--muted); overflow-wrap: anywhere; }
 .stat-sub .truncate { max-width: 100%; }
+/* Öffentliche Adressen (bei ein, zwei Projekten) als Links, je eine Zeile */
+.stat-links { display: grid; gap: 2px; }
+.stat-links a { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Bento allgemein (Security-Ergebnis) */
 .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
@@ -609,7 +612,9 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-dim); font-size: var(--fs-13); font-weight: 500; white-space: nowrap; }
-.chip-strong, .chip-public { background: var(--primary); color: var(--primary-ink); }
+.chip-strong { background: var(--primary); color: var(--primary-ink); }
+/* Öffentlich: Pille wie LAN/Tailnet, abgehoben durch Wort und farbigen Globus */
+.chip-public svg { color: var(--info); flex: none; }
 
 .grade-cell { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-14); color: var(--ink); }
 .grade { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: var(--r-sm); font-weight: 700; font-size: var(--fs-14); }
@@ -934,12 +939,50 @@ details > summary:hover { color: var(--ink); }
 .pcard-state { display: grid; gap: var(--sp-3); }
 .pcard-state .cell-sub { margin: 0; }
 .pcard-state .progress { margin-top: 0; }
-.pcard-facts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-self: end; }
-.pcard-facts > div { padding: 14px var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); min-width: 0; }
-.pcard-facts dt { font-size: var(--fs-12); font-weight: 500; color: var(--muted); margin-bottom: 6px; }
-.pcard-facts dd { margin: 0; font-size: var(--fs-14); color: var(--ink); }
+/* Fakten als Zeilen unter einer Haarlinie: Bezeichnung links, Wert rechts */
+.pcard-facts { margin: 0; padding-top: var(--sp-4); border-top: 1px solid var(--line); display: grid; gap: 10px; align-self: end; }
+.pcard-facts > div { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-4); min-width: 0; min-height: 24px; }
+.pcard-facts dt { flex: none; font-size: var(--fs-14); color: var(--muted); }
+.pcard-facts dd { margin: 0; min-width: 0; font-size: var(--fs-14); color: var(--ink); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard-facts .grade-cell { justify-content: flex-end; }
 .pcard-facts .grade { min-width: 24px; height: 24px; font-size: var(--fs-13); }
-.pcard-kind { display: block; margin-top: 2px; font-size: var(--fs-12); color: var(--muted); }
+
+/* Neues Projekt: gestrichelte Karte in den freien Spalten der letzten Reihe */
+.pnew { display: grid; grid-template-rows: auto auto 1fr; gap: var(--sp-2); padding: var(--sp-6) var(--sp-7) var(--sp-7); border: 1px dashed color-mix(in srgb, var(--field-line) 55%, transparent); border-radius: var(--r-lg); min-width: 0; }
+.pnew-head { display: flex; align-items: center; gap: var(--sp-3); }
+.pnew-head h3 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); line-height: 1.2; letter-spacing: var(--track-display); }
+.pnew-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: var(--r); background: var(--surface-2); color: var(--ink); }
+.pnew-lede { margin: 0; font-size: var(--fs-14); color: var(--muted); }
+.pnew-compact { grid-template-rows: none; align-content: center; justify-items: center; gap: var(--sp-4); text-align: center; }
+.pnew-sources { list-style: none; margin: 0; padding: var(--sp-5) 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3); align-self: end; }
+.pnew-source {
+  display: grid; justify-items: start; align-content: start; gap: 2px;
+  width: 100%; height: 100%; min-height: 0; padding: var(--sp-4); border: none; border-radius: var(--r-md);
+  background: var(--surface-2); color: var(--ink); box-shadow: none; text-align: left; text-decoration: none; white-space: normal;
+  font: inherit; cursor: pointer;
+  transition: background-color 150ms ease, transform 160ms var(--ease-out);
+}
+.pnew-source svg { margin-bottom: var(--sp-2); color: var(--ink-dim); }
+.pnew-source strong { font-size: var(--fs-14); font-weight: 600; }
+.pnew-source small { font-size: var(--fs-13); line-height: 1.45; color: var(--muted); }
+button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(--surface-3); border: none; }
+.pnew-source:active { transform: scale(0.98); }
+.pnew-source:focus-visible { outline-offset: 2px; border-radius: var(--r-md); }
+
+/* Dialog: Karte über abgedunkeltem Grund, blendet kurz von 97 % ein (Emil: nie von 0) */
+.dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: none; border-radius: var(--r-lg); background: var(--surface); color: var(--ink); box-shadow: var(--sh-pop); transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.dialog::backdrop { background: var(--scrim); transition: opacity 200ms var(--ease-out); }
+@starting-style {
+  .dialog[open] { opacity: 0; transform: scale(0.97); }
+  .dialog[open]::backdrop { opacity: 0; }
+}
+.dialog-body { padding: var(--sp-7); }
+.dialog-body h2 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); line-height: 1.2; letter-spacing: var(--track-display); margin-bottom: var(--sp-2); }
+.dialog-lede { color: var(--muted); }
+.dialog-steps { margin: var(--sp-4) 0 0; padding-left: 20px; display: grid; gap: var(--sp-3); }
+.dialog-steps li { padding-left: 4px; }
+.dialog-steps li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-6); }
 .pcard-foot { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
 .pcard-actions, .pcard .chips { position: relative; z-index: 1; }
 /* Offenes Menü liegt über den Nachbarkarten (sonst schieben sich deren Pillen darüber) */
@@ -1176,8 +1219,8 @@ details > summary:hover { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
   button:active:not(:disabled), a.button:active { transform: none; }
-  .menu-list { transform: none; }
+  .menu-list, .dialog, .pnew-source:active { transform: none; }
   @starting-style {
-    .menu-list { transform: none; }
+    .menu-list, .dialog[open] { transform: none; }
   }
 }

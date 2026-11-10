@@ -19,7 +19,20 @@ export const IconMore =({ size, className }: P) => (
   // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer
   <svg {...base(size)} className={className}><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.35" /><circle cx="8" cy="8" r="1.35" /><circle cx="12.5" cy="8" r="1.35" /></g></svg>
 )
-export const IconChevron = ({ size, className }: P) => (
+/* Quellen eines neuen Projekts */
+export const IconGit = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="5.5" r="1.5" /><path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-6.2 4.4" /></svg>
+)
+export const IconBox = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 1.8 13.5 4.8v6.4L8 14.2 2.5 11.2V4.8Z" /><path d="M2.5 4.8 8 7.8l5.5-3M8 7.8v6.4" /></svg>
+)
+export const IconUpload = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 10.5V2.5M4.8 5.5 8 2.3l3.2 3.2M2.5 10v3.5h11V10" /></svg>
+)
+export const IconChat = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z" /><path d="M5.5 7.2h5" /></svg>
+)
+export const IconChevron =({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
 )
 export const IconExternal = ({ size = 12, className }: P) => (

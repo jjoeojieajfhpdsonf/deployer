@@ -28,14 +28,14 @@ const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
-function api(path: string, method: string, loggedIn: boolean, theme: 'light' | 'dark'): { status?: number; body: unknown } {
+function api(path: string, method: string, loggedIn: boolean, theme: 'light' | 'dark', count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
   const p = u.pathname.replace(/^\/api\/v1/, '')
   if (p === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
   if (method !== 'GET') return { body: {} }
   let m: RegExpMatchArray | null
-  if (p === '/projects') return { body: { projects: fx.projects } }
-  if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.projects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
+  if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
+  if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.allProjects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
   if ((m = p.match(/^\/deployments\/([^/]+)$/))) {
     const d = fx.projects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
@@ -45,7 +45,13 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
-  if (p === '/audit') return { body: { events: fx.audit(u.searchParams.get('targetId') ?? undefined) } }
+  if (p === '/audit') {
+    const events = fx.audit(u.searchParams.get('targetId') ?? undefined)
+    if (count === undefined) return { body: { events } }
+    // Bei fester Projektanzahl nur Einträge zu Projekten, die es gibt
+    const ids = new Set(fx.projectsFor(count).map((x) => x.id))
+    return { body: { events: events.filter((e) => e.targetType !== 'project' || (e.targetId && ids.has(e.targetId))) } }
+  }
   if (p === '/system/status') return { body: fx.system }
   if (p === '/system/cloudflare') return { body: fx.cloudflare }
   if (p === '/domains') return { body: fx.domains }
@@ -68,6 +74,8 @@ type Shot = {
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
   hang?: string[]
+  /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
+  count?: number
   prepare?: (page: Page) => Promise<void>
 }
 const P = fx.detailProjectId
@@ -115,6 +123,12 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
+  // Übersicht mit wenigen bis vielen Projekten (Karte «Neues Projekt», Filter erst ab 4)
+  ...[0, 1, 2, 3, 7].map((count): Shot => ({ group: 'anzahl', name: `projekte-anzahl-${count}`, path: '/projekte', count })),
+  {
+    group: 'anzahl', name: 'projekte-per-chat', path: '/projekte', count: 1, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /Per Chat/ }).click(); await pg.waitForTimeout(300) },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -146,7 +160,7 @@ try {
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
-            const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t)
+            const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             return json(route, r.body, r.status)
           }
           if (url.pathname === '/health') return json(route, { ok: true })

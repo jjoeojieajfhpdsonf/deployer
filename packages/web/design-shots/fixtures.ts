@@ -90,6 +90,26 @@ export const projects: ProjectDto[] = [
   }),
 ]
 
+/** Chat-Projekt mit öffentlicher Adresse – der Zustand «1 Projekt» der Referenz */
+const halloWelt = project({
+  id: 'p-hallo', name: 'hallo-welt', slug: 'hallo-welt', sourceType: 'files', runtimeKind: 'static', filesKind: 'static',
+  source: { type: 'files' } as ProjectDto['source'], keep: false, expiresAt: new Date(Date.now() + 30 * DAY - HOUR).toISOString(), port: 80,
+  routes: [route(['tailnet', 'lan'], `hallo-welt.${BASE}`), route(['public'], 'hallo-welt.example.ch')],
+  security: { scanId: 'p-hallo-s', status: 'done', score: 90, grade: 'A', finishedAt: ago(20 * MIN), open: { critical: 0, high: 0, medium: 2, low: 2 } },
+  lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(25 * MIN), finishedAt: ago(25 * MIN - 9_000), durationMs: 9_000 }),
+})
+
+/**
+ * Projektliste mit fester Anzahl (0 bis 7) für die Screenshots der Übersicht.
+ * Reihenfolge so, dass wenige Projekte einen typischen Anfang zeigen.
+ */
+export function projectsFor(count: number): ProjectDto[] {
+  const byId = (id: string) => projects.find((x) => x.id === id)!
+  return [halloWelt, ...['p-foto', 'p-haushalt', 'p-wetter', 'p-rezepte', 'p-notizen', 'p-kontoauszug'].map(byId)].slice(0, count)
+}
+/** Alle Projekte, die irgendeine Variante zeigt (für Detail-Anfragen) */
+export const allProjects: ProjectDto[] = [...projects, halloWelt]
+
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'
 

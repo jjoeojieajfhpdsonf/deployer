@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { slugify, createProjectSchema } from '@deployer/shared'
 import { api, ApiError } from '../api.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
@@ -23,10 +23,19 @@ const MAX_COMPOSE = 256 * 1024
 const PENDING_UPLOAD = '00000000-0000-4000-8000-000000000000'
 const opt = (v: string) => (v.trim() === '' ? undefined : v)
 
+/** Vorwahl aus der Karte «Neues Projekt» der Übersicht (?quelle=git|image|upload). */
+const PRESET: Record<string, { kind: Kind; origin: Origin }> = {
+  git: { kind: 'dockerfile', origin: 'repo' },
+  image: { kind: 'image', origin: 'upload' },
+  upload: { kind: 'static', origin: 'upload' },
+}
+
 export function NewProject() {
   const navigate = useNavigate()
-  const [kind, setKind] = useState<Kind>('image')
-  const [origin, setOrigin] = useState<Origin>('upload')
+  const [params] = useSearchParams()
+  const preset = PRESET[params.get('quelle') ?? '']
+  const [kind, setKind] = useState<Kind>(preset?.kind ?? 'image')
+  const [origin, setOrigin] = useState<Origin>(preset?.origin ?? 'upload')
   const [name, setName] = useState('')
   const [image, setImage] = useState('')
   const [repoUrl, setRepoUrl] = useState('')

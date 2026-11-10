@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ProjectDto, SystemStatusDto } from '@deployer/shared'
@@ -6,10 +6,10 @@ import { api, ApiError } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
-import { IconAlert, IconPlus, IconSearch, IconWarn } from '../components/Icons.js'
+import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
-import { relativeTime, since, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
+import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 
 
 type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
@@ -67,15 +67,25 @@ export function Projects() {
     laufen: list.filter((p) => p.status === 'running').length,
     aufmerksamkeit: list.filter((p) => attention(p)).length,
   }), [list])
+  // Bei wenigen Projekten sagt der Filter nichts, was das Raster nicht schon zeigt
+  const showFilter = list.length >= 4
+  const view: Filter = showFilter ? filter : 'alle'
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
     return list
-      .filter((p) => filter === 'alle' || (filter === 'laufen' ? p.status === 'running' : attention(p)))
+      .filter((p) => view === 'alle' || (view === 'laufen' ? p.status === 'running' : attention(p)))
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.routes.some((r) => r.hostname.includes(q)))
       // Dringendes zuerst, dann nach Name
       .sort((a, b) => urgency(b) - urgency(a) || a.name.localeCompare(b.name, 'de-CH'))
-  }, [list, filter, query])
+  }, [list, view, query])
+
+  // Karte «Neues Projekt» füllt die freien Spalten der letzten Reihe; bei voller Reihe entfällt sie
+  const [grid, setGrid] = useState<HTMLUListElement | null>(null)
+  const cols = useGridColumns(grid)
+  const free = (cols - (shown.length % cols)) % cols
+  const showNew = view === 'alle' && !query.trim() && free > 0
+  const [chatGuide, setChatGuide] = useState(false)
 
   const failed = list.filter((p) => p.lastDeployment?.status === 'failed')
 
@@ -136,32 +146,36 @@ export function Projects() {
 
           <div className="section">
             <div className="section-head">
-              <h2>{filter === 'alle' ? 'Alle Projekte' : filter === 'laufen' ? 'Laufende Projekte' : 'Brauchen Aufmerksamkeit'}</h2>
-              <div className="segmented" role="group" aria-label="Filter">
-                {([
-                  ['alle', 'Alle'],
-                  ['laufen', 'Laufen'],
-                  ['aufmerksamkeit', 'Brauchen Aufmerksamkeit'],
-                ] as const).map(([k, label]) => (
-                  <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                    {label} <span className="num">{counts[k]}</span>
-                  </button>
-                ))}
-              </div>
+              <h2>{view === 'alle' ? 'Alle Projekte' : view === 'laufen' ? 'Laufende Projekte' : 'Brauchen Aufmerksamkeit'}</h2>
+              {showFilter && (
+                <div className="segmented" role="group" aria-label="Filter">
+                  {([
+                    ['alle', 'Alle'],
+                    ['laufen', 'Laufen'],
+                    ['aufmerksamkeit', 'Brauchen Aufmerksamkeit'],
+                  ] as const).map(([k, label]) => (
+                    <button key={k} aria-pressed={view === k} onClick={() => setFilter(k)}>
+                      {label} <span className="num">{counts[k]}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Projekte als Karten im Raster (cal.com: Karten statt Tabelle) */}
-            <ul className="pcards" aria-label="Projekte">
+            <ul className="pcards" aria-label="Projekte" ref={setGrid}>
               {shown.map((p) => (
                 <ProjectCard key={p.id} p={p} onAct={(what) => act.mutate({ id: p.id, what })} busy={act.isPending} />
               ))}
+              {showNew && <NewProjectCard span={free} onChat={() => setChatGuide(true)} />}
             </ul>
             {shown.length === 0 && (
               <p className="empty-inline">
-                {query ? <>Kein Projekt passt zu «{query}».</> : filter === 'aufmerksamkeit' ? 'Nichts zu tun – alles in Ordnung.' : 'Keine Projekte in dieser Ansicht.'}
+                {query ? <>Kein Projekt passt zu «{query}».</> : view === 'aufmerksamkeit' ? 'Nichts zu tun – alles in Ordnung.' : 'Keine Projekte in dieser Ansicht.'}
               </p>
             )}
           </div>
+          <ChatGuide open={chatGuide} onClose={() => setChatGuide(false)} />
         </>
       )}
 
@@ -186,7 +200,11 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
   const worst = list.filter((p) => p.security && (crit ? p.security.open.critical : p.security.open.high) > 0)
   const whereText = worst.length === 0 ? '' : worst.length <= 2 ? `in ${worst.map((p) => p.slug).join(', ')}` : `in ${worst.length} Projekten`
   const where = whereText ? <> · <span className="truncate" title={whereText}>{whereText}</span></> : null
-  const publicCount = list.filter(isPublic).length
+  const publicList = list.filter(isPublic)
+  // Bei ein, zwei öffentlichen Projekten die Adressen selbst, sonst nur der Weg
+  const publicUrls = publicList.length <= 2
+    ? publicList.flatMap((p) => p.routes.find((r) => r.target === 'public')?.urls[0] ?? [])
+    : []
   const srv = system?.server
   const memPct = pct(srv?.memUsedBytes, srv?.memTotalBytes)
   const diskPct = pct(srv?.diskUsedBytes, srv?.diskTotalBytes)
@@ -196,7 +214,12 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
       <div className="stat">
         <div className="label">Projekte</div>
         <div className="stat-value">{list.length}</div>
-        <div className="stat-sub">{running} {running === 1 ? 'läuft' : 'laufen'} · {deploying} deployt · {failedCount} Deploy-Fehler</div>
+        {/* Nullen weglassen, damit die Zeile auch in schmalen Karten einzeilig bleibt */}
+        <div className="stat-sub">
+          {running} {running === 1 ? 'läuft' : 'laufen'}
+          {deploying > 0 && ` · ${deploying} deployt`}
+          {failedCount > 0 ? ` · ${failedCount} Deploy-Fehler` : ' · keine Fehler'}
+        </div>
       </div>
       <div className="stat">
         <div className="label">Offene Befunde</div>
@@ -213,8 +236,17 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
       </div>
       <div className="stat">
         <div className="label">Öffentlich</div>
-        <div className="stat-value">{publicCount}</div>
-        <div className="stat-sub">{system?.publicTunnel.configured ? 'über Cloudflare Tunnel' : 'Tunnel nicht eingerichtet'}</div>
+        <div className="stat-value">{publicList.length}</div>
+        <div className="stat-sub">
+          {publicUrls.length > 0 ? (
+            <span className="stat-links">
+              {publicUrls.map((u) => {
+                const host = u.replace(/^https?:\/\//, '')
+                return <a key={u} href={u} target="_blank" rel="noreferrer" title={host}>{host}</a>
+              })}
+            </span>
+          ) : system?.publicTunnel.configured ? 'über Cloudflare Tunnel' : 'Tunnel nicht eingerichtet'}
+        </div>
       </div>
       <div className="stat">
         <div className="label">Arbeitsspeicher</div>
@@ -225,6 +257,98 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
         </div>
       </div>
     </div>
+  )
+}
+
+/* --- Neues Projekt im Raster ---------------------------------------------------------- */
+
+/** Spaltenzahl des Rasters (auto-fill), gemessen am Element; folgt der Fensterbreite. */
+function useGridColumns(el: HTMLElement | null) {
+  const [cols, setCols] = useState(3)
+  useLayoutEffect(() => {
+    if (!el) return
+    const read = () => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length))
+    read()
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el])
+  return cols
+}
+
+const SOURCES: { key: 'git' | 'image' | 'upload' | 'chat'; title: string; hint: string; Icon: ComponentType<{ size?: number }> }[] = [
+  { key: 'git', title: 'Git-Repo', hint: 'GitHub, GitLab oder eigene URL', Icon: IconGit },
+  { key: 'image', title: 'Image', hint: 'Fertiges Container-Image', Icon: IconBox },
+  { key: 'upload', title: 'Upload', hint: 'ZIP mit Seite oder Compose', Icon: IconUpload },
+  { key: 'chat', title: 'Per Chat', hint: 'In Claude über den MCP-Server', Icon: IconChat },
+]
+
+/**
+ * Gestrichelte Karte in den freien Spalten der letzten Reihe: mit einer Spalte
+ * nur Titel und Knopf, ab zwei Spalten die vier Quellen als Kacheln.
+ */
+function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) {
+  const head = (
+    <div className="pnew-head">
+      <span className="pnew-mark" aria-hidden="true"><IconPlus /></span>
+      <h3>Neues Projekt</h3>
+    </div>
+  )
+  if (span < 2) {
+    return (
+      <li className="pnew pnew-compact">
+        {head}
+        <Link className="button" to="/projekte/neu">Quelle wählen</Link>
+      </li>
+    )
+  }
+  return (
+    <li className="pnew" style={{ gridColumn: `span ${span}` }}>
+      {head}
+      <p className="pnew-lede">Deployen aus einer dieser Quellen. Jedes Projekt wird vor dem Veröffentlichen gescannt.</p>
+      <ul className="pnew-sources" aria-label="Quelle für ein neues Projekt">
+        {SOURCES.map(({ key, title, hint, Icon }) => {
+          const body = <><Icon size={16} /><strong>{title}</strong><small>{hint}</small></>
+          return (
+            <li key={key}>
+              {key === 'chat'
+                ? <button type="button" className="pnew-source" aria-haspopup="dialog" onClick={onChat}>{body}</button>
+                : <Link className="pnew-source" to={`/projekte/neu?quelle=${key}`}>{body}</Link>}
+            </li>
+          )
+        })}
+      </ul>
+    </li>
+  )
+}
+
+/** Kurze Anleitung: Projekte aus dem Chat über den MCP-Server anlegen. */
+function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const d = ref.current
+    if (!d) return
+    if (open && !d.open) d.showModal()
+    if (!open && d.open) d.close()
+  }, [open])
+  const mcpUrl = `${window.location.origin}/mcp`
+  return (
+    // Klick auf den abgedunkelten Rand schliesst (das Ziel ist dann das <dialog> selbst)
+    <dialog ref={ref} className="dialog" aria-labelledby="chat-guide-h" onClose={onClose} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="dialog-body">
+        <h2 id="chat-guide-h">Per Chat deployen</h2>
+        <p className="dialog-lede">Claude legt Projekte über den MCP-Server von deployer an, ohne Repo und ohne Formular. Einmal einrichten:</p>
+        <ol className="dialog-steps">
+          <li>Auf der Seite <Link to="/tokens">Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop».</li>
+          <li>In Claude den MCP-Server <code>{mcpUrl}</code> mit diesem Token eintragen. Für Claude Code steht dort der fertige Befehl.</li>
+          <li>Im Chat sagen, was auf den Server soll, z.B. «Stell diese Seite als hallo-welt online». Das Projekt erscheint danach hier.</li>
+        </ol>
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>Schliessen</button>
+          <Link className="button button-primary" to="/tokens">Zu den Tokens</Link>
+        </div>
+      </div>
+    </dialog>
   )
 }
 
@@ -326,11 +450,8 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
   const host = url?.replace(/^https?:\/\//, '')
   const d = p.lastDeployment
-  const kind = `${KIND_LABEL[p.sourceType] ?? p.sourceType}${p.sourceType === 'files' && p.runtimeKind !== 'static' ? ` · ${KIND_LABEL[p.runtimeKind]}` : ''}`
-  const source = p.source as { image?: string } | null
-  // Bei Images das Tag (lesbar), sonst der Commit-Hash (Monospace)
-  const imageTag = p.sourceType === 'image' && source?.image ? shortVersion(source.image.split('/').pop()) : null
   const version = shortVersion(d?.version ?? p.activeDeployment?.version)
+  const src = sourceLine(p)
   const rt = runtimeStatus(p)
   return (
     <li className={`pcard${rt.deployFailed || rt.status === 'failed' ? ' pcard-bad' : ''}`}>
@@ -348,6 +469,7 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
         <Reach p={p} className="chips" />
       </div>
 
+      {/* Fakten als Zeilen unter einer feinen Linie, keine Kästchen in der Karte */}
       <dl className="pcard-facts">
         <div>
           <dt>Security</dt>
@@ -357,8 +479,12 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
           <dt>Letzter Deploy</dt>
           <dd>
             {p.status === 'deploying' ? 'läuft gerade' : relativeTime(d?.startedAt)}
-            <span className="pcard-kind" title={source?.image ?? undefined}>{kind} {imageTag ?? <span className="version">{version}</span>}</span>
+            {version !== '–' && <> · <span className="version">{version}</span></>}
           </dd>
+        </div>
+        <div>
+          <dt>Quelle</dt>
+          <dd title={src.title}>{src.text}</dd>
         </div>
       </dl>
 
@@ -370,6 +496,26 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
       </div>
     </li>
   )
+}
+
+/** Zeile «Quelle»: Art und das Wichtigste dazu (Tag, Repo, Ablauf bei Chat-Projekten). */
+function sourceLine(p: ProjectDto): { text: string; title?: string } {
+  const kind = KIND_LABEL[p.sourceType] ?? p.sourceType
+  const s = p.source as { image?: string; repoUrl?: string; uploadId?: string } | null
+  if (p.sourceType === 'files') {
+    const days = p.expiresAt ? Math.max(0, Math.ceil((new Date(p.expiresAt).getTime() - Date.now()) / 86_400_000)) : null
+    const runtime = p.runtimeKind !== 'static' ? KIND_LABEL[p.runtimeKind] : null
+    const life = p.keep ? 'behalten' : days !== null ? `Ablauf in ${days} ${days === 1 ? 'Tag' : 'Tagen'}` : null
+    return { text: [kind, runtime, life].filter(Boolean).join(' · ') }
+  }
+  if (s?.image) return { text: `${kind} · ${shortVersion(s.image.split('/').pop())}`, title: s.image }
+  if (s?.repoUrl) {
+    // Nur «besitzer/repo»; die volle Adresse im Tooltip
+    const repo = s.repoUrl.replace(/^[a-z]+:\/\//i, '').replace(/\.git$/, '').split('/').filter(Boolean).slice(-2).join('/')
+    return { text: `${kind} · ${repo}`, title: s.repoUrl }
+  }
+  if (s?.uploadId) return { text: `${kind} · Upload` }
+  return { text: kind }
 }
 
 function StatusSub({ p }: { p: ProjectDto }) {
@@ -394,13 +540,8 @@ function StatusSub({ p }: { p: ProjectDto }) {
       </div>
     )
   }
-  if (p.status === 'running') {
-    if (p.sourceType === 'files') {
-      const days = p.expiresAt ? Math.max(0, Math.ceil((new Date(p.expiresAt).getTime() - Date.now()) / 86_400_000)) : null
-      return <div className="cell-sub">Chat-Projekt{p.keep ? ' · behalten' : days !== null ? ` · Ablauf in ${days} T.` : ''}</div>
-    }
-    return <div className="cell-sub">{since(p.activeDeployment?.finishedAt ?? p.activeDeployment?.startedAt)}</div>
-  }
+  // Läuft es, sagen Badge und Zeile «Letzter Deploy» schon alles (Ablauf bei Chat-Projekten: Zeile «Quelle»)
+  if (p.status === 'running') return null
   if (p.status === 'stopped') return <div className="cell-sub">gestoppt</div>
   return <div className="cell-sub">noch nicht deployt</div>
 }
