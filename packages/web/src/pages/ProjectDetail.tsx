@@ -107,8 +107,8 @@ export function ProjectDetail() {
   const deployCount = deployList.data?.deployments[0]?.seq ?? deployList.data?.deployments.length
   const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn'; countLabel?: string; live?: boolean }> = {
     uebersicht: { label: 'Übersicht' },
-    security: { label: 'Security', count: openFindings, tone: 'warn', countLabel: `${openFindings} offene Befunde` },
-    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} Deployments` },
+    security: { label: 'Security', count: openFindings, tone: 'warn', countLabel: `${openFindings} ${openFindings === 1 ? 'offener Befund' : 'offene Befunde'}` },
+    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
     logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
     einstellungen: { label: 'Einstellungen' },
@@ -184,7 +184,11 @@ export function ProjectDetail() {
             >
               {key === 'einstellungen' && <IconGear />}
               {t.label}
-              {t.count !== undefined && t.count > 0 && <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`} aria-label={t.countLabel}>{t.count}</span>}
+              {t.count !== undefined && t.count > 0 && (
+                <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`}>
+                  <span aria-hidden="true">{t.count}</span><span className="visually-hidden">, {t.countLabel}</span>
+                </span>
+              )}
               {t.live && <span className="tab-live" role="img" aria-label="Container läuft" title="Container läuft" />}
             </button>
           )
