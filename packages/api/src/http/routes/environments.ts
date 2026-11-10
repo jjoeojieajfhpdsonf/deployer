@@ -6,6 +6,7 @@ import {
   listHeaderTemplates, setHeaderTemplate, removeHeaderTemplate, setTemplateOff, previewMove, moveProject, checkLanDns, copyStandards,
 } from '../../domain/environment-admin.js'
 import { actorFor } from '../auth.js'
+import { pausePageTemplate } from '../../domain/pause-page.js'
 import { AppError } from '../../lib/errors.js'
 
 /**
@@ -34,6 +35,16 @@ export async function environmentRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get<{ Params: EnvParams }>('/environments/:env', async (request) => ({ environment: await environmentDto(resolveEnv(request.params.env)) }))
+
+  /** SPEC: Einstellungen der Umgebung auf einen Blick (Standards; Cloudflare unter …/cloudflare, nur mit Anmeldung) */
+  app.get<{ Params: EnvParams }>('/environments/:env/settings', async (request) => {
+    const env = resolveEnv(request.params.env)
+    return {
+      environment: await environmentDto(env),
+      headerTemplates: await listHeaderTemplates(env.id),
+      pausePage: await pausePageTemplate(env.id),
+    }
+  })
 
   app.patch<{ Params: EnvParams }>('/environments/:env', async (request) => {
     sessionOnly(request)

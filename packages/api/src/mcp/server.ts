@@ -31,6 +31,7 @@ import { pausePageSchema, formatBackAt, PAUSE_HTML_MAX, type PauseOptions } from
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
 import { inEnvironment } from '../lib/scope.js'
+import { environmentById } from '../domain/environments.js'
 import type { DeploymentDto, ProjectDto } from '@airlock/shared'
 
 /**
@@ -96,10 +97,15 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   const actor = `token:${identity.name}`
   // M9: Alle Werkzeuge sehen und ändern nur die Umgebung des Tokens
   const scope = inEnvironment(identity.environmentId)
+  const envInfo = environmentById(identity.environmentId)
+  const envLine = envInfo
+    ? `Airlock, Umgebung «${envInfo.name}»${envInfo.baseDomain ? ` (interne Adressen *.${envInfo.baseDomain})` : ''}: Dieses Token sieht und ändert nur Projekte, Domains und externe Ziele dieser Umgebung. `
+    : ''
   const server = new McpServer(
     { name: 'airlock', version: '0.3.0' },
     {
       instructions:
+        envLine +
         'Airlock bringt Projekte auf den Homeserver. Für eine Seite aus dem Chat: create_project mit ' +
         'source {type: "files"} und den Dateien; spätere Änderungen mit update_files. Löschen und Rollback ' +
         'verlangen eine Bestätigung, ebenso öffentlich pausieren (pause_public), fortsetzen (resume_public) ' +
@@ -172,7 +178,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
 
   /* --- Lesen ----------------------------------------------------------------- */
 
-  tool('list_projects', 'Alle Projekte mit Status und Adresse', {}, async () => {
+  tool('list_projects', 'Alle Projekte dieser Umgebung mit Status und Adresse', {}, async () => {
     return ok((await listProjects(scope)).map(summarize))
   })
 

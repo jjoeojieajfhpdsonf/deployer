@@ -163,3 +163,37 @@ Jede Etappe: `pnpm typecheck`, `pnpm test`, `pnpm build`, Screenshots hell/dunke
 **Geprüft** (Stand 10.11.2026): Typecheck, 617 Unit-Tests, Build. Screenshots hell und dunkel (Desktop 1440) in `docs/design-cal/m9-etappe4/` (12 Ansichten: Projekte, Umschalter offen, Einstellungen Allgemein/Cloudflare/Standards, Umgebungen verwalten, Assistent Schritt 1 und Einrichtung, Verschieben mit Bestätigung, Audit mit Server-Pille, Server, Tokens). Kontrast (`contrast.mjs`) alle erfüllt, tote CSS-Klassen 0 von 517, Impeccable `detect` ohne Befund (nur Regex-Prüfung, weil die Seiten ohne laufende API nicht prüfbar sind; die Durchsicht der Screenshots fand die doppelte Überschrift «Pause-Seite» – behoben). `m9-scope-e2e.ts` mit jetzt **86** REST-Pfaden mit Objekt: 21 von 21; `m9-cloudflare-e2e.ts` 20 von 20 (neu: angebotene Zonen bei geteiltem Token). Der DOM-Prototyp `design-shots/umgebungen.ts` ist entfernt, die Konzeptbilder bleiben.
 
 **Nicht geprüft:** die Oberfläche gegen den laufenden Stack (nur mit Fixtures); Impeccable-Elementregeln gegen eine laufende Seite.
+
+### Etappe 5 – MCP und REST
+
+- **Tokens gehören zu einer Umgebung** (seit Etappe 1/2: `api_tokens.environment_id`, Scope `env` bei jeder Anfrage). Anlegen unter `/environments/:env/tokens`; `/tokens` ohne Umgebung meint die Standard-Umgebung.
+- **MCP-Anweisungen nennen die Umgebung:** Ein MCP-Client mit Token bekommt beim Verbinden «Airlock, Umgebung «Name» (interne Adressen *.int.…): Dieses Token sieht und ändert nur Projekte, Domains und externe Ziele dieser Umgebung.» vor den bisherigen Anweisungen; `list_projects` beschreibt sich als «Alle Projekte dieser Umgebung». Fremde Projekte melden wie unbekannte «Projekt nicht gefunden» (Etappe 2).
+- **REST laut SPEC:** `GET/POST /environments`, `GET/PATCH/DELETE /environments/:env`; Listen unter `/environments/:env/projects`, `/domains`, `/external-targets`, `/tokens`, `/audit` und neu `/settings` (Umgebung, Header-Vorlagen, Pause-Seite auf einen Blick); Einzelobjekte unter `/projects/:id` usw. mit Prüfung gegen die Umgebung des Aufrufers. Ein Token sieht in `GET /environments` nur seine Umgebung, darf dort Projekte und externe Ziele anlegen und lesen; anlegen, ändern, löschen von Umgebungen, Vorlagen, Verschieben und Cloudflare nur mit Anmeldung (403).
+- Keine Änderung an der Oberfläche in dieser Etappe – deshalb keine neuen Screenshots und keine neue Impeccable-Durchsicht (Stand von Etappe 4 gilt).
+
+**Geprüft** (Stand 10.11.2026): Typecheck, alle Unit-Tests, Build, Abnahmetest unten.
+
+## 6. Abnahmetest mit zwei Umgebungen
+
+`packages/api/scripts/m9-acceptance-e2e.ts` – durchgehend über die Wege, die Oberfläche, Skripte und Claude benutzen: REST mit Anmeldung (Cookie nach `POST /auth/login`), REST mit Token, MCP mit Token (In-Memory-Client des MCP-SDK gegen `createMcpServer`). Wegwerf-Postgres, zwei Cloudflare-Attrappen als zwei Konten hinter einem Proxy, der nach Token verteilt; kein Docker, kein Caddy (Deploys scheitern erwartungsgemäss, Caddy-Abgleiche nur im Log – Caddy mit zwei Basen prüft `m9-caddy-two-bases-e2e.ts`).
+
+```
+pnpm --filter @airlock/api exec tsx scripts/m9-acceptance-e2e.ts
+```
+
+| # | Schritt | Ergebnis |
+|---|---|---|
+| 1 | Standard-Umgebung: Token und Hauptzone `example.ch` (Basis `int`) speichern | Umgebung heisst danach `example.ch`, Pfad `/u/example`, Basis `int.example.ch` ✓ |
+| 2 | Zweite Umgebung «Verein» (`verein`, Kürzel VB) anlegen, eigenes Token (Konto 2), Hauptzone `verein-beispiel.ch` | angelegt ✓; Tailnet-Eintrag `*.int.verein-beispiel.ch → 100.88.41.12` in der Zone von Konto 2 ✓; gleicher Kurzname ein zweites Mal → 400 ✓ |
+| 3 | Header-Vorlagen je Umgebung (`referrer-policy` in example.ch, `x-content-type-options` in Verein); je ein Token «Claude Privat» und «Claude Verein» | `/environments/verein/settings` zeigt nur die eigene Vorlage ✓; Tokens angelegt ✓ |
+| 4 | MCP mit Token «Claude Verein»: `create_project` «Kasse» aus Dateien | Anweisungen nennen «Verein» und `*.int.verein-beispiel.ch` ✓; Projekt mit Adresse `kasse.int.verein-beispiel.ch` ✓; `list_projects`: Verein sieht Kasse, example.ch nichts ✓; Token von example.ch: `get_project kasse` → «Projekt nicht gefunden» ✓ |
+| 5 | REST mit Token «Claude Verein» | `GET /environments` nur Verein ✓; Liste von example.ch = Antwort für unbekannte Umgebung (404, gleicher Text) ✓; Cloudflare lesen und Umgebung anlegen → 403 ✓ |
+| 6 | Kasse nach example.ch verschieben (Anmeldung) | Vorschau: `kasse.int.verein-beispiel.ch → kasse.int.example.ch`, «Claude Verein» verliert den Zugriff, geerbte Header wechseln ✓; ohne Bestätigung → 400 ✓; während des laufenden Deploys → 409 «Gerade läuft ein Deploy» ✓; danach verschoben ✓; Route umgezogen, alte Adresse leitet 30 Tage weiter ✓; `project.move` im Audit beider Umgebungen ✓; danach sieht nur noch das Token von example.ch das Projekt ✓; geerbt jetzt `referrer-policy: no-referrer` statt `x-content-type-options` ✓ |
+| 7 | Löschen | Standard-Umgebung → 409 ✓; Verein (leer) → 204 ✓; Tailnet-Eintrag in Zone 2 entfernt ✓; Token «Claude Verein» → 401 ✓; übrig nur example.ch ✓ |
+| 8 | Alte Pfade | `GET /api/v1/projects` ohne Umgebung liefert die Standard-Umgebung (mit Kasse) ✓ |
+
+**Ergebnis: 32 von 32 Prüfungen bestanden** (10.11.2026).
+
+Zusammen mit den Prüfskripten der Etappen: Migration gegen die Datenbank im heutigen Zustand 25/25, Durchsetzung (86 REST-Pfade mit Objekt, MCP) 21/21, echtes Caddy mit zwei Basen 13/13, Cloudflare mit zwei Konten 20/20.
+
+**Nicht geprüft (bleibt für den ersten Einsatz):** echter Zertifikatsbezug bei Let's Encrypt für die zweite Basis, echte cloudflared-Container und Cloudflare selbst, die Oberfläche gegen den laufenden Stack. Empfehlung für den ersten Einsatz: zweite Umgebung mit einer echten Zone anlegen, TLS-Probelauf (Staging) abwarten, dann ein Projekt per MCP mit einem Token der neuen Umgebung anlegen und öffentlich schalten.
