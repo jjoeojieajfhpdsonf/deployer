@@ -36,6 +36,8 @@ TMP_ROLE="${NEW_DB}_rename"
 # caddy_admin fehlt bewusst: darin liegen nur Sockets, Caddy legt sie neu an.
 VOLUMES="pgdata:pgdata caddy_data:caddy_data caddy_config:caddy_config caddy_secrets:caddy_secrets sites:sites deployer_data:data"
 REQUIRED_VOLUMES="pgdata deployer_data"
+# Anzahl Einträge und Summe der Dateigrössen (Bytes) eines Volumes unter /v
+VOLUME_SUMMARY='find /v | wc -l; find /v -type f -exec stat -c %s {} + | awk "{s+=\$1} END {print s+0}"'
 
 cd "$REPO_DIR"
 
@@ -295,10 +297,13 @@ copy_volumes() {
     # Wie Compose es selbst anlegen würde: dann gibt es beim Start keine Warnung
     vol_exists "$new" || docker volume create --label "com.docker.compose.project=$NEW_PROJECT" --label "com.docker.compose.volume=$newk" "$new" >/dev/null
     docker run --rm -v "$old":/from:ro -v "$new":/to "$HELPER_IMAGE" sh -c 'find /to -mindepth 1 -delete && cp -a /from/. /to/'
-    a=$(docker run --rm -v "$old":/v:ro "$HELPER_IMAGE" sh -c 'find /v | wc -l; du -s /v | cut -f1' | tr '\n' ' ')
-    b=$(docker run --rm -v "$new":/v:ro "$HELPER_IMAGE" sh -c 'find /v | wc -l; du -s /v | cut -f1' | tr '\n' ' ')
-    [ "$a" = "$b" ] || die "Kopie $old → $new weicht ab (Einträge/KB alt: $a, neu: $b)"
-    info "$old → $new (Einträge, KB: $a)"
+    # Vergleich: Anzahl Einträge und Summe der Dateigrössen in Bytes. Nicht du:
+    # das zählt Blöcke von Verzeichnissen mit, die in der Quelle nach dem
+    # Löschen von Dateien nie schrumpfen – die Kopie ist dann ein paar KB kleiner.
+    a=$(docker run --rm -v "$old":/v:ro "$HELPER_IMAGE" sh -c "$VOLUME_SUMMARY" | tr '\n' ' ')
+    b=$(docker run --rm -v "$new":/v:ro "$HELPER_IMAGE" sh -c "$VOLUME_SUMMARY" | tr '\n' ' ')
+    [ "$a" = "$b" ] || die "Kopie $old → $new weicht ab (Einträge/Bytes alt: $a, neu: $b)"
+    info "$old → $new (Einträge, Bytes: $a)"
   done
   state_set copied 1
 }
