@@ -3,6 +3,7 @@ import type { Readable } from 'node:stream'
 import * as docker from '../drivers/docker.js'
 import { AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { StageTimeout } from './progress.js'
 
 /**
  * Startet einen Scanner als Wegwerf-Container – über die Erlaubnisliste wie
@@ -27,6 +28,7 @@ export const SCANNER_CACHES = {
 } as const
 
 const MAX_REPORT_BYTES = 50 * 1024 * 1024
+const LOG_POLL_MS = 2_500
 
 export interface ScannerRun {
   name: string
@@ -45,6 +47,8 @@ export interface ScannerRun {
   labels: Record<string, string>
   timeoutMs: number
   memoryMb?: number
+  /** Live-Ausgabe: wird alle paar Sekunden mit den letzten Logzeilen gerufen. */
+  onLogs?: (text: string) => void
 }
 
 export interface ScannerResult {
@@ -88,8 +92,23 @@ export async function runScanner(o: ScannerRun): Promise<ScannerResult> {
   try {
     for (const input of o.inputs ?? []) await docker.putArchive(id, input.tar, input.path)
     await docker.startById(id)
-    const r = await docker.waitForExit(id, o.timeoutMs)
+    let poll: NodeJS.Timeout | undefined
+    if (o.onLogs) {
+      const onLogs = o.onLogs
+      poll = setInterval(() => {
+        void docker.getLogs(id, { tail: 40 }).then(onLogs, () => {})
+      }, LOG_POLL_MS)
+    }
+    let r: { exitCode: number; timedOut: boolean }
+    try {
+      r = await docker.waitForExit(id, o.timeoutMs)
+    } finally {
+      clearInterval(poll)
+    }
     const logs = await docker.getLogs(id, { tail: 80 }).catch(() => '')
+    o.onLogs?.(logs)
+    // Klare Meldung statt «kein Bericht»: das Zeitlimit hat die Stufe beendet.
+    if (r.timedOut) throw new StageTimeout(o.timeoutMs)
     let report: Buffer | null = null
     if (o.reportPath) {
       report = await readFileFromContainer(id, o.reportPath).catch((err) => {

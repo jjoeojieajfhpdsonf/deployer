@@ -17,6 +17,7 @@ import { securityRoutes } from './routes/security.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 import { redactSecrets, redactDeep } from '../lib/redact.js'
+import { requestLogLevel } from '../lib/request-log.js'
 
 /**
  * Leerer Body mit Content-Type application/json gilt als {} statt als Fehler
@@ -54,6 +55,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
+    // Eigene Zugriffszeile (unten): Polling auf debug, siehe request-log.ts
+    disableRequestLogging: true,
+  })
+
+  app.addHook('onResponse', async (request, reply) => {
+    const ms = reply.elapsedTime
+    const level = requestLogLevel(request.method, reply.statusCode, ms)
+    request.log[level]({ method: request.method, url: request.url.split('?')[0], status: reply.statusCode, ms: Math.round(ms) }, 'Anfrage')
   })
 
   acceptEmptyJson(app)

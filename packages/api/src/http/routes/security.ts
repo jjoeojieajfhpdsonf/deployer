@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { acceptFindingSchema, addExternalTargetSchema, ntfySettingsSchema, emailSettingsSchema } from '@deployer/shared'
 import { findProject } from '../../domain/projects.js'
-import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, listScans, acceptFinding, assertPublishable, latestExternalScan } from '../../security/scan.js'
+import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, listScans, acceptFinding, assertPublishable, latestExternalScan, cancelScan } from '../../security/scan.js'
 import {
   listExternalTargets, addExternalTarget, verifyExternalTarget, updateExternalTarget, deleteExternalTarget, findExternalTarget, toDto,
 } from '../../security/external-targets.js'
@@ -27,7 +27,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     if (level === 'active' && confirm !== true) {
       throw badRequest('Ein aktiver Scan (ZAP Full Scan: XSS, SQL-Injection) verlangt eine ausdrückliche Bestätigung')
     }
-    const run = await enqueueProjectScan(request.params.id, { level, actor: actorFor(request) })
+    const run = await enqueueProjectScan(request.params.id, { level, actor: actorFor(request), trigger: 'manual' })
     reply.code(202)
     return { scan: { id: run.id, status: run.status, level: run.level } }
   })
@@ -56,6 +56,12 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get<{ Params: { id: string } }>('/scans/:id', async (request) => ({ report: await scanReport(request.params.id) }))
+
+  /** Laufenden oder wartenden Scan abbrechen. */
+  app.post<{ Params: { id: string } }>('/scans/:id/cancel', async (request) => {
+    await cancelScan(request.params.id, actorFor(request))
+    return { report: await scanReport(request.params.id) }
+  })
 
   app.patch<{ Params: { id: string } }>('/findings/:id', async (request) => {
     const body = acceptFindingSchema.parse(request.body)
@@ -97,7 +103,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     const { level, confirm } = scanBody.parse(request.body ?? {})
     if (level === 'active' && confirm !== true) throw badRequest('Ein aktiver Scan verlangt eine ausdrückliche Bestätigung')
     const t = await findExternalTarget(request.params.id)
-    const run = await enqueueExternalScan(t.id, { level, actor: actorFor(request) })
+    const run = await enqueueExternalScan(t.id, { level, actor: actorFor(request), trigger: 'manual' })
     reply.code(202)
     return { scan: { id: run.id, status: run.status, level: run.level }, target: toDto(t) }
   })

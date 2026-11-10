@@ -21,6 +21,7 @@ import { slugify } from '@deployer/shared'
 import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
+import { describeScan, describeStages } from '../security/progress.js'
 import type { TokenIdentity } from '../domain/tokens.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 
@@ -336,7 +337,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
         const c = await confirm('run_scan', { hostname: t.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (Angriffstests) gegen die externe Domain ${t.hostname} starten? Vorher die Bedingungen des Hosters prüfen.`)
         if (!c.go) return c.result
       }
-      const run = await enqueueExternalScan(t.id, { level: a.level, actor })
+      const run = await enqueueExternalScan(t.id, { level: a.level, actor, trigger: 'mcp' })
       return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report mit dem Hostnamen zeigt das Ergebnis' })
     }
     const p = await findProject(a.project!)
@@ -344,7 +345,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       const c = await confirm('run_scan', { project: p.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (XSS, SQL-Injection) gegen "${p.name}" starten? Er läuft nur gegen den internen Container und kann Daten verändern.`)
       if (!c.go) return c.result
     }
-    const run = await enqueueProjectScan(p.id, { level: a.level, actor })
+    const run = await enqueueProjectScan(p.id, { level: a.level, actor, trigger: 'mcp' })
     return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report zeigt das Ergebnis' })
   })
 
@@ -383,13 +384,13 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     }
     return ok({
       ...head,
-      scan: { id: r.scan.id, status: r.scan.status, level: r.scan.level, finished: r.scan.finishedAt, error: r.scan.error },
+      scan: describeScan(r.scan),
       score: r.scan.score,
       grade: r.scan.grade,
       open: r.counts,
       top: r.top,
       ...(a.all ? { findings: r.findings.map((f) => ({ id: f.id, severity: f.severity, status: f.status, title: f.title, location: f.location, fix: f.fix })) } : {}),
-      stages: r.scan.stages,
+      stages: describeStages(r.scan.stages),
       ...(['queued', 'running'].includes(r.scan.status) ? { note: 'Scan läuft noch; get_scan_report in einer Minute erneut aufrufen' } : {}),
     })
   })

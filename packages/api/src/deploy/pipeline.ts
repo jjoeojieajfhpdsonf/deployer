@@ -214,7 +214,7 @@ async function run(
 
     // M6: automatischer Scan nach jedem erfolgreichen Deploy, im Hintergrund.
     if (config.SCAN_AFTER_DEPLOY) {
-      await enqueueProjectScan(projectId, { deploymentId, actor: 'system' }).catch(async (e) => {
+      await enqueueProjectScan(projectId, { deploymentId, actor, trigger: 'deploy' }).catch(async (e) => {
         log.warn('Scan nach Deploy nicht gestartet', { projectId, err: String(e) })
         await rm(scanSourceDir(deploymentId), { recursive: true, force: true }).catch(() => {})
       })

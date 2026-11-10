@@ -2,6 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
+import type { ScanStageDto } from '@deployer/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -166,9 +167,11 @@ export const externalTargets = pgTable('external_targets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/** Eine Stufe: siehe ScanStageDto (Zustand, Dauer, Fortschritt, Live-Ausgabe). */
+export type ScanStage = ScanStageDto
+
 export interface ScanStages {
-  /** failed: lief an und scheiterte (anders als «nicht anwendbar»). */
-  [stage: string]: { ran: boolean; note?: string; findings?: number; failed?: boolean }
+  [stage: string]: ScanStage
 }
 
 export const scanRuns = pgTable('scan_runs', {
@@ -177,7 +180,10 @@ export const scanRuns = pgTable('scan_runs', {
   externalTargetId: uuid('external_target_id').references(() => externalTargets.id, { onDelete: 'cascade' }),
   deploymentId: uuid('deployment_id'),
   level: text('level').$type<'standard' | 'active'>().notNull().default('standard'),
-  status: text('status').$type<'queued' | 'running' | 'done' | 'failed'>().notNull().default('queued'),
+  status: text('status').$type<'queued' | 'running' | 'done' | 'failed' | 'cancelled'>().notNull().default('queued'),
+  /** Wer den Scan ausgelöst hat (deploy, mcp, manual, schedule) und als wer */
+  trigger: text('trigger').$type<'deploy' | 'mcp' | 'manual' | 'schedule'>(),
+  actor: text('actor'),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   score: integer('score'),

@@ -147,25 +147,69 @@ const findings: FindingDto[] = [
   { id: 'f6', tool: 'trivy', severity: 'low', title: 'Veraltetes Paket: tzdata 2024a', location: 'image: kontoauszug-reader-api', description: 'Zeitzonendaten sind nicht aktuell.', fix: 'Image neu bauen.', status: 'open', acceptReason: null },
 ]
 
-export function scan(id: string): ScanReportDto | null {
+const CHECKS = {
+  trivyImage: 'Trivy: bekannte Schwachstellen in Paketen und Image, Secrets, Fehlkonfiguration',
+  trivySource: 'Trivy: Secrets im Code und Fehlkonfiguration (Dockerfile, Compose)',
+  headers: 'Header-Check: Security-Header und Cookies der Antwort',
+  zap: 'ZAP Baseline: Seite crawlen und passiv auf typische Web-Schwachstellen prüfen',
+  nuclei: 'Nuclei: offen erreichbare Dateien, Admin-Oberflächen, Standard-Logins',
+}
+
+/** Projekt, dessen Scan in den Screenshots gerade läuft */
+export const runningScanProjectId = 'p-haushalt'
+
+export function scan(id: string, onlyDone = false): ScanReportDto | null {
   const p = projects.find((x) => x.id === id)
   if (!p?.security) return null
+  if (id === runningScanProjectId && !onlyDone) return runningScan(p)
   const f = id === securityProjectId ? findings : findings.slice(5)
   return {
     scan: {
-      id: p.security.scanId, status: 'done', level: 'standard', startedAt: ago(3 * HOUR + 4 * MIN), finishedAt: p.security.finishedAt,
-      score: p.security.score, grade: p.security.grade, error: null,
+      id: p.security.scanId, status: 'done', level: 'standard',
+      startedAt: new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString(), finishedAt: p.security.finishedAt,
+      score: p.security.score, grade: p.security.grade, error: null, trigger: 'deploy', actor: 'admin', queue: null,
       stages: {
-        trivy: { ran: true, findings: 4 },
-        zap: { ran: true, findings: 2 },
-        nuclei: { ran: true, findings: 1 },
-        headers: { ran: true, findings: 0 },
-        tls: { ran: false, note: 'nur für öffentliche Adressen' },
+        'trivy-image': { ran: true, state: 'done', findings: 4, checks: CHECKS.trivyImage, durationMs: 98_000 },
+        'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
+        headers: { ran: true, state: 'done', findings: 0, checks: CHECKS.headers, durationMs: 1_200 },
+        'zap-baseline': { ran: true, state: 'done', findings: 2, checks: CHECKS.zap, durationMs: 142_000 },
+        nuclei: { ran: true, state: 'done', findings: 1, checks: CHECKS.nuclei, durationMs: 61_000 },
+        testssl: { ran: false, state: 'skipped', note: 'TLS endet zentral bei Caddy, siehe Systemseite' },
       },
     },
     counts: p.security.open,
     top: f.filter((x) => x.status === 'open').slice(0, 3).map(({ id: fid, severity, title, location, fix }) => ({ id: fid, severity, title, location, fix })),
     findings: f,
+  }
+}
+
+function runningScan(p: ProjectDto): ScanReportDto {
+  return {
+    scan: {
+      id: 'scan-live', status: 'running', level: 'standard', startedAt: ago(5 * MIN + 12_000), finishedAt: null,
+      score: null, grade: null, error: null, trigger: 'mcp', actor: 'token:claude-code-mac', queue: null,
+      stages: {
+        'trivy-image': { ran: true, state: 'done', findings: 0, checks: CHECKS.trivyImage, durationMs: 74_000, startedAt: ago(5 * MIN), finishedAt: ago(3 * MIN + 46_000) },
+        'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
+        headers: { ran: true, state: 'done', findings: 1, checks: CHECKS.headers, durationMs: 900 },
+        'zap-baseline': {
+          ran: false, state: 'running', checks: CHECKS.zap, startedAt: ago(3 * MIN + 40_000), timeoutMs: 15 * MIN, progress: '37 URLs gecrawlt',
+          tail: [
+            'Using the Automation Framework',
+            `Spidering http://${p.slug}.int.example.ch/ …`,
+            'Total of 37 URLs',
+            'PASS: Vulnerable JS Library (Powered by Retire.js) [10003]',
+            'PASS: Cookie No HttpOnly Flag [10010]',
+            'WARN-NEW: Content Security Policy (CSP) Header Not Set [10038] x 4',
+          ],
+        },
+        nuclei: { ran: false, state: 'waiting', checks: CHECKS.nuclei, timeoutMs: 15 * MIN },
+        testssl: { ran: false, state: 'skipped', note: 'TLS endet zentral bei Caddy, siehe Systemseite' },
+      },
+    },
+    counts: { critical: 0, high: 0, medium: 0, low: 0 },
+    top: [],
+    findings: [],
   }
 }
 

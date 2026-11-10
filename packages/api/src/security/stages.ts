@@ -12,6 +12,7 @@ import { runScanner, singleFileTar, SCANNER_IMAGES, SCANNER_CACHES } from './run
 import { parseTrivy, parseZap, parseNuclei, parseTestssl } from './parsers.js'
 import { checkHeaders } from './headers.js'
 import type { FindingInput } from './score.js'
+import { STAGE_INFO } from './progress.js'
 
 /**
  * Die einzelnen Scan-Stufen. Jede liefert Befunde oder wirft; der Aufrufer
@@ -33,7 +34,10 @@ const scanDir = (scanId: string) => join(config.DATA_DIR, 'scan', scanId)
 
 /* --- Stufe 1: Trivy ---------------------------------------------------------- */
 
-export async function trivyImage(scanId: string, imageRef: string, network: string, labels: Record<string, string>): Promise<FindingInput[]> {
+/** Live-Ausgabe eines Scanners (letzte Logzeilen) an die Anzeige. */
+export type OnLogs = (text: string) => void
+
+export async function trivyImage(scanId: string, imageRef: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   // Image als Tar auf die Platte (die Grösse muss für den Tar-Kopf bekannt sein),
   // dann in den Trivy-Container. Kein Docker-Socket für den Scanner.
   const dir = scanDir(scanId)
@@ -46,13 +50,15 @@ export async function trivyImage(scanId: string, imageRef: string, network: stri
       name: `dep_scan_trivyimg_${short(scanId)}`,
       image: SCANNER_IMAGES.trivy,
       network,
-      cmd: ['image', '--quiet', '--format', 'json', '--ignore-unfixed', '--scanners', 'vuln,secret,misconfig', '--input', '/scan/image.tar', '--output', '/scan/out.json'],
+      // Ohne --quiet: der Fortschritt (DB-Download in MB) steht in der Live-Ausgabe.
+      cmd: ['image', '--format', 'json', '--ignore-unfixed', '--scanners', 'vuln,secret,misconfig', '--input', '/scan/image.tar', '--output', '/scan/out.json'],
       inputs: [{ tar: singleFileTar('scan/image.tar', size, createReadStream(file)), path: '/' }],
       reportPath: '/scan/out.json',
       cache: { volume: SCANNER_CACHES.trivy, target: '/root/.cache' },
       labels,
-      timeoutMs: 15 * 60_000,
+      timeoutMs: STAGE_INFO['trivy-image'].timeoutMs,
       memoryMb: 2048,
+      onLogs,
     })
     if (!r.report) throw new Error(`Trivy lieferte keinen Bericht (Code ${r.exitCode}): ${r.logs.slice(-300)}`)
     return parseTrivy(JSON.parse(r.report.toString('utf8')))
@@ -61,17 +67,18 @@ export async function trivyImage(scanId: string, imageRef: string, network: stri
   }
 }
 
-export async function trivySource(scanId: string, srcDir: string, network: string, labels: Record<string, string>): Promise<FindingInput[]> {
+export async function trivySource(scanId: string, srcDir: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   const r = await runScanner({
     name: `dep_scan_trivysrc_${short(scanId)}`,
     image: SCANNER_IMAGES.trivy,
     network,
-    cmd: ['fs', '--quiet', '--format', 'json', '--scanners', 'secret,misconfig', '--output', '/scan/out.json', '/scan/src'],
+    cmd: ['fs', '--format', 'json', '--scanners', 'secret,misconfig', '--output', '/scan/out.json', '/scan/src'],
     inputs: [{ tar: await packDir(srcDir, { prefix: 'scan/src', exclude: ['node_modules'] }), path: '/' }],
     reportPath: '/scan/out.json',
     cache: { volume: SCANNER_CACHES.trivy, target: '/root/.cache' },
     labels,
-    timeoutMs: 10 * 60_000,
+    timeoutMs: STAGE_INFO['trivy-source'].timeoutMs,
+    onLogs,
   })
   if (!r.report) throw new Error(`Trivy lieferte keinen Bericht (Code ${r.exitCode}): ${r.logs.slice(-300)}`)
   return parseTrivy(JSON.parse(r.report.toString('utf8')))
@@ -109,7 +116,7 @@ export async function headerCheck(t: ScanTarget): Promise<FindingInput[]> {
 
 /* --- Stufe 2: ZAP ------------------------------------------------------------------ */
 
-export async function zap(scanId: string, t: ScanTarget, labels: Record<string, string>, active: boolean): Promise<FindingInput[]> {
+export async function zap(scanId: string, t: ScanTarget, labels: Record<string, string>, active: boolean, onLogs?: OnLogs): Promise<FindingInput[]> {
   const script = active ? 'zap-full-scan.py' : 'zap-baseline.py'
   // Externe Ziele: ein Thread, Pause zwischen Anfragen (Grenze ~5 pro Sekunde).
   const zOpts = t.external
@@ -121,20 +128,22 @@ export async function zap(scanId: string, t: ScanTarget, labels: Record<string, 
     image: SCANNER_IMAGES.zap,
     network: t.network,
     entrypoint: ['sh', '-c'],
-    cmd: [`mkdir -p /zap/wrk && cd /zap/wrk && ${script} -t "$ZAP_TARGET" -J report.json -m ${active ? 3 : 1} -I -z "${zOpts}" >/zap/wrk/zap.log 2>&1; exit 0`],
+    // Ausgabe auch auf stdout (tee): die Live-Anzeige liest daraus «Total of N URLs».
+    cmd: [`mkdir -p /zap/wrk && cd /zap/wrk && ${script} -t "$ZAP_TARGET" -J report.json -m ${active ? 3 : 1} -I -z "${zOpts}" 2>&1 | tee /zap/wrk/zap.log; exit 0`],
     env: { ZAP_TARGET: t.url },
     reportPath: '/zap/wrk/report.json',
     labels,
-    timeoutMs: active ? 45 * 60_000 : 15 * 60_000,
+    timeoutMs: STAGE_INFO[active ? 'zap-full' : 'zap-baseline'].timeoutMs,
     memoryMb: 2048,
+    onLogs,
   })
-  if (!r.report) throw new Error(`ZAP lieferte keinen Bericht${r.timedOut ? ' (Zeitlimit)' : ''}`)
+  if (!r.report) throw new Error('ZAP lieferte keinen Bericht')
   return parseZap(JSON.parse(r.report.toString('utf8')), t.url)
 }
 
 /* --- Stufe 3: Nuclei -------------------------------------------------------------- */
 
-export async function nuclei(scanId: string, t: ScanTarget, labels: Record<string, string>): Promise<FindingInput[]> {
+export async function nuclei(scanId: string, t: ScanTarget, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   // Vorlagen liegen im Cache-Volume. "-duc" verhindert auch das automatische
   // Herunterladen beim ersten Lauf – ohne Vorlagen bricht Nuclei mit "no
   // templates provided" ab, und der Scan prüfte nichts (gefunden in der
@@ -154,9 +163,9 @@ export async function nuclei(scanId: string, t: ScanTarget, labels: Record<strin
     reportPath: '/tmp/r.jsonl',
     cache: { volume: SCANNER_CACHES.nuclei, target: '/root' },
     labels,
-    timeoutMs: 15 * 60_000,
+    timeoutMs: STAGE_INFO.nuclei.timeoutMs,
+    onLogs,
   })
-  if (r.timedOut) throw new Error('Nuclei: Zeitlimit')
   if (r.exitCode === 3) throw new Error(`Nuclei-Vorlagen nicht ladbar: ${r.logs.slice(-300)}`)
   if (r.exitCode !== 0 || /\[FTL\]/.test(r.logs)) throw new Error(`Nuclei gescheitert (Code ${r.exitCode}): ${r.logs.slice(-300)}`)
   // Keine Treffer heisst: keine Datei.
@@ -165,7 +174,7 @@ export async function nuclei(scanId: string, t: ScanTarget, labels: Record<strin
 
 /* --- Stufe 3: testssl.sh ---------------------------------------------------------- */
 
-export async function testssl(scanId: string, t: ScanTarget, labels: Record<string, string>): Promise<FindingInput[]> {
+export async function testssl(scanId: string, t: ScanTarget, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   const r = await runScanner({
     name: `dep_scan_testssl_${short(scanId)}`,
     image: SCANNER_IMAGES.testssl,
@@ -173,7 +182,8 @@ export async function testssl(scanId: string, t: ScanTarget, labels: Record<stri
     cmd: ['--jsonfile', '/tmp/r.json', '--quiet', '--fast', '--warnings', 'off', '--color', '0', t.host],
     reportPath: '/tmp/r.json',
     labels,
-    timeoutMs: 10 * 60_000,
+    timeoutMs: STAGE_INFO.testssl.timeoutMs,
+    onLogs,
   })
   if (!r.report) throw new Error('testssl.sh lieferte keinen Bericht')
   return parseTestssl(JSON.parse(r.report.toString('utf8')), t.host)

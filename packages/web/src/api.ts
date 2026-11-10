@@ -134,6 +134,7 @@ export const api = {
   startScan: (id: string, level: 'standard' | 'active' = 'standard') =>
     call<{ scan: { id: string; status: string } }>(`/projects/${id}/scans`, { method: 'POST', body: body({ level, confirm: level === 'active' }) }),
   latestScan: (id: string, done = false) => call<{ report: ScanReportDto | null }>(`/projects/${id}/scans/latest${done ? '?done=1' : ''}`),
+  cancelScan: (scanId: string) => call<{ report: ScanReportDto }>(`/scans/${scanId}/cancel`, { method: 'POST' }),
   acceptFinding: (findingId: string, reason: string) =>
     call<{ ok: true }>(`/findings/${findingId}`, { method: 'PATCH', body: body({ status: 'accepted', reason }) }),
   externalTargets: () => call<{ targets: ExternalTargetDto[] }>('/external-targets'),

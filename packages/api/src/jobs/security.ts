@@ -29,7 +29,7 @@ export async function runSecurityJobs(now = new Date()): Promise<{ projects: str
   for (const p of await db.select().from(schema.projects).where(eq(schema.projects.desiredState, 'running'))) {
     const last = await lastScanAt(eq(schema.scanRuns.projectId, p.id))
     if (!last || now.getTime() - last.getTime() >= 7 * DAY) {
-      await enqueueProjectScan(p.id, { actor: 'system' }).then(() => projects.push(p.slug), () => {})
+      await enqueueProjectScan(p.id, { actor: 'system', trigger: 'schedule' }).then(() => projects.push(p.slug), () => {})
     }
   }
 
@@ -37,7 +37,7 @@ export async function runSecurityJobs(now = new Date()): Promise<{ projects: str
     if (t.scanInterval === 'off' || !t.verifiedAt) continue
     const last = await lastScanAt(eq(schema.scanRuns.externalTargetId, t.id))
     if (!last || now.getTime() - last.getTime() >= INTERVAL_MS[t.scanInterval]) {
-      await enqueueExternalScan(t.id, { actor: 'system' }).then(() => external.push(t.hostname), () => {})
+      await enqueueExternalScan(t.id, { actor: 'system', trigger: 'schedule' }).then(() => external.push(t.hostname), () => {})
     }
   }
 

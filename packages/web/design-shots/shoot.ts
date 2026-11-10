@@ -44,7 +44,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
-  if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!) } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
   if (p === '/audit') return { body: { events: fx.audit(u.searchParams.get('targetId') ?? undefined) } }
   if (p === '/system/status') return { body: fx.system }
   if (p === '/system/cloudflare') return { body: fx.cloudflare }
@@ -82,6 +82,11 @@ const shots: Shot[] = [
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   { group: 'projekte', name: 'projekt-security', path: `/projekte/${S}?tab=security` },
+  { group: 'security', name: 'projekt-security-laeuft', path: `/projekte/${fx.runningScanProjectId}?tab=security` },
+  {
+    group: 'security', name: 'projekt-security-laeuft-ausgabe', path: `/projekte/${fx.runningScanProjectId}?tab=security`, full: false,
+    prepare: async (pg) => { await pg.locator('.live-scan .stage-tail summary').first().click(); await pg.waitForTimeout(200) },
+  },
   { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen` },
   {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',

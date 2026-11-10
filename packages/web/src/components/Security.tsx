@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
-import { acceptFindingSchema } from '@deployer/shared'
+import { acceptFindingSchema, type ScanStageDto } from '@deployer/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
@@ -39,6 +39,9 @@ const IconClean = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m
 const IconFound = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.7M8 11v.1" /></svg>
 const IconSkipped = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
 const IconFailed = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
+const IconWaiting = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
+const IconRunning = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" opacity=".35" /><path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2" /></svg>
+const IconTimeout = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8V8l2.2 1.6" /></svg>
 export const IconWarn = () => <svg {...svg}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>
 
 /** Note und Score auf einer Linie: «A  90 / 100» */
@@ -66,6 +69,185 @@ export function SeverityChips({ counts }: { counts: Record<Sev, number> }) {
   )
 }
 
+/* --- Stufen: live und nach dem Scan ------------------------------------------- */
+
+type StageState = NonNullable<ScanStageDto['state']>
+
+/** Zustand auch für ältere Scans ohne state-Feld */
+const stateOf = (v: ScanStageDto): StageState => v.state ?? (v.ran ? 'done' : v.failed ? 'failed' : 'skipped')
+
+const TRIGGER: Record<string, string> = { deploy: 'Deploy', mcp: 'MCP', manual: 'manuell', schedule: 'Zeitplan' }
+
+/** Läuft im Sekundentakt, solange active – für «läuft seit». */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  return now
+}
+
+/** «1:05 Min.» bzw. «42 s» */
+function clock(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s} s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}:${String(s % 60).padStart(2, '0')} Min.`
+  return `${Math.floor(m / 60)} Std. ${m % 60} Min.`
+}
+
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+
+/** Kopfzeile: «Gestartet 19:04 · läuft seit 5 Min. · ausgelöst durch MCP» */
+export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) {
+  const by = s.trigger ? <>ausgelöst durch {TRIGGER[s.trigger] ?? s.trigger}{s.actor && s.actor !== 'system' ? <span className="muted"> ({s.actor})</span> : null}</> : null
+  if (s.status === 'queued') {
+    return (
+      <p className="scan-head">
+        <span className="scan-head-state"><IconWaiting /> Wartet in der Warteschlange</span>
+        {s.queue && <span>Position {s.queue.position}{s.queue.ahead > 0 ? ` (${s.queue.ahead} ${s.queue.ahead === 1 ? 'Scan' : 'Scans'} davor)` : ''}</span>}
+        {by && <span>{by}</span>}
+      </p>
+    )
+  }
+  return (
+    <p className="scan-head">
+      <span className="scan-head-state"><IconRunning /> Scan läuft</span>
+      <span>Gestartet {hhmm(s.startedAt)}</span>
+      <span>läuft seit {clock(now - new Date(s.startedAt).getTime())}</span>
+      {by && <span>{by}</span>}
+      {s.level === 'active' && <span>aktiver Scan</span>}
+    </p>
+  )
+}
+
+/**
+ * Alle Stufen mit Zustand (Wort und eigenes Symbol, nie nur Farbe), Dauer,
+ * was geprüft wird bzw. wurde. Laufende: Fortschritt und einklappbare
+ * Live-Ausgabe. Fertige: Befundzahl, auch «0 Befunde – geprüft: …».
+ */
+function StageList({ stages, now, open, onTool, toolFilter }: {
+  stages: Record<string, ScanStageDto>
+  now: number
+  /** Offene Befunde des fertigen Scans; null während des Laufs (noch nicht gewertet) */
+  open: FindingDto[] | null
+  onTool?: (tool: string) => void
+  toolFilter?: string | null
+}) {
+  const worst = new Map<string, Sev>()
+  for (const f of open ?? []) {
+    const prev = worst.get(f.tool)
+    if (!prev || SEVERITIES.indexOf(f.severity) < SEVERITIES.indexOf(prev)) worst.set(f.tool, f.severity)
+  }
+  const entries = Object.entries(stages).sort(([a], [b]) => stageOrder(a) - stageOrder(b))
+  if (entries.length === 0) return <p className="muted">Keine Stufe geplant.</p>
+  return (
+    <ol className="stages">
+      {entries.map(([k, v]) => {
+        const base = k.split(' ')[0]!
+        const tool = toolOf(base)
+        const st = stateOf(v)
+        const n = v.findings ?? 0
+        const openN = open?.filter((f) => f.tool === tool).length ?? n
+        const sev = worst.get(tool)
+        // Live (open == null): Befunde sind noch nicht gewertet, also nur gezählt
+        const result = st !== 'done' ? st : n === 0 ? 'clean' : !open || openN > 0 ? 'found' : 'accepted'
+        const took = v.durationMs !== undefined ? clock(v.durationMs) : null
+        return (
+          <li key={k} className={`stage stage-${result}${sev && result === 'found' ? ` stage-${sev}` : ''}`}>
+            <span className="stage-icon">
+              {result === 'clean' || result === 'accepted' ? <IconClean />
+                : result === 'found' ? <IconFound />
+                : result === 'running' ? <IconRunning />
+                : result === 'waiting' ? <IconWaiting />
+                : result === 'timeout' ? <IconTimeout />
+                : result === 'failed' ? <IconFailed />
+                : <IconSkipped />}
+            </span>
+            <div className="stage-main">
+              <span className="stage-name">{STAGE_LABEL[base] ?? k}{k.includes(' ') ? <span className="muted"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
+              <span className="stage-checks">
+                {result === 'clean' ? <>geprüft: {v.checked ?? v.checks ?? 'alles dieser Stufe'}</> : v.checked ?? v.checks}
+              </span>
+              {st === 'running' && v.tail && v.tail.length > 0 && (
+                <details className="stage-tail">
+                  <summary>Letzte Ausgabe</summary>
+                  <pre>{v.tail.join('\n')}</pre>
+                </details>
+              )}
+              {(st === 'failed' || st === 'timeout') && v.tail && v.tail.length > 0 && (
+                <details className="stage-tail">
+                  <summary>Letzte Ausgabe vor dem Abbruch</summary>
+                  <pre>{v.tail.join('\n')}</pre>
+                </details>
+              )}
+            </div>
+            <span className="stage-state">
+              {result === 'waiting' && <span className="muted">wartet{v.timeoutMs ? ` · Zeitlimit ${Math.round(v.timeoutMs / 60_000)} Min.` : ''}</span>}
+              {result === 'running' && (
+                <span className="stage-live">
+                  läuft seit {v.startedAt ? clock(now - new Date(v.startedAt).getTime()) : '…'}
+                  {v.progress && <span className="stage-progress">{v.progress}</span>}
+                  {v.timeoutMs ? <span className="muted">Zeitlimit {Math.round(v.timeoutMs / 60_000)} Min.</span> : null}
+                </span>
+              )}
+              {result === 'clean' && <>0 Befunde{took && <span className="muted"> · {took}</span>}</>}
+              {result === 'found' && (<>
+                {onTool ? (
+                  <button type="button" className="link-button stage-link" aria-pressed={toolFilter === tool} onClick={() => onTool(tool)}>
+                    {openN} {openN === 1 ? 'Befund' : 'Befunde'}{sev ? `, ${openN > 1 ? 'höchster ' : ''}${SEVERITY_LABEL[sev]}` : ''}
+                  </button>
+                ) : <>{n} {n === 1 ? 'Befund' : 'Befunde'}</>}
+                {n > openN && <span className="muted">, {n - openN} akzeptiert</span>}
+                {took && <span className="muted"> · {took}</span>}
+              </>)}
+              {result === 'accepted' && <span className="muted">{n} {n === 1 ? 'Befund' : 'Befunde'}, alle akzeptiert oder behoben{took && ` · ${took}`}</span>}
+              {result === 'skipped' && <span className="muted">übersprungen – {v.note}</span>}
+              {result === 'cancelled' && <span className="muted">abgebrochen{v.note && !/^nicht gelaufen/.test(v.note) ? ` – ${v.note}` : ''}</span>}
+              {result === 'failed' && <span className="stage-failed-note">Fehler – {v.note}{took && <span className="muted"> · nach {took}</span>}</span>}
+              {result === 'timeout' && <span className="stage-failed-note">Zeitlimit – {v.note}</span>}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+/** Laufender oder wartender Scan: Kopf, Abbrechen, Stufen live. */
+export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCancelled?: () => void }) {
+  const s = report.scan
+  const now = useNow(true)
+  const [confirm, setConfirm] = useState(false)
+  const cancel = useMutation({
+    mutationFn: () => api.cancelScan(s.id),
+    onSuccess: () => { setConfirm(false); onCancelled?.() },
+  })
+  return (
+    <section className="panel panel-pad live-scan" aria-labelledby="live-scan-title">
+      <div className="live-scan-top">
+        <h2 id="live-scan-title" className="ov-title">Aktueller Scan</h2>
+        {!confirm ? (
+          <button type="button" className="button-small" onClick={() => setConfirm(true)} disabled={cancel.isPending}>Scan abbrechen</button>
+        ) : (
+          <span className="confirm-inline" role="group" aria-label="Scan abbrechen bestätigen">
+            <span className="confirm-note">Befunde dieses Laufs werden nicht gewertet.</span>
+            <button type="button" className="button-small" onClick={() => setConfirm(false)}>Weiterlaufen lassen</button>
+            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} autoFocus>
+              {cancel.isPending ? 'Bricht ab…' : 'Ja, abbrechen'}
+            </button>
+          </span>
+        )}
+      </div>
+      <div aria-live="polite"><ScanHead s={s} now={now} /></div>
+      {cancel.isError && <p role="alert" className="error-inline">{(cancel.error as Error).message}</p>}
+      <StageList stages={s.stages} now={now} open={null} />
+    </section>
+  )
+}
+
 function scanTime(s: ScanReportDto['scan']) {
   const start = new Date(s.startedAt)
   const abs = start.toLocaleString('de-CH', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -90,14 +272,7 @@ export function ScanReport({
   const shown = toolFilter ? open.filter((f) => f.tool === toolFilter) : open
   const other = report.findings.filter((f) => f.status !== 'open')
   const t = scanTime(s)
-
-  // Höchste offene Schwere je Werkzeug, für die Farbe der Stufe
-  const worst = new Map<string, Sev>()
-  for (const f of open) {
-    const prev = worst.get(f.tool)
-    if (!prev || SEVERITIES.indexOf(f.severity) < SEVERITIES.indexOf(prev)) worst.set(f.tool, f.severity)
-  }
-  const openByTool = (tool: string) => open.filter((f) => f.tool === tool).length
+  const now = useNow(running)
 
   const showFindings = (tool: string) => {
     setToolFilter(tool)
@@ -115,6 +290,7 @@ export function ScanReport({
           </div>
           {runningSince && !running && <span className="scan-running scan-running-inline"><span className="status-dot" aria-hidden="true" />Neuer Scan läuft seit {relativeTime(runningSince).replace(/^vor /, '')}</span>}
           {s.status === 'failed' && <p className="error-inline">Scan fehlgeschlagen: {s.error}</p>}
+          {s.status === 'cancelled' && <p className="muted">Scan abgebrochen: {s.error}</p>}
         </section>
 
         <section className="bento-card" aria-labelledby="sec-open">
@@ -123,47 +299,20 @@ export function ScanReport({
         </section>
 
         <section className="bento-card" aria-labelledby="sec-time">
-          <h3 id="sec-time" className="bento-label">Zeit</h3>
-          <p className="bento-value bento-text">{t.rel}</p>
+          <h3 id="sec-time" className="bento-label">{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
+          <p className="bento-value bento-text">{running ? clock(now - new Date(s.startedAt).getTime()) : t.rel}</p>
           <p className="bento-sub">
             {t.abs}
             {t.took && <> · Dauer {t.took}</>}
+            {s.trigger && <> · {TRIGGER[s.trigger] ?? s.trigger}</>}
             {s.level === 'active' && <> · aktiver Scan</>}
           </p>
         </section>
 
         <section className="bento-card bento-wide" aria-labelledby="sec-stages">
           <h3 id="sec-stages" className="bento-label">Stufen</h3>
-          <ul className="stages">
-              {Object.entries(s.stages).sort(([a], [b]) => stageOrder(a) - stageOrder(b)).map(([k, v]) => {
-                const tool = toolOf(k.split(' ')[0]!)
-                const sev = worst.get(tool)
-                const n = v.findings ?? 0
-                const openN = openByTool(tool)
-                const state = !v.ran ? (v.failed ? 'failed' : 'skipped') : n === 0 ? 'clean' : openN > 0 ? 'found' : 'accepted'
-                return (
-                  <li key={k} className={`stage stage-${state}${sev && state === 'found' ? ` stage-${sev}` : ''}`}>
-                    <span className="stage-icon">
-                      {state === 'clean' || state === 'accepted' ? <IconClean /> : state === 'found' ? <IconFound /> : state === 'failed' ? <IconFailed /> : <IconSkipped />}
-                    </span>
-                    <span className="stage-name">{STAGE_LABEL[k.split(' ')[0]!] ?? k}{k.includes(' ') ? <span className="muted"> {k.split(' ').slice(1).join(' ')}</span> : null}</span>
-                    <span className="stage-state">
-                      {state === 'clean' && 'keine Befunde'}
-                      {state === 'found' && (<>
-                        <button type="button" className="link-button stage-link" aria-pressed={toolFilter === tool} onClick={() => showFindings(tool)}>
-                          {openN} {openN === 1 ? 'Befund' : 'Befunde'}{sev ? `, ${openN > 1 ? 'höchster ' : ''}${SEVERITY_LABEL[sev]}` : ''}
-                        </button>
-                        {n > openN && <span className="muted">, {n - openN} akzeptiert</span>}
-                      </>)}
-                      {state === 'accepted' && <span className="muted">{n} {n === 1 ? 'Befund' : 'Befunde'}, alle akzeptiert oder behoben</span>}
-                      {state === 'skipped' && <span className="muted">übersprungen – {v.note}</span>}
-                      {state === 'failed' && <span className="stage-failed-note">gescheitert – {v.note}</span>}
-                    </span>
-                  </li>
-                )
-              })}
-              {Object.keys(s.stages).length === 0 && <li className="muted">{running ? 'Die Stufen erscheinen, sobald sie durchgelaufen sind.' : 'Keine Stufe gelaufen.'}</li>}
-          </ul>
+          {running && <ScanHead s={s} now={now} />}
+          <StageList stages={s.stages} now={now} open={running ? null : open} onTool={running ? undefined : showFindings} toolFilter={toolFilter} />
         </section>
       </div>
 
@@ -270,7 +419,7 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
       void qc.invalidateQueries({ queryKey: ['scan', projectId] })
     },
   })
-  const report = running && done.data?.report ? done.data.report : latest
+  const finished = running ? done.data?.report ?? null : latest
 
   return (
     <div className="tab-panel">
@@ -295,16 +444,19 @@ export function ProjectSecurity({ projectId }: { projectId: string }) {
       {start.isError && (
         <p role="alert" className="error">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>
       )}
+      {running && latest && <LiveScan report={latest} onCancelled={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })} />}
       {q.isLoading ? (
         <p className="state state-loading">Wird geladen…</p>
-      ) : !report ? (
-        <p className="state state-empty">Noch kein Scan. Nach jedem Deploy läuft einer automatisch.</p>
+      ) : !finished ? (
+        !running && <p className="state state-empty">Noch kein Scan. Nach jedem Deploy läuft einer automatisch.</p>
       ) : (
-        <ScanReport
-          report={report}
-          runningSince={running && report !== latest ? latest!.scan.startedAt : null}
-          onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
-        />
+        <>
+          {running && <div className="section-head"><h2>Letzter abgeschlossener Scan</h2></div>}
+          <ScanReport
+            report={finished}
+            onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
+          />
+        </>
       )}
     </div>
   )

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
-import type { ScanStages } from '../db/schema.js'
+import type { ScanStage, ScanStages } from '../db/schema.js'
 import { cf, config, urlForHost } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { findProject } from '../domain/projects.js'
@@ -13,7 +13,8 @@ import { AppError, badRequest, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import { siteDir } from '../deploy/sources/static.js'
 import { score, grade, fingerprint, dedupe, bySeverity, publishable, type FindingInput, type Severity } from './score.js'
-import { trivyImage, trivySource, headerCheck, zap, nuclei, testssl, startStaticTarget, type ScanTarget } from './stages.js'
+import { trivyImage, trivySource, headerCheck, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs } from './stages.js'
+import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
 
@@ -32,10 +33,19 @@ export const scanSourceDir = (deploymentId: string) => join(config.DATA_DIR, 'sc
 
 const queue: string[] = []
 let busy = false
+/** Der laufende Scan und wer ihn abbrechen liess (null: läuft weiter). */
+let current: { id: string; cancelledBy: string | null } | null = null
 
 /** Scans in der Warteschlange inklusive des laufenden (für die Übersicht). */
 export function scanQueueLength(): number {
   return queue.length + (busy ? 1 : 0)
+}
+
+/** Position in der Warteschlange (1 = als Nächstes) und wie viele Scans davor sind. */
+export function scanQueuePosition(runId: string): { position: number; ahead: number } | null {
+  const i = queue.indexOf(runId)
+  if (i < 0) return null
+  return { position: i + 1, ahead: i + (busy ? 1 : 0) }
 }
 
 function pump(): void {
@@ -43,12 +53,45 @@ function pump(): void {
   const id = queue.shift()
   if (!id) return
   busy = true
+  current = { id, cancelledBy: null }
   runScan(id)
     .catch((err) => log.error('Scan fehlgeschlagen', { scan: id, err: String(err) }))
     .finally(() => {
       busy = false
+      current = null
       pump()
     })
+}
+
+/** Scanner-Container eines Scans beenden (Abbruch, Zeitlimit-Wächter). */
+async function killScanners(runId: string): Promise<void> {
+  for (const c of await docker.listManagedContainers().catch(() => [])) {
+    if (c.labels['deployer.scan'] !== runId) continue
+    await docker.stopContainer(c.id, 2).catch(() => {})
+  }
+}
+
+/**
+ * Scan abbrechen: aus der Warteschlange nehmen oder den laufenden stoppen.
+ * Der laufende beendet seine aktuelle Stufe (Scanner wird gestoppt), die
+ * übrigen Stufen laufen nicht mehr; Befunde werden nicht gewertet.
+ */
+export async function cancelScan(runId: string, actor: string): Promise<void> {
+  const run = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.id, runId)).limit(1))[0]
+  if (!run) throw notFound('Scan')
+  const i = queue.indexOf(runId)
+  if (i >= 0) {
+    queue.splice(i, 1)
+    const stages = Object.fromEntries(Object.entries(run.stages).map(([k, s]) => [k, s.state === 'waiting' ? { ...s, state: 'cancelled' as const, note: 'nicht gelaufen: Scan abgebrochen' } : s]))
+    await db.update(schema.scanRuns).set({ status: 'cancelled', error: `Abgebrochen von ${actor} (vor dem Start)`, finishedAt: new Date(), stages }).where(eq(schema.scanRuns.id, runId))
+  } else if (current?.id === runId) {
+    current.cancelledBy = actor
+    await killScanners(runId)
+  } else {
+    throw new AppError('scan_not_running', 'Dieser Scan läuft nicht mehr', 409)
+  }
+  log.info('Scan abgebrochen', { scan: runId, actor })
+  await audit({ actor, action: 'scan.cancel', targetType: run.projectId ? 'project' : 'external_target', targetId: run.projectId ?? run.externalTargetId, params: { scan: runId }, result: 'ok' })
 }
 
 /** Nach einem Neustart: angefangene Scans als abgebrochen markieren. */
@@ -72,16 +115,28 @@ export async function abandonUnfinishedScans(): Promise<void> {
   await rm(join(config.DATA_DIR, 'scan-src'), { recursive: true, force: true }).catch(() => {})
 }
 
+/** Quellordner für trivy-source: aufgehobener Deploy-Ordner oder die ausgelieferte statische Seite. */
+function sourceDirFor(deploymentId: string | null, kind: string, slug: string): string | null {
+  if (deploymentId && existsSync(scanSourceDir(deploymentId))) return scanSourceDir(deploymentId)
+  if (kind === 'static' && existsSync(join(siteDir(slug), 'current'))) return join(siteDir(slug), 'current')
+  return null
+}
+
 export async function enqueueProjectScan(
   idOrSlug: string,
-  o: { level?: 'standard' | 'active'; deploymentId?: string; actor: string },
+  o: { level?: 'standard' | 'active'; deploymentId?: string; actor: string; trigger: ScanTrigger },
 ): Promise<Run> {
   const project = await findProject(idOrSlug)
   const active = await activeDeployment(project.id)
   if (!active) throw badRequest('Das Projekt hat keine laufende Fassung, die sich scannen liesse')
+  const level = o.level ?? 'standard'
+  const deploymentId = o.deploymentId ?? active.id
+  const kind = effectiveKind(project.sourceType, active.artifact)
+  // Stufen von Anfang an zeigen, auch solange der Scan wartet
+  const stages = planStages({ external: false, level, kind, hasSource: Boolean(sourceDirFor(deploymentId, kind, project.slug)), tls: cf.tls() })
   const rows = await db
     .insert(schema.scanRuns)
-    .values({ projectId: project.id, deploymentId: o.deploymentId ?? active.id, level: o.level ?? 'standard' })
+    .values({ projectId: project.id, deploymentId, level, trigger: o.trigger, actor: o.actor, stages })
     .returning()
   const run = rows[0]!
   await audit({ actor: o.actor, action: 'scan.start', targetType: 'project', targetId: project.id, params: { scan: run.id, level: run.level }, result: 'ok' })
@@ -92,12 +147,15 @@ export async function enqueueProjectScan(
 
 export async function enqueueExternalScan(
   targetId: string,
-  o: { level?: 'standard' | 'active'; actor: string },
+  o: { level?: 'standard' | 'active'; actor: string; trigger: ScanTrigger },
 ): Promise<Run> {
   const t = (await db.select().from(schema.externalTargets).where(eq(schema.externalTargets.id, targetId)).limit(1))[0]
   if (!t) throw notFound('Externes Ziel')
   if (!t.verifiedAt) throw new AppError('not_verified', `${t.hostname} ist noch nicht per TXT-Eintrag nachgewiesen`, 400)
-  const rows = await db.insert(schema.scanRuns).values({ externalTargetId: t.id, level: o.level ?? 'standard' }).returning()
+  const level = o.level ?? 'standard'
+  const rows = await db.insert(schema.scanRuns).values({
+    externalTargetId: t.id, level, trigger: o.trigger, actor: o.actor, stages: planStages({ external: true, level }),
+  }).returning()
   const run = rows[0]!
   await audit({ actor: o.actor, action: 'scan.start', targetType: 'external_target', targetId: t.id, params: { scan: run.id, level: run.level, hostname: t.hostname }, result: 'ok' })
   queue.push(run.id)
@@ -110,33 +168,92 @@ export async function enqueueExternalScan(
 async function runScan(runId: string): Promise<void> {
   const run = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.id, runId)).limit(1))[0]
   if (!run) return
-  await db.update(schema.scanRuns).set({ status: 'running', startedAt: new Date() }).where(eq(schema.scanRuns.id, runId))
-  const stages: ScanStages = {}
+  const startedAt = new Date()
+  await db.update(schema.scanRuns).set({ status: 'running', startedAt }).where(eq(schema.scanRuns.id, runId))
+  log.info('Scan gestartet', { scan: runId, project: run.projectId, external: run.externalTargetId, level: run.level, trigger: run.trigger, actor: run.actor })
+  // Der Plan aus enqueue*; jede Stufe aktualisiert ihren Eintrag
+  const stages: ScanStages = { ...run.stages }
   const all: FindingInput[] = []
-  const labels = { 'deployer.scan': runId, ...(run.projectId ? {} : {}) }
+  const labels = { 'deployer.scan': runId }
+  const cancelledBy = () => (current?.id === runId ? current.cancelledBy : null)
 
-  const stage = async (name: string, fn: () => Promise<FindingInput[]>) => {
-    try {
-      const f = await fn()
-      all.push(...f)
-      stages[name] = { ran: true, findings: f.length }
-    } catch (err) {
-      stages[name] = { ran: false, failed: true, note: (err as Error).message.slice(0, 300) }
-      log.warn('Scan-Stufe gescheitert', { scan: runId, stage: name, err: String(err) })
+  // Zwischenstand in die Datenbank, gedrosselt: Oberfläche und MCP lesen ihn
+  let lastSave = 0
+  let saving: Promise<unknown> = Promise.resolve()
+  const save = (force = false) => {
+    if (!force && Date.now() - lastSave < 1_500) return saving
+    lastSave = Date.now()
+    const snapshot = structuredClone(stages)
+    saving = saving.then(() => db.update(schema.scanRuns).set({ stages: snapshot }).where(eq(schema.scanRuns.id, runId))).catch(() => {})
+    return saving
+  }
+
+  const stage: StageFn = async (name, fn) => {
+    const info = infoOf(name)
+    const by = cancelledBy()
+    if (by) {
+      stages[name] = { ...(stages[name] ?? waiting(name)), ran: false, state: 'cancelled', note: 'nicht gelaufen: Scan abgebrochen' }
+      return
     }
+    const t0 = Date.now()
+    const st: ScanStage = { ...(stages[name] ?? waiting(name)), ran: false, state: 'running', startedAt: new Date(t0).toISOString(), timeoutMs: info.timeoutMs }
+    stages[name] = st
+    await save(true)
+    log.info('Scan-Stufe gestartet', { scan: runId, stage: name })
+    const onLogs = (text: string) => {
+      st.progress = progressOf(name, text) ?? st.progress
+      st.tail = tailOf(text)
+      void save()
+    }
+    // Wächter: hängt eine Stufe ausserhalb eines Scanner-Containers (Image-
+    // Export, Netz), endet sie trotzdem – mit klarer Meldung statt endlosem «läuft».
+    let guard: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      guard = setTimeout(() => {
+        void killScanners(runId)
+        reject(new StageTimeout(info.timeoutMs))
+      }, info.timeoutMs + 60_000)
+    })
+    try {
+      const f = await Promise.race([fn(onLogs), timeout])
+      all.push(...f)
+      stages[name] = { ...st, ran: true, state: 'done', findings: f.length, finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
+      log.info('Scan-Stufe fertig', { scan: runId, stage: name, dauerMs: Date.now() - t0, befunde: f.length })
+    } catch (err) {
+      const state = cancelledBy() ? 'cancelled' : err instanceof StageTimeout ? 'timeout' : 'failed'
+      const note = state === 'cancelled' ? `abgebrochen von ${cancelledBy()}` : (err as Error).message.slice(0, 300)
+      stages[name] = { ...st, ran: false, failed: state !== 'cancelled', state, note, finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
+      if (state === 'cancelled') log.info('Scan-Stufe abgebrochen', { scan: runId, stage: name, dauerMs: Date.now() - t0 })
+      else log.warn(state === 'timeout' ? 'Scan-Stufe: Zeitlimit' : 'Scan-Stufe gescheitert', { scan: runId, stage: name, dauerMs: Date.now() - t0, err: String(err) })
+    } finally {
+      clearTimeout(guard)
+    }
+    await save(true)
   }
 
   try {
     let rewrite: ((loc: string) => string) | null = null
     if (run.projectId) rewrite = await scanProject(run, stage, stages, labels)
     else await scanExternal(run, stage, stages, labels)
-    const findings = rewrite ? all.map((f) => ({ ...f, location: rewrite!(f.location) })) : all
-    await finalize(run, findings, stages)
+    await saving
+    const by = cancelledBy()
+    if (by) {
+      await db.update(schema.scanRuns)
+        .set({ status: 'cancelled', error: `Abgebrochen von ${by}`, finishedAt: new Date(), stages })
+        .where(eq(schema.scanRuns.id, runId))
+    } else {
+      const findings = rewrite ? all.map((f) => ({ ...f, location: rewrite!(f.location) })) : all
+      await finalize(run, findings, stages)
+    }
+    log.info('Scan beendet', { scan: runId, status: by ? 'abgebrochen' : 'fertig', dauerMs: Date.now() - startedAt.getTime(), befunde: all.length })
   } catch (err) {
+    await saving
+    for (const [k, s] of Object.entries(stages)) if (s.state === 'waiting' || s.state === 'running') stages[k] = { ...s, state: 'cancelled', note: 'nicht gelaufen: Scan gescheitert' }
     await db
       .update(schema.scanRuns)
       .set({ status: 'failed', error: (err as Error).message.slice(0, 500), finishedAt: new Date(), stages })
       .where(eq(schema.scanRuns.id, runId))
+    log.warn('Scan gescheitert', { scan: runId, dauerMs: Date.now() - startedAt.getTime(), err: String(err) })
   } finally {
     // Auf jedem Weg aufräumen: die Kopie des Quellcodes (kann Secrets
     // enthalten) und das Arbeitsverzeichnis des Scans (Review M6).
@@ -145,7 +262,7 @@ async function runScan(runId: string): Promise<void> {
   }
 }
 
-type StageFn = (name: string, fn: () => Promise<FindingInput[]>) => Promise<void>
+type StageFn = (name: string, fn: (onLogs: OnLogs) => Promise<FindingInput[]>) => Promise<void>
 
 /**
  * Scannt ein Projekt. Gibt eine Funktion zurück, die in Fundstellen die
@@ -173,16 +290,19 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
     }
   }
   await docker.ensureNetwork(network)
-  if (images.size === 0) stages['trivy-image'] = { ran: false, note: 'kein Image (statische Seite)' }
-  for (const img of images) await stage(images.size > 1 ? `trivy-image ${img}` : 'trivy-image', () => trivyImage(run.id, img, network, scanLabels))
+  if (images.size === 0) stages['trivy-image'] = skipped('trivy-image', kind === 'compose' ? 'keine laufenden Compose-Dienste gefunden' : 'kein Image, statische Seite')
+  if (images.size > 1) {
+    // Compose mit mehreren Diensten: eine Stufe je Image, in Plan-Reihenfolge vorne
+    const rest = { ...stages }
+    for (const k of Object.keys(stages)) delete stages[k]
+    for (const img of images) stages[`trivy-image ${img}`] = waiting('trivy-image')
+    for (const [k, v] of Object.entries(rest)) if (k !== 'trivy-image') stages[k] = v
+  }
+  for (const img of images) await stage(images.size > 1 ? `trivy-image ${img}` : 'trivy-image', (onLogs) => trivyImage(run.id, img, network, scanLabels, onLogs))
 
-  const src = run.deploymentId && existsSync(scanSourceDir(run.deploymentId))
-    ? scanSourceDir(run.deploymentId)
-    : kind === 'static' && existsSync(join(siteDir(project.slug), 'current'))
-      ? join(siteDir(project.slug), 'current')
-      : null
-  if (src) await stage('trivy-source', () => trivySource(run.id, src, network, scanLabels))
-  else stages['trivy-source'] = { ran: false, note: 'kein Quellordner (fertiges Image)' }
+  const src = sourceDirFor(run.deploymentId, kind, project.slug)
+  if (src) await stage('trivy-source', (onLogs) => trivySource(run.id, src, network, scanLabels, onLogs))
+  else stages['trivy-source'] = skipped('trivy-source', 'kein Quellordner: fertiges Image ohne Quellcode')
 
   // Stufen 2 und 3 gegen den Container im Projekt-Netz.
   let target: ScanTarget
@@ -199,11 +319,11 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
 
   try {
     await stage('headers', () => headerCheck(target))
-    await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', () => zap(run.id, target, scanLabels, run.level === 'active'))
-    await stage('nuclei', () => nuclei(run.id, target, scanLabels))
+    await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', (onLogs) => zap(run.id, target, scanLabels, run.level === 'active', onLogs))
+    await stage('nuclei', (onLogs) => nuclei(run.id, target, scanLabels, onLogs))
     // TLS endet bei Caddy, nicht im Projekt-Container: geprüft würde für jedes
     // Projekt dieselbe Caddy-Konfiguration. Zertifikatsstatus: Systemseite (M4).
-    stages.testssl = { ran: false, note: cf.tls() ? 'zentral über Caddy, siehe Systemseite' : 'nicht anwendbar: intern kein TLS' }
+    stages.testssl = skipped('testssl', cf.tls() ? 'TLS endet zentral bei Caddy, siehe Systemseite' : 'nicht anwendbar: intern kein TLS')
   } finally {
     if (stopStatic) await stopStatic().catch(() => {})
   }
@@ -225,12 +345,11 @@ async function scanExternal(run: Run, stage: StageFn, stages: ScanStages, labels
 
   await docker.ensureNetwork(EXT_SCAN_NETWORK)
   const target: ScanTarget = { url: `https://${t.hostname}/`, network: EXT_SCAN_NETWORK, host: t.hostname, isHttps: true, external: true }
-  // Stufe 1 entfällt (SPEC): es gibt kein Image.
-  stages['trivy-image'] = { ran: false, note: 'entfällt bei externen Zielen' }
+  // Stufe 1 entfällt (SPEC): es gibt kein Image – steht schon im Plan.
   await stage('headers', () => headerCheck(target))
-  await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', () => zap(run.id, target, labels, run.level === 'active'))
-  await stage('nuclei', () => nuclei(run.id, target, labels))
-  await stage('testssl', () => testssl(run.id, target, labels))
+  await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', (onLogs) => zap(run.id, target, labels, run.level === 'active', onLogs))
+  await stage('nuclei', (onLogs) => nuclei(run.id, target, labels, onLogs))
+  await stage('testssl', (onLogs) => testssl(run.id, target, labels, onLogs))
 }
 
 /* --- Abschluss: Befunde, Score, Akzeptanzen, Benachrichtigung ------------------------ */
@@ -327,7 +446,12 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
 /* --- Lesen, Akzeptieren, Schwelle ----------------------------------------------------- */
 
 export interface ScanReport {
-  scan: { id: string; status: string; level: string; startedAt: string; finishedAt: string | null; score: number | null; grade: string | null; error: string | null; stages: ScanStages }
+  scan: {
+    id: string; status: string; level: string; startedAt: string; finishedAt: string | null; score: number | null; grade: string | null; error: string | null; stages: ScanStages
+    trigger: ScanTrigger | null; actor: string | null
+    /** Nur solange der Scan wartet */
+    queue: { position: number; ahead: number } | null
+  }
   counts: Record<Severity, number>
   top: { id: string; severity: Severity; title: string; location: string; fix: string }[]
   findings: (typeof schema.findings.$inferSelect)[]
@@ -344,6 +468,8 @@ export async function scanReport(runId: string): Promise<ScanReport> {
     scan: {
       id: run.id, status: run.status, level: run.level, startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null, score: run.score, grade: run.grade, error: run.error, stages: run.stages,
+      trigger: run.trigger ?? null, actor: run.actor ?? null,
+      queue: run.status === 'queued' ? scanQueuePosition(run.id) : null,
     },
     counts,
     top: open.slice(0, 3).map((x) => ({ id: x.id, severity: x.severity, title: x.title, location: x.location, fix: x.fix })),

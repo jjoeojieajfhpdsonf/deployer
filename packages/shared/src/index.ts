@@ -433,7 +433,7 @@ export interface ProjectDto {
   /** M6: letzter Scan in Kurzform. */
   security: {
     scanId: string
-    status: 'queued' | 'running' | 'done' | 'failed'
+    status: ScanStatus
     score: number | null
     grade: 'A' | 'B' | 'C' | 'D' | null
     finishedAt: string | null
@@ -456,17 +456,45 @@ export interface FindingDto {
   acceptReason: string | null
 }
 
+export type ScanStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+/** Eine Scan-Stufe, von Anfang an geplant und laufend aktualisiert. */
+export interface ScanStageDto {
+  ran: boolean
+  note?: string
+  findings?: number
+  /** lief an und scheiterte (anders als «nicht anwendbar») */
+  failed?: boolean
+  state?: 'waiting' | 'running' | 'done' | 'skipped' | 'failed' | 'timeout' | 'cancelled'
+  /** Was die Stufe prüft (Kurzbeschreibung) */
+  checks?: string
+  /** Was tatsächlich abgedeckt wurde, z. B. «214 Pakete aus pnpm-lock.yaml» */
+  checked?: string
+  startedAt?: string
+  finishedAt?: string
+  durationMs?: number
+  timeoutMs?: number
+  /** Fortschritt, soweit bekannt (DB-Download, gecrawlte URLs) */
+  progress?: string
+  /** Letzte Zeilen der Scanner-Ausgabe */
+  tail?: string[]
+}
+
 export interface ScanReportDto {
   scan: {
     id: string
-    status: 'queued' | 'running' | 'done' | 'failed'
+    status: ScanStatus
     level: 'standard' | 'active'
     startedAt: string
     finishedAt: string | null
     score: number | null
     grade: 'A' | 'B' | 'C' | 'D' | null
     error: string | null
-    stages: Record<string, { ran: boolean; note?: string; findings?: number; failed?: boolean }>
+    stages: Record<string, ScanStageDto>
+    trigger: 'deploy' | 'mcp' | 'manual' | 'schedule' | null
+    actor: string | null
+    /** Solange der Scan wartet: Position (1 = als Nächstes), Scans davor */
+    queue: { position: number; ahead: number } | null
   }
   counts: Record<'critical' | 'high' | 'medium' | 'low', number>
   top: { id: string; severity: string; title: string; location: string; fix: string }[]
