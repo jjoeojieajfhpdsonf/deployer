@@ -8,6 +8,7 @@ import { api, ApiError } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
+import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
@@ -400,12 +401,7 @@ const STEP: Record<string, { n: number; label: string }> = {
 
 /** Menü «…» eines Projekts. */
 function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | undefined; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
-  const [confirmStop, setConfirmStop] = useState(false)
-  const [confirmOffline, setConfirmOffline] = useState(false)
-  const pub = usePublicActions(p)
-  const state = publicStateOf(p.routes)
-  const host = p.routes.find((r) => r.target === 'public')?.hostname
-  const internal = p.routes.find((r) => r.target !== 'public')?.urls[0]?.replace(/^https?:\/\//, '')
+  const [confirm, setConfirm] = useState<MenuConfirm>(null)
   return (
     <RowMenu label={`Aktionen für ${p.name}`}>
       {(close) => (
@@ -415,39 +411,8 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
           <Link role="menuitem" to={`/projekte/${p.id}?tab=deployments`} onClick={close}>Deployments</Link>
           <div className="menu-sep" />
           <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
-          {state !== 'private' && (
-            confirmOffline ? (
-              <>
-                <div className="menu-confirm">
-                  <IconWarn />
-                  <span>
-                    {state === 'live' ? <>Pausieren: Wartungsseite unter {host}. Ganz offline: der Name wird frei.</> : <>Der Name {host} wird frei.</>}
-                    {internal ? <> Intern weiter: {internal}</> : null}
-                  </span>
-                </div>
-                {state === 'live' && (
-                  <button role="menuitem" className="menu-danger-solid" disabled={pub.pending} onClick={() => { close(); setConfirmOffline(false); pub.run({ op: 'pause' }) }}>Ja, pausieren</button>
-                )}
-                <button role="menuitem" className={state === 'live' ? 'menu-danger' : 'menu-danger-solid'} disabled={pub.pending} onClick={() => { close(); setConfirmOffline(false); pub.run({ op: 'unpublish' }) }}>Ja, ganz offline nehmen</button>
-                <button role="menuitem" onClick={() => setConfirmOffline(false)}>Abbrechen</button>
-              </>
-            ) : (
-              <button role="menuitem" disabled={pub.pending} onClick={() => { setConfirmStop(false); setConfirmOffline(true) }}>{state === 'live' ? 'Offline nehmen …' : 'Ganz offline nehmen …'}</button>
-            )
-          )}
-          {p.desiredState === 'running' ? (
-            confirmStop ? (
-              <>
-                <div className="menu-confirm"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}die Seite ist danach offline.</div>
-                <button role="menuitem" className="menu-danger-solid" disabled={busy} onClick={() => { close(); setConfirmStop(false); onAct('stop') }}>Ja, stoppen</button>
-                <button role="menuitem" onClick={() => setConfirmStop(false)}>Abbrechen</button>
-              </>
-            ) : (
-              <button role="menuitem" disabled={busy} onClick={() => { setConfirmOffline(false); setConfirmStop(true) }}>Stoppen …</button>
-            )
-          ) : (
-            <button role="menuitem" disabled={busy} onClick={() => { close(); onAct('start') }}>Starten</button>
-          )}
+          <OfflineMenuItems p={p} close={close} confirm={confirm} setConfirm={setConfirm} />
+          <StopStartMenuItems p={p} close={close} busy={busy} confirm={confirm} setConfirm={setConfirm} onStop={() => onAct('stop')} onStart={() => onAct('start')} />
         </>
       )}
     </RowMenu>

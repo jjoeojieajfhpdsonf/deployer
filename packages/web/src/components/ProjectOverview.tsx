@@ -328,7 +328,7 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
                   </div>
                 </div>
                 <div className="tl-actions">
-                  {d.canRollback && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen …</button>}
+                  {d.canRollback && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
                   {confirming === d.id && (
                     <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
                       <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} autoFocus>{rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}</button>

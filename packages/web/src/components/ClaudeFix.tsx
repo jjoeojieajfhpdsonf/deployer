@@ -170,8 +170,8 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
         <div className="finding-actions">
           {!applyC.open && !rejectC.open && (
             <>
-              <button ref={applyC.trigger} type="button" className="button-small button-primary" disabled={busy} onClick={applyC.show}>Übernehmen …</button>
-              <button ref={rejectC.trigger} type="button" className="button-small" disabled={busy} onClick={rejectC.show}>Verwerfen …</button>
+              <button ref={applyC.trigger} type="button" className="button-small button-primary" disabled={busy} onClick={applyC.show}>Übernehmen</button>
+              <button ref={rejectC.trigger} type="button" className="button-small" disabled={busy} onClick={rejectC.show}>Verwerfen</button>
             </>
           )}
           {applyC.open && (

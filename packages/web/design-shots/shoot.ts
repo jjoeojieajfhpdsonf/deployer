@@ -137,7 +137,7 @@ const shots: Shot[] = [
   {
     group: 'fix', name: 'security-hsts-rueckfrage', path: `/projekte/${S}?tab=security`, full: false,
     prepare: async (pg) => {
-      const b = pg.getByRole('button', { name: 'HSTS setzen …' })
+      const b = pg.getByRole('button', { name: 'HSTS setzen', exact: true })
       await b.scrollIntoViewIfNeeded()
       await b.click()
       await pg.waitForTimeout(250)
@@ -200,7 +200,22 @@ const shots: Shot[] = [
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
     group: 'zustaende', name: 'bestaetigung-stoppen', path: `/projekte/${P}`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: /^Stoppen/ }).first().click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => {
+      // Stoppen liegt im «⋯»-Menü des Kopfs; die Rückfrage steht im Menü
+      await pg.getByRole('button', { name: 'Weitere Aktionen' }).click()
+      await pg.getByRole('menuitem', { name: /^Stoppen/ }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  // Projektkopf: Öffnen (sekundär), Neu deployen (primär), «⋯» mit allem Weiteren
+  { group: 'projektkopf', name: 'projektkopf', path: `/projekte/${P}`, full: false },
+  {
+    group: 'projektkopf', name: 'projektkopf-menue-laufend', path: `/projekte/${L}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Weitere Aktionen' }).click(); await pg.waitForTimeout(300) },
+  },
+  {
+    group: 'projektkopf', name: 'projektkopf-menue-gestoppt', path: '/projekte/p-notizen', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Weitere Aktionen' }).click(); await pg.waitForTimeout(300) },
   },
   {
     group: 'zustaende', name: 'menue-zeile-bestaetigung', path: '/projekte', full: false,
@@ -231,7 +246,7 @@ const shots: Shot[] = [
     // Live: Seite schon vorab einstellen (ohne «Voraussichtlich zurück»)
     group: 'pauseseite', name: 'pauseseite-dialog-live', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog input[id$="-title"]').fill('Wartung am Haushaltsbuch')
       await pg.locator('.pause-dialog textarea').fill('Wir spielen ein **Update** ein.\n\nFragen? Schreib an [hallo@example.ch](mailto:hallo@example.ch).')
       await pg.waitForTimeout(300)
@@ -241,7 +256,7 @@ const shots: Shot[] = [
     // Offline nehmen → Pausieren: Zusammenfassung der Seite statt Formular in der Karte
     group: 'pauseseite', name: 'pauseseite-pausieren', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click()
       await pg.locator('.pause-summary').scrollIntoViewIfNeeded()
       await pg.waitForTimeout(200)
     },
@@ -251,7 +266,7 @@ const shots: Shot[] = [
     // Absturz von früher: Jahr 333333 im Datumsfeld – jetzt Feldmeldung statt schwarzer Seite
     group: 'fehler', name: 'pauseseite-datum-ungueltig', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
       const f = pg.locator('.pause-dialog input[type="datetime-local"]')
       // Ganz links (Tag) beginnen, dann Tag, Monat und ein sechsstelliges Jahr wie im Absturz
@@ -270,7 +285,7 @@ const shots: Shot[] = [
   {
     group: 'pauseseite', name: 'pauseseite-dialog-pausiert', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.waitForTimeout(300)
     },
   },
@@ -278,7 +293,7 @@ const shots: Shot[] = [
     // Eigener Code, Vorschau dunkel (Media-Queries für die Vorschau umgeschrieben)
     group: 'pauseseite', name: 'pauseseite-code-dunkel', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog').getByRole('button', { name: 'Dunkel' }).click()
       await pg.waitForTimeout(300)
     },
@@ -287,7 +302,7 @@ const shots: Shot[] = [
     // Formular im Dialog: Felder im Raster
     group: 'pauseseite', name: 'pauseseite-dialog-formular', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
       await pg.waitForTimeout(300)
     },
@@ -301,18 +316,18 @@ const shots: Shot[] = [
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(150)
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(250)
     },
   },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-fortschritt', path: `/projekte/${P}?tab=einstellungen`, full: false, hang: [`POST /api/v1/projects/${P}/public`],
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(150)
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.getByRole('button', { name: 'Ja, veröffentlichen' }).click()
       await pg.waitForTimeout(900)
     },
@@ -320,17 +335,17 @@ const shots: Shot[] = [
   { group: 'anfrage', name: 'anfrage-wartet', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false },
   {
     group: 'anfrage', name: 'anfrage-wartet-bestaetigen', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Nach dem Scan öffentlich schalten …' }).click(); await pg.waitForTimeout(200) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Nach dem Scan öffentlich schalten', exact: true }).click(); await pg.waitForTimeout(200) },
   },
   { group: 'anfrage', name: 'anfrage-gesperrt', path: `/projekte/${fx.requestBlockedProjectId}?tab=einstellungen`, full: false },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-offline-wahl', path: `/projekte/${L}?tab=einstellungen`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen …' }).click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click(); await pg.waitForTimeout(250) },
   },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-toast', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click()
       await pg.getByRole('button', { name: 'Ja, pausieren' }).click()
       await pg.waitForTimeout(700)
     },

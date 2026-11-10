@@ -13,7 +13,7 @@ import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
 import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
-import { startProject, stopProject } from '../../domain/lifecycle.js'
+import { startProject, stopProject, restartProject } from '../../domain/lifecycle.js'
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
 import { audit } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
@@ -204,6 +204,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: IdParams }>('/projects/:id/start', async (request) => {
     return startProject(request.params.id, actorFor(request))
   })
+
+  /** Neu starten: dieselbe Fassung, Container stoppen und starten (kein Deploy). */
+  app.post<{ Params: IdParams }>('/projects/:id/restart', async (request) => restartProject(request.params.id, actorFor(request)))
 
   app.post<{ Params: IdParams }>('/projects/:id/stop', async (request, reply) => {
     await stopProject(request.params.id, actorFor(request))

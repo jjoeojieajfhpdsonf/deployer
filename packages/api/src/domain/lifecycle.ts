@@ -5,6 +5,7 @@ import { reconcileCaddy } from './routes.js'
 import { audit } from './audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
 import { log } from '../lib/log.js'
+import { badRequest } from '../lib/errors.js'
 import type { DeploymentDto } from '@airlock/shared'
 
 /**
@@ -71,6 +72,23 @@ export async function startProject(
   await audit({ actor, action: 'project.start', targetType: 'project', targetId: project.id, result: 'ok' })
   log.info('Projekt gestartet', { slug: project.slug })
   return { started: true }
+}
+
+/**
+ * Neu starten: Container stoppen und wieder starten (dieselbe Fassung, kein
+ * Deploy). Statische Seiten haben keinen Container – dort gibt es nichts neu
+ * zu starten (400). Im Audit stehen stop, start und restart.
+ */
+export async function restartProject(idOrSlug: string, actor: string): Promise<{ started: boolean; deployment?: DeploymentDto }> {
+  const project = await findProject(idOrSlug)
+  const active = await activeDeployment(project.id)
+  if (effectiveKind(project.sourceType, active?.artifact) === 'static') {
+    throw badRequest('Statische Seiten laufen ohne Container – es gibt nichts neu zu starten')
+  }
+  await stopProject(project.id, actor)
+  const r = await startProject(project.id, actor)
+  await audit({ actor, action: 'project.restart', targetType: 'project', targetId: project.id, result: 'ok' })
+  return r
 }
 
 export async function stopProject(idOrSlug: string, actor: string): Promise<void> {

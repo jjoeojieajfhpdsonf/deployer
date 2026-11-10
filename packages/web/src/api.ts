@@ -144,6 +144,7 @@ export const api = {
     call<{ deployment: DeploymentDto }>(`/projects/${id}/deploy`, { method: 'POST', body: body(ref ? { ref } : {}) }),
   start: (id: string) => call<{ started: boolean; deployment?: DeploymentDto }>(`/projects/${id}/start`, { method: 'POST' }),
   stop: (id: string) => call<void>(`/projects/${id}/stop`, { method: 'POST' }),
+  restart: (id: string) => call<{ started: boolean; deployment?: DeploymentDto }>(`/projects/${id}/restart`, { method: 'POST' }),
   listDeployments: (id: string) => call<{ deployments: DeploymentDto[] }>(`/projects/${id}/deployments`),
   getDeployment: (id: string) => call<{ deployment: DeploymentDto; log: string }>(`/deployments/${id}`),
   health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),

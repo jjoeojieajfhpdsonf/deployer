@@ -116,7 +116,7 @@ const SET_LABEL: Record<HeaderKey, string> = {
   'referrer-policy': 'Header setzen',
   'frame-ancestors': 'Header setzen',
   'content-security-policy': 'Report-Only starten',
-  'strict-transport-security': 'HSTS setzen …',
+  'strict-transport-security': 'HSTS setzen',
 }
 
 /** Aktion neben einem Header-Befund: setzen statt nur akzeptieren. */
@@ -386,7 +386,7 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
               <button ref={enforce.trigger} type="button" className="button-small button-warn"
                 aria-disabled={m.busy || !ready?.ok || undefined} aria-describedby="csp-ready"
                 onClick={() => { if (!m.busy && ready?.ok) enforce.show() }}>
-                Scharf schalten …
+                Scharf schalten
               </button>
             )}
             {csp.mode === 'report-only' && enforce.open && (

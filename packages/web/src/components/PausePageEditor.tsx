@@ -78,7 +78,7 @@ export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix
             </Field>
             <div className="pause-code-actions">
               {!regen ? (
-                <button type="button" className="button-small" onClick={() => setRegen(true)}>Aus Formular übernehmen …</button>
+                <button type="button" className="button-small" onClick={() => setRegen(true)}>Aus Formular übernehmen</button>
               ) : (
                 <span className="confirm-inline" role="group" aria-label="HTML aus dem Formular übernehmen">
                   <span className="confirm-note">Ersetzt das HTML durch die Seite aus Titel, Text und Link.</span>

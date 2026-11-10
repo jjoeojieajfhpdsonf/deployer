@@ -151,7 +151,7 @@ function Target({ t }: { t: ExternalTargetDto }) {
         <button onClick={() => scan.mutate()} disabled={!t.verified || scan.isPending}>Jetzt scannen</button>
         <button onClick={() => setShowReport((v) => !v)}>{showReport ? 'Bericht ausblenden' : 'Letzter Bericht'}</button>
         {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)}>Entfernen …</button>
+          <button onClick={() => setConfirmDelete(true)}>Entfernen</button>
         ) : (
           <>
             <button onClick={() => setConfirmDelete(false)}>Abbrechen</button>

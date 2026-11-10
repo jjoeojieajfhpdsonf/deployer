@@ -106,7 +106,7 @@ function PendingRequest({ p, s }: { p: ProjectDto; s: PublicStatusDto }) {
   const discard = useMutation({ mutationFn: () => api.discardPublicRequest(p.id), onSuccess: () => void refresh() })
   const busy = approve.isPending || discard.isPending
   const now = r.state === 'ready' || r.state === 'failed'
-  const label = r.state === 'failed' ? 'Erneut versuchen …' : now ? 'Jetzt öffentlich schalten …' : 'Nach dem Scan öffentlich schalten …'
+  const label = r.state === 'failed' ? 'Erneut versuchen' : now ? 'Jetzt öffentlich schalten' : 'Nach dem Scan öffentlich schalten'
 
   return (
     <div className={`publication-pending publication-pending-${r.state}`} role="note">
@@ -233,7 +233,7 @@ function PrivateState({ p, s, actions, defaultZone }: { p: ProjectDto; s: Public
               if (v.validateAll()) setConfirming(true)
             }}
           >
-            {actions.pending && actions.current?.op === 'publish' ? 'Wird veröffentlicht…' : 'Veröffentlichen …'}
+            {actions.pending && actions.current?.op === 'publish' ? 'Wird veröffentlicht…' : 'Veröffentlichen'}
           </button>
         )}
         {open && !confirming && <button onClick={() => { setOpen(false); v.reset() }} disabled={actions.pending}>Abbrechen</button>}
@@ -299,7 +299,7 @@ function PausePageRow({ p, s, paused }: { p: ProjectDto; s: PublicStatusDto; pau
       <dt>Pause-Seite</dt>
       <dd className="pause-fact">
         <span>«{(s.pause.page ?? s.pause.template).title}» <span className="muted">· {pageKind(s.pause.page)}{paused && s.pause.backAt ? ` · zurück ${when(s.pause.backAt)}` : ''}</span></span>
-        <button type="button" className="button-small" onClick={() => setOpen(true)}>Anpassen …</button>
+        <button type="button" className="button-small" onClick={() => setOpen(true)}>Anpassen</button>
         <PausePageDialog open={open} title={`Pause-Seite für «${p.name}»`} initial={s.pause.page} template={s.pause.template} initialBackAt={s.pause.backAt}
           withBackAt={paused} saveLabel={paused ? 'Speichern – wirkt sofort' : 'Speichern'}
           note={paused ? undefined : 'Besucher sehen diese Seite erst, wenn das Projekt pausiert ist.'}
@@ -320,7 +320,7 @@ function PausePageSummary({ page, template, backAt, onEdit }: { page: PausePage 
         <span className="pause-summary-label">Pause-Seite</span>
         «{(page ?? template).title}» <span className="muted">· {pageKind(page)}{backAt ? ` · zurück ${when(backAt)}` : ''}</span>
       </span>
-      <button type="button" className="button-small" onClick={onEdit}>Anpassen …</button>
+      <button type="button" className="button-small" onClick={onEdit}>Anpassen</button>
     </div>
   )
 }
@@ -381,11 +381,11 @@ function LiveState({ p, s, actions }: { p: ProjectDto; s: PublicStatusDto; actio
         {!offline && !accessConfirm && (
           <>
             <button onClick={() => setOffline(true)} disabled={actions.pending}>
-              {actions.pending && (actions.current?.op === 'pause' || actions.current?.op === 'unpublish') ? 'Wird offline genommen…' : 'Offline nehmen …'}
+              {actions.pending && (actions.current?.op === 'pause' || actions.current?.op === 'unpublish') ? 'Wird offline genommen…' : 'Offline nehmen'}
             </button>
             {/* Access ausschalten öffnet für alle: Rückfrage. Einschalten schützt nur: sofort. */}
             <button onClick={() => (s.accessProtected ? setAccessConfirm(true) : actions.run({ op: 'access', access: true }))} disabled={actions.pending}>
-              {s.accessProtected ? 'Access ausschalten …' : 'Access einschalten'}
+              {s.accessProtected ? 'Access ausschalten' : 'Access einschalten'}
             </button>
           </>
         )}
@@ -421,7 +421,7 @@ function PausedState({ p, s, actions }: { p: ProjectDto; s: PublicStatusDto; act
               onClick={() => actions.run({ op: 'resume' })}>
               {actions.pending && actions.current?.op === 'resume' ? 'Wird fortgesetzt…' : 'Wieder online'}
             </button>
-            <button onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen …</button>
+            <button onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen</button>
           </>
         )}
       </div>

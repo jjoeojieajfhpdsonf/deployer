@@ -145,7 +145,7 @@ function TokenTable({ rows, confirming, setConfirming, revoke }: {
               </td>
               <td className="row-actions">
                 {!t.revokedAt && confirming !== t.id && (
-                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen …</button>
+                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
                 )}
                 {confirming === t.id && (
                   <>
