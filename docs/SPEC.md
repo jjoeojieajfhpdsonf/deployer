@@ -256,9 +256,172 @@ An Claude gehen nur der Befund und die betroffenen Dateien, nie Secrets oder Wer
 
 Pro Projekt einstellbar (`auto_deploy`): Airlock prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil Airlock nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt Airlock einen Kommentar mit dem Ergebnis.
 
+## Umgebungen
+
+Stand: Konzept vom 10. November 2026, noch nicht umgesetzt. Prototyp-Screenshots: `docs/design-cal/umgebungen/`.
+
+Heute kennt Airlock genau eine Konfiguration: eine Basisdomain mit einem Wildcard-Zertifikat, ein Cloudflare-Token, einen Tunnel, eine Vorlage für die Pause-Seite. Umgebungen teilen denselben Server in mehrere Arbeitsbereiche, etwa privat (`jherren.com`) und ein Verein (`beispiel.ch`), ohne zweiten Server und ohne zweite Airlock-Installation. Airlock bleibt ein Werkzeug für eine Person; Umgebungen sind keine Mandanten mit eigenen Benutzern.
+
+**Eine Umgebung besteht aus**
+
+- einer öffentlichen Domain, der **Hauptzone** bei Cloudflare (weitere Zonen sind möglich, siehe Entscheidung 13),
+- einem Cloudflare-Token: eigenes oder das einer anderen Umgebung mitbenutzt,
+- einer eigenen **internen Basis** `int.<hauptzone>` mit eigenem Wildcard-Zertifikat und Tailnet-Eintrag,
+- eigenen **Standards**: Header-Vorlagen, Pause-Seite, Cloudflare Access,
+- allem, was darin entsteht: Projekte, externe Ziele, API- und MCP-Tokens, Audit-Einträge.
+
+### Bedienung
+
+- **Umschalter oben links**, rechts neben dem Namen «Airlock»: Kürzel, Name und Domain der aktuellen Umgebung. Ein Klick öffnet die Liste aller Umgebungen mit Domain, Anzahl Projekte und offenen kritischen Befunden (Zahl mit Wort, nie nur Farbe), darunter «Umgebung anlegen …» und «Umgebungen verwalten». Bedienbar wie die übrigen Menüs (Pfeiltasten, Esc, Fokus zurück zum Auslöser).
+- **Alles darunter gilt nur für die gewählte Umgebung:** Projekte, Security, Domains, Externe Ziele, Tokens, Audit und «Einstellungen» (der umgebungsbezogene Teil der heutigen Seite System).
+- **Server-Teil abgesetzt:** Unter einem Trenner mit der Beschriftung «Server · für alle Umgebungen» steht, was geteilt bleibt: Übersicht, Tunnel, Benachrichtigungen, GitHub. Die Seitenleiste zeigt damit jederzeit, ob eine Einstellung eine oder alle Umgebungen betrifft.
+- **Umgebung in der Adresse:** `/u/<umgebung>/projekte`, `/u/<umgebung>/projekte/<id>`. Zwei Tabs können zwei Umgebungen zeigen, ein kopierter Link öffnet immer die richtige. Die zuletzt gewählte Umgebung merkt sich das Konto (wie die Darstellung in `ui_prefs`); alte Adressen ohne Präfix leiten in die Standard-Umgebung.
+- **Kennzeichnung:** Jede Umgebung hat ein Kürzel aus zwei Zeichen (z. B. «JH») in einem neutralen Feld. Farbe dient höchstens als Zusatz; Name und Domain stehen immer daneben.
+- Gibt es nur eine Umgebung, zeigt der Umschalter trotzdem Name und Domain, damit klar ist, wofür die Seiten gelten.
+
+### Was pro Umgebung gilt und was geteilt bleibt
+
+| Bereich | Pro Umgebung | Geteilt (Server) |
+| --- | --- | --- |
+| Projekte samt Deployments, Routen, Env und Secrets, Scans, Befunden, Fix-Anfragen, Security-Events, Öffentlich-Anfragen | ✓ (über das Projekt) | |
+| Domains (Cloudflare-Zonen); eine Zone gehört genau einer Umgebung | ✓ | |
+| Cloudflare-Token | ✓ wählbar: eigenes oder mitbenutzt | |
+| Interne Basis, Wildcard-Zertifikat, Tailnet-DNS-Eintrag | ✓ | |
+| Header-Vorlagen, Pause-Seite, Access-Standard | ✓ | |
+| Externe Ziele | ✓ | |
+| API- und MCP-Tokens | ✓ | |
+| Audit-Log | ✓ | Server-Ereignisse erscheinen in jeder Umgebung, als «Server» markiert |
+| Server, Docker, Caddy, Scanner, CrowdSec, Socket-Proxy, PostgreSQL | | ✓ |
+| Tunnel und `cloudflared` | | ✓ einer pro Cloudflare-Konto (Entscheidung 1) |
+| Login, Passwort, Sessions, Darstellung | | ✓ (eine Person) |
+| Benachrichtigungskanäle (ntfy, SMTP) | stummschaltbar | ✓ Meldungen nennen die Umgebung |
+| GitHub App, GitLab | | ✓ |
+| Adresse der Oberfläche und MCP-Endpunkt | | ✓ `airlock.int.jherren.com`, `/mcp`; `deployer.int.jherren.com` leitet weiter |
+| Slugs | | ✓ serverweit eindeutig (Entscheidung 3) |
+
+### Datenmodell
+
+Neue Objekte:
+
+| Objekt | Wichtige Felder |
+| --- | --- |
+| Environment | `id`, `slug`, `name`, `short` (Kürzel), `is_default` (genau eine), `zone_id` (Hauptzone → Domain), `internal_prefix` (Standard `int`), `cloudflare_account_id` (→ CloudflareAccount), `tls_state` (Phase, CA, Schritte, Rate-Limit-Schutz; heute in `app_settings.cloudflare`), `tailnet_record_id`, `pause_page`, `access_default` (neue öffentliche Projekte hinter Access), `access_emails`, `acme_email`, `notify_muted`, `created_at` |
+| CloudflareAccount | `id`, `cf_account_id`, `name`, `token_enc`, `token_saved_at`, `last_check`. Ein Token, das eine oder mehrere Umgebungen nutzen. |
+| Tunnel | `id`, `cloudflare_account_id`, `cf_tunnel_id`, `name`, `token_enc`, `cloudflared_image`. Höchstens einer pro Cloudflare-Konto. |
+| HeaderRuleTemplate | `id`, `environment_id`, `header`, `value`, `mode`. Standard-Header der Umgebung, ohne CSP. |
+
+Geänderte Objekte:
+
+| Objekt | Änderung |
+| --- | --- |
+| Project | `environment_id` (Pflicht) |
+| Domain | `environment_id` (Pflicht); `is_default` entfällt, die Hauptzone steht in `Environment.zone_id` |
+| ExternalTarget | `environment_id` (Pflicht) |
+| ApiToken | `environment_id` (Pflicht) |
+| HeaderRule | `mode` zusätzlich `off`: schaltet einen Vorlagen-Header für dieses Projekt ab |
+| AuditEvent | `environment_id`; leer bedeutet Server-Ereignis (Anmeldung, Passwort, Tunnel, Benachrichtigungen, GitHub, Updates) |
+| AppSetting | `cloudflare` und `pause_page` wandern in Environment, CloudflareAccount und Tunnel; Passwort, Session, `ui_prefs` (neu mit `last_environment`) und Benachrichtigungen bleiben |
+
+Deployment, Route, Secret, ScanRun, Finding, FixRequest, SecurityEvent, PublicRequest und CspViolation hängen am Projekt und brauchen keine eigene Spalte.
+
+**Durchsetzung.** Jede Abfrage auf Project, Domain, ExternalTarget, ApiToken und AuditEvent geht in der Service-Schicht über einen Pflicht-Scope (`inEnvironment(envId)`); Funktionen ohne Scope gibt es nur für Server-Jobs (wöchentlicher Rescan, Ablauf, Caddy-Abgleich). Tests decken ab, dass ein Projekt aus Umgebung A über ein Token aus B weder lesbar noch änderbar ist.
+
+### Interne Adressen, Zertifikat und DNS
+
+- Jede Umgebung hat eine interne Basis `<präfix>.<hauptzone>`, etwa `int.jherren.com` und `int.beispiel.ch`. Projekte sind intern unter `<slug>.int.<hauptzone>` ihrer Umgebung erreichbar.
+- **Zertifikat:** Caddy bekommt pro Basis eine eigene Automatisierungsregel (`subjects: ["*.int.<hauptzone>"]`) mit dem Token der zugehörigen Umgebung für die DNS-Challenge. Jedes Token liegt als eigene Datei im Secrets-Volume (`cloudflare_token_<konto>`); die Caddy-Konfiguration enthält weiterhin nur den Pfad. Staging → Produktion und der Rate-Limit-Schutz laufen pro Umgebung getrennt; ein Fehler in einer Umgebung lässt die Zertifikate der anderen unberührt. Die Basen liegen in verschiedenen registrierten Domains, die Let's-Encrypt-Limits zählen also getrennt.
+- **Tailnet:** Airlock setzt in jeder Hauptzone den Eintrag `*.int.<hauptzone>` (A, nicht proxied) auf die Tailscale-IP und zieht ihn bei einem IP-Wechsel in allen Umgebungen nach.
+- **LAN:** Der lokale DNS braucht pro Basis eine Umschreibung (`*.int.beispiel.ch` → Server). Die Einstellungen der Umgebung zeigen die Zeile zum Kopieren und prüfen, ob sie greift.
+- Der IP-Filter von Caddy (nur LAN und `100.64.0.0/10`) gilt unverändert für alle internen Basen.
+- **Oberfläche und MCP** liegen unter `airlock.int.<basis der Standard-Umgebung>`. Die frühere Adresse `deployer.int.<basis>` leitet mit 308 dorthin weiter (Pfad und Query bleiben), damit Lesezeichen und bestehende MCP-Konfigurationen weiter funktionieren; die Weiterleitung gilt wie die Oberfläche nur aus LAN und Tailnet. Die Labels `airlock` und `deployer` sind in allen Basen reserviert (Entscheidung 9).
+- nip.io-Adressen (`<slug>.<ip>.nip.io`) bleiben ohne Umgebung; das geht, weil Slugs serverweit eindeutig sind.
+
+### Öffentlich und Cloudflare
+
+- Öffentliche Namen gibt es nur in Zonen der eigenen Umgebung. Neue öffentliche Projekte übernehmen den Access-Standard der Umgebung (an oder aus, erlaubte E-Mail-Adressen).
+- **Tunnel:** einer pro Cloudflare-Konto. Umgebungen mit Token im selben Konto teilen sich Tunnel und `cloudflared`-Container; die Ingress-Regeln unterscheiden nach Hostname. Liegt das Token einer Umgebung in einem anderen Konto, bekommt sie einen eigenen Tunnel und einen zweiten `cloudflared`-Container im selben Netz, das nur Caddy erreicht. Grund: Ein proxied CNAME auf `<tunnel>.cfargotunnel.com` funktioniert nach heutigem Stand nur in Zonen desselben Kontos (vor der Umsetzung bei Cloudflare nachprüfen).
+- Die Rechteprüfung des Tokens bleibt wie heute, geprüft gegen die Zonen der Umgebung. Ein mitbenutztes Token muss alle Zonen sehen, die ihm zugeordnet sind.
+- Cloudflare Security Events (Angriffserkennung) kommen pro Zone und landen damit in der richtigen Umgebung.
+
+### Standards einer Umgebung
+
+- **Header-Vorlagen** für `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors` und `Strict-Transport-Security`. Sie gelten für jedes Projekt der Umgebung, solange es für denselben Header keine eigene Regel hat; mit `mode = off` lässt sich ein Vorlagen-Header pro Projekt abschalten. Eine geänderte Vorlage löst einen Caddy-Abgleich für alle Projekte der Umgebung aus und erzeugt einen Audit-Eintrag. CSP bleibt pro Projekt, weil der Report-Only-Ablauf von der App abhängt. Am Befund gibt es zusätzlich «Als Standard der Umgebung übernehmen».
+- **Pause-Seite:** Vorlage pro Umgebung (heute global unter System → Veröffentlichung); beim Pausieren pro Projekt anpassbar wie bisher.
+- **Access:** Standard für neue öffentliche Projekte und die erlaubten E-Mail-Adressen.
+- Beim Anlegen einer Umgebung lassen sich die Standards aus einer bestehenden kopieren; sonst gilt der Airlock-Standard.
+
+### MCP- und API-Tokens
+
+- Jedes Token gehört zu genau einer Umgebung. Erstellt wird es auf der Tokens-Seite der aktuellen Umgebung; die Liste zeigt die Umgebung als Pille mit Namen.
+- **Tools sehen und ändern nur diese Umgebung.** `list_projects` und `list_domains` liefern nur deren Einträge. `get_project`, `deploy`, `update_files` und alle anderen Tools antworten bei einem Projekt aus einer anderen Umgebung mit «nicht gefunden», genau wie bei einem unbekannten Projekt; dass es existiert, verrät die Antwort nicht. `create_project` legt in der Umgebung des Tokens an, `subdomain` nur in deren Zonen. `run_scan`, `add_external_target` und `verify_external_target` wirken nur auf externe Ziele dieser Umgebung.
+- Die Anweisungen des MCP-Servers nennen die Umgebung («Airlock, Umgebung jherren.com: …»), damit Claude im Chat sagen kann, wo es deployt.
+- Es gibt kein Token für alle Umgebungen und kein Tool zum Umschalten. Serverweite Dinge (Tunnel, Passwort, Benachrichtigungen, Umgebungen anlegen) gehen nur in der Oberfläche mit Anmeldung, wie heute schon das Cloudflare-Token.
+- MCP-Aufrufe landen im Audit der Umgebung des Tokens.
+- Der Endpunkt bleibt `/mcp`; die Umgebung ergibt sich aus dem Token. Bestehende Tokens kommen bei der Migration in die Standard-Umgebung, vorhandene Claude-Konfigurationen funktionieren weiter.
+- **REST-API:** `GET/POST /api/v1/environments`, `GET/PATCH/DELETE /environments/{env}`; Listen unter `/environments/{env}/projects`, `/domains`, `/external-targets`, `/tokens`, `/audit`, `/settings`. Einzelobjekte bleiben unter `/projects/{id}` usw.; der Server prüft, dass das Objekt zur Umgebung des Aufrufers passt (Session: alle Umgebungen, API-Token: nur seine).
+
+### Projekt verschieben
+
+Projekt → Einstellungen → «In andere Umgebung verschieben …». Airlock zeigt vor der Bestätigung, was sich ändert:
+
+| Was | Folge |
+| --- | --- |
+| Interne Adresse | `haushalt.int.jherren.com` wird zu `haushalt.int.beispiel.ch`. Die alte Adresse leitet 30 Tage lang mit 308 weiter (nur aus LAN und Tailnet), danach entfällt sie. Lesezeichen und Integrationen anpassen. |
+| Öffentliche Adresse | Die Zone gehört zur alten Umgebung: Route, DNS-Eintrag, Tunnel-Regel und Access-App werden entfernt, das Projekt ist danach privat. Die neue öffentliche Adresse wird in einer Zone der Zielumgebung gewählt, mit der üblichen Schwelle (kein offener kritischer Befund). Eine Pause oder eine vorgemerkte Öffentlich-Anfrage wird verworfen, mit Hinweis. Keine Weiterleitung der alten öffentlichen Adresse. |
+| Header | Eigene Regeln des Projekts wandern mit; geerbte Vorlagen wechseln auf die der Zielumgebung. Die Unterschiede stehen in der Vorschau; danach läuft der Header-Check. |
+| CSP-Berichte | Der Report-Pfad liegt unter dem neuen Host; gesammelte Verstösse bleiben. |
+| Tokens | Tokens der alten Umgebung sehen das Projekt nicht mehr. Ein Chat, der damit gearbeitet hat, braucht das Token der Zielumgebung. |
+| Deployments, Versionen, Scans, Befunde, Secrets, lokales Repo, Container | Bleiben, wie sie sind. Kein Neu-Deploy, nur Caddy-Abgleich. Der Slug bleibt. |
+| Audit | Eintrag `project.move` in beiden Umgebungen; frühere Einträge bleiben, wo sie entstanden sind. |
+| Auto-Deploy, GitHub | Unverändert (geteilt). |
+
+Per MCP lässt sich nicht verschieben, weil ein Token nur eine Umgebung sieht.
+
+### Umgebung anlegen und löschen
+
+**Anlegen** als Assistent wie «Cloudflare verbinden»:
+
+1. Name und Kürzel.
+2. Cloudflare: Token einer bestehenden Umgebung mitbenutzen oder ein neues einfügen (Rechteprüfung wie heute).
+3. Hauptzone wählen (nur Zonen, die noch keiner Umgebung gehören) und Präfix der internen Basis.
+4. Tailnet-Eintrag setzen; Zeile für den lokalen DNS anzeigen.
+5. Zertifikat: Staging, dann Produktion, mit sichtbarem Fortschritt.
+6. Tunnel: vorhandenen des Kontos nutzen oder neuen anlegen.
+7. Standards kopieren von einer bestehenden Umgebung oder Airlock-Standard.
+
+**Löschen** nur, wenn die Umgebung leer ist (keine Projekte, keine externen Ziele). Airlock entfernt Tailnet-Eintrag und Zertifikat, widerruft die Tokens der Umgebung und löscht den Tunnel nur, wenn ihn keine andere Umgebung nutzt. Die Standard-Umgebung lässt sich nicht löschen. Wird eine andere Umgebung zum Standard, wandert die Adresse der Oberfläche mit; Airlock nennt die neue Adresse vor der Bestätigung, und die alte leitet weiter.
+
+### Migration der heutigen Installation
+
+- Eine Migration (nächste freie Nummer nach dem Zusammenführen) legt die neuen Tabellen an und genau eine Umgebung: Name «jherren.com», Slug `jherren`, Kürzel «JH», Standard.
+- Ein einmaliger, wiederholbarer Schritt beim Start überträgt `app_settings.cloudflare`: Token → CloudflareAccount, Tunnel → Tunnel, Basis `int.jherren.com` → Präfix `int` und Hauptzone `jherren.com`, TLS-Zustand, Access- und ACME-E-Mail. `pause_page` geht in die Umgebung. Als TypeScript statt SQL, weil die Werte verschlüsselt im JSON liegen. Der alte Eintrag bleibt eine Version lang als Rückfall stehen.
+- Alle Projekte, Domains, externen Ziele und Tokens bekommen die Standard-Umgebung; `domains.is_default` wird zur Hauptzone. Audit-Einträge mit Ziel Projekt, Domain, Token oder externes Ziel kommen in die Standard-Umgebung, die übrigen werden Server-Ereignisse.
+- **Nach aussen ändert sich nichts:** gleiche Adressen, gleiches Zertifikat (Subject `*.int.jherren.com` bleibt, kein neuer ACME-Auftrag), gleicher Tunnel, MCP-Tokens gelten weiter. Die Standard-Umgebung liest weiter die bestehende Datei `cloudflare_token`; neue Dateien entstehen erst mit einem zweiten Token.
+- Die alten `.env`-Variablen (`INTERNAL_BASE_DOMAIN`, `TLS_MODE`, `CLOUDFLARE_*`) gelten nur noch als Rückfall der Standard-Umgebung.
+- Oberfläche: `/projekte` leitet auf `/u/jherren/projekte`.
+
+### Offene Entscheidungen
+
+| # | Frage | Optionen | Empfehlung |
+| --- | --- | --- | --- |
+| 1 | Ein Tunnel für alle oder einer pro Umgebung? | a) einer für alle · b) einer pro Umgebung · c) einer pro Cloudflare-Konto | **c.** Ingress-Regeln nach Hostname trennen die Umgebungen ausreichend; ein zweiter Tunnel im selben Konto brächte nur einen weiteren Container. Ein anderes Konto braucht ohnehin einen eigenen Tunnel. |
+| 2 | Trennung in PostgreSQL: eigene Schemas oder Spalte `environment_id`? | a) Schema pro Umgebung · b) Spalte | **b.** Ein Migrationsstrang, echte Fremdschlüssel, Verschieben ist ein `UPDATE`, Drizzle ohne dynamische Schemas, Zähler für den Umschalter mit einer Abfrage. Schutz über den Pflicht-Scope in der Service-Schicht plus Tests; Row-Level-Security lässt sich später ergänzen. |
+| 3 | Slugs serverweit oder pro Umgebung eindeutig? | a) serverweit · b) pro Umgebung | **a.** Container, Netze, Images, lokale Repos und nip.io-Namen heissen nach dem Slug; doppelte Slugs bräuchten überall ein Umgebungs-Präfix. |
+| 4 | Umgebung in der Adresse oder nur als gespeicherte Auswahl? | a) Pfad `/u/<slug>/…` · b) Auswahl im Konto | **a**, zusätzlich die letzte Wahl merken. Links und mehrere Tabs bleiben eindeutig. |
+| 5 | Header-Vorlagen live erben oder beim Anlegen kopieren? | a) live erben · b) kopieren | **a.** Eine Änderung am Standard erreicht alle Projekte; Ausnahmen pro Projekt über eigene Regel oder `off`. CSP nie als Vorlage. |
+| 6 | Wo erscheinen Server-Ereignisse im Audit? | a) in jeder Umgebung · b) nur unter Server | **a**, als «Server» markiert und filterbar. Fehlgeschlagene Anmeldungen bleiben wie heute immer sichtbar. |
+| 7 | Benachrichtigungskanäle geteilt oder pro Umgebung? | a) geteilt · b) pro Umgebung | **a.** Die Meldung nennt die Umgebung im Titel; pro Umgebung stummschaltbar. Eigene Kanäle erst, wenn eine Umgebung jemand anderem gehört (nicht im Umfang). |
+| 8 | Cloudflare-Token pro Umgebung Pflicht oder teilbar? | a) Pflicht · b) teilbar | **b.** Eigenes Token nur, wenn die Zone in einem anderen Konto liegt oder die Rechte bewusst getrennt sein sollen. |
+| 9 | Oberfläche nur unter der Standard-Umgebung oder unter jeder Basis? | a) nur Standard · b) jede Basis | **a.** Ein Hostname (`airlock.int.<basis>`, `deployer.int.<basis>` leitet weiter), ein Session-Cookie, keine zusätzlichen Zertifikatsnamen; `airlock` und `deployer` sind in allen Basen reserviert. |
+| 10 | MCP: Token pro Umgebung oder ein Token mit Parameter `environment`? | a) pro Umgebung · b) Parameter | **a.** Mit b könnte ein Agent im falschen Bereich deployen, und jede Tool-Beschreibung würde länger. |
+| 11 | Externe Ziele pro Umgebung oder geteilt? | a) pro Umgebung · b) geteilt | **a.** Der Besitznachweis hängt an einer Domain, die meist zu einer Umgebung gehört. |
+| 12 | GitHub App geteilt oder pro Umgebung? | a) geteilt · b) pro Umgebung | **a.** Eine App mit Installation pro Organisation reicht; pro Umgebung erst, wenn getrennte Konten nötig werden. |
+| 13 | Mehrere Zonen pro Umgebung? | a) genau eine · b) Hauptzone plus weitere | **b.** Weitere Zonen desselben Tokens nur für öffentliche Namen; die interne Basis liegt immer in der Hauptzone. |
+| 14 | Weiterleitung alter Adressen nach dem Verschieben? | a) keine · b) intern 30 Tage · c) intern und öffentlich | **b.** Öffentlich würde ein DNS-Eintrag in der alten Zone stehen bleiben, der zu keiner Umgebung mehr passt. |
+
 ## MCP-Schnittstelle
 
-Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.deinedomain.ch/mcp`. Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
+Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.deinedomain.ch/mcp` (`deployer.int.deinedomain.ch` leitet weiter). Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
 
 | Tool | Parameter | Bestätigung nötig |
 | --- | --- | --- |
@@ -326,7 +489,7 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 
 Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starten und DNS ändern kann. Deshalb gelten diese Regeln:
 
-- **Nie öffentlich.** UI, API und MCP laufen nur unter `deployer.int.deinedomain.ch`, erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
+- **Nie öffentlich.** UI, API und MCP laufen nur unter `airlock.int.deinedomain.ch` (früher `deployer.int.deinedomain.ch`, leitet mit 308 weiter), erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
 - **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
 - **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.
@@ -380,6 +543,7 @@ Jeder Meilenstein ist für sich nutzbar.
 6. **Security:** drei Scan-Stufen, Score, Schwelle für «öffentlich», externe Domains, wöchentlicher Rescan, Benachrichtigungen.
 7. **Angriffserkennung:** CrowdSec mit Caddy-Bouncer, Cloudflare Security Events, Drift-Prüfung, Quarantäne; Falco optional. Setzt Meilenstein 5 (Tunnel) und 6 (Benachrichtigungen) voraus.
 8. **Fix-Assistent:** Header über Caddy (CSP mit Report-Only), Header-Check über Caddy, Mit Claude lösen über MCP und optional API, GitHub App und GitLab, private Repos, Auto-Deploy nach Merge.
+9. **Umgebungen:** mehrere Arbeitsbereiche auf einem Server, je mit Hauptzone, interner Basis, Zertifikat und Standards; Umschalter in der Oberfläche, Tokens pro Umgebung (siehe Abschnitt Umgebungen).
 
 MCP kommt bewusst früh (Meilenstein 3): Ab dann kann Claude beim Weiterbauen von Airlock selbst schon Testprojekte deployen.
 
