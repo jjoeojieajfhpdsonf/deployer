@@ -236,10 +236,15 @@ function runningScan(p: ProjectDto): ScanReportDto {
 export function audit(targetId?: string): AuditEventDto[] {
   const rows: [number, string, string, string | null, 'ok' | 'error', string | null][] = [
     [4 * MIN, 'ui', 'project.deploy', 'p-rezepte', 'ok', null],
+    [9 * MIN, 'ui', 'auth.login', null, 'ok', null],
     [13 * MIN, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+    [40 * MIN, 'ip:192.168.1.77', 'auth.login', null, 'error', 'falsches Passwort'],
+    [70 * MIN, 'ui', 'auth.login', null, 'ok', null],
     [2 * HOUR, 'ui', 'project.deploy', 'p-foto', 'ok', null],
     [3 * HOUR, 'system', 'scan.done', 'p-kontoauszug', 'ok', null],
+    [4 * HOUR, 'ui', 'auth.login', null, 'ok', null],
     [5 * HOUR, 'mcp:claude', 'project.env', 'p-haushalt', 'ok', null],
+    [7 * HOUR, 'ui', 'auth.login', null, 'ok', null],
     [26 * HOUR, 'ui', 'cloudflare.tls', 'cloudflare', 'ok', null],
   ]
   return rows

@@ -5,12 +5,15 @@ import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { actorLabel, describeAudit } from '../lib/format.js'
 import { IconSearch } from '../components/Icons.js'
+import { IconWarn } from '../components/Security.js'
 import { useProjects } from '../lib/projects.js'
 
 type Kind = 'alle' | 'fehler' | 'deploys'
 
 const isDeploy = (e: AuditEventDto) => /deploy|rollback|public|start|stop/.test(e.action)
 const isLogin = (e: AuditEventDto) => e.action === 'auth.login'
+/** Fehlgeschlagene Anmeldungen sind ein Sicherheitsereignis: nie ausblenden. */
+const isHiddenLogin = (e: AuditEventDto) => isLogin(e) && e.result !== 'error'
 
 /**
  * Audit-Log: lesbare Sätze wie in der Übersicht, darunter der Schlüssel der
@@ -29,10 +32,11 @@ export function Audit() {
   const all = events.data?.events ?? []
   const q = filter.trim().toLowerCase()
   const list = all
-    .filter((e) => logins || !isLogin(e))
+    .filter((e) => logins || !isHiddenLogin(e))
     .filter((e) => kind === 'alle' || (kind === 'fehler' ? e.result === 'error' : isDeploy(e)))
     .filter((e) => !q || describeAudit(e, byId).toLowerCase().includes(q) || e.action.includes(q) || e.actor.toLowerCase().includes(q) || JSON.stringify(e.paramsMasked ?? '').toLowerCase().includes(q))
-  const hiddenLogins = logins ? 0 : all.filter(isLogin).length
+  const hiddenLogins = logins ? 0 : all.filter(isHiddenLogin).length
+  const failedLogins = all.filter((e) => isLogin(e) && e.result === 'error').length
 
   const details = (e: AuditEventDto) => {
     if (e.error) return e.error
@@ -62,7 +66,19 @@ export function Audit() {
         </div>
         <label className="choice audit-logins">
           <input type="checkbox" checked={logins} onChange={(e) => setLogins(e.target.checked)} />
-          <span>Anmeldungen zeigen{hiddenLogins > 0 ? <small> {hiddenLogins} ausgeblendet</small> : null}</span>
+          <span>
+            Anmeldungen zeigen
+            {(hiddenLogins > 0 || (!logins && failedLogins > 0)) && (
+              <small className="audit-logins-note">
+                {hiddenLogins > 0 && <>{hiddenLogins} erfolgreiche ausgeblendet</>}
+                {!logins && failedLogins > 0 && (
+                  <span className="audit-logins-failed">
+                    <IconWarn /> {failedLogins} {failedLogins === 1 ? 'fehlgeschlagene bleibt' : 'fehlgeschlagene bleiben'} sichtbar
+                  </span>
+                )}
+              </small>
+            )}
+          </span>
         </label>
       </div>
 

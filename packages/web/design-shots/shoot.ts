@@ -106,6 +106,11 @@ const shots: Shot[] = [
   { group: 'verwaltung', name: 'domains', path: '/domains' },
   { group: 'verwaltung', name: 'tokens', path: '/tokens' },
   { group: 'verwaltung', name: 'audit', path: '/audit' },
+  {
+    // Filter «Anmeldungen zeigen» mit Tastaturfokus und Maus darüber
+    group: 'verwaltung', name: 'audit-anmeldungen-fokus', path: '/audit', full: false,
+    prepare: async (pg) => { await pg.locator('.audit-logins input').focus(); await pg.keyboard.press('Space'); await pg.keyboard.press('Space'); await pg.locator('.audit-logins').hover(); await pg.waitForTimeout(150) },
+  },
   { group: 'system', name: 'system-uebersicht', path: '/system' },
   { group: 'system', name: 'system-cloudflare', path: '/system/cloudflare' },
   { group: 'system', name: 'system-benachrichtigungen', path: '/system/benachrichtigungen' },
