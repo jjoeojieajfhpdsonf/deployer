@@ -93,6 +93,8 @@ export const PROBE_SERVER = 'probe'
 
 /** Logger-Name des Zugriffs-Logs für deployer (im Log: http.log.access.deployer) */
 export const ACCESS_LOGGER = 'deployer'
+/** Logger für Aufrufe von Projekten mit Report-Only-CSP (http.log.access.csp) */
+export const CSP_VIEW_LOGGER = 'csp'
 
 export interface TlsOptions {
   baseDomain: string
@@ -338,8 +340,16 @@ export function buildCaddyConfig(
 
   // Zugriffs-Log nur für deployer selbst: daraus liest die Systemseite, welche
   // Absenderadressen Caddy sieht (Warnung bei Docker-Gateway statt Gerät).
-  const accessLog = opts.accessLogHosts?.length
-    ? { logs: { logger_names: Object.fromEntries(opts.accessLogHosts.map((h) => [h, [ACCESS_LOGGER]])), skip_unmapped_hosts: true } }
+  // CSP-Fix: dazu die Namen von Projekten, deren CSP im Report-Only läuft.
+  // Daraus zählt deployer die Aufrufe ohne Verstoss, bevor die CSP scharf
+  // werden darf. Nur solange Report-Only läuft – danach kein Log mehr.
+  const loggerNames: Record<string, string[]> = Object.fromEntries((opts.accessLogHosts ?? []).map((h) => [h, [ACCESS_LOGGER]]))
+  for (const r of routes) {
+    if (!r.headers?.some((h) => h.header === 'content-security-policy' && h.mode === 'report-only')) continue
+    for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), CSP_VIEW_LOGGER]
+  }
+  const accessLog = Object.keys(loggerNames).length
+    ? { logs: { logger_names: loggerNames, skip_unmapped_hosts: true } }
     : {}
 
   const servers: Record<string, unknown> = {

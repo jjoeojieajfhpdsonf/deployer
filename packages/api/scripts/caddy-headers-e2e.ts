@@ -12,7 +12,7 @@
  * - Der eigene Header-Check (checkHeaders) meldet danach nur noch, was fehlt
  * - Regel entfernt: Header fehlt wieder
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -20,6 +20,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildCaddyConfig, type RouteSpec } from '../src/drivers/caddy-config.js'
 import { checkHeaders } from '../src/security/headers.js'
+import { countPageViews } from '../src/security/csp-analysis.js'
 import { HEADER_DEFAULT } from '@deployer/shared'
 
 const NAME = 'deployer-caddy-headers-e2e'
@@ -136,6 +137,14 @@ try {
   check(!get.headers['x-seen-uri'], 'GET wird nicht weitergeleitet')
   const big = post(REPORT, ['--data-binary', `@/t/big.json`])
   check(big.status === 413, `Body über 64 KB: ${big.status} (erwartet 413)`)
+  // CSP-Fix: Aufrufe von Namen mit Report-Only-CSP landen im Zugriffs-Log (Logger csp)
+  const since = Date.now() - 60_000
+  for (let i = 0; i < 3; i++) fetchIn(['-H', `Host: ${MELDE}`, 'http://127.0.0.1/'])
+  // Caddy schreibt seine Logs nach stderr
+  const logs = spawnSync('docker', ['logs', NAME], { encoding: 'utf8' })
+  const caddyLog = `${logs.stdout}\n${logs.stderr}`
+  const views = countPageViews(caddyLog, { hosts: [MELDE], sinceMs: since })
+  check(views >= 3, `Aufrufe im Report-Only aus Caddys Log gezählt: ${views}`)
   let limited = 0
   for (let i = 0; i < 70; i++) if (post(REPORT, ['--data', '{}']).status === 429) limited++
   check(limited >= 5, `Ratenlimit greift: ${limited} von 70 Meldungen mit 429`)

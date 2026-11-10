@@ -23,7 +23,10 @@ export function fixWay(
   f: { tool: string; title: string },
   o: { sourceType: string; runtimeKind: string; github: boolean },
 ): FixWay {
-  if (headerFixFor(f)) return 'header'
+  const header = headerFixFor(f)
+  // CSP-Fix: eine CSP ohne 'unsafe-inline' braucht oft ausgelagerten
+  // Inline-Code – das ist eine Codeänderung (Header setzt danach Caddy)
+  if (header && !(header === 'content-security-policy' && ['files', 'dockerfile', 'compose'].includes(o.sourceType))) return 'header'
   if (o.sourceType === 'files') return 'files'
   if (o.sourceType === 'image') return 'image'
   if (o.sourceType === 'dockerfile' || o.sourceType === 'compose') return o.github ? 'github' : 'repo'
@@ -50,6 +53,13 @@ export function affectedPaths(f: { tool: string; title: string; location: string
     if (!clean) return
     if (has(clean)) out.add(clean)
     else for (const r of repoPaths) if (r.endsWith(`/${clean}`) || clean.endsWith(`/${r}`)) out.add(r)
+  }
+  // CSP-Befund: die HTML-Seiten (dort steht der Inline-Code), index.html zuerst
+  if (f.tool === 'header-check') {
+    return repoPaths
+      .filter((p) => /\.html?$/i.test(p) && !isWithheld(p))
+      .sort((a, b) => Number(!/(^|\/)index\.html?$/i.test(a)) - Number(!/(^|\/)index\.html?$/i.test(b)) || a.localeCompare(b))
+      .slice(0, 8)
   }
   const first = (f.location.split(' · ')[0] ?? '').trim()
   let path = first.replace(/:\d+$/, '')

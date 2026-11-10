@@ -82,6 +82,8 @@ type Shot = {
   empty?: boolean
   /** M8: GitHub App angelegt und installiert */
   githubConnected?: boolean
+  /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
+  cspReverted?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -108,6 +110,23 @@ const shots: Shot[] = [
   {
     group: 'security', name: 'projekt-security-laeuft-ausgabe', path: `/projekte/${fx.runningScanProjectId}?tab=security`, full: false,
     prepare: async (pg) => { await pg.locator('.live-scan .stage-tail summary').first().click(); await pg.waitForTimeout(200) },
+  },
+  // CSP-Fix: Analyse und gesperrtes Scharfschalten; Zustand nach automatischem Zurücksetzen
+  {
+    group: 'csp', name: 'security-csp-gesperrt', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('.csp-analysis').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -140))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security`, full: false, cspReverted: true,
+    prepare: async (pg) => {
+      await pg.locator('#header-caddy-title').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
   },
   // M8: Header über Caddy – Rückfrage vor HSTS
   {
@@ -302,6 +321,7 @@ try {
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             return json(route, r.body, r.status)
           }

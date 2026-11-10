@@ -3,6 +3,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/
 import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@deployer/shared'
 import { api, ApiError, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
+import { copyText } from '../lib/clipboard.js'
 import { IconWarn } from './Security.js'
 
 /**
@@ -19,11 +20,17 @@ export const headerRulesKey = (projectId: string) => ['header-rules', projectId]
 const mutationKey = (projectId: string) => ['header', projectId]
 
 export function useHeaderRules(projectId: string) {
-  return useQuery({ queryKey: headerRulesKey(projectId), queryFn: () => api.headerRules(projectId) })
+  return useQuery({
+    queryKey: headerRulesKey(projectId),
+    queryFn: () => api.headerRules(projectId),
+    // Solange die Funktionsprüfung einer scharfen CSP läuft, nachsehen
+    refetchInterval: (q) => (q.state.data?.rules.some((r) => r.check?.state === 'running') ? 3000 : false),
+  })
 }
 
 /** Ergebnis des Nachscans als ein Satz */
 export function recheckText(r: HeaderRecheckDto): string {
+  if (r.pending) return r.pending
   if (!r.ok) return `Regel gespeichert. Nachscan nicht möglich: ${r.error}`
   const parts: string[] = []
   if (r.fixed.length) parts.push(`${r.fixed.length === 1 ? '1 Befund' : `${r.fixed.length} Befunde`} behoben`)
@@ -65,7 +72,16 @@ function useHeaderMutation(projectId: string, onDone: (msg: string) => void) {
       refresh()
     },
   })
-  return { set, remove, recheck, busy }
+  // Rückweg in einem Klick: scharfe CSP -> Report-Only, sonst Regel entfernen
+  const reset = useMutation({
+    mutationKey: mutationKey(projectId),
+    mutationFn: (header: HeaderKey) => api.resetHeaderRule(projectId, header),
+    onSuccess: (r, header) => {
+      onDone(`${HEADER_LABEL[header]} ${r.result === 'report-only' ? 'zurück auf Report-Only (blockiert nichts mehr)' : 'entfernt'}. ${recheckText(r.recheck)}`)
+      refresh()
+    },
+  })
+  return { set, remove, recheck, reset, busy }
 }
 
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : 'Nicht gespeichert')
@@ -186,9 +202,15 @@ export function HeaderFixAction({
 
 const MODE_LABEL: Record<HeaderMode, string> = { 'report-only': 'Report-Only', enforce: 'aktiv' }
 
+/**
+ * Einfacher Rückweg (CSP-Fix): «Zurücksetzen» ohne Rückfrage – es macht
+ * nichts kaputt. Scharfe CSP -> Report-Only, jede andere Regel wird entfernt.
+ */
 function RuleRow({ r, m }: { r: HeaderRuleDto; m: ReturnType<typeof useHeaderMutation> }) {
-  const c = useConfirm()
-  const removing = m.remove.isPending && m.remove.variables === r.header
+  const resetting = m.reset.isPending && m.reset.variables === r.header
+  const toReportOnly = r.header === 'content-security-policy' && r.mode === 'enforce'
+  const what = toReportOnly ? 'zurück auf Report-Only' : 'Regel entfernen'
+  const descId = `reset-${r.header}`
   return (
     <tr>
       <td>{HEADER_LABEL[r.header]}</td>
@@ -196,21 +218,53 @@ function RuleRow({ r, m }: { r: HeaderRuleDto; m: ReturnType<typeof useHeaderMut
       <td>{MODE_LABEL[r.mode]}</td>
       <td>{relativeTime(r.updatedAt)}</td>
       <td className="row-actions">
-        {!c.open ? (
-          <button ref={c.trigger} type="button" className="button-small" disabled={m.busy} onClick={c.show}>Entfernen …</button>
-        ) : (
-          <>
-            <button type="button" className="button-small" onClick={c.close} autoFocus>Abbrechen</button>
-            <button type="button" className="button-small button-danger-solid" disabled={m.busy}
-              onClick={() => m.remove.mutate(r.header, { onSettled: c.close })}>
-              {removing ? 'Wird entfernt …' : 'Ja, entfernen'}
-            </button>
-          </>
-        )}
+        <span id={descId} className="reset-what">{what}</span>
+        <button type="button" className="button-small" aria-describedby={descId}
+          aria-disabled={m.busy || undefined} onClick={() => !m.busy && m.reset.mutate(r.header)}>
+          {resetting ? 'Wird zurückgesetzt …' : 'Zurücksetzen'}
+        </button>
       </td>
     </tr>
   )
 }
+
+/** Ergebnis der Funktionsprüfung nach dem Scharfschalten */
+function CheckStatus({ check }: { check: NonNullable<HeaderRuleDto['check']> }) {
+  if (check.state === 'running') return <p className="csp-check" role="status"><span className="status-dot" aria-hidden="true" />{check.message}</p>
+  if (check.state === 'ok') return <p className="csp-check csp-check-ok" role="status">✓ {check.message} <span className="muted">({relativeTime(check.at)})</span></p>
+  return (
+    <div className="csp-check csp-check-failed" role="alert">
+      <p><IconWarn /><span><strong>{check.message}</strong> <span className="muted">{relativeTime(check.at)}</span></span></p>
+      {check.violations.length > 0 && <ul>{check.violations.map((v) => <li key={v}>{v}</li>)}</ul>}
+    </div>
+  )
+}
+
+/** Auftrag an Claude, Inline-Code auszulagern (zum Kopieren) */
+function InlinePrompt({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState<'ok' | 'manual' | null>(null)
+  return (
+    <>
+      <button type="button" className="button-small" aria-expanded={open} aria-controls="csp-inline-prompt" onClick={() => setOpen((v) => !v)}>Mit Claude lösen</button>
+      {open && (
+        <div id="csp-inline-prompt" className="claude-fix csp-inline-prompt">
+          <p className="claude-fix-label">Auftrag für Claude oder Claude Code (mit dem deployer-MCP verbunden):</p>
+          <pre className="code-block">{prompt}</pre>
+          <div className="claude-fix-actions">
+            <button type="button" className="button-small button-primary" onClick={async () => setCopied((await copyText(prompt)) ? 'ok' : 'manual')}>Auftrag kopieren</button>
+            <span role="status" className="fix-note">
+              {copied === 'ok' && 'Kopiert. Der Vorschlag erscheint unter «Vorschläge von Claude».'}
+              {copied === 'manual' && 'Kopieren ging nicht. Bitte den Text von Hand markieren.'}
+            </span>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /** Abschnitt «Header über Caddy»: Regeln, Entfernen, CSP-Verstösse und Vorschlag. */
 export function HeaderRulesSection({ projectId }: { projectId: string }) {
@@ -223,6 +277,8 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
   if (!d || (d.rules.length === 0 && d.csp.violations.length === 0)) return null
   const csp = d.rules.find((r) => r.header === 'content-security-policy')
   const settingCsp = m.set.isPending && m.set.variables?.header === 'content-security-policy'
+  const a = d.csp.analysis
+  const ready = d.csp.readiness
 
   return (
     <section className="header-caddy" id="header-caddy" aria-labelledby="header-caddy-title">
@@ -245,8 +301,10 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
           </tbody>
         </table>
       </div>
+      <p className="hint">«Zurücksetzen» macht eine scharfe CSP wieder zu Report-Only (blockiert nichts mehr) und entfernt jede andere Regel.</p>
       <div role="status" aria-live="polite" className="fix-live">{notice && <p className="fix-notice">{notice}</p>}</div>
       {m.remove.isError && <p role="alert" className="error">{errorText(m.remove.error)}</p>}
+      {m.reset.isError && <p role="alert" className="error">{errorText(m.reset.error)}</p>}
 
       {csp && (
         <div className="csp-reports">
@@ -274,14 +332,47 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
               </table>
             </div>
           )}
+          {csp.check && <CheckStatus check={csp.check} />}
+          {a && (
+            <div className="csp-analysis">
+              <h3>Analyse der Seiten</h3>
+              {a.error ? <p className="hint">{a.error}</p> : (
+                <>
+                  <p className="hint">
+                    {plural(a.pages.length, 'Seite', 'Seiten')} gelesen ({a.pages.join(', ')}): {plural(a.inlineScripts, 'Inline-Skript', 'Inline-Skripte')}, {plural(a.inlineStyles, 'Inline-Style', 'Inline-Styles')}, {plural(a.styleAttributes, 'style-Attribut', 'style-Attribute')}, {plural(a.eventHandlers, 'Ereignis-Attribut', 'Ereignis-Attribute')}.
+                    {Object.keys(a.external).length > 0 && <> Externe Quellen: {Object.entries(a.external).map(([k, v]) => `${k} ${v.join(' ')}`).join('; ')}.</>}
+                  </p>
+                  {a.conflicts.length > 0 && (
+                    <div className="csp-conflicts" role="note">
+                      <p><IconWarn /><strong>Die aktuelle Regel würde blockieren:</strong></p>
+                      <ul>{a.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {d.csp.suggestion && (
             <>
-              <p className="hint">Vorschlag aus den Meldungen:</p>
+              <p className="hint">Vorschlag aus den Meldungen und der Analyse:</p>
               <pre className="code-block">{d.csp.suggestion}</pre>
             </>
           )}
           {d.csp.notes.length > 0 && (
             <ul className="hint csp-notes">{d.csp.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+          )}
+          {d.csp.inlinePrompt && <div className="csp-inline"><InlinePrompt prompt={d.csp.inlinePrompt} /></div>}
+          {csp.mode === 'report-only' && ready && (
+            <p id="csp-ready" className={ready.ok ? 'hint' : 'csp-ready-blocked'}>
+              {ready.ok ? <>Scharf schalten möglich: {ready.reason}</> : (
+                <><IconWarn /><span>Scharf schalten noch gesperrt: {a?.conflicts.length
+                  ? 'die Analyse findet Konflikte (oben)'
+                  : a?.error ? `Analyse nicht möglich (${a.error})` : 'kein Nachweis'}
+                  {' '}und {ready.views === null ? 'Aufrufe nicht zählbar' : `${ready.views} von ${ready.viewsNeeded} Aufrufen im Report-Only`}
+                  {ready.violationsSince > 0 ? `, ${plural(ready.violationsSince, 'Verstoss', 'Verstösse')} gemeldet` : ' ohne Verstoss'}.
+                  {' '}Frei wird es, sobald die Analyse keinen Konflikt mehr findet oder {ready.viewsNeeded} Aufrufe ohne Verstoss vorliegen.</span></>
+              )}
+            </p>
           )}
           <div className="form-actions">
             {d.csp.suggestion && !enforce.open && (
@@ -291,11 +382,16 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
               </button>
             )}
             {csp.mode === 'report-only' && !enforce.open && (
-              <button ref={enforce.trigger} type="button" className="button-small button-warn" disabled={m.busy} onClick={enforce.show}>Scharf schalten …</button>
+              // Gesperrt, aber fokussierbar: der Grund wird vorgelesen
+              <button ref={enforce.trigger} type="button" className="button-small button-warn"
+                aria-disabled={m.busy || !ready?.ok || undefined} aria-describedby="csp-ready"
+                onClick={() => { if (!m.busy && ready?.ok) enforce.show() }}>
+                Scharf schalten …
+              </button>
             )}
             {csp.mode === 'report-only' && enforce.open && (
               <span className="confirm-inline" role="group" aria-label="CSP scharf schalten">
-                <span className="confirm-note"><IconWarn />Eine scharfe CSP blockiert alles, was die Regel nicht erlaubt.</span>
+                <span className="confirm-note"><IconWarn />Eine scharfe CSP blockiert alles, was die Regel nicht erlaubt. Danach prüft deployer die Seiten im Browser; bei einem Verstoss geht sie von selbst auf Report-Only zurück.</span>
                 <button type="button" className="button-small" onClick={enforce.close} autoFocus>Abbrechen</button>
                 <button type="button" className="button-small button-primary" disabled={m.busy}
                   onClick={() => m.set.mutate({ header: 'content-security-policy', mode: 'enforce', confirm: true }, { onSettled: enforce.close })}>
@@ -303,7 +399,7 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
                 </button>
               </span>
             )}
-            {csp.mode === 'enforce' && <span className="fix-note">CSP ist scharf; Verstösse werden weiter gemeldet.</span>}
+            {csp.mode === 'enforce' && csp.check?.state !== 'running' && <span className="fix-note">CSP ist scharf; Verstösse werden weiter gemeldet.</span>}
           </div>
           {m.set.isError && <p role="alert" className="error">{errorText(m.set.error)}</p>}
         </div>
