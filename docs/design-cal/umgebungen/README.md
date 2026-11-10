@@ -5,7 +5,8 @@ Konzept: `docs/SPEC.md`, Abschnitt «Umgebungen». Die Umsetzung läuft als Meil
 Die Bilder sind eine Fixture-Variante des Screenshot-Werkzeugs: Das Skript `packages/web/design-shots/umgebungen.ts`
 blendet Umschalter, Einstellungen und «Projekt verschieben» per DOM über die echte Oberfläche, mit den
 Tokens und Klassen aus `styles.css`. Der Produktivcode ist unverändert. Auf `main` liegen nur die Bilder; das
-Skript steht auf dem Branch `umgebungen`, da es mit der echten Umsetzung entfällt. «example.ch» steht für die heutige
+Skript entfällt mit der echten Umsetzung und ist in der Historie erhalten
+(`git show 3a6d931:packages/web/design-shots/umgebungen.ts`). «example.ch» steht für die heutige
 Installation (nach der Migration «jherren.com»), «Verein» und «Labor» sind erfundene weitere Umgebungen.
 
 | Bild | Zeigt |
@@ -16,7 +17,7 @@ Installation (nach der Migration «jherren.com»), «Verein» und «Labor» sind
 | `umgebungen-standards-*` | Einstellungen → Standards: Header-Vorlagen, Access, Pause-Seite |
 | `umgebungen-verschieben-*` | Projekt → Einstellungen: in andere Umgebung verschieben, mit Vorschau der Folgen |
 
-Neu erzeugen (auf dem Branch `umgebungen`):
+Neu erzeugen (mit dem Skript aus `3a6d931`, siehe oben):
 
 ```bash
 pnpm --filter @deployer/web exec tsx design-shots/shoot.ts --out docs/design-cal/umgebungen --only umgebungen
