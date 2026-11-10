@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ApiTokenDto } from '../api.js'
-import { relativeTime } from '../components/Status.js'
+import { relativeTime } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtDate } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'

@@ -20,6 +20,7 @@ import { Domains } from './pages/Domains.js'
 import { useSystem } from './components/ServerName.js'
 import { useProjects } from './lib/projects.js'
 import { Account } from './pages/Account.js'
+import { Design } from './pages/Design.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
@@ -96,6 +97,8 @@ export function App() {
           <Route path="/audit" element={<Audit />} />
           <Route path="/tokens" element={<Tokens />} />
           <Route path="/konto" element={<Account />} />
+          {/* Interne Komponenten-Übersicht (nur angemeldet, nicht in der Navigation) */}
+          <Route path="/design" element={<Design />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         </ErrorBoundary>

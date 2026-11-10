@@ -1,5 +1,4 @@
 import type { ProjectStatus } from '@airlock/shared'
-export { relativeTime, duration } from '../lib/format.js'
 
 const LABELS: Record<ProjectStatus, string> = {
   created: 'angelegt',

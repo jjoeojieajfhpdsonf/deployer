@@ -8,6 +8,7 @@ import { fmtDateTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkLog } from './States.js'
 import { deployState, groupDeployments, groupSummary, type DeployItem } from '../lib/deployments.js'
 import { Actor } from './Actor.js'
+import { IconChevron } from './Icons.js'
 
 /**
  * Deployments als Liste (Übersicht: Karte mit fünf Einträgen; Reiter: alle,
@@ -23,7 +24,6 @@ const IconUp = () => <svg {...svg}><path d="M8 13V3.5M4.2 7.2 8 3.4l3.8 3.8" /><
 const IconRedo = () => <svg {...svg}><path d="M12.6 8.6A4.7 4.7 0 1 1 11 4.4" /><path d="M12.4 2.4v2.9H9.5" /></svg>
 const IconUndo = () => <svg {...svg}><path d="M3.4 8.6A4.7 4.7 0 1 0 5 4.4" /><path d="M3.6 2.4v2.9h2.9" /></svg>
 const IconWait = () => <svg {...svg}><circle cx="8" cy="8" r="5" strokeDasharray="2.4 2.2" /></svg>
-const IconChevron = () => <svg {...svg} width={14} height={14}><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
 
 const STATUS_WORD: Record<string, string> = {
   pending: 'wartet', pulling: 'holt Quelle', starting: 'startet', healthchecking: 'Healthcheck',
@@ -126,7 +126,7 @@ export function DeployList({
     return (
       <li key={`g-${key}`} className="dl-group" data-open={open || undefined}>
         <button type="button" className="dl-group-toggle" aria-expanded={open} onClick={toggle}>
-          <IconChevron />
+          <IconChevron size={14} />
           <span>{it.rows.length} weitere Deployments mit Stand <code className="dl-version">{shortVersion(it.version)}</code> <span className="dl-group-why">({groupSummary(it.rows)})</span></span>
         </button>
         <div className="dl-group-body">

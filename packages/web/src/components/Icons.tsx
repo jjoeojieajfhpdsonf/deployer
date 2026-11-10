@@ -15,6 +15,16 @@ export const IconAlert = ({ size = 20, className }: P) => (
 export const IconWarn = ({ size = 14, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 2.2 14.3 13H1.7Z" /><path d="M8 6.4v3M8 11.3v.1" /></svg>
 )
+/* Ergebnis einer Prüfung: im Kreis, gemeinsam für Übersicht und Cloudflare-Assistent */
+export const IconOk = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="m5.4 8.2 1.8 1.8 3.4-3.6" /></svg>
+)
+export const IconBad = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
+)
+export const IconPending = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
+)
 export const IconMore =({ size, className }: P) => (
   // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer
   <svg {...base(size)} className={className}><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.35" /><circle cx="8" cy="8" r="1.35" /><circle cx="12.5" cy="8" r="1.35" /></g></svg>

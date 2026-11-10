@@ -27,7 +27,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 | 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | erledigt |
 | 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | erledigt; Bestätigung offen, Frage Nr. 3 |
 | 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | erledigt |
-| 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | geplant |
+| 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | erledigt; 4 Zeichen offen, Frage Nr. 4 |
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | geplant |
 | 6 | Befehlspalette und Tastatur | geplant |
 | 7 | Erster Start, Login, Marke | geplant |
@@ -165,6 +165,36 @@ Umsetzung:
 Abnahme:
 - `/design` (nur angemeldet) zeigt alle Bausteine in Hell und Dunkel nebeneinander.
 - Doppelte oder abweichende Varianten im Code zusammengeführt; Liste unten.
+
+Umsetzung:
+- `pages/Design.tsx`, Route `/design` (hinter der Anmeldung, nicht in der Seitenleiste): Knöpfe
+  (alle Varianten, deaktiviert, lädt), Pillen und Zähler (Status, Öffentlich, Schwere, Note,
+  Reiter-Zähler), Zeilen (Einstellungskarte mit Schalter), Karten (Kennzahl, Karte), Reiter und
+  Filter, Menü, Dialog, Toasts (Knöpfe lösen echte Toasts aus), Formularfelder mit Fehler,
+  Code-Feld und Log, Skeletons, Leer/Fehler/Teilweise/Veraltet/Hinweise, Zeichen, Diagramme
+  (Note im Ring, CPU/RAM-Verlauf).
+- Hell und Dunkel nebeneinander: die Tokens gelten jetzt auch für `.theme-light`/`.theme-dark`
+  (`:root, .theme-light` und `:root[data-theme='dark'], .theme-dark`); die sechs Dunkel-Regeln für
+  einzelne Bausteine greifen auch in `.theme-dark`, nicht aber in `.theme-light`. Seite selbst
+  unverändert (alle bisherigen Referenzbilder gleich). `contrast.mjs` liest die neuen Blöcke.
+- Gefunden über die Übersicht und behoben: Ladeknopf «Ja, löschen» zeigte im Dunkelmodus den
+  Text durch den Ring (Dunkel-Regel war spezifischer).
+- Screenshot `docs/design-cal/ui-grundlagen/4-bausteine/`, visuelle Szene `design-bausteine`.
+
+Zusammengeführt bzw. entfernt:
+| Was | Vorher | Jetzt |
+|---|---|---|
+| `IconOk`, `IconBad`, `IconPending` | gleich gezeichnet in `ProjectOverview.tsx` und `CloudflareSetup.tsx` | nur `Icons.tsx` |
+| `IconChevron` | `DeployList.tsx` (Strich 1,7) und `Icons.tsx` (1,6), gleiche Form | nur `Icons.tsx` |
+| `relativeTime`, `duration` | zusätzlich aus `components/Status.tsx` weitergereicht | nur `lib/format.ts` |
+| Lade-Texte auf Knöpfen («Wird gespeichert…», «Startet…» u. a.) | 44 Varianten | ein Muster `aria-busy` (Etappe 2) |
+| Fehlerzeilen unter Knöpfen (`.error`, `.error-inline` je Stelle) | rund 30 Stellen | Fehler-Toast (Etappe 2) |
+| Hinweiszeilen nach Aktionen (`.notice-ok`, eigene «✓ Gespeichert») | Projekte, Projektseite, Benachrichtigungen, Auto-Deploy | Toast (Etappe 2); Klasse `.notice-ok` entfernt |
+| Ladeanzeige `.state-loading` | Punkt + «Wird geladen…» | Skeletons (Etappe 1); Klasse entfernt |
+
+Offen, Frage Nr. 4: `IconWarn`, `IconCheck`, `IconUp`, `IconKey` gibt es je zweimal mit
+**verschiedener** Form; welche bleibt, ist eine Gestaltungsfrage. Offen, Frage Nr. 3: die
+Bestätigungen (23 Stellen mit eigenem Markup).
 
 ### Etappe 5 – Sprache und Texte
 

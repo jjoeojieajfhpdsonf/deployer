@@ -492,6 +492,8 @@ const shots: Shot[] = [
       await pg.waitForTimeout(500)
     },
   },
+  // Etappe 4: Komponenten-Übersicht
+  { group: 'design', name: 'design-bausteine', path: '/design' },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },

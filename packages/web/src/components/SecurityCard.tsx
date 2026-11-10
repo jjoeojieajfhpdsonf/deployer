@@ -69,7 +69,7 @@ function summaryLine(counts: Record<Sev, number>, open: number, p: ProjectDto): 
   return `${counts.high === 1 ? 'Ein hoher Befund' : `${counts.high} hohe Befunde`} offen · vor «Öffentlich» beheben`
 }
 
-function Ring({ grade, score }: { grade: string; score: number }) {
+export function Ring({ grade, score }: { grade: string; score: number }) {
   const r = 34
   const c = 2 * Math.PI * r
   const pct = Math.max(0, Math.min(100, score)) / 100

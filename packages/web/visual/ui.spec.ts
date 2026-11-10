@@ -25,6 +25,8 @@ export const VISUAL_SCENES = [
   'zustand-laden-projektseite', 'zustand-laden-audit', 'zustand-fehler-projekte', 'zustand-fehler-karte',
   'zustand-leer-audit', 'zustand-teilweise-scan', 'zustand-veraltet',
   'bestaetigung-stoppen', 'aktion-vorgaenge', 'aktion-knopf-laedt',
+  // Komponenten-Übersicht (Etappe 4)
+  'design-bausteine',
 ] as const
 
 for (const theme of ['hell', 'dunkel'] as const) {

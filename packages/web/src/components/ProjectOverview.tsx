@@ -13,14 +13,12 @@ import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
 import { KeyFacts } from './KeyFacts.js'
+import { IconBad, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
-const IconOk = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m5.4 8.2 1.8 1.8 3.4-3.6" /></svg>
-const IconBad = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
-const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
 const IconCheck = () => <svg {...svg}><path d="m3.5 8.5 3 3 6-7" /></svg>
 
@@ -201,7 +199,7 @@ function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; da
  * Verlauf der letzten Stunde gegen die Grenze: die Grenze ist die Oberkante,
  * so sieht man sofort, wie viel Luft bleibt. Ein Wert pro Minute.
  */
-function Meter({ label, unit, limit, samples: all, pick, fmt }: {
+export function Meter({ label, unit, limit, samples: all, pick, fmt }: {
   label: string; unit: string; limit: number; samples: ResourceSample[]; pick: (s: ResourceSample) => number; fmt: (v: number) => string
 }) {
   const [hover, setHover] = useState<number | null>(null)
