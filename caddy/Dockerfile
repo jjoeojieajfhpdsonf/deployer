@@ -4,7 +4,11 @@ ARG CADDY_VERSION=2.10.0
 
 FROM caddy:${CADDY_VERSION}-builder-alpine AS build
 ARG CF_MODULE_VERSION=v0.2.4
-RUN xcaddy build --with github.com/caddy-dns/cloudflare@${CF_MODULE_VERSION}
+# M8: Ratenlimit für die CSP-Meldungen, die Caddy vom Host eines Projekts an deployer weiterleitet
+ARG RATELIMIT_MODULE_VERSION=v0.1.0
+RUN xcaddy build \
+  --with github.com/caddy-dns/cloudflare@${CF_MODULE_VERSION} \
+  --with github.com/mholt/caddy-ratelimit@${RATELIMIT_MODULE_VERSION}
 
 FROM caddy:${CADDY_VERSION}-alpine
 COPY --from=build /usr/bin/caddy /usr/bin/caddy

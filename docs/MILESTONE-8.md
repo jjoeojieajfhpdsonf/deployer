@@ -28,7 +28,7 @@ Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Paralle
 | `x-content-type-options` | `X-Content-Type-Options: nosniff` | ein Klick |
 | `referrer-policy` | `Referrer-Policy: strict-origin-when-cross-origin` | ein Klick |
 | `frame-ancestors` | `Content-Security-Policy: frame-ancestors 'self'` und `X-Frame-Options: SAMEORIGIN`, jeweils nur wenn die App keinen eigenen setzt | ein Klick |
-| `content-security-policy` | zuerst `Content-Security-Policy-Report-Only: <regel>; report-uri <deployer>`; nach Bestätigung `Content-Security-Policy` | Report-Only ein Klick, scharf mit Rückfrage |
+| `content-security-policy` | zuerst `Content-Security-Policy-Report-Only: <regel>; report-uri /.well-known/deployer/csp-report/<key>`; nach Bestätigung `Content-Security-Policy` | Report-Only ein Klick, scharf mit Rückfrage |
 | `strict-transport-security` | `Strict-Transport-Security: max-age=300` (5 Minuten zum Start) | Rückfrage; nur bei HTTPS und wenn TLS stabil läuft |
 
 - **Nur ergänzen:** pro Header ein eigener `headers`-Handler mit `require` (Header fehlt) und `deferred` – entspricht `header ?Name Wert` im Caddyfile.
@@ -37,12 +37,14 @@ Gebaut in drei Etappen mit je einem Commit auf dem Branch `milestone-8`. Paralle
 
 ### CSP mit Report-Only
 
-1. «Report-Only starten» setzt eine Ausgangsregel (`default-src 'self'; …`) mit `report-uri` auf deployer.
-2. Browser melden Verstösse an `POST /api/v1/csp-reports/<report_key>` (ohne Anmeldung, aber nur mit dem zufälligen Schlüssel der Regel; Formate `application/csp-report` und `application/reports+json`; höchstens 64 KB).
+1. «Report-Only starten» setzt eine Ausgangsregel (`default-src 'self'; …`) mit relativer `report-uri /.well-known/deployer/csp-report/<report_key>`.
+2. Browser melden Verstösse an diesen Pfad **am Host des Projekts**. Caddy hat dafür je Projekt eine eigene Route vor der App: nur `POST` auf genau den Pfad mit dem Schlüssel dieses Projekts, Body höchstens 64 KB (`request_body`), Ratenlimit 60 pro Minute und Absender (`rate_limit`, Modul `mholt/caddy-ratelimit` im Caddy-Image), Cookies werden entfernt, Ziel ist fest `/api/v1/csp-reports/<report_key>` bei deployer. deployer nimmt nur gültige Schlüssel an (sonst 404), liest die Formate `application/csp-report` und `application/reports+json` und schreibt ins Log nur Direktive und blockierte Quelle neuer Verstösse.
 3. deployer fasst sie zusammen und schlägt daraus eine Regel vor (reine Funktion `suggestCsp`): erlaubte Quellen je Direktive, `'self'` für die eigene Herkunft; Inline-Skript wird nicht stillschweigend mit `'unsafe-inline'` erlaubt, sondern als Hinweis gezeigt.
 4. «Vorschlag übernehmen» ändert die Report-Only-Regel; «Scharf schalten» (mit Rückfrage) setzt `Content-Security-Policy`.
 
-**Woher Meldungen kommen dürfen:** Die `report-uri` zeigt auf deployers eigene Adresse. Caddy lässt diesen Namen nur aus LAN und Tailnet durch; ausserdem erreichen Container im Projekt-Netz deployer direkt, solange er dort hängt. Aus dem Internet (Tunnel) kommt nichts an – Verstösse öffentlicher Besucher fehlen deshalb, das ist gewollt (deployer bleibt intern).
+**Woher Meldungen kommen dürfen:** von denselben Absendern wie die Seite selbst – die Meldungs-Route hat den IP-Filter der Projekt-Route (LAN/Tailnet bzw. bei öffentlichen Projekten cloudflared). Öffentliche Besucher melden damit auch; deployer selbst bleibt intern, erreichbar ist von aussen nur dieser eine Pfad mit gültigem Schlüssel. (Erste Fassung: `report-uri` auf deployers eigene Adresse – geändert nach Durchsicht, damit deployers Name nie in fremden Seiten steht und öffentliche Verstösse nicht fehlen.)
+
+**Caddy neu bauen:** Das Ratenlimit braucht das Modul im Caddy-Image (`docker compose up -d --build caddy`). Kennt ein altes Image `rate_limit` nicht, lädt deployer die Konfiguration ohne Meldungs-Route und ohne `report-uri` und warnt im Log, statt Caddy ganz scheitern zu lassen.
 
 ### Header-Check über Caddy
 
@@ -60,7 +62,7 @@ Nach jedem Setzen oder Entfernen einer Regel: Caddy abgleichen, dann **nur die S
 
 ### Schnittstellen
 
-- REST: `GET /projects/{id}/header-rules` (Regeln, gesammelte Verstösse, Vorschlag, ob HSTS möglich ist), `PUT /projects/{id}/header-rules/{header}` (`value`, `mode`, `confirm`), `DELETE /projects/{id}/header-rules/{header}`, `POST /csp-reports/{key}` (offen).
+- REST: `GET /projects/{id}/header-rules` (Regeln, gesammelte Verstösse, Vorschlag, ob HSTS möglich ist), `PUT /projects/{id}/header-rules/{header}` (`value`, `mode`, `confirm`), `DELETE /projects/{id}/header-rules/{header}`, `POST /csp-reports/{key}` (offen; Browser erreichen ihn über `/.well-known/deployer/csp-report/{key}` am Projekt-Host).
 - MCP: `set_security_header` mit `project`, `header`, `value`, `mode` (`report-only`, `enforce`), `remove`; Bestätigung bei `enforce` für CSP und HSTS.
 - UI: neben jedem Header-Befund «Header setzen» (bzw. «Report-Only starten», «HSTS setzen …») statt nur «Akzeptieren»; Abschnitt «Header über Caddy» im Security-Reiter mit aktiven Regeln, Entfernen, CSP-Verstössen und Vorschlag.
 
@@ -130,6 +132,7 @@ Stand 10.11.2026. Geprüft mit Unit-Tests (468, alle grün), gegen ein echtes Ca
 - [x] Jede Regel lässt sich entfernen; danach fehlt der Header wieder und der Befund ist wieder offen (echtes Caddy, Unit)
 - [x] `set_security_header` über MCP, mit Bestätigung bei `enforce` für CSP und HSTS; Audit-Log
 - [x] Report-Endpunkt: ohne gültigen Schlüssel 404, zu grosse Meldungen 413, höchstens 300 verschiedene Verstösse pro Projekt, ohne Anmeldung nur dieser eine Pfad
+- [x] Meldungen über den Host des Projekts (echtes Caddy mit Ratenlimit-Modul): Weiterleitung auf den festen Pfad, falscher Schlüssel und GET gehen nicht an deployer, über 64 KB 413, Ratenlimit 429, keine Cookies an deployer; altes Caddy ohne Modul: Rückfall ohne Meldungen statt Ausfall
 
 **Fehler, den erst das echte Caddy gezeigt hat:** Die kleine CSP `frame-ancestors 'self'` liess den Header-Check glauben, es gebe eine CSP – «Content-Security-Policy fehlt» verschwand, ohne dass etwas vor XSS schützte. Jetzt zählt eine CSP nur mit `default-src` oder `script-src`. Titel unverändert, damit Fingerabdrücke und Akzeptanzen bleiben. Folge: Apps mit einer CSP ganz ohne Quellen-Direktive bekommen den Befund jetzt neu.
 

@@ -253,8 +253,8 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
           <h3>CSP-Verstösse <span className="muted findings-count">{d.csp.total.toLocaleString('de-CH')}</span></h3>
           {d.csp.violations.length === 0 ? (
             <p className="hint">
-              Noch keine Meldungen. Benutze die Seite im Browser (LAN oder Tailnet); Browser melden jeden Verstoss an deployer.
-              Besuche über das Internet melden nichts, weil deployer dort nicht erreichbar ist.
+              Noch keine Meldungen. Benutze die Seite im Browser; Browser melden jeden Verstoss an die Seite selbst
+              (<code>/.well-known/deployer/csp-report/…</code>), Caddy reicht die Meldung an deployer weiter.
             </p>
           ) : (
             <div className="table-scroll">

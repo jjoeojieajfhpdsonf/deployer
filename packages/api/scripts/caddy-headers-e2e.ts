@@ -34,7 +34,10 @@ const check = (ok: boolean, what: string) => {
 
 const APP = 'solar.int.example.test'
 const SITE = 'seite.int.example.test'
-const REPORT = 'https://deployer.int.example.test/api/v1/csp-reports/abcdefghijklmnopqrstuvwx'
+const KEY = 'abcdefghijklmnopqrstuvwx'
+const REPORT = `/.well-known/deployer/csp-report/${KEY}`
+/** Eigener Name für die CSP-Meldungen, erreichbar aus 127.0.0.0/8 (curl im Container) */
+const MELDE = 'melde.int.example.test'
 
 function config(withRules: boolean) {
   const rules = withRules
@@ -46,12 +49,20 @@ function config(withRules: boolean) {
       ]
     : []
   const routes: RouteSpec[] = [
-    { hosts: [APP], kind: 'proxy', upstream: '127.0.0.1:8081', cidrs: ['10.254.0.0/16'], headers: rules, reportUri: REPORT },
-    { hosts: [SITE], kind: 'files', root: '/srv/site', cidrs: ['10.254.0.0/16'], headers: rules, reportUri: REPORT },
+    { hosts: [APP], kind: 'proxy', upstream: '127.0.0.1:8081', cidrs: ['10.254.0.0/16'], headers: rules, cspReportKey: KEY },
+    { hosts: [SITE], kind: 'files', root: '/srv/site', cidrs: ['10.254.0.0/16'], headers: rules, cspReportKey: KEY },
+    { hosts: [MELDE], kind: 'proxy', upstream: '127.0.0.1:8081', cidrs: ['127.0.0.0/8'], headers: rules, cspReportKey: KEY },
   ]
   const cfg = buildCaddyConfig(routes, {
     ipFilter: true, cidrs: ['10.254.0.0/16'], adminSocket: '/run/caddy/admin.sock', probeSocket: '/run/caddy/probe.sock',
+    cspReportUpstream: '127.0.0.1:8082',
   }) as { apps: { http: { servers: Record<string, unknown> } } }
+  // «deployer»: zeigt, welchen Pfad und wie viel Body er bekommt
+  cfg.apps.http.servers.deployer = {
+    listen: [':8082'],
+    automatic_https: { disable: true },
+    routes: [{ handle: [{ handler: 'static_response', status_code: 204, headers: { 'X-Seen-Uri': ['{http.request.uri}'], 'X-Seen-Cookie': ['{http.request.header.Cookie}'] } }], terminal: true }],
+  }
   // Die «App»: setzt Referrer-Policy selbst (muss gewinnen)
   cfg.apps.http.servers.app = {
     listen: [':8081'],
@@ -83,6 +94,7 @@ mkdirSync(join(dir, 'site'))
 writeFileSync(join(dir, 'site', 'index.html'), '<!doctype html><title>x</title><p>Seite</p>')
 writeFileSync(join(dir, 'with.json'), JSON.stringify(config(true)))
 writeFileSync(join(dir, 'without.json'), JSON.stringify(config(false)))
+writeFileSync(join(dir, 'big.json'), JSON.stringify({ 'csp-report': { 'script-sample': 'x'.repeat(70 * 1024) } }))
 try {
   sh('docker', ['rm', '-f', NAME])
 } catch {
@@ -111,6 +123,22 @@ try {
   const site = viaProbe(SITE)
   check(site.status === 200 && site.body.includes('Seite'), 'Statische Seite über den Probe-Socket')
   check(site.headers['x-content-type-options'] === 'nosniff' && site.headers['referrer-policy'] === 'strict-origin-when-cross-origin', 'Statische Seite bekommt die Header')
+
+  // CSP-Meldungen am Host des Projekts
+  const post = (path: string, extra: string[] = []) =>
+    fetchIn(['-X', 'POST', '-H', `Host: ${MELDE}`, '-H', 'Content-Type: application/csp-report', '-H', 'Cookie: sitzung=geheim', ...extra, `http://127.0.0.1${path}`])
+  const ok = post(REPORT, ['--data', '{"csp-report":{"effective-directive":"script-src","blocked-uri":"https://cdn.example"}}'])
+  check(ok.status === 204 && ok.headers['x-seen-uri'] === `/api/v1/csp-reports/${KEY}`, `Meldung an deployer weitergeleitet: ${ok.status} ${ok.headers['x-seen-uri']}`)
+  check(!ok.headers['x-seen-cookie'], 'Cookies des Projekts gehen nicht an deployer')
+  const wrong = post('/.well-known/deployer/csp-report/falscherschluessel123456', ['--data', '{}'])
+  check(wrong.status === 200 && !wrong.headers['x-seen-uri'], `falscher Schlüssel: nicht weitergeleitet (geht an die App, ${wrong.status})`)
+  const get = fetchIn(['-H', `Host: ${MELDE}`, `http://127.0.0.1${REPORT}`])
+  check(!get.headers['x-seen-uri'], 'GET wird nicht weitergeleitet')
+  const big = post(REPORT, ['--data-binary', `@/t/big.json`])
+  check(big.status === 413, `Body über 64 KB: ${big.status} (erwartet 413)`)
+  let limited = 0
+  for (let i = 0; i < 70; i++) if (post(REPORT, ['--data', '{}']).status === 429) limited++
+  check(limited >= 5, `Ratenlimit greift: ${limited} von 70 Meldungen mit 429`)
 
   sh('docker', ['exec', NAME, 'caddy', 'reload', '--config', '/t/without.json', '--address', 'unix//run/caddy/admin.sock'])
   const plain = viaProbe(APP)

@@ -173,6 +173,8 @@ export async function recordCspReports(reportKey: string, body: unknown): Promis
     }
     if (room <= 0) continue
     await db.insert(schema.cspViolations).values({ projectId: rule.projectId, directive: v.directive, blocked: v.blocked, samplePath: v.path }).onConflictDoNothing()
+    // Aus der Meldung nur Direktive und blockierte Quelle ins Log – nie Body, Seite oder Skriptauszug
+    log.info('Neuer CSP-Verstoss gemeldet', { project: rule.projectId, directive: v.directive, blocked: v.blocked })
     room--
     stored++
   }

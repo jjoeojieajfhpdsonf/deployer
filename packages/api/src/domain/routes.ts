@@ -203,17 +203,18 @@ export async function cloudflaredCidrs(): Promise<string[]> {
   return ip ? [`${ip}/32`] : []
 }
 
-/** M8: Adresse, an die Browser CSP-Verstösse eines Projekts melden (deployer selbst). */
-export const cspReportUri = (reportKey: string) => `${urlForHost(primaryHost('deployer'))}/api/v1/csp-reports/${reportKey}`
-
-/** M8: Header-Regeln aller Projekte, je Projekt. */
-async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSpec[]; reportUri: string | null }>> {
+/**
+ * M8: Header-Regeln aller Projekte, je Projekt, mit dem Schlüssel der
+ * CSP-Meldungen (Browser melden an /.well-known/deployer/csp-report/<key>
+ * am Host des Projekts, Caddy leitet an deployer weiter).
+ */
+async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSpec[]; cspReportKey: string | null }>> {
   const all = await db.select().from(schema.headerRules)
-  const out = new Map<string, { rules: HeaderRuleSpec[]; reportUri: string | null }>()
+  const out = new Map<string, { rules: HeaderRuleSpec[]; cspReportKey: string | null }>()
   for (const r of all) {
-    const e = out.get(r.projectId) ?? { rules: [], reportUri: null }
+    const e = out.get(r.projectId) ?? { rules: [], cspReportKey: null }
     e.rules.push({ header: r.header, value: r.value, mode: r.mode })
-    if (r.reportKey) e.reportUri = cspReportUri(r.reportKey)
+    if (r.reportKey) e.cspReportKey = r.reportKey
     out.set(r.projectId, e)
   }
   return out
@@ -263,7 +264,7 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
     const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
     const h = headers.get(r.projectId)
-    const extra = h ? { headers: h.rules, reportUri: h.reportUri } : {}
+    const extra = h ? { headers: h.rules, cspReportKey: h.cspReportKey } : {}
     if (r.paused) {
       specs.push({ hosts, kind: 'maintenance', cidrs })
     } else if (r.sourceType === 'static') {
@@ -351,6 +352,8 @@ export function reconcileCaddy(o: { force?: boolean } = {}): Promise<void> {
 }
 
 let lastBuildHadTls = false
+/** M8: Caddy hat das Ratenlimit-Modul nicht (altes Image) – bis zum Neustart des deployers */
+let cspForwardUnsupported = false
 
 async function reconcileCaddyNow(force: boolean): Promise<void> {
   await syncCaddyNetworks()
@@ -360,7 +363,7 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
-  const build = caddy.buildCaddyConfig(specs, {
+  const buildWith = (cspForward: boolean) => caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
       cidrs: [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128'],
       adminSocket: config.CADDY_ADMIN_SOCKET,
@@ -372,7 +375,10 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       accessLogHosts: [primaryHost('deployer'), ...aliasHosts('deployer')],
       // M8: Header-Check über Caddy, ohne den IP-Filter zu öffnen
       probeSocket: config.CADDY_PROBE_SOCKET || null,
+      // M8: CSP-Meldungen vom Host des Projekts an deployer (Body-Limit, Ratenlimit in Caddy)
+      cspReportUpstream: cspForward ? config.DEPLOYER_UPSTREAM : null,
     })
+  let build = buildWith(!cspForwardUnsupported)
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
   const withTls = Boolean((build as { apps?: { tls?: unknown } }).apps?.tls)
   if (lastBuildHadTls && !withTls) {
@@ -391,7 +397,19 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
     force = true
   }
   // force: das Token in der Datei hat sich geändert – Caddy liest es nur beim Laden
-  const changed = force ? (await caddy.loadConfig(build), true) : await caddy.loadConfigIfChanged(build)
+  const load = (cfg: Record<string, unknown>) => (force ? caddy.loadConfig(cfg).then(() => true) : caddy.loadConfigIfChanged(cfg))
+  let changed: boolean
+  try {
+    changed = await load(build)
+  } catch (err) {
+    // Altes Caddy-Image ohne Ratenlimit-Modul (caddy/Dockerfile, M8): lieber
+    // ohne CSP-Meldungen laden als gar nicht. Abhilfe: Caddy neu bauen.
+    if (cspForwardUnsupported || !/rate_limit/.test(String(err))) throw err
+    cspForwardUnsupported = true
+    log.warn('Caddy kennt das Modul rate_limit nicht: CSP-Meldungen bleiben aus, bis Caddy neu gebaut ist (docker compose up -d --build caddy)', { err: String(err).slice(0, 300) })
+    build = buildWith(false)
+    changed = await load(build)
+  }
   await caddy.assertAdminOnUnixSocket()
   if (changed) log.info('Caddy abgeglichen', { routen: specs.length, ipFilter: config.CADDY_IP_FILTER })
 }

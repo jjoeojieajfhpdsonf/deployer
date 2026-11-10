@@ -33,9 +33,20 @@ export interface RouteSpec {
   cidrs?: string[]
   /** M8: Security-Header, die Caddy ergänzt (nur wenn die App sie nicht setzt). */
   headers?: HeaderRuleSpec[]
-  /** M8: Ziel der CSP-Meldungen dieses Projekts (absolute URL). */
-  reportUri?: string | null
+  /**
+   * M8: Schlüssel der CSP-Regel. Browser melden Verstösse an
+   * /.well-known/deployer/csp-report/<schlüssel> am Host des Projekts; Caddy
+   * leitet nur diesen Pfad (POST, höchstens 64 KB, Ratenlimit) an deployer.
+   */
+  cspReportKey?: string | null
 }
+
+/** Pfad am Host des Projekts, an den Browser CSP-Verstösse melden. */
+export const CSP_REPORT_PREFIX = '/.well-known/deployer/csp-report/'
+export const cspReportPath = (key: string) => `${CSP_REPORT_PREFIX}${key}`
+/** Grenzen der Weiterleitung an deployer */
+export const CSP_REPORT_MAX_BYTES = 64 * 1024
+export const CSP_REPORT_RATE = { window: '1m', maxEvents: 60 }
 
 export interface CaddyBuildOptions {
   ipFilter: boolean
@@ -65,6 +76,11 @@ export interface CaddyBuildOptions {
    * Filter für fremde Absender bleibt, wie er ist.
    */
   probeSocket?: string | null
+  /**
+   * M8: Wohin Caddy CSP-Meldungen weiterleitet (deployer, «host:port»).
+   * Fehlt es, setzt Caddy keine report-uri.
+   */
+  cspReportUpstream?: string | null
 }
 
 /** Name des Probe-Servers in Caddys Konfiguration */
@@ -188,7 +204,7 @@ type HttpRoute = {
   terminal: boolean
 }
 
-export type HostMatch = { host: string[]; remote_ip?: { ranges: string[] } }
+export type HostMatch = { host: string[]; remote_ip?: { ranges: string[] }; path?: string[]; method?: string[] }
 
 /**
  * Routen -> vollstaendige Caddy-JSON-Konfiguration.
@@ -227,7 +243,9 @@ export function buildCaddyConfig(
             { handler: 'vars', root: r.root },
             { handler: 'file_server', index_names: ['index.html'] },
           ]
-    if (r.headers?.length) handle.unshift(...headerHandlers(r.headers, { secure, hstsAllowed, reportUri: r.reportUri }))
+    // report-uri relativ: der Browser meldet an den Host, den er gerade besucht
+    const reportUri = r.cspReportKey && opts.cspReportUpstream ? cspReportPath(r.cspReportKey) : null
+    if (r.headers?.length) handle.unshift(...headerHandlers(r.headers, { secure, hstsAllowed, reportUri }))
     if (r.noKeepAlive) {
       handle.unshift({ handler: 'headers', response: { set: { Connection: ['close'] } } })
     }
@@ -238,6 +256,35 @@ export function buildCaddyConfig(
     return { match: [{ host: hosts, ...remoteFor(r) }], handle: handlersFor(r, secure, false), terminal: true }
   }
 
+  /**
+   * M8: CSP-Meldungen am Host des Projekts. Nur POST auf genau den Pfad mit
+   * dem Schlüssel dieses Projekts; Body höchstens 64 KB, Ratenlimit je
+   * Absender, dann an deployer (fester Zielpfad – der Pfad der Anfrage geht
+   * nicht durch). Dieselben Absender-Netze wie die Route des Projekts.
+   */
+  const cspRoute = (r: RouteSpec, hosts: string[]): HttpRoute[] => {
+    if (!r.cspReportKey || !opts.cspReportUpstream || r.kind === 'maintenance') return []
+    if (!r.headers?.some((h) => h.header === 'content-security-policy')) return []
+    return [{
+      match: [{ host: hosts, path: [cspReportPath(r.cspReportKey)], method: ['POST'], ...remoteFor(r) }],
+      handle: [
+        { handler: 'request_body', max_size: CSP_REPORT_MAX_BYTES },
+        {
+          handler: 'rate_limit',
+          rate_limits: { csp: { key: '{http.request.client_ip}', window: CSP_REPORT_RATE.window, max_events: CSP_REPORT_RATE.maxEvents } },
+        },
+        { handler: 'rewrite', uri: `/api/v1/csp-reports/${r.cspReportKey}` },
+        {
+          handler: 'reverse_proxy',
+          upstreams: [{ dial: opts.cspReportUpstream }],
+          // Nur was deployer braucht; keine Cookies des Projekts an deployer
+          headers: { request: { delete: ['Cookie', 'Authorization'] } },
+        },
+      ],
+      terminal: true,
+    }]
+  }
+
   // Ohne TLS: alle Namen auf :80. Mit TLS: Namen unter der Basisdomain auf
   // :443, der Rest (nip.io) bleibt auf :80 - dafür gibt es kein Zertifikat.
   const plainRoutes: HttpRoute[] = []
@@ -246,8 +293,8 @@ export function buildCaddyConfig(
   for (const r of routes) {
     const secure = tls ? r.hosts.filter((h) => coveredByWildcard(h, tls.baseDomain)) : []
     const plain = r.hosts.filter((h) => !secure.includes(h))
-    if (plain.length) plainRoutes.push(toRoute(r, plain, false))
-    if (secure.length) tlsRoutes.push(toRoute(r, secure, true))
+    if (plain.length) plainRoutes.push(...cspRoute(r, plain), toRoute(r, plain, false))
+    if (secure.length) tlsRoutes.push(...cspRoute(r, secure), toRoute(r, secure, true))
     // Probe: je Name so, wie Besucher ihn sehen (HTTPS oder HTTP), ohne IP-Filter.
     if (secure.length) probeRoutes.push({ match: [{ host: secure }], handle: handlersFor(r, true, true), terminal: true })
     if (plain.length) probeRoutes.push({ match: [{ host: plain }], handle: handlersFor(r, false, true), terminal: true })

@@ -162,7 +162,7 @@ describe('Caddy: Header in Routen und Probe-Server', () => {
     upstream: 'dep_solar_abc:3000',
     cidrs: ['192.168.1.0/24'],
     headers: [rule('x-content-type-options'), rule('strict-transport-security')],
-    reportUri: null,
+    cspReportKey: null,
   }
   const tls = { baseDomain: 'int.example.ch', acmeCa: 'production' as const }
   const base = { ipFilter: true, cidrs: ['192.168.1.0/24'], adminSocket: '/run/caddy/admin.sock', probeSocket: '/run/caddy/probe.sock' }
@@ -198,5 +198,53 @@ describe('Caddy: Header in Routen und Probe-Server', () => {
 
   test('ohne probeSocket kein Probe-Server', () => {
     assert.equal(build({ probeSocket: undefined as never }).apps.http.servers[PROBE_SERVER], undefined)
+  })
+})
+
+describe('Caddy: CSP-Meldungen am Host des Projekts', () => {
+  type R = { match?: { host: string[]; path?: string[]; method?: string[]; remote_ip?: { ranges: string[] } }[]; handle: Record<string, unknown>[] }
+  type Cfg = { apps: { http: { servers: Record<string, { routes: R[] }> } } }
+  const KEY = 'abcdefghijklmnopqrstuvwx'
+  const csp: RouteSpec = {
+    hosts: ['solar.int.example.ch'],
+    kind: 'proxy',
+    upstream: 'dep_solar_abc:3000',
+    cidrs: ['100.64.0.0/10'],
+    headers: [rule('content-security-policy', 'report-only')],
+    cspReportKey: KEY,
+  }
+  const opts = { ipFilter: true, cidrs: ['100.64.0.0/10'], adminSocket: '/run/caddy/admin.sock', cspReportUpstream: 'deployer-app:3000' }
+  const routesOf = (spec: RouteSpec, o: Partial<typeof opts> = {}) => (buildCaddyConfig([spec], { ...opts, ...o }) as unknown as Cfg).apps.http.servers.srv0!.routes
+
+  test('report-uri relativ auf den eigenen Host, nicht auf deployer', () => {
+    const main = routesOf(csp).find((r) => r.match?.[0]?.host[0] === 'solar.int.example.ch' && !r.match[0].path)!
+    const h = main.handle.find((x) => (x.response as { set?: Record<string, string[]> })?.set?.['Content-Security-Policy-Report-Only'])!
+    const v = (h.response as { set: Record<string, string[]> }).set['Content-Security-Policy-Report-Only']![0]!
+    assert.ok(v.endsWith(`report-uri /.well-known/deployer/csp-report/${KEY}`), v)
+    assert.ok(!v.includes('deployer.int'))
+  })
+
+  test('eigene Route vor der App: nur POST auf genau diesen Pfad, 64 KB, Ratenlimit, fester Zielpfad, gleicher IP-Filter', () => {
+    const rs = routesOf(csp)
+    const i = rs.findIndex((r) => r.match?.[0]?.path)
+    const app = rs.findIndex((r) => r.match?.[0]?.host[0] === 'solar.int.example.ch' && !r.match[0].path)
+    assert.ok(i >= 0 && i < app, 'vor der Route der App')
+    const m = rs[i]!.match![0]!
+    assert.deepEqual(m.path, [`/.well-known/deployer/csp-report/${KEY}`])
+    assert.deepEqual(m.method, ['POST'])
+    assert.deepEqual(m.remote_ip, { ranges: ['100.64.0.0/10'] })
+    const kinds = rs[i]!.handle.map((x) => x.handler)
+    assert.deepEqual(kinds, ['request_body', 'rate_limit', 'rewrite', 'reverse_proxy'])
+    assert.equal(rs[i]!.handle[0]!.max_size, 64 * 1024)
+    assert.equal(rs[i]!.handle[2]!.uri, `/api/v1/csp-reports/${KEY}`)
+    assert.deepEqual((rs[i]!.handle[3]!.upstreams as { dial: string }[])[0], { dial: 'deployer-app:3000' })
+  })
+
+  test('ohne CSP-Regel, ohne Ziel oder pausiert: keine Meldungs-Route und keine report-uri', () => {
+    assert.ok(!routesOf({ ...csp, headers: [rule('referrer-policy')] }).some((r) => r.match?.[0]?.path))
+    const noUp = routesOf(csp, { cspReportUpstream: null as never })
+    assert.ok(!noUp.some((r) => r.match?.[0]?.path))
+    assert.ok(!JSON.stringify(noUp).includes('report-uri'))
+    assert.ok(!routesOf({ ...csp, kind: 'maintenance' }).some((r) => r.match?.[0]?.path))
   })
 })
