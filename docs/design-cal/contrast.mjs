@@ -42,6 +42,10 @@ const checks = [
   ['info', ['surface-3'], 3, 'Statusbalken'],
   // Projektseite: Claude-Funke als Auslöser (Zeichen neben dem Token-Namen)
   ['claude', ['claude-bg', 'surface', 'surface-2'], 3, 'Auslöser-Zeichen'],
+  // Code-Editor der Pause-Seite: Syntaxfarben auf dem Editor-Grund und der aktiven Zeile
+  ...['cm-ink', 'cm-tag', 'cm-attr', 'cm-string', 'cm-number', 'cm-comment'].map((c) => [c, ['cm-bg', 'cm-active'], 4.5, 'Code im Editor']),
+  ['cm-gutter', ['cm-bg'], 3, 'Zeilennummern'],
+  ['cm-token', ['cm-token-bg'], 4.5, 'Platzhalter im Editor'],
 ]
 
 let fails = 0

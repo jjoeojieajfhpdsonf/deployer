@@ -65,6 +65,21 @@
   --claude: #b0502a;
   --claude-bg: #fbefe9;
 
+  /* Code-Editor der Pause-Seite (CodeMirror): hell im hellen Modus; kein Violett */
+  --cm-bg: #fbfbfc;
+  --cm-ink: #24292f;
+  --cm-gutter: #8c9099;
+  --cm-active: #f1f3f5;
+  --cm-selection: #d7e5fb;
+  --cm-tag: #1a5bc4;
+  --cm-attr: #9a4a07;
+  --cm-string: #116329;
+  --cm-number: #0b6e7a;
+  --cm-comment: #63676f;
+  --cm-token: #6a4b00;
+  --cm-token-bg: #fdf1c7;
+  --cm-token-line: rgba(106, 75, 0, 0.25);
+
   /* Schatten (gemessen: Ring statt Rahmen; erhöht 0 20px 25px -5px) */
   --sh-ring: inset 0 0 0 1px var(--ring);
   --sh-card: 0 0 0 1px var(--ring), 0 1px 2px rgba(15, 35, 75, 0.04), 0 8px 24px -16px rgba(15, 35, 75, 0.12);
@@ -162,6 +177,20 @@
   --info-line: rgba(126, 170, 245, 0.2);
   --claude: #ee9b76;
   --claude-bg: #2a1a13;
+
+  --cm-bg: #0e0e10;
+  --cm-ink: #e6e6e8;
+  --cm-gutter: #75757d;
+  --cm-active: #18181b;
+  --cm-selection: #23395d;
+  --cm-tag: #7eb3ff;
+  --cm-attr: #f0b072;
+  --cm-string: #7dd99a;
+  --cm-number: #6fd3de;
+  --cm-comment: #8d8d95;
+  --cm-token: #ffd76a;
+  --cm-token-bg: #3a300f;
+  --cm-token-line: rgba(255, 215, 106, 0.3);
 
   --sh-card: 0 0 0 1px var(--ring);
   --sh-card-hover: 0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -1008,24 +1037,57 @@ a.tab { text-decoration: none; }
 .pause-fields textarea { min-height: 120px; resize: vertical; }
 .pause-mode { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .pause-mode .hint { margin: 0; font-size: var(--fs-13); }
-.pause-fields .code-input { min-height: 340px; font-family: var(--mono); font-size: var(--fs-13); line-height: 1.55; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
-.pause-code-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: calc(-1 * var(--sp-2)); }
-.pause-code-actions .hint { margin: 0; font-size: var(--fs-13); }
-.pause-code-actions .confirm-note { color: var(--ink-dim); font-weight: 400; }
-.pause-preview { margin: 0; display: flex; flex-direction: column; min-height: 360px; }
-.pause-preview figcaption { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin: 0 0 var(--sp-3); font-size: var(--fs-14); font-weight: 500; color: var(--ink); }
-.pause-preview figcaption .segmented button { min-height: 28px; padding: 0 10px; font-size: var(--fs-13); }
-.pause-preview iframe { display: block; width: 100%; flex: 1; min-height: 320px; border: 0; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line), var(--sh-card); background: var(--surface-2); }
-.pause-preview .hint { margin: var(--sp-2) 0 0; font-size: var(--fs-13); }
+/* HTML-Modus: Werkzeugleiste, Editor (CodeMirror, Farben aus --cm-*), Prüfleiste */
+.pause-code { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 460px; border-radius: var(--r-md); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface); }
+.pause-tools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); padding: 10px var(--sp-3); border-bottom: 1px solid var(--line); background: var(--surface); }
+.pause-tools-label { font-size: var(--fs-13); color: var(--muted); }
+.pause-tools-gap { flex: 1; }
+.pause-tools .confirm-inline { flex-basis: 100%; order: 9; }
+.pause-tools .confirm-note { color: var(--ink-dim); font-weight: 400; font-size: var(--fs-13); }
+.pause-token { min-height: 28px; padding: 0 var(--sp-2); border: none; box-shadow: none; border-radius: var(--r-sm); background: var(--surface-2); font-family: var(--mono); font-weight: 400; font-size: var(--fs-12); color: var(--ink); }
+.pause-token:hover:not(:disabled) { background: var(--surface-3); border: none; }
+.code-editor { min-height: 320px; height: 100%; overflow: hidden; background: var(--cm-bg); }
+.code-editor .cm-editor { height: 100%; }
+.code-editor .cm-editor.cm-focused { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.pause-check { display: grid; gap: var(--sp-1); padding: 10px var(--sp-3); border-top: 1px solid var(--ok-line); background: var(--ok-bg); color: var(--ok); font-size: var(--fs-13); font-weight: 500; }
+.pause-check > span { display: inline-flex; align-items: center; gap: 6px; }
+.pause-check-bad { border-top-color: var(--bad-line); background: var(--bad-bg); color: var(--bad); }
+.pause-check ul { margin: 0; padding: 0 0 0 19px; list-style: none; display: grid; gap: 2px; font-weight: 400; }
+.pause-check strong { font-weight: 600; }
+.pause-code-aside { padding: var(--sp-4) var(--sp-3) var(--sp-3); border-top: 1px solid var(--line); }
+.pause-code + .field-error, .pause-code .field-error { margin: 0; padding: 0 var(--sp-3) var(--sp-2); }
+/* Vollbild: der Editor nimmt die ganze Breite, die Vorschau geht weg */
+.pause-editor-full { grid-template-columns: minmax(0, 1fr); }
+/* Im Dialog: Editor und Vorschau so hoch wie der Platz zwischen Kopf und Fuss; der Code rollt innen, die Prüfleiste bleibt sichtbar */
+.pause-dialog .pause-editor-code .pause-code { height: max(420px, calc(100vh - 330px)); min-height: 0; }
+.pause-dialog .pause-editor-code .pause-preview { height: max(420px, calc(100vh - 330px)); min-height: 0; }
+.pause-dialog .pause-editor-code .pause-preview iframe { min-height: 0; }
+.code-editor .cm-scroller { overflow: auto; }
+.pause-dialog .code-editor { min-height: 0; }
+.code-editor-loading { display: grid; place-items: center; font-size: var(--fs-13); color: var(--cm-comment); }
+
+/* Vorschau im Browser-Rahmen mit Adresse, umschaltbar hell/dunkel */
+.pause-preview { margin: 0; display: flex; flex-direction: column; min-height: 360px; min-width: 0; }
+.pause-browser { display: flex; flex-direction: column; flex: 1; border-radius: var(--r-md); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line), var(--sh-card); background: var(--surface-2); }
+.pause-browser-bar { display: flex; align-items: center; gap: var(--sp-3); padding: 8px var(--sp-3); border-bottom: 1px solid var(--line); background: var(--surface); }
+.pause-browser-dots { display: inline-flex; gap: 5px; flex: none; }
+.pause-browser-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--surface-3); }
+.pause-browser-url { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--r-sm); background: var(--surface-2); font-family: var(--mono); font-size: var(--fs-12); color: var(--ink-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pause-browser-url svg { flex: none; color: var(--muted); }
+.pause-browser-theme button { min-height: 26px; padding: 0 10px; font-size: var(--fs-13); }
+.pause-preview iframe { display: block; width: 100%; flex: 1; min-height: 360px; border: 0; background: var(--surface); }
 .pause-settings h2 { margin: 0 0 var(--sp-1); font-size: var(--fs-16); font-weight: 600; }
 .pause-settings > .hint { margin-bottom: var(--sp-6); }
 
 /* Dialog «Pause-Seite für …»: breit, Kopf und Fuss fest, nur der Inhalt rollt */
 .dialog.pause-dialog { width: min(1120px, calc(100vw - 64px)); max-height: calc(100vh - 64px); overflow: hidden; }
 .pause-dialog-form { display: flex; flex-direction: column; max-height: calc(100vh - 64px); }
-.pause-dialog-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; padding: var(--sp-6) var(--sp-7) var(--sp-5); border-bottom: 1px solid var(--line); }
+.pause-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; padding: var(--sp-6) var(--sp-7) var(--sp-5); border-bottom: 1px solid var(--line); }
+.pause-dialog-head p { margin: 2px 0 0; }
+.pause-dialog-info { font-size: var(--fs-13); color: var(--muted); font-variant-numeric: tabular-nums; }
 .pause-dialog-head h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: var(--fs-24); line-height: 1.2; letter-spacing: var(--track-display); }
-.pause-dialog-kind { display: inline-flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-13); color: var(--muted); }
+.pause-dialog-kind { font-size: var(--fs-13); color: var(--muted); }
+.dialog.pause-dialog { width: min(1240px, calc(100vw - 64px)); }
 .pause-dialog-body { padding: var(--sp-6) var(--sp-7); overflow: auto; flex: 1; }
 .pause-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-4) var(--sp-7); border-top: 1px solid var(--line); background: var(--surface); }
 .pause-dialog-foot .hint, .pause-dialog-foot .error-inline { margin: 0; font-size: var(--fs-13); }
