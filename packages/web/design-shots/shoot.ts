@@ -221,6 +221,21 @@ const shots: Shot[] = [
       await pg.waitForTimeout(300)
     },
   },
+  {
+    // Eigener Code, Vorschau dunkel: prefers-color-scheme im iframe folgt color-scheme am iframe
+    group: 'pauseseite', name: 'pauseseite-code-dunkel', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Pause-Seite bearbeiten …' }).click()
+      await pg.getByRole('button', { name: 'Dunkel' }).click()
+      await pg.locator('.pause-preview').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Vorlage: von Formular zu Code wechseln – das Codefeld beginnt mit dem HTML des Formulars
+    group: 'pauseseite', name: 'pauseseite-vorlage-code', path: '/system/veroeffentlichung', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Code', exact: true }).click(); await pg.waitForTimeout(250) },
+  },
   { group: 'veroeffentlichung', name: 'veroeffentlichung-gesperrt', path: `/projekte/${S}?tab=einstellungen`, full: false },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,

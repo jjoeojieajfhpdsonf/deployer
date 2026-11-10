@@ -262,7 +262,7 @@ function Facts({ s, paused }: { s: PublicStatusDto; paused: boolean }) {
       <dt>Adresse</dt>
       <dd>
         <a href={s.url!} target="_blank" rel="noreferrer" className="publication-url">{s.hostname} <IconExternal /></a>
-        {paused && <span className="muted"> · zeigt die Pause-Seite «{(s.pause.page ?? s.pause.template).title}» (HTTP 503{s.pause.page ? ', eigener Text' : ', Vorlage'})</span>}
+        {paused && <span className="muted"> · zeigt die Pause-Seite «{(s.pause.page ?? s.pause.template).title}» (HTTP 503{s.pause.page ? (s.pause.page.mode === 'code' ? ', eigener Code' : ', eigener Text') : ', Vorlage'})</span>}
       </dd>
       {paused && s.pause.backAt && (<>
         <dt>Voraussichtlich zurück</dt>
@@ -313,7 +313,7 @@ function PauseDraftFields({ d, prefix }: { d: ReturnType<typeof usePauseDraft>; 
     <div className="pause-draft">
       <div className="pause-draft-head">
         <h3>Pause-Seite</h3>
-        <span className="hint">{d.custom ? 'Eigener Text für dieses Projekt' : 'Wie Vorlage (System → Veröffentlichung)'}</span>
+        <span className="hint">{d.custom ? 'Eigene Seite für dieses Projekt' : 'Wie Vorlage (System → Veröffentlichung)'}</span>
         {d.custom && <button type="button" className="button-small" onClick={d.reset}>Wie Vorlage</button>}
       </div>
       <PausePageEditor value={d.page} onChange={d.setPage} errors={d.errors} backAt={d.backErr ? null : d.backIso} idPrefix={prefix} />

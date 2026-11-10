@@ -27,7 +27,7 @@ import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
 import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/pause-page.js'
-import { pausePageSchema, formatBackAt, type PauseOptions } from '@deployer/shared'
+import { pausePageSchema, formatBackAt, PAUSE_HTML_MAX, type PauseOptions } from '@deployer/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
@@ -512,21 +512,31 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     return ok({ project: (await findProject(id)).slug, public: s.state, hostname: s.hostname, access: s.accessProtected, changed: r.changed, check_from_outside: r.check, internal_url: s.internalUrl })
   }
 
-  tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine Pause-Seite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Ohne title/message gilt die Vorlage (System → Veröffentlichung). Verlangt Bestätigung; ist das Projekt schon pausiert, ändern title/message/back_at nur die Seite.', {
+  tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine Pause-Seite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Ohne title/message/html gilt die Vorlage (System → Veröffentlichung); html macht die Seite zu eigenem Code. Verlangt Bestätigung; ist das Projekt schon pausiert, ändern title/message/html/back_at nur die Seite.', {
     project,
     title: z.string().max(120).optional().describe('Überschrift der Pause-Seite (sonst aus der Vorlage)'),
     message: z.string().max(2000).optional().describe('Text der Pause-Seite: einfaches Markdown (Absätze, **fett**, [Link](https://…)), kein HTML'),
     back_at: z.string().datetime({ offset: true }).optional().describe('Voraussichtlich zurück (ISO 8601, z. B. 2026-11-11T08:00:00+01:00): erscheint auf der Seite und als Retry-After'),
+    html: z.string().max(PAUSE_HTML_MAX).optional().describe('Eigene Seite als ganzes HTML-Dokument mit Inline-CSS (Code-Modus). Kein JavaScript, keine externen Quellen (CSP). Platzhalter: {{back_at}}, {{back_at_iso}}, {{title}}'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
     const p = await findProject(a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
     const template = await pausePageTemplate()
-    const custom = a.title !== undefined || a.message !== undefined
+    const custom = a.title !== undefined || a.message !== undefined || a.html !== undefined
+    const parsed = custom
+      ? pausePageSchema.safeParse({
+          ...(route.pausePage ?? template),
+          ...(a.title !== undefined ? { title: a.title } : {}),
+          ...(a.message !== undefined ? { message: a.message } : {}),
+          ...(a.html !== undefined ? { mode: 'code', html: a.html } : {}),
+        })
+      : null
+    if (parsed && !parsed.success) return fail(`Pause-Seite ungültig: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
     const opts: PauseOptions | undefined = custom || a.back_at
       ? {
-          ...(custom ? { page: pausePageSchema.parse({ ...(route.pausePage ?? template), ...(a.title !== undefined ? { title: a.title } : {}), ...(a.message !== undefined ? { message: a.message } : {}) }) } : {}),
+          ...(parsed?.success ? { page: parsed.data } : {}),
           ...(a.back_at ? { backAt: a.back_at } : {}),
         }
       : undefined

@@ -15,7 +15,11 @@ export interface RouteSpec {
   /** maintenance: öffentlich pausiert – Pause-Seite mit 503 */
   kind: 'proxy' | 'files' | 'maintenance'
   /** Bei kind=maintenance: Seite (Vorlage oder Projekt), «Voraussichtlich zurück», Zeitzone der Anzeige */
-  pause?: { page: PausePage; backAt: string | null; timeZone?: string }
+  pause?: {
+    page: PausePage; backAt: string | null; timeZone?: string
+    /** Code-Modus: Ordner mit index.html im sites-Volume (für Caddy lesbar) */
+    root?: string
+  }
   /** Bei kind=proxy: "container:port" */
   upstream?: string
   /** Bei kind=files: Verzeichnis im sites-Volume */
@@ -177,15 +181,32 @@ export const MAINTENANCE_VALUE = PAUSE_STATE_VALUE
  */
 export const MAINTENANCE_HTML = renderPausePage(DEFAULT_PAUSE_PAGE)
 
-function maintenanceHandler(pause: RouteSpec['pause'], now: number): Handler {
+/**
+ * Formular-Modus: static_response mit dem Renderer (alles escaped, auch
+ * geschweifte Klammern). Code-Modus: eigenes HTML als Datei über file_server –
+ * static_response ersetzt im Body Platzhalter wie {file.…} oder {env.…};
+ * eigenes HTML könnte so Secrets aus Caddy öffentlich machen. file_server
+ * liefert die Datei unverändert, mit Status 503.
+ */
+function maintenanceHandlers(pause: RouteSpec['pause'], now: number): Handler[] {
   const page = pause?.page ?? DEFAULT_PAUSE_PAGE
-  return {
+  if (page.mode === 'code' && pause?.root) {
+    return [
+      { handler: 'headers', response: { set: pauseHeaders(pause.backAt, now, { contentType: false }) } },
+      { handler: 'rewrite', uri: `/${PAUSE_FILE}` },
+      { handler: 'file_server', root: pause.root, status_code: 503 },
+    ]
+  }
+  return [{
     handler: 'static_response',
     status_code: 503,
     headers: pauseHeaders(pause?.backAt, now),
-    body: renderPausePage(page, { backAt: pause?.backAt, timeZone: pause?.timeZone }),
-  }
+    body: renderPausePage({ ...page, mode: 'form' }, { backAt: pause?.backAt, timeZone: pause?.timeZone }),
+  }]
 }
+
+/** Dateiname der Pause-Seite im Code-Modus (unter <sites>/_pause/<slug>/). */
+export const PAUSE_FILE = 'index.html'
 type HttpRoute = {
   /** Fehlt bei der Auffangroute: eine Route ohne Matcher trifft auf alles. */
   match?: HostMatch[]
@@ -225,7 +246,7 @@ export function buildCaddyConfig(
     if (probe) proxy.headers = { request: { set: { 'X-Forwarded-Proto': [secure ? 'https' : 'http'] } } }
     const handle: Handler[] =
       r.kind === 'maintenance'
-        ? [maintenanceHandler(r.pause, opts.now ?? Date.now())]
+        ? maintenanceHandlers(r.pause, opts.now ?? Date.now())
         : r.kind === 'proxy'
         ? [proxy]
         : [

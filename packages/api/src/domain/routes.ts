@@ -9,8 +9,8 @@ import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
 import { labelOf } from '../lib/hostnames.js'
 import { effectiveKind } from './deployments.js'
-import { effectivePausePage, type RouteTarget, type RouteDto, type PausePage } from '@deployer/shared'
-import { pausePageTemplate, displayTimeZone } from './pause-page.js'
+import { effectivePausePage, renderPausePage, type RouteTarget, type RouteDto, type PausePage } from '@deployer/shared'
+import { pausePageTemplate, displayTimeZone, writePauseFile } from './pause-page.js'
 import type { HeaderRuleSpec } from '../security/header-rules.js'
 
 /**
@@ -275,7 +275,15 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     const extra = h ? { headers: h.rules, cspReportKey: h.cspReportKey } : {}
     if (r.paused) {
       const page = effectivePausePage(await pausePageTemplate(), r.pausePage)
-      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { page, backAt: r.pauseBackAt, timeZone: displayTimeZone() } })
+      const pause = { page, backAt: r.pauseBackAt, timeZone: displayTimeZone() }
+      // Code-Modus: als Datei ausliefern (siehe caddy-config.ts); scheitert das Schreiben, gilt das Formular
+      const root = page.mode === 'code' && page.html
+        ? await writePauseFile(config.SITES_DIR, r.slug, renderPausePage(page, pause)).catch((err) => {
+            log.warn('Pause-Seite nicht geschrieben, Formular-Seite stattdessen', { slug: r.slug, err: String(err) })
+            return undefined
+          })
+        : undefined
+      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root } })
     } else if (r.sourceType === 'static') {
       specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra })
     } else if (r.port && r.deploymentId) {

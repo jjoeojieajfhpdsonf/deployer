@@ -23,17 +23,33 @@ export type PauseLang = (typeof pauseLangs)[number]
 const httpsUrl = z.string().trim().max(500)
   .refine((v) => { try { const u = new URL(v); return u.protocol === 'https:' && Boolean(u.hostname) } catch { return false } }, 'Nur https-Adressen, z. B. https://status.example.ch')
 
-/** Vorlage bzw. Überschreibung pro Projekt (ohne «Voraussichtlich zurück»). */
+/** Höchstgrösse des eigenen HTML (Code-Modus). */
+export const PAUSE_HTML_MAX = 100_000
+
+/**
+ * Vorlage bzw. Überschreibung pro Projekt (ohne «Voraussichtlich zurück»).
+ * mode form: aus den Feldern gebaut (Markdown, alles escaped). mode code:
+ * eigenes HTML/CSS – ausgeliefert als Datei (Caddy ersetzt darin keine
+ * Platzhalter), unter derselben CSP ohne Script und ohne externe Quellen.
+ * Titel und Text bleiben auch im Code-Modus gesetzt (Anzeige, Rückweg zum
+ * Formular).
+ */
 export const pausePageSchema = z.object({
+  mode: z.enum(['form', 'code']).default('form'),
   lang: z.enum(pauseLangs).default('de'),
   title: z.string().trim().min(1, 'Titel fehlt').max(120, 'Höchstens 120 Zeichen'),
   message: z.string().trim().min(1, 'Text fehlt').max(2000, 'Höchstens 2000 Zeichen'),
   linkText: z.string().trim().max(80, 'Höchstens 80 Zeichen').optional().or(z.literal('')),
   linkUrl: httpsUrl.optional().or(z.literal('')),
   contact: z.string().trim().max(200).email('Keine gültige E-Mail-Adresse').optional().or(z.literal('')),
+  html: z.string().max(PAUSE_HTML_MAX, `Höchstens ${PAUSE_HTML_MAX / 1000} KB`).optional().or(z.literal('')),
 }).superRefine((v, ctx) => {
   if (v.linkText && !v.linkUrl) ctx.addIssue({ code: 'custom', path: ['linkUrl'], message: 'Zum Linktext fehlt die Adresse' })
   if (v.linkUrl && !v.linkText) ctx.addIssue({ code: 'custom', path: ['linkText'], message: 'Zur Adresse fehlt der Linktext' })
+  if (v.mode === 'code') {
+    if (!v.html?.trim()) ctx.addIssue({ code: 'custom', path: ['html'], message: 'HTML fehlt' })
+    else if (!/<html[\s>]/i.test(v.html)) ctx.addIssue({ code: 'custom', path: ['html'], message: 'Ein ganzes Dokument mit <html> erwartet, z. B. aus «Aus Formular übernehmen»' })
+  }
 })
 export type PausePage = z.infer<typeof pausePageSchema>
 
@@ -45,12 +61,14 @@ export const pauseOptionsSchema = z.object({
 export type PauseOptions = z.infer<typeof pauseOptionsSchema>
 
 export const DEFAULT_PAUSE_PAGE: PausePage = {
+  mode: 'form',
   lang: 'de',
   title: 'Vorübergehend nicht erreichbar',
   message: 'Diese Seite ist gerade pausiert. Bitte später noch einmal versuchen.',
   linkText: '',
   linkUrl: '',
   contact: '',
+  html: '',
 }
 
 /** Kennung der Wartungsseite; die Prüfung von aussen erkennt daran «pausiert». */
@@ -130,10 +148,46 @@ const COLORS = {
 }
 
 /**
- * Die ganze Seite. theme: nur für die Vorschau (fest hell/dunkel); ohne
- * folgt sie prefers-color-scheme.
+ * Platzhalter im eigenen HTML (Code-Modus), escaped eingesetzt:
+ * {{back_at}} «Di., 11. Nov. 2026, 08:00» (leer ohne Zeitpunkt),
+ * {{back_at_iso}} für <time datetime>, {{title}}.
+ */
+export const PAUSE_TOKENS = ['{{back_at}}', '{{back_at_iso}}', '{{title}}'] as const
+
+export function fillPauseTokens(html: string, page: PausePage, o: { backAt?: string | null; timeZone?: string } = {}): string {
+  const back = o.backAt ? formatBackAt(o.backAt, page.lang ?? 'de', o.timeZone) : ''
+  const iso = o.backAt ? new Date(o.backAt).toISOString() : ''
+  return html
+    .replace(/\{\{\s*back_at\s*\}\}/g, escapeHtml(back))
+    .replace(/\{\{\s*back_at_iso\s*\}\}/g, escapeHtml(iso))
+    .replace(/\{\{\s*title\s*\}\}/g, escapeHtml(page.title))
+}
+
+/**
+ * Die ganze Seite. Code-Modus: das eigene HTML mit eingesetzten
+ * Platzhaltern. theme: nur für die Vorschau im Formular-Modus (fest
+ * hell/dunkel); ohne folgt die Seite prefers-color-scheme. Die Vorschau setzt
+ * dazu color-scheme am iframe – das gilt auch für eigenes HTML.
  */
 export function renderPausePage(page: PausePage, o: { backAt?: string | null; theme?: 'light' | 'dark'; timeZone?: string } = {}): string {
+  if (page.mode === 'code' && page.html) return fillPauseTokens(page.html, page, o)
+  return renderPauseForm(page, o)
+}
+
+/**
+ * Nur für die Vorschau: eigenes HTML fest hell oder dunkel zeigen. Browser
+ * geben die Wahl nicht verlässlich als prefers-color-scheme ins iframe
+ * weiter; deshalb werden die Media-Queries umgeschrieben – (prefers-color-
+ * scheme: dark) gilt im dunklen Modus immer, im hellen nie (light
+ * entsprechend). Ausgeliefert wird das HTML unverändert.
+ */
+export function forcePreviewScheme(html: string, theme: 'light' | 'dark'): string {
+  return html.replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi, (_m, want: string) =>
+    want.toLowerCase() === theme ? '(min-width: 0px)' : '(max-width: 0px)')
+}
+
+/** Die Seite aus den Feldern (auch: Ausgangspunkt für «Aus Formular übernehmen»). */
+export function renderPauseForm(page: PausePage, o: { backAt?: string | null; theme?: 'light' | 'dark'; timeZone?: string } = {}): string {
   const lang: PauseLang = page.lang ?? 'de'
   const t = T[lang]
   const colors = o.theme
@@ -177,9 +231,10 @@ ${extra.join('\n')}
  * Sekunden): die Caddy-Konfiguration wird einmal gebaut, ein Sekundenwert
  * veraltete. Nur gesetzt, wenn «Voraussichtlich zurück» in der Zukunft liegt.
  */
-export function pauseHeaders(backAt?: string | null, now = Date.now()): Record<string, string[]> {
+export function pauseHeaders(backAt?: string | null, now = Date.now(), o: { contentType?: boolean } = {}): Record<string, string[]> {
   const h: Record<string, string[]> = {
-    'Content-Type': ['text/html; charset=utf-8'],
+    // Bei Auslieferung als Datei setzt file_server den Typ selbst
+    ...(o.contentType === false ? {} : { 'Content-Type': ['text/html; charset=utf-8'] }),
     'Cache-Control': ['no-store'],
     'X-Robots-Tag': ['noindex'],
     'Content-Security-Policy': [PAUSE_CSP],

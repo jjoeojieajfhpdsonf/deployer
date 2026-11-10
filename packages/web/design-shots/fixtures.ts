@@ -151,21 +151,49 @@ export function publicStatus(id: string): PublicStatusDto {
 /* --- Pause-Seite ------------------------------------------------------------------- */
 
 export const pausePageTemplate: PausePage = {
+  mode: 'form',
   lang: 'de',
   title: 'Vorübergehend nicht erreichbar',
   message: 'Diese Seite ist gerade pausiert. Bitte später noch einmal versuchen.',
   linkText: 'Statusseite',
   linkUrl: 'https://status.example.ch',
   contact: '',
+  html: '',
 }
 
+/** Pausiertes Projekt mit eigenem Code (Vereinsfarben, hell und dunkel) */
 export const pausePageCustom: PausePage = {
+  mode: 'code',
   lang: 'de',
   title: 'Wir ziehen um',
-  message: 'Die Vereinsseite bekommt ein **neues Zuhause**.\n\nAnmeldungen für das Sommerfest nehmen wir weiterhin per Mail entgegen – mehr dazu im [Vereinsblog](https://blog.example.ch).',
+  message: 'Die Vereinsseite bekommt ein neues Zuhause.',
   linkText: '',
   linkUrl: '',
   contact: 'vorstand@example.ch',
+  html: `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{title}}</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fff8ef; --fg: #2b1d0e; --accent: #c2410c; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #1c140c; --fg: #fbe9d7; --accent: #fb923c; } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 17px/1.6 Georgia, serif; }
+    main { max-width: 30rem; padding: 0 20px; }
+    h1 { font-size: 2rem; margin: 0 0 .5rem; color: var(--accent); }
+    .back { font-family: system-ui, sans-serif; font-size: .9rem; opacity: .8; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{title}}</h1>
+    <p>Die Vereinsseite bekommt ein neues Zuhause. Anmeldungen für das Sommerfest gehen weiter an vorstand@example.ch.</p>
+    <p class="back">Wieder da: <time datetime="{{back_at_iso}}">{{back_at}}</time></p>
+  </main>
+</body>
+</html>
+`,
 }
 
 /** Vorgemerkte Öffentlich-Anfragen (per MCP): wartet auf den Scan bzw. gesperrt */

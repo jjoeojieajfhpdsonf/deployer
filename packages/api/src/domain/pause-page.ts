@@ -1,4 +1,7 @@
 import { eq, and } from 'drizzle-orm'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { PAUSE_FILE } from '../drivers/caddy-config.js'
 import { DEFAULT_PAUSE_PAGE, pausePageSchema, type PausePage, type PauseOptions } from '@deployer/shared'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
@@ -54,6 +57,25 @@ export async function setProjectPause(projectId: string, o: PauseOptions, actor:
     params: { custom: o.page === undefined ? 'unverändert' : o.page ? o.page.title : 'wie Vorlage', backAt: o.backAt ?? null }, result: 'ok',
   })
   return true
+}
+
+/**
+ * Code-Modus: das eigene HTML (Platzhalter eingesetzt) als Datei unter
+ * <sites>/_pause/<slug>/index.html. Slugs beginnen nie mit «_», der Ordner
+ * kollidiert also mit keinem Projekt. Atomar (tmp + rename) und nur bei
+ * Änderung geschrieben. Gibt den Ordner zurück, den Caddy ausliefert.
+ */
+export async function writePauseFile(sitesDir: string, slug: string, html: string): Promise<string> {
+  const dir = join(sitesDir, '_pause', slug)
+  const file = join(dir, PAUSE_FILE)
+  const current = await readFile(file, 'utf8').catch(() => null)
+  if (current !== html) {
+    await mkdir(dir, { recursive: true })
+    const tmp = `${file}.${process.pid}.tmp`
+    await writeFile(tmp, html, { mode: 0o644 })
+    await rename(tmp, file)
+  }
+  return dir
 }
 
 export async function projectPause(projectId: string): Promise<{ page: PausePage | null; backAt: string | null }> {

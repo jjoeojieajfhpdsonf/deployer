@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { pausePageSchema, renderPausePage, type PausePage } from '@deployer/shared'
+import { pausePageSchema, renderPausePage, renderPauseForm, forcePreviewScheme, PAUSE_HTML_MAX, type PausePage } from '@deployer/shared'
 import { Field } from './Field.js'
 
 /**
@@ -23,7 +23,8 @@ export function pausePageErrors(page: PausePage): PausePageErrors {
 }
 
 export const samePage = (a: PausePage, b: PausePage) =>
-  (['lang', 'title', 'message', 'linkText', 'linkUrl', 'contact'] as const).every((k) => (a[k] ?? '') === (b[k] ?? ''))
+  (a.mode ?? 'form') === (b.mode ?? 'form') &&
+  (['lang', 'title', 'message', 'linkText', 'linkUrl', 'contact', 'html'] as const).every((k) => (a[k] ?? '') === (b[k] ?? ''))
 
 export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix }: {
   value: PausePage
@@ -38,9 +39,47 @@ export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix
   const set = <K extends keyof PausePage>(k: K, v: PausePage[K]) => onChange({ ...value, [k]: v })
   const aria = (k: keyof PausePage) => (errors[k] ? { 'aria-invalid': true, 'aria-describedby': `${id(k)}-error` } : {})
 
+  const code = value.mode === 'code'
+  const [regen, setRegen] = useState(false)
+  /** HTML aus den Feldern – Ausgangspunkt für eigenen Code */
+  const fromForm = () => renderPauseForm({ ...value, mode: 'form' })
+  const toMode = (m: 'form' | 'code') => {
+    // Erster Wechsel zu Code: mit dem HTML des Formulars beginnen, nicht leer
+    if (m === 'code' && !value.html?.trim()) onChange({ ...value, mode: 'code', html: fromForm() })
+    else onChange({ ...value, mode: m })
+  }
+
   return (
     <div className="pause-editor">
       <div className="pause-fields">
+        <div className="pause-mode">
+          <span className="segmented" role="group" aria-label="Pause-Seite als Formular oder als Code">
+            <button type="button" aria-pressed={!code} onClick={() => toMode('form')}>Formular</button>
+            <button type="button" aria-pressed={code} onClick={() => toMode('code')}>Code</button>
+          </span>
+          <span className="hint">{code ? 'Eigenes HTML mit Inline-CSS' : 'Titel, Text und Links; die Seite baut der Server'}</span>
+        </div>
+        {code ? (
+          <>
+            <Field id={id('html')} label="HTML" error={errors.html}
+              hint={<>Ganzes Dokument mit <code>&lt;style&gt;</code>. Kein JavaScript, keine externen Bilder oder Schriften (CSP <code>default-src 'none'</code>); Bilder als Inline-SVG. Platzhalter: <code>{'{{back_at}}'}</code>, <code>{'{{back_at_iso}}'}</code>, <code>{'{{title}}'}</code>.</>}>
+              <textarea id={id('html')} className="code-input" rows={18} spellCheck={false} autoCapitalize="off" autoComplete="off"
+                value={value.html ?? ''} onChange={(e) => set('html', e.target.value)} {...aria('html')} />
+            </Field>
+            <div className="pause-code-actions">
+              {!regen ? (
+                <button type="button" className="button-small" onClick={() => setRegen(true)}>Aus Formular übernehmen …</button>
+              ) : (
+                <span className="confirm-inline" role="group" aria-label="HTML aus dem Formular übernehmen">
+                  <span className="confirm-note">Ersetzt das HTML durch die Seite aus Titel, Text und Links.</span>
+                  <button type="button" className="button-small" onClick={() => setRegen(false)}>Abbrechen</button>
+                  <button type="button" className="button-small button-primary" onClick={() => { set('html', fromForm()); setRegen(false) }}>Ersetzen</button>
+                </span>
+              )}
+              <span className="hint">{(value.html ?? '').length.toLocaleString('de-CH')} von {PAUSE_HTML_MAX.toLocaleString('de-CH')} Zeichen</span>
+            </div>
+          </>
+        ) : (<>
         <div className="pause-row">
           <Field id={id('title')} label="Titel" error={errors.title}>
             <input id={id('title')} value={value.title} maxLength={120} onChange={(e) => set('title', e.target.value)} {...aria('title')} />
@@ -67,6 +106,7 @@ export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix
         <Field id={id('contact')} label="Kontakt-E-Mail" optional error={errors.contact}>
           <input id={id('contact')} type="email" value={value.contact ?? ''} placeholder="hallo@example.ch" onChange={(e) => set('contact', e.target.value)} {...aria('contact')} />
         </Field>
+        </>)}
       </div>
       <PausePreview page={value} backAt={backAt} />
     </div>
@@ -77,9 +117,13 @@ export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix
 export function PausePreview({ page, backAt }: { page: PausePage; backAt?: string | null }) {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'))
   // Ungültige Zwischenstände (leerer Titel) trotzdem zeigen, nur ohne Absturz
+  // Formular: Farben fest einsetzen. Code: Media-Queries für die Vorschau
+  // umschreiben (forcePreviewScheme) – ausgeliefert wird das HTML unverändert.
   const html = useMemo(() => {
     try {
-      return renderPausePage(page, { backAt: backAt || null, theme })
+      return page.mode === 'code'
+        ? forcePreviewScheme(renderPausePage(page, { backAt: backAt || null }), theme)
+        : renderPausePage(page, { backAt: backAt || null, theme })
     } catch {
       return ''
     }
@@ -93,7 +137,7 @@ export function PausePreview({ page, backAt }: { page: PausePage; backAt?: strin
           <button type="button" aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>Dunkel</button>
         </span>
       </figcaption>
-      <iframe title="Vorschau der Pause-Seite" sandbox="" srcDoc={html} />
+      <iframe title="Vorschau der Pause-Seite" sandbox="" srcDoc={html} style={{ colorScheme: theme }} />
       <p className="hint">Antwort mit HTTP 503, noindex und no-store{backAt ? ', Retry-After bis zum angegebenen Zeitpunkt' : ''}.</p>
     </figure>
   )

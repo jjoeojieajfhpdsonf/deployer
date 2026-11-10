@@ -866,6 +866,12 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .pause-fields > .pause-row:first-child > .field > label { margin-top: 0; }
 .pause-row:first-child { grid-template-columns: minmax(0, 1fr) 160px; }
 .pause-fields textarea { min-height: 112px; resize: vertical; }
+.pause-mode { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: 0 0 var(--sp-1); }
+.pause-mode .hint { margin: 0; font-size: var(--fs-13); }
+.pause-fields .code-input { min-height: 360px; font-family: var(--mono); font-size: var(--fs-13); line-height: 1.55; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.pause-code-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
+.pause-code-actions .hint { margin: 0; font-size: var(--fs-13); }
+.pause-code-actions .confirm-note { color: var(--ink-dim); font-weight: 400; }
 .pause-preview { margin: 0; position: sticky; top: var(--sp-4); }
 .pause-preview figcaption { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin: 0 0 var(--sp-2); font-size: var(--fs-14); font-weight: 500; color: var(--ink); }
 .pause-preview figcaption .segmented button { min-height: 28px; padding: 0 10px; font-size: var(--fs-13); }

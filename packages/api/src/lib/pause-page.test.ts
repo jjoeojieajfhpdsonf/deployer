@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   renderMarkdown, renderPausePage, pauseHeaders, escapeHtml, pausePageSchema, pauseOptionsSchema, effectivePausePage,
-  DEFAULT_PAUSE_PAGE, PAUSE_CSP, type PausePage,
+  DEFAULT_PAUSE_PAGE, PAUSE_CSP, forcePreviewScheme, type PausePage,
 } from '@deployer/shared'
 
 const page = (over: Partial<PausePage> = {}): PausePage => ({ ...DEFAULT_PAUSE_PAGE, ...over })
@@ -131,5 +131,70 @@ describe('Pause-Seite: Eingaben', () => {
     assert.equal(effectivePausePage(t, o).title, 'Projekt')
     assert.equal(effectivePausePage(t, null).title, 'Vorlage')
     assert.equal(effectivePausePage(null, null).title, DEFAULT_PAUSE_PAGE.title)
+  })
+})
+
+describe('Pause-Seite: Code-Modus', () => {
+  const html = '<!doctype html><html lang="de"><head><style>body{margin:0}</style></head><body><h1>{{title}}</h1><p>Zurück: {{ back_at }}</p><time datetime="{{back_at_iso}}"></time></body></html>'
+
+  test('eigenes HTML unverändert, nur Platzhalter eingesetzt', () => {
+    const out = renderPausePage(page({ mode: 'code', title: 'Umzug <bald>', html }), { backAt: '2026-11-11T07:00:00Z', timeZone: 'Europe/Zurich' })
+    assert.match(out, /<style>body\{margin:0\}<\/style>/)
+    assert.match(out, /<h1>Umzug &lt;bald&gt;<\/h1>/)
+    assert.match(out, /Zurück: [^<]*08:00/)
+    assert.match(out, /datetime="2026-11-11T07:00:00.000Z"/)
+  })
+
+  test('ohne «zurück um» bleiben die Platzhalter leer', () => {
+    const out = renderPausePage(page({ mode: 'code', html }))
+    assert.match(out, /Zurück: <\/p>/)
+  })
+
+  test('Formular-Modus ignoriert html', () => {
+    assert.match(renderPausePage(page({ mode: 'form', html: '<html>x</html>' })), /<h1>Vorübergehend nicht erreichbar<\/h1>/)
+  })
+
+  test('Code-Modus verlangt ein ganzes Dokument und hat eine Grösse', () => {
+    assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html: '' })).success, false)
+    assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html: '<p>nur ein Absatz</p>' })).success, false)
+    assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html: `<html>${'x'.repeat(100_001)}</html>` })).success, false)
+    assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html })).success, true)
+  })
+
+  test('Vorschau fest hell/dunkel: Media-Queries umgeschrieben', () => {
+    const css = '@media (prefers-color-scheme: dark){a{}} @media (prefers-color-scheme:light){b{}}'
+    assert.equal(forcePreviewScheme(css, 'dark'), '@media (min-width: 0px){a{}} @media (max-width: 0px){b{}}')
+    assert.equal(forcePreviewScheme(css, 'light'), '@media (max-width: 0px){a{}} @media (min-width: 0px){b{}}')
+  })
+
+  test('alte Einträge ohne mode gelten als Formular', () => {
+    const r = pausePageSchema.parse({ lang: 'de', title: 't', message: 'm' })
+    assert.equal(r.mode, 'form')
+  })
+})
+
+describe('Pause-Seite: Datei im Code-Modus', () => {
+  test('schreibt index.html unter _pause/<slug>, nur bei Änderung, atomar', async () => {
+    process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'
+    process.env.ADMIN_PASSWORD ??= 'x'
+    const { writePauseFile } = await import('../domain/pause-page.js')
+    const { mkdtempSync, readFileSync, statSync, readdirSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const sites = mkdtempSync(join(tmpdir(), 'sites-'))
+    try {
+      const dir = await writePauseFile(sites, 'verein', '<html>eins</html>')
+      assert.equal(dir, join(sites, '_pause', 'verein'))
+      assert.equal(readFileSync(join(dir, 'index.html'), 'utf8'), '<html>eins</html>')
+      const before = statSync(join(dir, 'index.html')).mtimeMs
+      await new Promise((r) => setTimeout(r, 20))
+      await writePauseFile(sites, 'verein', '<html>eins</html>')
+      assert.equal(statSync(join(dir, 'index.html')).mtimeMs, before, 'unverändert: nicht neu geschrieben')
+      await writePauseFile(sites, 'verein', '<html>zwei</html>')
+      assert.equal(readFileSync(join(dir, 'index.html'), 'utf8'), '<html>zwei</html>')
+      assert.deepEqual(readdirSync(dir), ['index.html'], 'keine tmp-Datei liegen geblieben')
+    } finally {
+      rmSync(sites, { recursive: true, force: true })
+    }
   })
 })
