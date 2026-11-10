@@ -88,6 +88,21 @@ Die Systemseite zeigt unter «Netz des Servers» die erkannte Tailscale-IP, LAN-
 
 System → «Cloudflare verbinden», siehe [CLOUDFLARE.md](CLOUDFLARE.md). In **Schritt 3** die **Tailscale-IP des Servers** eintragen; sie ist mit der erkannten vorausgefüllt. deployer legt dann `*.<basisdomain>` → Tailscale-IP bei Cloudflare an (nicht proxied): Die internen Namen lösen überall auf, erreichbar sind sie aber nur mit Tailscale.
 
+## 4. GitHub verbinden (optional, für Fixes als Pull Request)
+
+Damit deployer Fixes zu Security-Befunden als Pull Request anlegen und nach dem Merge selbst deployen kann (Meilenstein 8). deployer bleibt dabei intern: Die Rückleitungen von GitHub laufen über deinen Browser, ein Webhook gibt es nicht.
+
+1. Im Browser bei GitHub angemeldet sein, mit dem Konto (oder der Organisation), dem die Repos gehören.
+2. deployer über seinen **Hauptnamen** öffnen (`https://deployer.<basisdomain>`, sonst die nip.io-Adresse, die die Systemseite als erste nennt). GitHub leitet genau dorthin zurück – die Adresse steht auf der Seite unter «GitHub schickt dich danach hierher zurück».
+3. System → **GitHub** → Name der App prüfen (muss bei GitHub einmalig sein), bei Bedarf eine Organisation eintragen → **Weiter zu GitHub …**.
+4. Bei GitHub die Angaben ansehen (Rechte: Contents und Pull requests jeweils «Read and write», Metadata «Read-only»; kein Webhook) und **Create GitHub App** klicken. GitHub leitet zurück, deployer meldet «App angelegt» und speichert den Schlüssel verschlüsselt.
+5. **App installieren** → bei GitHub «Only select repositories» wählen und die Repos der Projekte anhaken → **Install**. Zurück in deployer stehen die Repos unter Schritt 3.
+6. Am Projekt (Reiter Einstellungen) **Nach einem Merge neu deployen** einschalten, wo gewünscht.
+
+Danach legt Claude über MCP (`propose_fix`) für Projekte aus diesen Repos einen Branch `deployer/fix-…` mit Pull Request an. Nach dem Merge deployt deployer innerhalb von 5 Minuten, scannt nach und kommentiert das Ergebnis am Pull Request.
+
+Wenn etwas schiefgeht: Die Rückleitung ist eine Stunde gültig; danach auf der Seite neu starten. Eine schon angelegte, aber nicht verbundene App bei GitHub unter Settings → Developer settings → GitHub Apps löschen. «Verbindung trennen» in deployer löscht Schlüssel und Secrets, nicht die App bei GitHub.
+
 ## Adressen und Wege
 
 | Weg | Adresse | Erreichbar |

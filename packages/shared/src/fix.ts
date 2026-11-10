@@ -204,6 +204,31 @@ export interface FixRequestDto {
   updatedAt: string
 }
 
+/* ------------------------------------------------------------------ *
+ * M8 – Etappe 3: GitHub App
+ * ------------------------------------------------------------------ */
+
+export interface GithubStatusDto {
+  /** App angelegt (Manifest getauscht) */
+  connected: boolean
+  app: { name: string; slug: string; htmlUrl: string; owner: string | null; createdAt: string } | null
+  installed: boolean
+  repos: string[]
+  /** Link zum Installieren bzw. Ändern der Repo-Auswahl */
+  installUrl: string | null
+  /** Rechte, die die App verlangt */
+  permissions: Record<string, string>
+  /** Vorschlag für den Namen der App (global eindeutig bei GitHub) */
+  suggestedName: string
+  /** Wohin GitHub nach dem Anlegen zurückleitet */
+  callbackUrl: string
+}
+
+export const githubManifestRequestSchema = z.object({
+  name: z.string().trim().min(3, 'Mindestens 3 Zeichen').max(34, 'GitHub erlaubt höchstens 34 Zeichen').regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/, 'Buchstaben, Ziffern, Leerzeichen, Punkt, Bindestrich'),
+  org: z.string().trim().max(39).regex(/^$|^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/, 'Name der Organisation wie auf GitHub').optional(),
+})
+
 /**
  * Auftrag für Claude: kurz, mit allem, was Claude zum Finden braucht, und
  * mit der Regel, nichts ohne Zustimmung einzuspielen.

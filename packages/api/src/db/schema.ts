@@ -35,6 +35,9 @@ export const projects = pgTable('projects', {
   localRepoPath: text('local_repo_path'),
   lastChangeAt: timestamp('last_change_at', { withTimezone: true }).notNull().defaultNow(),
   expiryWarnedAt: timestamp('expiry_warned_at', { withTimezone: true }),
+  // M8: Auto-Deploy nach Merge (Polling)
+  autoDeploy: boolean('auto_deploy').notNull().default(false),
+  autoDeployCheckedAt: timestamp('auto_deploy_checked_at', { withTimezone: true }),
 })
 
 export const apiTokens = pgTable('api_tokens', {
@@ -267,8 +270,27 @@ export const fixRequests = pgTable('fix_requests', {
   branch: text('branch'),
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
+  prCommentedAt: timestamp('pr_commented_at', { withTimezone: true }),
   note: text('note'),
   actor: text('actor').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('fix_requests_project').on(t.projectId, t.createdAt)])
+
+export const gitConnections = pgTable('git_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  provider: text('provider').$type<'github' | 'gitlab'>().notNull().unique(),
+  appId: text('app_id').notNull(),
+  appSlug: text('app_slug').notNull(),
+  appName: text('app_name').notNull(),
+  htmlUrl: text('html_url').notNull(),
+  clientId: text('client_id'),
+  ownerLogin: text('owner_login'),
+  installationId: text('installation_id'),
+  repos: jsonb('repos').$type<string[]>().notNull().default([]),
+  privateKeyEncrypted: bytea('private_key_encrypted').notNull(),
+  clientSecretEncrypted: bytea('client_secret_encrypted'),
+  webhookSecretEncrypted: bytea('webhook_secret_encrypted'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})

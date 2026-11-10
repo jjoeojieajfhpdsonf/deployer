@@ -1,7 +1,7 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
-  HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto,
+  HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
 } from '@deployer/shared'
 
 export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto }
@@ -157,6 +157,13 @@ export const api = {
   fixHint: (id: string, findingId: string) => call<FixHintDto>(`/projects/${id}/findings/${findingId}/fix-hint`),
   fixRequests: (id: string) => call<{ fixes: FixRequestDto[] }>(`/projects/${id}/fix-requests`),
   applyFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/apply`, { method: 'POST', body: body({ confirm: true }) }),
+  /* GitHub App und Auto-Deploy (M8, Etappe 3) */
+  github: () => call<GithubStatusDto>('/github'),
+  githubManifest: (name: string, org?: string) => call<{ action: string; manifest: string; state: string }>('/github/manifest', { method: 'POST', body: body({ name, ...(org ? { org } : {}) }) }),
+  githubRefresh: () => call<{ repos: string[] }>('/github/refresh', { method: 'POST' }),
+  githubDisconnect: () => call<void>('/github', { method: 'DELETE' }),
+  autoDeploy: (id: string) => call<{ autoDeploy: boolean; checkedAt: string | null; available: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`),
+  setAutoDeploy: (id: string, enabled: boolean) => call<{ autoDeploy: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`, { method: 'PUT', body: body({ enabled }) }),
   rejectFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/reject`, { method: 'POST', body: body({}) }),
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),

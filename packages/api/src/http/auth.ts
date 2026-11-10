@@ -200,6 +200,10 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/notifications')) {
         throw new AppError('forbidden', 'Benachrichtigungen lassen sich nur mit einer Anmeldung einstellen', 403)
       }
+      // M8: ebenso die GitHub App – ein Token könnte sie sonst auf eine fremde App umstellen
+      if (route.startsWith('/api/v1/github')) {
+        throw new AppError('forbidden', 'Die GitHub-Verbindung lässt sich nur mit einer Anmeldung einrichten', 403)
+      }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {
         throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)

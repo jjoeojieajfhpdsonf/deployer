@@ -6,6 +6,7 @@ import { StatusBadge, relativeTime, duration } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
+import { AutoDeploySetting } from '../components/GithubSetup.js'
 import { Reachability } from '../components/Reachability.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
@@ -196,6 +197,7 @@ export function ProjectDetail() {
       {tab === 'logs' && <LiveLogs projectId={id} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && <Reachability p={p} />}
+      {tab === 'einstellungen' && <AutoDeploySetting projectId={p.id} />}
       {tab === 'einstellungen' && (
         <Settings
           projectId={id}

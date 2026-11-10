@@ -158,9 +158,19 @@ Screenshots: `docs/design-cal/m8-etappe2/`.
 
 ### Etappe 3
 
-- [ ] Manifest für die GitHub App mit genau Contents: write und Pull requests: write, ohne Webhook
-- [ ] Rückleitung tauscht den Code gegen die App-Daten und speichert Schlüssel und Secrets verschlüsselt (Test mit Attrappe)
-- [ ] Installations-Token pro Vorgang, auf das Repo beschränkt (JWT-Test)
-- [ ] Fix als Branch `deployer/fix-…` und Pull Request, nie auf den Standard-Branch (Attrappe)
-- [ ] Auto-Deploy-Polling deployt bei neuem Commit und markiert gemergte Pull Requests (Attrappe)
-- [ ] Anleitung in INSTALL.md; angehalten vor dem Anlegen der echten App
+Stand 10.11.2026. Unit-Tests mit einer fetch-Attrappe (Manifest, JWT mit echtem RSA-Schlüssel geprüft, Token, Pull Request über die Git-Data-API, Fehler) und der ganze Ablauf gegen eine GitHub-Attrappe als lokaler HTTP-Server plus Wegwerf-Postgres (21 Prüfungen: Manifest → Rückleitung mit state → Installation → Kontext über GitHub → Pull Request → Merge → Auto-Deploy → Bestätigung → Kommentar → Trennen). `git ls-remote` einmal live gegen ein öffentliches Repo. **Keine echte GitHub App angelegt** – das ist Joëls Schritt (INSTALL.md, Abschnitt 4).
+
+- [x] Manifest für die GitHub App mit genau Contents: write und Pull requests: write, ohne Webhook, nicht öffentlich; für das eigene Konto oder eine Organisation
+- [x] Rückleitung tauscht den Code gegen die App-Daten und speichert Schlüssel und Secrets verschlüsselt; der state gilt eine Stunde und nur einmal (Attrappe)
+- [x] Installations-Token pro Vorgang, auf das Repo und die beiden Rechte beschränkt; JWT RS256, höchstens 10 Minuten
+- [x] Fix als Branch `deployer/fix-<befund>-<kurz-id>` und Pull Request mit Befund, Erklärung und Link zum Scan; der Standard-Branch wird nie geändert (Attrappe)
+- [x] `get_fix_context` liest bei verbundenen Repos die betroffenen Dateien über die App, mit derselben Bereinigung wie bei Chat-Projekten
+- [x] Auto-Deploy-Polling (alle 5 Minuten, `AUTO_DEPLOY_INTERVAL_S`) deployt bei neuem Commit, markiert gemergte bzw. geschlossene Pull Requests und kommentiert nach dem Nachscan einmal am Pull Request (Attrappe); öffentliche Repos ohne App über `git ls-remote`
+- [x] GitHub-Verbindung nur mit Anmeldung, nicht mit einem API-Token (wie Tokens und Benachrichtigungen)
+- [x] Anleitung in INSTALL.md; angehalten vor dem Anlegen der echten App
+
+**Gutachten (Impeccable, nur audit/critique):** behoben – Fehler bei «Repos neu laden» und «Trennen» waren unsichtbar, Fokus nach dem Trennen auf `body`, Auto-Deploy-Checkbox verlor beim Speichern den Fokus (jetzt `aria-disabled`), Rechte ohne Einordnung und auf Englisch, Text versprach automatisches Deploy (ist pro Projekt aus), Knopf verschwieg den Wechsel zu GitHub («Weiter zu GitHub …»), leerer Schritt 2 im Randfall, Banner breiter als die Karten, Fehler beim Laden der Auto-Deploy-Einstellung unsichtbar, **Meldungen der Rückleitung als Freitext aus der URL** (ein präparierter Link hätte Meldungen fälschen können; jetzt feste Codes). Nicht umgesetzt (Stil): Zeilenlänge des Erklärtexts.
+
+**Offen (bewusst nicht gebaut):** private Repos als Quelle (Klonen mit dem Installations-Token; `lsRemoteHead` nimmt das Token schon an, `cloneRepo` noch nicht), GitLab (OAuth-App oder Projekt-Token; Datenmodell vorbereitet), Kommentar am Pull Request auch dann, wenn der Befund nach dem Merge bleibt (heute nur bei «behoben»), der optionale Weg «Direkt in deployer» mit `ANTHROPIC_API_KEY`.
+
+Screenshots: `docs/design-cal/m8-etappe3/`.

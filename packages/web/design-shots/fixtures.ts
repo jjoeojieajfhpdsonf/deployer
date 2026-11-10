@@ -6,7 +6,7 @@
  */
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, RouteDto, ScanReportDto, SystemStatusDto,
-  HeaderRulesDto, FixHintDto, FixRequestDto,
+  HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto,
 } from '@deployer/shared'
 import { fixPrompt } from '@deployer/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto } from '../src/api.js'
@@ -232,6 +232,27 @@ export function fixRequests(id: string): FixRequestDto[] {
       createdAt: ago(26 * HOUR), updatedAt: ago(25 * HOUR),
     },
   ]
+}
+
+/** M8, Etappe 3: GitHub-Seite – vor dem Anlegen oder fertig installiert */
+export function github(connected: boolean): GithubStatusDto {
+  const base = {
+    permissions: { contents: 'write', pull_requests: 'write', metadata: 'read (von GitHub immer dabei)' },
+    suggestedName: 'deployer heimserver 4f2a',
+    callbackUrl: `https://deployer.${BASE}/api/v1/github/manifest/callback`,
+  }
+  if (!connected) return { ...base, connected: false, app: null, installed: false, repos: [], installUrl: null }
+  return {
+    ...base, connected: true, installed: true,
+    app: { name: 'deployer heimserver 4f2a', slug: 'deployer-heimserver-4f2a', htmlUrl: 'https://github.com/apps/deployer-heimserver-4f2a', owner: 'example', createdAt: ago(2 * HOUR) },
+    repos: ['example/fotoalbum', 'example/rezepte-api'],
+    installUrl: 'https://github.com/apps/deployer-heimserver-4f2a/installations/new',
+  }
+}
+
+export function autoDeploy(id: string) {
+  const repo = id === 'p-foto' || id === 'p-rezepte'
+  return { autoDeploy: id === 'p-foto', checkedAt: ago(3 * MIN), available: repo, viaGithubApp: repo }
 }
 
 export function audit(targetId?: string): AuditEventDto[] {

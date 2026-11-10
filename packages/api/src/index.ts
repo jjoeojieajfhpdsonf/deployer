@@ -20,6 +20,8 @@ import { reconcilePublicOnBoot } from './domain/public.js'
 import { startCloudflaredWatch } from './domain/routes.js'
 import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
+import { registerGithub } from './domain/github.js'
+import { startAutoDeployJob } from './jobs/auto-deploy.js'
 
 async function main(): Promise<void> {
   log.info('deployer startet', { version: config.version, env: config.NODE_ENV })
@@ -82,6 +84,9 @@ async function main(): Promise<void> {
   await abandonUnfinishedScans()
   startSecurityJobs()
   startMonitorJob()
+  // M8: GitHub App im Fix-Assistenten, Auto-Deploy nach Merge (Polling)
+  registerGithub()
+  startAutoDeployJob()
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })

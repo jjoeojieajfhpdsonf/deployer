@@ -6,6 +6,7 @@ import { NotificationSettings } from '../components/Notifications.js'
 import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
+import { GithubSetup } from '../components/GithubSetup.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -13,12 +14,14 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export type SystemSection = 'uebersicht' | 'cloudflare' | 'benachrichtigungen'
+export type SystemSection = 'uebersicht' | 'cloudflare' | 'benachrichtigungen' | 'github'
 
 const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
   { key: 'uebersicht', to: '/system', label: 'Übersicht' },
   { key: 'cloudflare', to: '/system/cloudflare', label: 'Cloudflare & HTTPS' },
   { key: 'benachrichtigungen', to: '/system/benachrichtigungen', label: 'Benachrichtigungen' },
+  // M8, Etappe 3
+  { key: 'github', to: '/system/github', label: 'GitHub' },
 ]
 
 /**
@@ -84,6 +87,8 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
       )}
 
       {section === 'benachrichtigungen' && <NotificationSettings />}
+
+      {section === 'github' && <GithubSetup />}
 
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
     </section>

@@ -108,6 +108,12 @@ const envSchema = z.object({
   // Wildcards früherer Probeläufe weg. Fehlt das Volume, entfällt beides.
   CADDY_DATA_DIR: z.string().default('/caddy-data'),
 
+  // M8: GitHub (in Tests durch eine Attrappe ersetzbar)
+  GITHUB_API: z.string().url().default('https://api.github.com'),
+  GITHUB_WEB: z.string().url().default('https://github.com'),
+  // Alle so viele Sekunden: Auto-Deploy nach Merge und Status offener Pull Requests (SPEC: 5 Minuten)
+  AUTO_DEPLOY_INTERVAL_S: z.coerce.number().int().min(30).default(300),
+
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),
 })

@@ -47,6 +47,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/auto-deploy$/))) return { body: fx.autoDeploy(m[1]!) }
   if ((m = p.match(/^\/projects\/[^/]+\/findings\/([^/]+)\/fix-hint$/))) return { body: fx.fixHint(m[1]!) }
   if (p === '/audit') return { body: { events: fx.audit(u.searchParams.get('targetId') ?? undefined) } }
   if (p === '/system/status') return { body: fx.system }
@@ -67,6 +68,8 @@ type Shot = {
   full?: boolean
   /** Leere Daten (keine Projekte, kein Audit) */
   empty?: boolean
+  /** M8: GitHub App angelegt und installiert */
+  githubConnected?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -140,6 +143,10 @@ const shots: Shot[] = [
   { group: 'system', name: 'system-uebersicht', path: '/system' },
   { group: 'system', name: 'system-cloudflare', path: '/system/cloudflare' },
   { group: 'system', name: 'system-benachrichtigungen', path: '/system/benachrichtigungen' },
+  // M8, Etappe 3
+  { group: 'github', name: 'system-github', path: '/system/github' },
+  { group: 'github', name: 'system-github-verbunden', path: '/system/github?ok=installiert', githubConnected: true },
+  { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
     group: 'zustaende', name: 'bestaetigung-stoppen', path: `/projekte/${P}`, full: false,
@@ -185,6 +192,8 @@ try {
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
+            // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
+            if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t)
             return json(route, r.body, r.status)
           }

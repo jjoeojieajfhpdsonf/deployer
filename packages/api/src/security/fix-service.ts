@@ -123,17 +123,17 @@ export async function getFixContext(idOrSlug: string, findingId: string): Promis
   }
   if (way === 'header') return { ...base, next: `set_security_header mit project "${p.slug}" aufrufen; keine Codeänderung nötig.` }
   if (way === 'image') return { ...base, image: await imageHint(p, f), next: 'Keine Codeänderung möglich. Eine neuere Image-Version vorschlagen; Joël stellt das Projekt selbst um.' }
-  if (way !== 'files') {
-    return { ...base, next: way === 'github' ? 'propose_fix mit den geänderten Dateien aufrufen; deployer öffnet einen Pull Request.' : 'Die Änderung im Git-Repo des Projekts auf einem eigenen Branch machen; deployer kennt die Dateien nicht.' }
+  const source = way === 'files' ? await localSource(p) : way === 'github' ? await githubSource(p) : null
+  if (!source) {
+    return { ...base, next: 'Die Änderung im Git-Repo des Projekts auf einem eigenen Branch machen; deployer kennt die Dateien nicht.' }
   }
 
-  const listing = await listProjectFiles(p.id)
-  const paths = listing.files.map((x) => x.path)
+  const paths = source.paths
   const wanted = affectedPaths(f, paths)
   const secret = secretLocation(f)
   // Alle Werte der Projekt-Env, auch nicht geheime: an Claude gehen keine Env-Werte (SPEC)
   const envValues = Object.values(await resolveEnv(p.id))
-  const read = wanted.length ? (await readProjectFiles(p.id, wanted)).files : []
+  const read = wanted.length ? await source.read(wanted) : []
   let secretLines = 0
   let envHits = 0
   const files = read
@@ -151,11 +151,30 @@ export async function getFixContext(idOrSlug: string, findingId: string): Promis
     withheld: paths.filter(isWithheld),
     repo_paths: paths.filter((x) => !isWithheld(x)).slice(0, 500),
     masked: { secret_lines: secretLines, env_values: envHits },
-    commit: listing.commit,
+    commit: source.commit,
     next:
       'Änderung mit propose_fix vorschlagen: geänderte Dateien vollständig (nicht als Diff), gelöschte unter delete, kurze Erklärung. ' +
+      (way === 'github' ? 'deployer legt dafür einen Branch und einen Pull Request an. ' : '') +
       'Ersetzte Stellen («deployer: …») nicht zurückschreiben: ein Secret gehört in die Projekt-Env (Oberfläche), nicht in den Code.',
   }
+}
+
+/** Dateien eines Repos, aus dem der Kontext liest (lokal oder über GitHub). */
+export interface RepoSource {
+  commit: string | null
+  paths: string[]
+  read: (paths: string[]) => Promise<{ path: string; content: string; encoding: 'utf8' | 'base64' }[]>
+}
+
+async function localSource(p: Project): Promise<RepoSource> {
+  const listing = await listProjectFiles(p.id)
+  return { commit: listing.commit, paths: listing.files.map((x) => x.path), read: async (paths) => (await readProjectFiles(p.id, paths)).files }
+}
+
+/** Etappe 3: Dateien über die GitHub App. */
+export let githubSource: (p: Project) => Promise<RepoSource | null> = async () => null
+export function setGithubSource(fn: typeof githubSource): void {
+  githubSource = fn
 }
 
 /* --- Vorschlag ------------------------------------------------------------------------ */
