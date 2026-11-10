@@ -406,6 +406,39 @@ const shots: Shot[] = [
     group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
   },
+  { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
+  { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
+  {
+    group: 'p6', name: '6-einstellungen-gespeichert', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('switch', { name: 'Heimnetz (LAN)' }).click()
+      await pg.waitForTimeout(500)
+      await pg.locator('#set-erreichbarkeit').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-access-rueckfrage', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('switch', { name: 'Cloudflare Access' }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-header-offen', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'aufklappen' }).click()
+      await pg.waitForTimeout(300)
+      await pg.locator('#set-header').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(400)
+    },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-gefahrenzone', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('link', { name: 'Gefahrenzone' }).click()
+      await pg.waitForTimeout(600)
+      await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      await pg.waitForTimeout(300)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },

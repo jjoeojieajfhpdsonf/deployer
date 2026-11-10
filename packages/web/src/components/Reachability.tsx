@@ -1,63 +1,85 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { api, ApiError, type ProjectDto } from '../api.js'
+import { SetRow } from './Publication.js'
+import { Switch } from './Switch.js'
 
 type Internal = 'lan' | 'tailnet'
 
 /**
- * Interne Erreichbarkeit eines Projekts: Tailnet und LAN (M4, dieselbe
- * interne Adresse), mit eigenem Speichern. Öffentlich steht in der eigenen
- * Karte «Veröffentlichung» und wird hier nicht angefasst.
+ * Interne Erreichbarkeit eines Projekts: Tailnet und LAN als Schalter (M4,
+ * dieselbe interne Adresse). Jeder Schalter speichert sofort, im Kopf steht
+ * «✓ gespeichert»; ein Toast bietet 10 s lang «Rückgängig». Öffentlich steht
+ * in der Karte «Veröffentlichung» und wird hier nicht angefasst.
  */
 export function Reachability({ p }: { p: ProjectDto }) {
   const qc = useQueryClient()
   const current = new Set<Internal>(p.routes.flatMap((r) => (r.targets ?? [r.target])).filter((t): t is Internal => t !== 'public'))
   const [want, setWant] = useState<Set<Internal>>(current)
   const [saved, setSaved] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+  const titleId = useId()
+  const tailId = useId()
+  const lanId = useId()
+  const internal = p.routes.find((r) => r.target !== 'public')
+  const host = internal?.hostname ?? null
+  // Eine eigene interne Subdomain behalten: das Label der bisherigen Adresse.
+  const label = host?.split('.')[0]
+  const key = [...current].sort().join()
+  useEffect(() => setWant(new Set(current)), [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => window.clearTimeout(timer.current), [])
 
   const save = useMutation({
-    mutationFn: () => {
-      // Eine eigene interne Subdomain behalten: das Label der bisherigen Adresse.
-      const internal = p.routes.find((r) => r.target !== 'public')
-      const label = internal?.hostname.split('.')[0]
-      return api.putInternalRoutes(p.id, [...want], label && label !== p.slug ? label : undefined)
-    },
-    onSuccess: () => {
+    mutationFn: ({ targets }: { targets: Internal[]; before: Internal[]; undo?: boolean }) =>
+      api.putInternalRoutes(p.id, targets, label && label !== p.slug ? label : undefined),
+    onSuccess: (_r, v) => {
       setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setSaved(false), 2500)
       void qc.invalidateQueries({ queryKey: ['project', p.id] })
       void qc.invalidateQueries({ queryKey: ['public', p.id] })
+      const words = (t: Internal[]) => (t.length ? t.map((x) => (x === 'lan' ? 'LAN' : 'Tailnet')).join(' und ') : 'nirgends intern')
+      toast.success(v.undo ? 'Rückgängig: Erreichbarkeit wie vorher' : 'Erreichbarkeit gespeichert', {
+        id: `reach-${p.id}`,
+        description: `Intern: ${words(v.targets)}.`,
+        duration: 10_000,
+        ...(v.undo ? {} : { action: { label: 'Rückgängig', onClick: () => { setWant(new Set(v.before)); save.mutate({ targets: v.before, before: v.targets, undo: true }) } } }),
+      })
+    },
+    onError: (err, v) => {
+      setWant(new Set(v.before))
+      toast.error('Nicht gespeichert', { id: `reach-${p.id}`, description: err instanceof ApiError ? err.message : 'Die Erreichbarkeit blieb wie vorher.' })
     },
   })
 
-  const toggle = (t: Internal) => {
+  const toggle = (t: Internal, on: boolean) => {
+    const before = [...want]
     const n = new Set(want)
-    if (n.has(t)) n.delete(t)
-    else n.add(t)
+    if (on) n.add(t)
+    else n.delete(t)
     setWant(n)
+    save.mutate({ targets: [...n], before })
   }
-  const changed = [...want].sort().join() !== [...current].sort().join()
   const hasPublic = p.routes.some((r) => r.target === 'public')
 
   return (
-    <fieldset className="field-group">
-      <legend>Interne Erreichbarkeit</legend>
-      <label className="choice">
-        <input type="checkbox" checked={want.has('tailnet')} onChange={() => toggle('tailnet')} />
-        <span>Tailnet <small>über Tailscale, im Heimnetz und unterwegs – die Hauptadresse des Servers</small></span>
-      </label>
-      <label className="choice">
-        <input type="checkbox" checked={want.has('lan')} onChange={() => toggle('lan')} />
-        <span>Heimnetz (LAN) ohne Tailscale <small>für die eigene interne Adresse braucht es einen lokalen DNS, der sie auf die LAN-IP zeigt; sonst nur über die nip.io-Adresse mit der LAN-IP</small></span>
-      </label>
-
-      {want.size === 0 && <p className="hint">{hasPublic ? 'Ohne internes Ziel ist das Projekt nur noch öffentlich erreichbar.' : 'Ohne Ziel ist das Projekt nirgends erreichbar.'}</p>}
-      <div className="form-actions">
-        <button className="button-primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Wird gespeichert…' : saved ? 'Gespeichert' : 'Interne Ziele speichern'}
-        </button>
+    <section className="set-card" id="set-erreichbarkeit" aria-labelledby={titleId}>
+      <div className="set-head">
+        <h2 id={titleId} tabIndex={-1}>Erreichbarkeit intern</h2>
+        <span className={`set-saved${saved ? ' set-saved-on' : ''}`} role="status" aria-live="polite">
+          {save.isPending ? 'speichert…' : saved ? <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg> gespeichert</> : ''}
+        </span>
       </div>
-      {save.isError && <p role="alert" className="error">{save.error instanceof ApiError ? save.error.message : 'Nicht gespeichert'}</p>}
-    </fieldset>
+      <SetRow label={<span id={tailId}>Tailnet</span>} action={<Switch checked={want.has('tailnet')} labelledBy={tailId} busy={save.isPending} onChange={(on) => toggle('tailnet', on)} />}>
+        {host ? <a href={internal!.urls[0]} target="_blank" rel="noreferrer">{host}</a> : <strong className="set-strong">{want.has('tailnet') ? 'an' : 'aus'}</strong>}
+        <span className="muted"> · im Heimnetz und unterwegs{!want.has('tailnet') ? ' · aus' : ''}</span>
+      </SetRow>
+      <SetRow label={<span id={lanId}>Heimnetz (LAN)</span>} action={<Switch checked={want.has('lan')} labelledBy={lanId} busy={save.isPending} onChange={(on) => toggle('lan', on)} />}>
+        <strong className="set-strong">ohne Tailscale</strong>
+        <span className="muted"> · braucht lokalen DNS, sonst nip.io{!want.has('lan') ? ' · aus' : ''}</span>
+      </SetRow>
+      {want.size === 0 && <p className="set-row-note">{hasPublic ? 'Ohne internes Ziel ist das Projekt nur noch öffentlich erreichbar.' : 'Ohne Ziel ist das Projekt nirgends erreichbar.'}</p>}
+    </section>
   )
 }

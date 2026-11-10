@@ -19,6 +19,8 @@ export type PublicAction =
   | { op: 'unpublish' }
   /** Rückgängig von «ganz offline»: derselbe Name, derselbe Access */
   | { op: 'republish'; hostname: string; access: boolean }
+  /** Öffentliche Adresse ändern (Subdomain oder voller Name); before für «Rückgängig» */
+  | { op: 'rename'; name: string; access: boolean; before: string }
 
 type Run = { action: PublicAction; undo?: boolean }
 
@@ -35,6 +37,10 @@ function call(id: string, a: PublicAction): Promise<PublicFlowResult & { removed
     case 'resume': return api.resumePublic(id)
     case 'unpublish': return api.unpublish(id)
     case 'republish': return api.publish(id, { publicHostname: a.hostname, accessProtected: a.access })
+    case 'rename': {
+      const name = a.name.trim().toLowerCase()
+      return api.publish(id, name.includes('.') ? { publicHostname: name, accessProtected: a.access } : { publicSubdomain: name, accessProtected: a.access })
+    }
   }
 }
 
@@ -46,6 +52,7 @@ function inverse(a: PublicAction, r: Awaited<ReturnType<typeof call>>): PublicAc
     case 'pause': return r.changed ? { op: 'resume' } : null
     case 'resume': return r.changed ? { op: 'pause' } : null
     case 'unpublish': return r.removed ? { op: 'republish', hostname: r.removed.hostname, access: r.removed.accessProtected } : null
+    case 'rename': return r.hostname && r.hostname !== a.before ? { op: 'rename', name: a.before, access: a.access, before: r.hostname } : null
   }
 }
 
@@ -57,6 +64,7 @@ function message(name: string, a: PublicAction, r: Awaited<ReturnType<typeof cal
     case 'pause': return { title: `«${name}» ist pausiert`, description: `Unter ${host} erscheint eine Wartungsseite.` }
     case 'resume': return { title: `«${name}» ist wieder online`, description: `https://${host}` }
     case 'unpublish': return { title: `«${name}» ist nicht mehr öffentlich`, description: `${host} ist frei. Intern bleibt das Projekt erreichbar.` }
+    case 'rename': return { title: 'Öffentliche Adresse geändert', description: `https://${host} · ${a.before} ist frei.` }
   }
 }
 

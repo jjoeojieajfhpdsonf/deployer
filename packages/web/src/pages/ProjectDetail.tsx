@@ -4,17 +4,18 @@ import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
-import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
-import { AutoDeploySetting } from '../components/GithubSetup.js'
-import { Reachability } from '../components/Reachability.js'
-import { Publication, PublicPillFor } from '../components/Publication.js'
+import { PublicPillFor } from '../components/Publication.js'
+import { ProjectSettings } from '../components/ProjectSettings.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
 import { SiteAccess } from '../components/SiteAccess.js'
+import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
+import { KIND_LABEL, shortVersion } from '../lib/format.js'
+import { runtimeStatus, isPublic } from '../lib/projects.js'
 
 const IconGear = () => (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -22,12 +23,6 @@ const IconGear = () => (
     <path d="M6.9 1.8h2.2l.4 1.6 1.1.5 1.4-.9 1.6 1.6-.9 1.4.5 1.1 1.6.4v2.2l-1.6.4-.5 1.1.9 1.4-1.6 1.6-1.4-.9-1.1.5-.4 1.6H6.9l-.4-1.6-1.1-.5-1.4.9-1.6-1.6.9-1.4-.5-1.1-1.6-.4V6.9l1.6-.4.5-1.1-.9-1.4 1.6-1.6 1.4.9 1.1-.5Z" />
   </svg>
 )
-import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
-import { useFormErrors } from '../lib/form.js'
-import { Field } from '../components/Field.js'
-import { putEnvSchema } from '@airlock/shared'
-import { KIND_LABEL, shortVersion } from '../lib/format.js'
-import { runtimeStatus, isPublic } from '../lib/projects.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -45,16 +40,11 @@ export function ProjectDetail() {
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
   const [watching, setWatching] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // «Löschen …» aus dem Menü: zur bestehenden Rückfrage (Kurzname eintippen) in den Einstellungen
+  // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
+  const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
     setTab('einstellungen')
-    const focus = (tries: number) => {
-      const zone = document.querySelector<HTMLElement>('.danger-zone')
-      if (!zone) { if (tries > 0) requestAnimationFrame(() => focus(tries - 1)); return }
-      zone.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      zone.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
-    }
-    requestAnimationFrame(() => focus(30))
+    setDeleteRequested(true)
   }
 
   const q = useQuery({
@@ -238,15 +228,23 @@ export function ProjectDetail() {
       )}
       {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} /> : <LiveLogs projectId={id} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
-      {tab === 'einstellungen' && <Publication p={p} />}
-      {tab === 'einstellungen' && <Reachability p={p} />}
-      {tab === 'einstellungen' && <AutoDeploySetting projectId={p.id} />}
       {tab === 'einstellungen' && (
-        <Settings
-          projectId={id}
-          slug={p.slug}
+        <ProjectSettings
+          p={p}
           env={env}
           onDeleted={() => navigate('/projekte')}
+          deleteRequested={deleteRequested}
+          onDeleteShown={() => setDeleteRequested(false)}
+          onManageHeaders={() => {
+            setTab('security')
+            // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
+            const go = (tries: number) => {
+              const el = document.getElementById('header-caddy')
+              if (el) el.scrollIntoView({ block: 'start' })
+              else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+            }
+            go(20)
+          }}
         />
       )}
       </div>
@@ -348,99 +346,3 @@ function LiveLogs({ projectId }: { projectId: string }) {
   )
 }
 
-/* --- Einstellungen ----------------------------------------------------------- */
-
-function Settings({
-  projectId, slug, env, onDeleted,
-}: {
-  projectId: string
-  slug: string
-  env: { key: string; value: string | null; isSecret: boolean }[]
-  onDeleted: () => void
-}) {
-  const qc = useQueryClient()
-  const [rows, setRows] = useState<EnvRow[]>(
-    env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true })),
-  )
-  const [confirm, setConfirm] = useState('')
-  const [purge, setPurge] = useState(false)
-  const [confirmError, setConfirmError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
-  const entries = () => rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))
-  const envForm = useFormErrors({ schema: putEnvSchema, values: () => ({ entries: entries() }) })
-  const save = useMutation({
-    mutationFn: () => api.putEnv(projectId, entries()),
-    onSuccess: () => {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-      void qc.invalidateQueries({ queryKey: ['project', projectId] })
-    },
-    onError: (err) => void envForm.setServerErrors(err),
-  })
-
-  const remove = useMutation({
-    mutationFn: () => api.deleteProject(projectId, purge),
-    onSuccess: onDeleted,
-  })
-
-  return (
-    <div className="tab-panel">
-      <form noValidate ref={envForm.formRef} onSubmit={(ev) => { ev.preventDefault(); if (envForm.validateAll()) save.mutate() }}>
-      <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={envForm.errors} field={envForm.field} />
-      <div className="form-actions">
-        <button type="submit" disabled={save.isPending}>
-          {save.isPending ? 'Wird gespeichert…' : saved ? 'Gespeichert' : 'Variablen speichern'}
-        </button>
-        <span className="hint">Wirksam beim nächsten Deploy.</span>
-      </div>
-      </form>
-      {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
-
-      <section className="danger-zone">
-        <h2>Projekt löschen</h2>
-        <p>
-          Entfernt Container, Netz, Route und Dateien. Lässt sich nicht rückgängig machen.
-        </p>
-        <form
-          noValidate
-          onSubmit={(ev) => {
-            ev.preventDefault()
-            if (confirm.trim() !== slug) {
-              setConfirmError(confirm.trim() ? `Das ist nicht «${slug}». Tippe den Kurznamen genau so ein, um das Löschen zu bestätigen.` : `Tippe «${slug}» ein, um das Löschen zu bestätigen.`)
-              requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus())
-              return
-            }
-            setConfirmError(null)
-            remove.mutate()
-          }}
-        >
-          <Field id="f-delete-confirm" label="Kurzname zur Bestätigung" error={confirmError ?? undefined}>
-            <input
-              id="f-delete-confirm"
-              aria-invalid={confirmError ? true : undefined}
-              aria-describedby={confirmError ? 'f-delete-confirm-error' : undefined}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onBlur={() => { if (confirmError && confirm.trim() === slug) setConfirmError(null) }}
-              placeholder={slug}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          <label className="choice">
-            <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
-            <span>
-              Auch die Daten-Volumes löschen
-              <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small>
-            </span>
-          </label>
-          <button type="submit" className="button-danger-solid" disabled={remove.isPending}>
-            {remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}
-          </button>
-        </form>
-        {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
-      </section>
-    </div>
-  )
-}
