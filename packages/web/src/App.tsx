@@ -5,6 +5,7 @@ import { NavLink, Route, Routes, Navigate, Link, useLocation } from 'react-route
 import { ErrorBoundary } from './components/ErrorBoundary.js'
 import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
+import { ActivityIndicator } from './components/ActivityIndicator.js'
 import { api } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -71,7 +72,10 @@ export function App() {
       <main className="main">
         <div className="topbar">
           <Crumbs />
-          <ProfileMenu me={me.data} />
+          <div className="topbar-actions">
+            <ActivityIndicator />
+            <ProfileMenu me={me.data} />
+          </div>
         </div>
         <StaleBar />
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}

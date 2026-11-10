@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, isPublic } from '../lib/projects.js'
@@ -86,7 +86,7 @@ export function Domains() {
               <h3>Zonen</h3>
               <p>Öffentliche Namen entstehen unter der Standard-Zone, wenn nur eine Subdomain angegeben ist.</p>
             </div>
-            <button onClick={() => sync.mutate()} disabled={sync.isPending}>{sync.isPending ? 'Gleicht ab…' : 'Mit Cloudflare abgleichen'}</button>
+            <button onClick={() => sync.mutate()} disabled={sync.isPending} aria-busy={sync.isPending || undefined}>Mit Cloudflare abgleichen</button>
           </div>
           {!d.data && d.isError ? (
             <ErrorState compact what="Die Zonenliste" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
@@ -112,7 +112,6 @@ export function Domains() {
               </table>
             </div>
           )}
-          {[sync, setDefault].map((m, i) => (m.isError ? <p key={i} role="alert" className="error">{m.error instanceof ApiError ? m.error.message : 'Fehler'}</p> : null))}
         </>
       )}
 

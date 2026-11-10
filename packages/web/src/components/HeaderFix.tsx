@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@airlock/shared'
-import { api, ApiError, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
+import { api, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { IconWarn } from './Security.js'
+import { notifyOk } from '../lib/feedback.js'
 
 /**
  * M8, Etappe 1: Header über Caddy im Security-Reiter. Knopf am Befund
@@ -39,7 +40,7 @@ export function recheckText(r: HeaderRecheckDto): string {
   return `Nachscan über Caddy: ${parts.join(', ')}${r.grade ? ` – Note ${r.grade}, ${r.score} / 100` : ''}.`
 }
 
-type SetVars = { header: HeaderKey; value?: string; mode: HeaderMode; confirm?: boolean }
+type SetVars = { header: HeaderKey; value?: string; mode: HeaderMode; confirm?: boolean; undo?: boolean }
 
 function useHeaderMutation(projectId: string, onDone: (msg: string) => void) {
   const qc = useQueryClient()
@@ -48,19 +49,34 @@ function useHeaderMutation(projectId: string, onDone: (msg: string) => void) {
     void qc.invalidateQueries({ queryKey: ['scan', projectId] })
     void qc.invalidateQueries({ queryKey: headerRulesKey(projectId) })
   }
+  // Regel vor der Änderung, für «Rückgängig»
+  const ruleBefore = (header: HeaderKey) => qc.getQueryData<HeaderRulesDto>(headerRulesKey(projectId))?.rules.find((r) => r.header === header) ?? null
+  /** Rückweg zur Regel davor: wieder setzen (bestätigt war sie schon) oder entfernen */
+  const restore = (header: HeaderKey, before: HeaderRuleDto | null) => {
+    if (before) set.mutate({ header, value: before.value, mode: before.mode, confirm: true, undo: true })
+    else remove.mutate({ header, undo: true })
+  }
   const set = useMutation({
     mutationKey: mutationKey(projectId),
+    meta: { errorTitle: 'Header nicht gesetzt' },
+    onMutate: (v: SetVars) => ({ before: ruleBefore(v.header) }),
     mutationFn: (v: SetVars) => api.setHeaderRule(projectId, v.header, { value: v.value, mode: v.mode, confirm: v.confirm }),
-    onSuccess: (r) => {
-      onDone(`${HEADER_LABEL[r.rule.header]}${r.rule.mode === 'report-only' ? ' als Report-Only' : ''} gesetzt. ${recheckText(r.recheck)}`)
+    onSuccess: (r, v, ctx) => {
+      const title = `${HEADER_LABEL[r.rule.header]}${r.rule.mode === 'report-only' ? ' als Report-Only' : ''} gesetzt`
+      onDone(`${title}. ${recheckText(r.recheck)}`)
+      notifyOk(v.undo ? `Rückgängig: ${title}` : title, { id: `header-${projectId}`, undo: v.undo ? undefined : () => restore(v.header, ctx?.before ?? null) })
       refresh()
     },
   })
   const remove = useMutation({
     mutationKey: mutationKey(projectId),
-    mutationFn: (header: HeaderKey) => api.removeHeaderRule(projectId, header),
-    onSuccess: (r, header) => {
-      onDone(`Regel für ${HEADER_LABEL[header]} entfernt. ${recheckText(r.recheck)}`)
+    meta: { errorTitle: 'Header-Regel nicht entfernt' },
+    onMutate: (v: { header: HeaderKey; undo?: boolean }) => ({ before: ruleBefore(v.header) }),
+    mutationFn: (v: { header: HeaderKey; undo?: boolean }) => api.removeHeaderRule(projectId, v.header),
+    onSuccess: (r, v, ctx) => {
+      const title = `Regel für ${HEADER_LABEL[v.header]} entfernt`
+      onDone(`${title}. ${recheckText(r.recheck)}`)
+      notifyOk(v.undo ? `Rückgängig: ${title}` : title, { id: `header-${projectId}`, undo: v.undo || !ctx?.before ? undefined : () => restore(v.header, ctx.before) })
       refresh()
     },
   })
@@ -75,16 +91,19 @@ function useHeaderMutation(projectId: string, onDone: (msg: string) => void) {
   // Rückweg in einem Klick: scharfe CSP -> Report-Only, sonst Regel entfernen
   const reset = useMutation({
     mutationKey: mutationKey(projectId),
+    meta: { errorTitle: 'Header nicht zurückgesetzt' },
+    onMutate: (header: HeaderKey) => ({ before: ruleBefore(header) }),
     mutationFn: (header: HeaderKey) => api.resetHeaderRule(projectId, header),
-    onSuccess: (r, header) => {
+    onSuccess: (r, header, ctx) => {
+      const title = `${HEADER_LABEL[header]} ${r.result === 'report-only' ? 'zurück auf Report-Only' : 'entfernt'}`
       onDone(`${HEADER_LABEL[header]} ${r.result === 'report-only' ? 'zurück auf Report-Only (blockiert nichts mehr)' : 'entfernt'}. ${recheckText(r.recheck)}`)
+      notifyOk(title, { id: `header-${projectId}`, undo: ctx?.before ? () => restore(header, ctx.before) : undefined })
       refresh()
     },
   })
   return { set, remove, recheck, reset, busy }
 }
 
-const errorText = (e: unknown) => (e instanceof ApiError ? e.message : 'Nicht gespeichert')
 
 /**
  * Rückfrage mit Fokus: beim Öffnen auf «Abbrechen» (zweimal Enter bestätigt
@@ -148,8 +167,8 @@ export function HeaderFixAction({
     return (
       <span className="fix-note">
         Caddy ergänzt den Header bereits.
-        <button type="button" className="button-small" onClick={() => m.recheck.mutate()} disabled={m.busy}>
-          {m.recheck.isPending ? 'Prüft …' : 'Erneut prüfen'}
+        <button type="button" className="button-small" onClick={() => m.recheck.mutate()} disabled={m.busy} aria-busy={m.recheck.isPending || undefined}>
+          Erneut prüfen
         </button>
       </span>
     )
@@ -172,8 +191,9 @@ export function HeaderFixAction({
             className="button-small button-primary"
             disabled={m.busy}
             onClick={() => m.set.mutate({ header: key, mode, confirm: true }, { onSettled: c.close })}
+            aria-busy={m.set.isPending || undefined}
           >
-            {m.set.isPending ? 'Wird gesetzt …' : 'Ja, HSTS setzen'}
+            Ja, HSTS setzen
           </button>
         </span>
       ) : (
@@ -190,12 +210,12 @@ export function HeaderFixAction({
             if (key === 'strict-transport-security') c.show()
             else m.set.mutate({ header: key, mode })
           }}
+          aria-busy={(m.set.isPending && m.set.variables?.header === key) || undefined}
         >
-          {m.set.isPending ? 'Wird gesetzt …' : SET_LABEL[key]}
+          {SET_LABEL[key]}
         </button>
       )}
       {hstsBlocked && <span id={reasonId} className="fix-note">{rules.hsts.reason}</span>}
-      {m.set.isError && <p role="alert" className="error">{errorText(m.set.error)}</p>}
     </>
   )
 }
@@ -220,8 +240,8 @@ function RuleRow({ r, m }: { r: HeaderRuleDto; m: ReturnType<typeof useHeaderMut
       <td className="row-actions">
         <span id={descId} className="reset-what">{what}</span>
         <button type="button" className="button-small" aria-describedby={descId}
-          aria-disabled={m.busy || undefined} onClick={() => !m.busy && m.reset.mutate(r.header)}>
-          {resetting ? 'Wird zurückgesetzt …' : 'Zurücksetzen'}
+          aria-disabled={m.busy || undefined} aria-busy={resetting || undefined} onClick={() => !m.busy && m.reset.mutate(r.header)}>
+          Zurücksetzen
         </button>
       </td>
     </tr>
@@ -303,8 +323,6 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
       </div>
       <p className="hint">«Zurücksetzen» macht eine scharfe CSP wieder zu Report-Only (blockiert nichts mehr) und entfernt jede andere Regel.</p>
       <div role="status" aria-live="polite" className="fix-live">{notice && <p className="fix-notice">{notice}</p>}</div>
-      {m.remove.isError && <p role="alert" className="error">{errorText(m.remove.error)}</p>}
-      {m.reset.isError && <p role="alert" className="error">{errorText(m.reset.error)}</p>}
 
       {csp && (
         <div className="csp-reports">
@@ -376,9 +394,9 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
           )}
           <div className="form-actions">
             {d.csp.suggestion && !enforce.open && (
-              <button type="button" className="button-small" disabled={m.busy}
+              <button type="button" className="button-small" disabled={m.busy} aria-busy={settingCsp || undefined}
                 onClick={() => m.set.mutate({ header: 'content-security-policy', value: d.csp.suggestion!, mode: csp.mode })}>
-                {settingCsp ? 'Wird übernommen …' : `Vorschlag übernehmen${csp.mode === 'report-only' ? ' (weiter Report-Only)' : ''}`}
+                {`Vorschlag übernehmen${csp.mode === 'report-only' ? ' (weiter Report-Only)' : ''}`}
               </button>
             )}
             {csp.mode === 'report-only' && !enforce.open && (
@@ -393,15 +411,14 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
               <span className="confirm-inline" role="group" aria-label="CSP scharf schalten">
                 <span className="confirm-note"><IconWarn />Eine scharfe CSP blockiert alles, was die Regel nicht erlaubt. Danach prüft Airlock die Seiten im Browser; bei einem Verstoss geht sie von selbst auf Report-Only zurück.</span>
                 <button type="button" className="button-small" onClick={enforce.close} autoFocus>Abbrechen</button>
-                <button type="button" className="button-small button-primary" disabled={m.busy}
+                <button type="button" className="button-small button-primary" disabled={m.busy} aria-busy={settingCsp || undefined}
                   onClick={() => m.set.mutate({ header: 'content-security-policy', mode: 'enforce', confirm: true }, { onSettled: enforce.close })}>
-                  {settingCsp ? 'Wird geschaltet …' : 'Ja, scharf schalten'}
+                  Ja, scharf schalten
                 </button>
               </span>
             )}
             {csp.mode === 'enforce' && csp.check?.state !== 'running' && <span className="fix-note">CSP ist scharf; Verstösse werden weiter gemeldet.</span>}
           </div>
-          {m.set.isError && <p role="alert" className="error">{errorText(m.set.error)}</p>}
         </div>
       )}
     </section>

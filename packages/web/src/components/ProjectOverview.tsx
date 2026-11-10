@@ -119,7 +119,7 @@ function DeployFailure({ p, dep, stillRunning, onTab, onDeploy, deploying }: {
           : <pre className="log log-failure" aria-label="Letzte Zeilen des Deploy-Logs">{lines.join('\n') || 'Für dieses Deployment wurde kein Log gespeichert.'}</pre>}
       </div>
       <div className="failure-actions">
-        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
+        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying} aria-busy={deploying || undefined}>Erneut deployen</button>
         <button type="button" onClick={() => onTab('einstellungen')}>{f.fix === 'env' ? 'Umgebungsvariablen ändern' : 'Einstellungen ändern'}</button>
       </div>
     </section>
@@ -150,7 +150,7 @@ function ContainerDown({ projectId, exitCode, missing, onTab, onDeploy, deployin
           : <pre className="log log-failure">{lines.join('\n') || logs.data.hint || 'Der Container hat nichts ausgegeben.'}</pre>}
       </div>}
       <div className="failure-actions">
-        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
+        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying} aria-busy={deploying || undefined}>Erneut deployen</button>
         <button type="button" onClick={() => onTab('einstellungen')}>Einstellungen ändern</button>
       </div>
     </section>

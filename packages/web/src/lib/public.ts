@@ -77,6 +77,8 @@ export function usePublicActions(p: { id: string; name: string }) {
   ])
 
   const m = useMutation({
+    // Eigener Fehler-Toast mit «Rückgängig ging nicht» (unten)
+    meta: { quiet: true },
     mutationFn: ({ action }: Run) => call(p.id, action),
     onSuccess: (r, { action, undo }) => {
       void refresh()

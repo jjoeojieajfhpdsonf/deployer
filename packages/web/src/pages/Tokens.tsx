@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError, type ApiTokenDto } from '../api.js'
+import { api, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../components/Status.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtDate } from '../lib/dates.js'
@@ -74,11 +74,10 @@ export function Tokens() {
           <input {...form.field('name')} placeholder="Name, z.B. Claude Desktop" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" />
           {form.errors.name && <FieldError id={form.idFor('name')} message={form.errors.name} />}
         </div>
-        <button type="submit" className="button-primary" disabled={create.isPending}>
-          {create.isPending ? 'Wird angelegt…' : 'Token anlegen'}
+        <button type="submit" className="button-primary" disabled={create.isPending} aria-busy={create.isPending || undefined}>
+          Token anlegen
         </button>
       </form>
-      {create.isError && <p role="alert" className="error">{(create.error as Error).message}</p>}
 
       {fresh && (
         <section className="banner banner-warn" role="status">
@@ -116,9 +115,6 @@ export function Tokens() {
             </details>
           )}
         </>
-      )}
-      {revoke.isError && (
-        <p role="alert" className="error">{revoke.error instanceof ApiError ? revoke.error.message : 'Widerrufen fehlgeschlagen'}</p>
       )}
     </section>
   )

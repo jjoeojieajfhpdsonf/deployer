@@ -6,7 +6,8 @@ import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { PublicPillFor } from '../components/Publication.js'
-import { ProjectSettings } from '../components/ProjectSettings.js'
+import { ProjectSettings, useKeepToggle } from '../components/ProjectSettings.js'
+import { notifyOk } from '../lib/feedback.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
@@ -40,7 +41,6 @@ export function ProjectDetail() {
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
   const [watching, setWatching] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
@@ -55,6 +55,7 @@ export function ProjectDetail() {
   })
 
   const act = useMutation({
+    meta: { errorTitle: 'Aktion nicht ausgeführt' },
     mutationFn: async (what: HeadAction | 'recreate') => {
       if (what === 'deploy') return api.deploy(id)
       if (what === 'recreate') return api.recreate(id)
@@ -64,9 +65,11 @@ export function ProjectDetail() {
     },
     onSuccess: (res, what) => {
       const dep = (res as { deployment?: { id: string } } | undefined)?.deployment
-      setNotice(what === 'stop' ? 'Gestoppt. Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.'
-        : what === 'restart' && !dep ? 'Neu gestartet.'
-        : what === 'start' && !dep ? 'Gestartet.' : null)
+      const name = q.data?.project.name ?? 'Projekt'
+      // Ergebnis als Toast; Stoppen lässt sich mit Starten rückgängig machen
+      if (what === 'stop') notifyOk(`«${name}» ist gestoppt`, { id: `act-${id}`, description: 'Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.', undo: () => act.mutate('start') })
+      else if (what === 'restart' && !dep) notifyOk(`«${name}» ist neu gestartet`, { id: `act-${id}` })
+      else if (what === 'start' && !dep) notifyOk(`«${name}» läuft wieder`, { id: `act-${id}` })
       if (dep) {
         setWatching(dep.id)
         setTab('uebersicht')
@@ -78,10 +81,7 @@ export function ProjectDetail() {
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
   // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
   const deployList = useDeployments(id)
-  const keep = useMutation({
-    mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
-  })
+  const keep = useKeepToggle({ id, name: q.data?.project.name ?? 'Projekt' })
 
   // Daten gehen vor: scheitert nur ein späteres Nachladen, bleibt die Seite stehen (Zustand «Veraltet»)
   if (!q.data && q.isError && !(q.error instanceof ApiError && q.error.status === 404)) {
@@ -143,7 +143,6 @@ export function ProjectDetail() {
         <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
       </PageHead>
 
-      {notice && <p role="status" className="notice notice-ok">{notice}</p>}
       {p.legacyContainers && p.status !== 'deploying' && (
         <div className="notice notice-info legacy-notice" role="status">
           <span>
@@ -151,15 +150,8 @@ export function ProjectDetail() {
             «Neu erstellen» legt dieselbe Fassung mit den Namen von Airlock neu an; Daten in Volumes werden übernommen.
             {p.runtimeKind === 'compose' ? ' Die Dienste sind dabei kurz offline.' : ''}
           </span>
-          <button onClick={() => act.mutate('recreate')} disabled={act.isPending}>Neu erstellen</button>
+          <button onClick={() => act.mutate('recreate')} disabled={act.isPending} aria-busy={(act.isPending && act.variables === 'recreate') || undefined}>Neu erstellen</button>
         </div>
-      )}
-      {act.isError && (
-        <p role="alert" className="error">
-          {act.error instanceof ApiError && act.error.status === 409
-            ? 'Für dieses Projekt läuft bereits ein Deploy.'
-            : (act.error as Error).message}
-        </p>
       )}
 
       <nav
@@ -221,7 +213,7 @@ export function ProjectDetail() {
             onDeploy={() => act.mutate('deploy')}
             deploying={act.isPending || p.status === 'deploying'}
             onRollback={(depId) => setWatching(depId)}
-            onToggleKeep={() => keep.mutate(!p.keep)}
+            onToggleKeep={() => keep.mutate({ keep: !p.keep })}
             keepBusy={keep.isPending}
           />
         </div>

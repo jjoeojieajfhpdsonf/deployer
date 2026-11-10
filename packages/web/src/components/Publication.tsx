@@ -170,8 +170,8 @@ function PendingRequest({ p, s }: { p: ProjectDto; s: PublicStatusDto }) {
               {' '}<InternalNote s={s} />
             </span>
             <button type="button" className="button-small" onClick={() => setConfirming(false)}>Abbrechen</button>
-            <button type="button" className="button-small button-primary" onClick={() => approve.mutate()} disabled={busy} autoFocus>
-              {approve.isPending ? 'Wird gespeichert…' : now ? 'Ja, veröffentlichen' : 'Ja, nach dem Scan'}
+            <button type="button" className="button-small button-primary" onClick={() => approve.mutate()} disabled={busy} aria-busy={approve.isPending || undefined} autoFocus>
+              {now ? 'Ja, veröffentlichen' : 'Ja, nach dem Scan'}
             </button>
           </div>
         )
@@ -181,7 +181,6 @@ function PendingRequest({ p, s }: { p: ProjectDto; s: PublicStatusDto }) {
           <button type="button" className="button-small button-ghost" onClick={() => discard.mutate()} disabled={busy}>Anfrage verwerfen</button>
         </div>
       )}
-      {(approve.isError || discard.isError) && <p role="alert" className="error-inline">{((approve.error ?? discard.error) as Error).message}</p>}
     </div>
   )
 }
@@ -238,8 +237,8 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
     <>
       <Head titleId={titleId} s={s}>
         {!open && (
-          <button className="button-primary button-small" disabled={!s.publishable.ok || actions.pending} aria-describedby={!s.publishable.ok ? blockedId : undefined} onClick={start}>
-            {actions.pending && actions.current?.op === 'publish' ? 'Wird veröffentlicht…' : 'Veröffentlichen'}
+          <button className="button-primary button-small" disabled={!s.publishable.ok || actions.pending} aria-busy={(actions.pending && actions.current?.op === 'publish') || undefined} aria-describedby={!s.publishable.ok ? blockedId : undefined} onClick={start}>
+            Veröffentlichen
           </button>
         )}
       </Head>
@@ -273,8 +272,8 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
       {open && (
       <div className="form-actions publication-actions set-row-block">
         {!confirming && (
-          <button className="button-primary" disabled={!s.publishable.ok || actions.pending} aria-describedby={!s.publishable.ok ? blockedId : undefined} onClick={start}>
-            {actions.pending && actions.current?.op === 'publish' ? 'Wird veröffentlicht…' : 'Veröffentlichen'}
+          <button className="button-primary" disabled={!s.publishable.ok || actions.pending} aria-busy={(actions.pending && actions.current?.op === 'publish') || undefined} aria-describedby={!s.publishable.ok ? blockedId : undefined} onClick={start}>
+            Veröffentlichen
           </button>
         )}
         {!confirming && <button onClick={() => { setOpen(false); v.reset() }} disabled={actions.pending}>Abbrechen</button>}
@@ -343,7 +342,7 @@ function AddressRow({ p, s, actions, paused, defaultZone }: { p: ProjectDto; s: 
           </Field>
           <div className="confirm-inline">
             <button type="button" onClick={() => { setEditing(false); v.reset() }}>Abbrechen</button>
-            <button type="submit" className="button-primary" disabled={renaming}>{renaming ? 'Wird geändert…' : 'Adresse ändern'}</button>
+            <button type="submit" className="button-primary" disabled={renaming} aria-busy={renaming || undefined}>Adresse ändern</button>
           </div>
         </form>
       )}
@@ -392,6 +391,8 @@ function PausePageRow({ p, s, paused }: { p: ProjectDto; s: PublicStatusDto; pau
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const save = useMutation({
+    // Der Dialog zeigt den Fehler selbst
+    meta: { quiet: true },
     mutationFn: (r: { page: PausePage | null; backAt: string | null }) => api.putPausePage(p.id, paused ? r : { page: r.page }),
     onSuccess: (r) => {
       qc.setQueryData(['public', p.id], r.status)
@@ -478,8 +479,8 @@ function LiveState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: 
     <>
       <Head titleId={titleId} s={s}>
         {!offline && (
-          <button className="button-small" onClick={() => setOffline(true)} disabled={actions.pending}>
-            {actions.pending && (actions.current?.op === 'pause' || actions.current?.op === 'unpublish') ? 'Wird offline genommen…' : 'Offline nehmen'}
+          <button className="button-small" onClick={() => setOffline(true)} disabled={actions.pending} aria-busy={(actions.pending && (actions.current?.op === 'pause' || actions.current?.op === 'unpublish')) || undefined}>
+            Offline nehmen
           </button>
         )}
       </Head>
@@ -505,8 +506,9 @@ function PausedState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s
     <>
       <Head titleId={titleId} s={s}>
         <button className="button-primary button-small" disabled={!s.publishable.ok || actions.pending} aria-describedby={!s.publishable.ok ? blockedId : undefined}
+          aria-busy={(actions.pending && actions.current?.op === 'resume') || undefined}
           onClick={() => actions.run({ op: 'resume' })}>
-          {actions.pending && actions.current?.op === 'resume' ? 'Wird fortgesetzt…' : 'Wieder online'}
+          Wieder online
         </button>
       </Head>
       {!s.publishable.ok && <div className="set-row-block"><Blocked s={s} id={blockedId} /></div>}

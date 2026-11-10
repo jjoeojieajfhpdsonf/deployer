@@ -55,11 +55,10 @@ export function PausePageSettings() {
       </p>
       <PausePageEditor value={page} onChange={(p) => { setPage(p); if (Object.keys(errors).length) setErrors(pausePageErrors(p)) }} errors={errors} idPrefix="pause-tpl" />
       <div className="form-actions">
-        <button type="submit" className="button-primary" disabled={!dirty || save.isPending}>{save.isPending ? 'Wird gespeichert…' : 'Vorlage speichern'}</button>
+        <button type="submit" className="button-primary" disabled={!dirty || save.isPending} aria-busy={save.isPending || undefined}>Vorlage speichern</button>
         {dirty && <button type="button" onClick={() => { setPage(q.data!.page); setErrors({}) }} disabled={save.isPending}>Änderungen verwerfen</button>}
         {!isDefault && !dirty && <button type="button" onClick={() => save.mutate(null)} disabled={save.isPending}>Auf Standard zurücksetzen</button>}
       </div>
-      {save.isError && !(save.error instanceof ApiError && save.error.details) && <p role="alert" className="error">{(save.error as Error).message}</p>}
     </form>
   )
 }

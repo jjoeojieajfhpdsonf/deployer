@@ -31,6 +31,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
   const save = useMutation({
+    meta: { quiet: true },
     mutationFn: ({ targets }: { targets: Internal[]; before: Internal[]; undo?: boolean }) =>
       api.putInternalRoutes(p.id, targets, label && label !== p.slug ? label : undefined),
     onSuccess: (_r, v) => {

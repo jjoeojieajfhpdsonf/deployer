@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CspAnalysisDto, FindingDto, ProjectDto, ScanReportDto, ScanStageDto } from '@airlock/shared'
 import { headerFixFor } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { relativeTime, inTime } from '../lib/format.js'
 import { fmtDateTime } from '../lib/dates.js'
 import { ErrorState, Loading, Sk } from './States.js'
@@ -225,10 +225,9 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
         <StageFoot stages={s.stages} />
         <p className="sc-when">
           {scanning ? <span>Scan läuft …</span> : <span>Scan <time dateTime={s.finishedAt ?? s.startedAt} title={fmtDateTime(s.finishedAt ?? s.startedAt)}>{relativeTime(s.finishedAt ?? s.startedAt)}</time></span>}
-          {!scanning && <> · <button type="button" className="link-button" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? 'Startet …' : 'Neu scannen'}</button></>}
+          {!scanning && <> · <button type="button" className="link-button" onClick={() => start.mutate()} disabled={start.isPending} aria-busy={start.isPending || undefined}>Neu scannen</button></>}
         </p>
       </div>
-      {start.isError && <p role="alert" className="error-inline">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>}
     </section>
   )
 }

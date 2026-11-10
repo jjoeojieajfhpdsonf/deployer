@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { putEnvSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
+import { notifyOk } from '../lib/feedback.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
 import { fmtDate } from '../lib/dates.js'
@@ -126,6 +127,7 @@ function Environment({ p, env }: { p: ProjectDto; env: EnvEntryDto[] }) {
   const entries = () => rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))
   const envForm = useFormErrors({ schema: putEnvSchema, values: () => ({ entries: entries() }) })
   const save = useMutation({
+    meta: { errorTitle: 'Variablen nicht gespeichert' },
     mutationFn: () => api.putEnv(p.id, entries()),
     onSuccess: () => {
       setSaved(true)
@@ -162,11 +164,10 @@ function Environment({ p, env }: { p: ProjectDto; env: EnvEntryDto[] }) {
         <form className="set-row-block" noValidate ref={envForm.formRef} onSubmit={(ev) => { ev.preventDefault(); if (envForm.validateAll()) save.mutate() }}>
           <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={envForm.errors} field={envForm.field} />
           <div className="form-actions">
-            <button type="submit" className="button-primary" disabled={save.isPending}>{save.isPending ? 'Wird gespeichert…' : 'Variablen speichern'}</button>
+            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Variablen speichern</button>
             <button type="button" onClick={() => { setEditing(false); setRows(env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true }))); envForm.reset() }}>Abbrechen</button>
             <span className="hint">Wirksam beim nächsten Deploy.</span>
           </div>
-          {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
         </form>
       )}
     </section>
@@ -226,34 +227,55 @@ function AutoDeploy({ projectId, on, checkedAt, viaApp }: { projectId: string; o
   const titleId = useId()
   const labelId = useId()
   const set = useMutation({
-    mutationFn: (enabled: boolean) => api.setAutoDeploy(projectId, enabled),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['auto-deploy', projectId] }),
+    meta: { errorTitle: 'Auto-Deploy nicht geändert' },
+    mutationFn: ({ enabled }: { enabled: boolean; undo?: boolean }) => api.setAutoDeploy(projectId, enabled),
+    onSuccess: (_r, v) => {
+      void qc.invalidateQueries({ queryKey: ['auto-deploy', projectId] })
+      notifyOk(`${v.undo ? 'Rückgängig: ' : ''}Auto-Deploy ${v.enabled ? 'an' : 'aus'}`, {
+        id: `auto-deploy-${projectId}`,
+        description: v.enabled ? 'Neue Commits gehen nach dem Merge von selbst live.' : 'Neue Commits deployst du selbst.',
+        undo: v.undo ? undefined : () => set.mutate({ enabled: !v.enabled, undo: true }),
+      })
+    },
   })
-  const value = set.isPending ? Boolean(set.variables) : on
+  const value = set.isPending ? Boolean(set.variables?.enabled) : on
   return (
     <section className="set-card" id="set-auto-deploy" aria-labelledby={titleId}>
       <div className="set-head">
         <h2 id={titleId} tabIndex={-1}>Auto-Deploy</h2>
-        {set.isSuccess && <span className="set-saved set-saved-on" role="status">✓ gespeichert</span>}
       </div>
-      <SetRow label={<span id={labelId}>Nach Merge</span>} action={<Switch checked={value} labelledBy={labelId} busy={set.isPending} onChange={(v) => set.mutate(v)} />}>
+      <SetRow label={<span id={labelId}>Nach Merge</span>} action={<Switch checked={value} labelledBy={labelId} busy={set.isPending} onChange={(v) => set.mutate({ enabled: v })} />}>
         <strong className="set-strong">{value ? 'An' : 'Aus'}</strong>
         <span className="muted"> · prüft alle 5 Minuten auf neue Commits{viaApp ? ' (GitHub App)' : ' (öffentliches Repo)'}{value && checkedAt ? ` · zuletzt ${relativeTime(checkedAt)}` : ''}</span>
       </SetRow>
-      {set.isError && <p role="alert" className="error set-row-note">{(set.error as Error).message}</p>}
     </section>
   )
 }
 
 /* --- Ablauf -------------------------------------------------------------------- */
 
-function Expiry({ p }: { p: ProjectDto }) {
+/** «Behalten» an/aus, mit Toast und «Rückgängig» – gemeinsam für Eckdaten und Einstellungen */
+export function useKeepToggle(p: { id: string; name: string }) {
   const qc = useQueryClient()
-  const titleId = useId()
-  const keep = useMutation({
-    mutationFn: (value: boolean) => api.updateProject(p.id, { keep: value }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', p.id] }),
+  const m = useMutation({
+    meta: { errorTitle: 'Ablauf nicht geändert' },
+    mutationFn: ({ keep }: { keep: boolean; undo?: boolean }) => api.updateProject(p.id, { keep }),
+    onSuccess: (_r, v) => {
+      void qc.invalidateQueries({ queryKey: ['project', p.id] })
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      notifyOk(`${v.undo ? 'Rückgängig: ' : ''}${v.keep ? `«${p.name}» läuft unbegrenzt` : `Ablauf für «${p.name}» wieder an`}`, {
+        id: `keep-${p.id}`,
+        description: v.keep ? 'Wird nicht mehr automatisch gestoppt.' : 'Stoppt, wenn sich lange nichts ändert.',
+        undo: v.undo ? undefined : () => m.mutate({ keep: !v.keep, undo: true }),
+      })
+    },
   })
+  return m
+}
+
+function Expiry({ p }: { p: ProjectDto }) {
+  const titleId = useId()
+  const keep = useKeepToggle(p)
   const files = p.sourceType === 'files'
   const date = fmtDate(p.expiresAt, '') || null
   return (
@@ -263,8 +285,8 @@ function Expiry({ p }: { p: ProjectDto }) {
         {files && (
           <div className="set-head-actions">
             {p.keep
-              ? <button type="button" className="button-small" onClick={() => keep.mutate(false)} disabled={keep.isPending}>Ablauf wieder aktivieren</button>
-              : <button type="button" className="button-small" onClick={() => keep.mutate(true)} disabled={keep.isPending}>Behalten</button>}
+              ? <button type="button" className="button-small" onClick={() => keep.mutate({ keep: false })} disabled={keep.isPending} aria-busy={keep.isPending || undefined}>Ablauf wieder aktivieren</button>
+              : <button type="button" className="button-small" onClick={() => keep.mutate({ keep: true })} disabled={keep.isPending} aria-busy={keep.isPending || undefined}>Behalten</button>}
           </div>
         )}
       </div>
@@ -273,7 +295,6 @@ function Expiry({ p }: { p: ProjectDto }) {
           : p.keep || !date ? <><strong className="set-strong">läuft unbegrenzt</strong> <span className="muted">· «Behalten» ist gesetzt</span></>
           : <><strong className="set-strong">stoppt am {date}</strong> <span className="muted">· wenn sich nichts ändert ({p.expiryDays ?? 30} Tage ohne Änderung)</span></>}
       </SetRow>
-      {keep.isError && <p role="alert" className="error set-row-note">{(keep.error as Error).message}</p>}
     </section>
   )
 }
@@ -287,7 +308,7 @@ function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDel
   const [purge, setPurge] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
   const ref = useRef<HTMLElement>(null)
-  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted })
+  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht' } })
   useEffect(() => {
     if (!requested) return
     setOpen(true)
@@ -346,9 +367,8 @@ function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDel
           )}
           <div className="confirm-inline">
             <button type="button" onClick={() => { setOpen(false); setConfirm(''); setConfirmError(null) }}>Abbrechen</button>
-            <button type="submit" className="button-danger-solid" disabled={remove.isPending}>{remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}</button>
+            <button type="submit" className="button-danger-solid" disabled={remove.isPending} aria-busy={remove.isPending || undefined}>Endgültig löschen</button>
           </div>
-          {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
         </form>
       )}
     </section>

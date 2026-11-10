@@ -6,6 +6,7 @@ import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
 import { IconExternal } from './Icons.js'
 import { ErrorState, Loading, SkCard } from './States.js'
+import { MUTATION_TUNNEL } from '../lib/activities.js'
 import { relativeTime } from '../lib/format.js'
 import { dateOf, fmtDate, fmtTime, msOf } from '../lib/dates.js'
 
@@ -182,10 +183,9 @@ function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
         {runCheck.isPending ? <><IconPending /> Prüfe bei Cloudflare…</> : checked ? (checked.complete ? <span className="cf-ok"><IconOk /> Rechte vollständig</span> : <span className="cf-bad"><IconBad /> {checked.valid ? 'Rechte unvollständig – siehe Schritt 2' : checked.message}</span>) : null}
       </p>
       <div className="form-actions">
-        <button type="submit" className="button-primary" disabled={!checked?.complete || save.isPending}>{save.isPending ? 'Wird gespeichert…' : replacing ? 'Token ersetzen' : 'Token speichern'}</button>
+        <button type="submit" className="button-primary" disabled={!checked?.complete || save.isPending} aria-busy={save.isPending || undefined}>{replacing ? 'Token ersetzen' : 'Token speichern'}</button>
         {onCancel && <button type="button" onClick={onCancel}>Abbrechen</button>}
       </div>
-      {save.isError && !(save.error instanceof ApiError && save.error.details) && <p role="alert" className="error">{(save.error as Error).message}</p>}
     </form>
   )
 }
@@ -289,10 +289,9 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
         <p className="cf-warn"><IconBad /> Die Basisdomain ändert sich von <code>{s.baseDomain}</code> auf <code>{preview}</code>: Alle Projekte ziehen um, und das Zertifikat muss neu eingerichtet werden.</p>
       )}
       <div className="form-actions">
-        <button type="submit" className="button-primary" disabled={save.isPending}>{save.isPending ? 'Wird gespeichert…' : 'Domains speichern'}</button>
+        <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Domains speichern</button>
         {onCancel && <button type="button" onClick={onCancel}>Abbrechen</button>}
       </div>
-      {save.isError && !Object.keys(e).length && <p role="alert" className="error">{(save.error as Error).message}</p>}
     </form>
   )
 }
@@ -300,31 +299,29 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
 /* --- 4: Tunnel -------------------------------------------------------------------- */
 
 function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
-  const run = useMutation({ mutationFn: api.cloudflareTunnel, onSuccess: onDone })
+  // Fester Schlüssel: die Aktivitätsanzeige im Kopf zeigt den Vorgang, auch nach einem Seitenwechsel
+  const run = useMutation({ mutationKey: [...MUTATION_TUNNEL], mutationFn: api.cloudflareTunnel, onSuccess: onDone, meta: { errorTitle: 'Tunnel nicht angelegt' } })
   const skip = useMutation({ mutationFn: api.cloudflareTunnelSkip, onSuccess: onDone })
   return (
     <>
       <p className="cf-lead">Airlock legt bei Cloudflare einen Tunnel an und startet <code>cloudflared</code> als eigenen Container. Er baut die Verbindung nach aussen auf – am Router bleibt jeder Port zu. Öffentlich wird dadurch noch nichts.</p>
       <p className="cf-meta">Nur für öffentliche Projekte nötig. Das Zertifikat für interne Adressen geht auch ohne Tunnel.</p>
       <div className="form-actions">
-        <button type="button" className="button-primary" onClick={() => run.mutate()} disabled={run.isPending || skip.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel anlegen und starten'}</button>
+        <button type="button" className="button-primary" onClick={() => run.mutate()} disabled={run.isPending || skip.isPending} aria-busy={run.isPending || undefined}>Tunnel anlegen und starten</button>
         <button type="button" onClick={() => skip.mutate()} disabled={run.isPending || skip.isPending}>Später einrichten</button>
       </div>
-      {skip.isError && <p role="alert" className="error">{(skip.error as Error).message}</p>}
       {run.isPending && <p className="cf-meta" aria-live="polite">Image holen, Container starten – das dauert beim ersten Mal bis zu einer Minute.</p>}
-      {run.isError && <p role="alert" className="error">{(run.error as Error).message}</p>}
     </>
   )
 }
 
 function TunnelSkippedSummary({ onDone }: { onDone: (s: CfStatusDto) => void }) {
-  const run = useMutation({ mutationFn: api.cloudflareTunnel, onSuccess: onDone })
+  const run = useMutation({ mutationKey: [...MUTATION_TUNNEL], mutationFn: api.cloudflareTunnel, onSuccess: onDone, meta: { errorTitle: 'Tunnel nicht angelegt' } })
   return (
     <div className="cf-rows">
       <span className="cf-meta"><IconOptional /> Kein Tunnel: Projekte sind nur intern erreichbar, «Öffentlich» bleibt aus.</span>
-      <button type="button" className="button-small" onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? 'Tunnel wird angelegt…' : 'Tunnel jetzt anlegen'}</button>
+      <button type="button" className="button-small" onClick={() => run.mutate()} disabled={run.isPending} aria-busy={run.isPending || undefined}>Tunnel jetzt anlegen</button>
       {run.isPending && <span className="cf-meta" aria-live="polite">Image holen, Container starten – das dauert beim ersten Mal bis zu einer Minute.</span>}
-      {run.isError && <span role="alert" className="error-inline">{(run.error as Error).message}</span>}
     </div>
   )
 }
@@ -341,8 +338,7 @@ function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStat
       <span className={connected && running ? 'cf-ok' : 'cf-bad'}>{connected && running ? <IconOk /> : <IconBad />} {connected && running ? `verbunden, ${t.connections} Verbindungen` : `nicht verbunden${t.status && running ? ` (${t.status})` : ''}`}</span>
       <span className="cf-meta">Tunnel {t.name ?? t.id}</span>
       {!running && t.container?.lastLog && <span className="cf-meta cf-lastlog">Letzte Meldung: <code>{t.container.lastLog}</code></span>}
-      {!running && t.managed && <button type="button" className="button-small" onClick={() => restart.mutate()} disabled={restart.isPending}>{restart.isPending ? 'Startet…' : 'cloudflared neu starten'}</button>}
-      {restart.isError && <span role="alert" className="error-inline">{(restart.error as Error).message}</span>}
+      {!running && t.managed && <button type="button" className="button-small" onClick={() => restart.mutate()} disabled={restart.isPending} aria-busy={restart.isPending || undefined}>cloudflared neu starten</button>}
       <CloudflaredVersion s={s} onChanged={onChanged} />
       <ForeignIngress s={s} />
     </div>
@@ -367,12 +363,11 @@ function CloudflaredVersion({ s, onChanged }: { s: CfStatusDto; onChanged: (s: C
       {t.updateAvailable && confirm && (
         <span className="confirm-inline" role="group" aria-label="Update bestätigen">
           <span className="cf-meta-inline">Der Tunnel ist dabei einige Sekunden unterbrochen.</span>
-          <button type="button" className="button-small button-primary" onClick={() => update.mutate()} disabled={update.isPending} autoFocus>{update.isPending ? 'Aktualisiert…' : 'Jetzt aktualisieren'}</button>
+          <button type="button" className="button-small button-primary" onClick={() => update.mutate()} disabled={update.isPending} aria-busy={update.isPending || undefined} autoFocus>Jetzt aktualisieren</button>
           <button type="button" className="button-small" onClick={() => setConfirm(false)}>Abbrechen</button>
         </span>
       )}
       {!t.managed && t.updateAvailable && <span className="cf-meta-inline">Läuft aus compose.public.yaml – dort das Image anpassen.</span>}
-      {update.isError && <span role="alert" className="error-inline">{(update.error as Error).message}</span>}
     </div>
   )
 }
@@ -449,7 +444,6 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
         <p className="cf-meta">Ein gültiges Zertifikat liegt schon bei Caddy. Ein neuer Versuch lädt es, ohne neu zu bestellen.</p>
       )}
       {phase === 'failed' && <p className="cf-meta">Häufig: dem Token fehlt das DNS-Recht für diese Zone, oder ein lokaler DNS fängt <code>_acme-challenge</code> ab. Interne Adressen laufen bis dahin weiter über http.</p>}
-      {start.isError && <p role="alert" className="error">{(start.error as Error).message}</p>}
     </>
   )
 }
@@ -498,13 +492,12 @@ function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (
         {confirm ? (
           <span className="confirm-inline" role="group" aria-label="Trennen bestätigen">
             <button type="button" onClick={() => setConfirm(false)}>Abbrechen</button>
-            <button type="button" className="button-danger-solid" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} autoFocus>{disconnect.isPending ? 'Trennt…' : 'Ja, trennen'}</button>
+            <button type="button" className="button-danger-solid" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} aria-busy={disconnect.isPending || undefined} autoFocus>Ja, trennen</button>
           </span>
         ) : (
           <button type="button" className="button-danger" onClick={() => setConfirm(true)} disabled={s.publicProjects > 0}>Trennen</button>
         )}
       </div>
-      {disconnect.isError && <p role="alert" className="error">{(disconnect.error as Error).message}</p>}
     </section>
   )
 }

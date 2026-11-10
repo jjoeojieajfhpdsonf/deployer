@@ -71,6 +71,8 @@ function PasswordForm({ formRef }: { formRef: React.RefObject<HTMLFormElement | 
   const form = useFormErrors({ schema: passwordChangeFormSchema, values: () => ({ current, next, repeat }) })
 
   const change = useMutation({
+    // Das Formular zeigt den Fehler selbst (falsches Passwort am Feld)
+    meta: { quiet: true },
     mutationFn: () => api.changePassword(current, next),
     onSuccess: () => {
       setCurrent('')
@@ -119,8 +121,8 @@ function PasswordForm({ formRef }: { formRef: React.RefObject<HTMLFormElement | 
       {done && <p role="status" className="hint ok">✓ Passwort geändert. Andere Sitzungen sind abgemeldet.</p>}
 
       <div className="form-actions">
-        <button type="submit" className="button-primary" disabled={change.isPending}>
-          {change.isPending ? 'Wird geändert…' : 'Passwort ändern'}
+        <button type="submit" className="button-primary" disabled={change.isPending} aria-busy={change.isPending || undefined}>
+          Passwort ändern
         </button>
       </div>
       <p className="hint">

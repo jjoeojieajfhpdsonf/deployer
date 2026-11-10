@@ -231,7 +231,6 @@ function TlsSection({ s }: { s: SystemStatusDto }) {
         </div>
       )}
       {note && <p className="hint" role="status">{note}</p>}
-      {tailnet.isError && <p role="alert" className="error">{(tailnet.error as Error).message}</p>}
       <p className="hint">
         <strong>Im Heimnetz:</strong> Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
         <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
@@ -274,11 +273,10 @@ function NetworkSection({ s }: { s: SystemStatusDto }) {
       </ul>
       {n.mode === 'detected' && (
         <div className="form-actions">
-          <button type="button" onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending ? 'Prüft…' : 'Jetzt prüfen'}</button>
+          <button type="button" onClick={() => check.mutate()} disabled={check.isPending} aria-busy={check.isPending || undefined}>Jetzt prüfen</button>
           {check.data && <span className="hint" role="status">{check.data.changed ? 'Geändert – Adressen und Filter nachgezogen.' : 'Unverändert.'}</span>}
         </div>
       )}
-      {check.isError && <p role="alert" className="error">{(check.error as Error).message}</p>}
     </>
   )
 }

@@ -96,6 +96,8 @@ type Shot = {
   fail?: string[]
   /** Scan-Bericht mit gescheiterter Stufe (Zustand «Teilweise») */
   stageFailed?: boolean
+  /** Projektliste: Scan von Haushaltsbuch läuft (wie der Scan-Bericht dieses Projekts) */
+  scanRunning?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
@@ -462,6 +464,36 @@ const shots: Shot[] = [
       await pg.waitForTimeout(200)
     },
   },
+  // Etappe 2 (UI-Grundlagen): Rückmeldung bei Aktionen
+  {
+    group: 'aktion', name: 'aktion-vorgaenge', path: '/projekte', full: false, scanRunning: true,
+    prepare: async (pg) => { await pg.locator('.activity-trigger').click(); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'aktion', name: 'aktion-knopf-laedt', path: `/projekte/${H}?tab=einstellungen`, full: false, hang: [`PATCH /api/v1/projects/${H}`],
+    prepare: async (pg) => {
+      const b = pg.getByRole('button', { name: 'Behalten', exact: true })
+      await b.scrollIntoViewIfNeeded()
+      await b.click()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    group: 'aktion', name: 'aktion-rueckgaengig', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Behalten', exact: true }).click()
+      await pg.locator('[data-sonner-toast]').first().waitFor()
+      await pg.waitForTimeout(500)
+    },
+  },
+  {
+    group: 'aktion', name: 'aktion-fehler-toast', path: '/projekte', full: false, fail: ['POST /api/v1/projects/p-wetter/deploy'],
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Erneut deployen' }).first().click()
+      await pg.locator('[data-sonner-toast][data-type="error"]').first().waitFor()
+      await pg.waitForTimeout(500)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -492,7 +524,11 @@ try {
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.fail?.includes(url.pathname)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
+            if (s.scanRunning && url.pathname === '/api/v1/projects' && route.request().method() === 'GET') {
+              const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
+              return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
+            }
+            if (s.fail?.includes(url.pathname) || s.fail?.includes(`${route.request().method()} ${url.pathname}`)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
             if (s.stageFailed && /\/scans\/latest$/.test(url.pathname)) {
               const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
               if (r.report) {
@@ -530,7 +566,7 @@ try {
       await page.goto(`http://localhost:${PORT}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
       // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
-      if (s.fail) await page.locator('.error-state').first().waitFor({ timeout: 8000 })
+      if (s.fail?.some((f) => f.startsWith('/'))) await page.locator('.error-state').first().waitFor({ timeout: 8000 })
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)

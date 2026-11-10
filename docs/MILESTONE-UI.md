@@ -23,8 +23,8 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 
 | Nr. | Inhalt | Stand |
 |---|---|---|
-| 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | geplant |
-| 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | geplant |
+| 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | erledigt |
+| 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | erledigt; Bestätigung offen, Frage Nr. 3 |
 | 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | geplant |
 | 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | geplant |
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | geplant |
@@ -103,6 +103,31 @@ Abnahme:
   öffnet Liste mit Fortschritt und Link; bleibt beim Seitenwechsel.
 - Ein gemeinsamer Toast und eine gemeinsame Bestätigung für die ganze App; Übergänge nach Emils
   Skills, `prefers-reduced-motion` beachtet.
+
+Umsetzung:
+- **Ladeknopf:** `aria-busy` auf dem Knopf. Der Text bleibt im Fluss (Breite stabil) und wird
+  unsichtbar, ein Ring dreht darüber; gefüllte Knöpfe behalten ihre Füllung. Ohne Bewegung steht
+  der Ring still. 44 Stellen umgestellt, die vorher den Text tauschten («Wird gespeichert…»,
+  «Startet…», «Prüft …»).
+- **Toast:** `lib/feedback.ts` (`notifyOk`, `notifyWarn`, `notifyError`, `UNDO_MS`). Fehler jeder
+  Aktion laufen über den `MutationCache` in einen Fehler-Toast mit Titel (`meta.errorTitle`), Grund
+  (`errorReason`) und «Erneut versuchen». Feldfehler (400 mit `details`) und Stellen mit eigener
+  Anzeige (`meta.quiet`: Passwort, Begründung beim Akzeptieren, Pause-Dialog, Veröffentlichung,
+  Erreichbarkeit) bleiben am Formular. Die verstreuten Fehlerzeilen unter Knöpfen (rund 30) sind
+  entfernt, ebenso die eigenen Hinweiszeilen nach Start/Stopp und Speichern.
+- **Rückgängig:** Offline nehmen/Pausieren/Access (schon vorhanden, `lib/public.ts`), Erreichbarkeit
+  (schon vorhanden), Header setzen/entfernen/zurücksetzen (neu: Regel davor wird wieder gesetzt bzw.
+  entfernt), Schalter «Nach Merge» (Auto-Deploy), «Behalten»/«Ablauf wieder aktivieren», Stoppen
+  (→ Starten).
+- **Aktivitätsanzeige** (`components/ActivityIndicator.tsx`, `lib/activities.ts`): im Kopf neben dem
+  Profil, nur solange etwas läuft – Ring, Zahl, «Vorgang/Vorgänge». Klick öffnet die Liste
+  (gleiches Menü-Verhalten wie das Profil): Deploy mit Schritt n von 4, Scan mit Stufe n von m,
+  Zertifikat mit Schritt 1/2 von 2, Tunnel; je mit Balken und Link. Quellen: Projektliste,
+  Cloudflare-Status, laufende Mutation mit festem Schlüssel (Tunnel) – deshalb bleibt sie beim
+  Seitenwechsel. Endet ein Deploy oder Scan, solange die Oberfläche offen ist: Toast mit Ergebnis
+  und Link («Log ansehen», «Ansehen»).
+- **Bestätigung:** offen, Frage Nr. 3 (inline wie heute, ein modaler Dialog, oder gemischt).
+- Screenshots: `docs/design-cal/ui-grundlagen/2-rueckmeldung/` (Gruppe `aktion`).
 
 ### Etappe 3 – Visuelle Regressionstests
 

@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { publicStateOf, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
@@ -14,6 +14,7 @@ import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 import { ageMs, fmtDateTime } from '../lib/dates.js'
+import { notifyOk } from '../lib/feedback.js'
 import { EmptyState, ErrorState, Loading, SkProjectCards, SkRows, SkStats } from '../components/States.js'
 
 
@@ -26,7 +27,6 @@ export function Projects() {
   const system = useSystem()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('alle')
-  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'info' } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // «/» springt in die Suche (wie in vielen Werkzeugen), ausser beim Tippen.
@@ -42,14 +42,9 @@ export function Projects() {
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  // Rückmeldung nach einer Aktion verschwindet nach ein paar Sekunden
-  useEffect(() => {
-    if (!notice) return
-    const t = setTimeout(() => setNotice(null), 6000)
-    return () => clearTimeout(t)
-  }, [notice])
-
+  // Ergebnis als Toast (ein Muster für die ganze App); Stoppen lässt sich rückgängig machen
   const act = useMutation({
+    meta: { errorTitle: 'Aktion nicht ausgeführt' },
     mutationFn: async ({ id, what }: { id: string; what: 'deploy' | 'stop' | 'start' }) => {
       if (what === 'deploy') return api.deploy(id)
       if (what === 'stop') return api.stop(id)
@@ -58,10 +53,9 @@ export function Projects() {
     onSuccess: (_r, v) => {
       const p = list.find((x) => x.id === v.id)
       const name = p?.name ?? 'Projekt'
-      setNotice(v.what === 'deploy'
-        ? { text: `Deploy für «${name}» gestartet – der Fortschritt steht in der Zeile.`, tone: 'info' }
-        : v.what === 'stop' ? { text: `«${name}» gestoppt. Starten geht im Menü «…».`, tone: 'ok' }
-        : { text: `«${name}» wird gestartet.`, tone: 'info' })
+      if (v.what === 'deploy') notifyOk(`Deploy für «${name}» gestartet`, { id: `act-${v.id}`, description: 'Der Fortschritt steht oben bei «Vorgänge» und in der Karte.' })
+      else if (v.what === 'stop') notifyOk(`«${name}» ist gestoppt`, { id: `act-${v.id}`, description: 'Die Adresse antwortet nicht mehr.', undo: () => act.mutate({ id: v.id, what: 'start' }) })
+      else notifyOk(`«${name}» wird gestartet`, { id: `act-${v.id}` })
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
@@ -141,12 +135,6 @@ export function Projects() {
           ))}
           {failed.length > 3 && (
             <p className="hint">und {failed.length - 3} weitere fehlgeschlagene Deploys – Filter «Brauchen Aufmerksamkeit».</p>
-          )}
-          {notice && <p role="status" className={`notice notice-${notice.tone}`}>{notice.text}</p>}
-          {act.isError && (
-            <p role="alert" className="error">
-              {act.error instanceof ApiError && act.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (act.error as Error).message}
-            </p>
           )}
 
           <div className="section">

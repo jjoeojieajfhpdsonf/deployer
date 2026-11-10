@@ -266,8 +266,8 @@ export function NewProject() {
         <FormError id={form.idFor('_form')} message={error ?? e._form ?? (usesUpload ? undefined : e.source && !usesRepo ? e.source : undefined)} />
 
         <div className="form-actions">
-          <button type="submit" className="button-primary" disabled={busy}>
-            {busy ? 'Wird angelegt…' : 'Anlegen und deployen'}
+          <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
+            Anlegen und deployen
           </button>
         </div>
       </form>

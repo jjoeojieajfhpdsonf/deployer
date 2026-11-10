@@ -242,7 +242,7 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
             : <span className="hint">{note ?? '«Voraussichtlich zurück» erscheint auf der Seite und als Retry-After-Header.'}</span>}
           <span className="pause-dialog-buttons">
             <button type="button" onClick={onCancel}>Abbrechen</button>
-            <button type="submit" className="button-primary" disabled={saving}>{saving ? 'Wird gespeichert…' : saveLabel}</button>
+            <button type="submit" className="button-primary" disabled={saving} aria-busy={saving || undefined}>{saveLabel}</button>
           </span>
         </footer>
       </form>

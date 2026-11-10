@@ -59,7 +59,7 @@ export function ExpirySettings() {
             disabled={!d}
           />
         </Field>
-        <button type="submit" disabled={!d || save.isPending}>{save.isPending ? 'Wird gespeichert…' : 'Speichern'}</button>
+        <button type="submit" disabled={!d || save.isPending} aria-busy={save.isPending || undefined}>Speichern</button>
         <span role="status" className="expiry-saved">{saved ? '✓ gespeichert' : ''}</span>
       </form>
       {d && <p id="f-expiry-days-hint" className="hint">Standard aus <code>CHAT_EXPIRY_DAYS</code>: {d.fromEnv} Tage{d.changed ? ' – hier geändert' : ''}.</p>}

@@ -344,6 +344,41 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 }
 .profile-trigger:hover:not(:disabled),
 .profile-trigger[aria-expanded='true'] { background: var(--surface); border: none; color: var(--ink); box-shadow: var(--sh-card); }
+
+/* Kopf rechts: Aktivitätsanzeige, Profil */
+.topbar-actions { display: flex; align-items: center; gap: var(--sp-2); }
+.activity-trigger {
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  box-shadow: none;
+  color: var(--ink);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+.activity-trigger:hover:not(:disabled),
+.activity-trigger[aria-expanded='true'] { background: var(--surface); box-shadow: var(--sh-card); }
+.activity-trigger-label { color: var(--muted); font-weight: 400; }
+/* Drehender Ring: zeigt «läuft» zusammen mit Zahl und Wort; ohne Bewegung ein ruhiger Ring */
+.activity-spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface-3); border-top-color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .activity-spinner { animation: stage-spin 900ms linear infinite; }
+}
+.activity-indicator .menu-list { min-width: 320px; }
+.menu-list a.activity-row { display: grid; gap: 2px; padding: 10px var(--sp-3); }
+.activity-row-title { font-weight: 500; color: var(--ink); }
+.activity-row-detail { font-size: var(--fs-13); color: var(--muted); }
+.activity-bar { display: block; height: 4px; margin-top: 6px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.activity-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ink); }
+.activity-bar-open > span { width: 30%; }
+@media (prefers-reduced-motion: no-preference) {
+  .activity-bar-open > span { animation: activity-slide 1.4s var(--ease-out) infinite; }
+}
+@keyframes activity-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.activity-empty { margin: 0; padding: var(--sp-2) var(--sp-3) var(--sp-3); font-size: var(--fs-14); color: var(--muted); }
 .avatar {
   display: grid;
   place-items: center;
@@ -419,6 +454,30 @@ a.button:active { transform: scale(0.97); }
 .button-danger-solid:hover:not(:disabled) { filter: brightness(0.94); background: var(--bad); }
 /* Gefüllte Knöpfe sahen deaktiviert gleich aus wie aktiv (die Füllung gewann gegen button:disabled) */
 button.button-primary:disabled, button.button-danger-solid:disabled { background: var(--surface-2); border-color: transparent; color: var(--muted); box-shadow: none; filter: none; }
+
+/* Knopf lädt (aria-busy): Text bleibt im Fluss und hält die Breite, wird aber
+   unsichtbar; darüber ein Ring. Gefüllte Knöpfe behalten ihre Füllung. */
+button[aria-busy='true'] { position: relative; cursor: progress; }
+button[aria-busy='true'], button[aria-busy='true']:disabled { color: transparent; }
+button[aria-busy='true'] > * { visibility: hidden; }
+button[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 2px solid var(--busy-track, var(--surface-3));
+  border-top-color: var(--busy-ink, var(--ink));
+}
+@media (prefers-reduced-motion: no-preference) {
+  button[aria-busy='true']::after { animation: stage-spin 800ms linear infinite; }
+}
+button.button-primary[aria-busy='true']:disabled { background: var(--primary); border-color: var(--primary); box-shadow: var(--sh-btn-primary); --busy-ink: var(--primary-ink); --busy-track: var(--primary-highlight); }
+button.button-danger-solid[aria-busy='true']:disabled { background: var(--bad); border-color: var(--bad); --busy-ink: var(--primary-ink); --busy-track: var(--primary-highlight); }
+:root[data-theme='dark'] button.button-danger-solid[aria-busy='true']:disabled { --busy-ink: var(--bg); }
 .button-warn { color: var(--warn); background: var(--surface); border-color: var(--line); }
 .button-warn:hover:not(:disabled) { background: var(--warn-bg); border-color: var(--warn-line); }
 .button-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--ink-dim); }
@@ -551,7 +610,6 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .error-inline { color: var(--bad); }
 .notice { display: flex; align-items: center; gap: 10px; margin: var(--sp-4) 0 0; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--sh-card); color: var(--ink-dim); font-size: var(--fs-14); max-width: none; }
 .notice strong { color: var(--ink); font-weight: 500; }
-.notice-ok::before { content: '✓'; color: var(--ok); font-weight: 600; }
 .notice-info::before { content: '●'; color: var(--info); font-size: 10px; }
 /* Übergang deployer → Airlock: Hinweis mit «Neu erstellen» rechts */
 .legacy-notice { margin-bottom: var(--sp-4); }

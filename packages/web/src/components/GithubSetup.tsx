@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { githubManifestRequestSchema } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { ErrorState, Loading, SkCard } from './States.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
@@ -31,7 +31,6 @@ const ERR_TEXT: Record<string, string> = {
   unbekannt: 'Der Schritt wurde nicht abgeschlossen. Einzelheiten stehen im Log von Airlock.',
 }
 
-const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
 export function GithubSetup() {
   const qc = useQueryClient()
@@ -56,6 +55,7 @@ export function GithubSetup() {
 
   // Formular an GitHub: ein echtes POST des Browsers (GitHub verlangt das Manifest als Formularfeld)
   const start = useMutation({
+    meta: { errorTitle: 'Einrichtung nicht gestartet' },
     mutationFn: () => api.githubManifest(name.trim(), org.trim() || undefined),
     onSuccess: (r) => {
       const form = document.createElement('form')
@@ -72,6 +72,7 @@ export function GithubSetup() {
     onError: (e) => void v.setServerErrors(e),
   })
   const refresh = useMutation({
+    meta: { errorTitle: 'Repos nicht geladen' },
     mutationFn: api.githubRefresh,
     onSuccess: (r) => {
       setNotice(`Repos neu geladen: ${r.repos.length}.`)
@@ -79,6 +80,7 @@ export function GithubSetup() {
     },
   })
   const disconnect = useMutation({
+    meta: { errorTitle: 'GitHub nicht getrennt' },
     mutationFn: api.githubDisconnect,
     onSuccess: () => {
       setConfirmDisconnect(false)
@@ -142,12 +144,11 @@ export function GithubSetup() {
                 (<code>{s.callbackUrl}</code>); Airlock speichert den Schlüssel der App verschlüsselt.
               </p>
               <div className="form-actions">
-                <button type="submit" className="button-primary" disabled={start.isPending}>
-                  {start.isPending ? 'Wird vorbereitet …' : 'Weiter zu GitHub'}
+                <button type="submit" className="button-primary" disabled={start.isPending} aria-busy={start.isPending || undefined}>
+                  Weiter zu GitHub
                   <span className="visually-hidden"> (wechselt zu GitHub und legt die App an)</span>
                 </button>
               </div>
-              {start.isError && !v.errors.name && !v.errors.org && <p role="alert" className="error">{errText(start.error, 'Nicht gestartet')}</p>}
             </form>
           )}
         </li>
@@ -175,11 +176,10 @@ export function GithubSetup() {
               )}
               <p className="hint">Projekte aus diesen Repos bekommen Fixes als Pull Request; Auto-Deploy schaltest du am Projekt unter «Einstellungen» ein.</p>
               <div className="form-actions">
-                <button type="button" className="button-small" aria-disabled={refresh.isPending || undefined} onClick={() => !refresh.isPending && refresh.mutate()}>
-                  {refresh.isPending ? 'Lädt …' : 'Repos neu laden'}
+                <button type="button" className="button-small" aria-disabled={refresh.isPending || undefined} aria-busy={refresh.isPending || undefined} onClick={() => !refresh.isPending && refresh.mutate()}>
+                  Repos neu laden
                 </button>
               </div>
-              {refresh.isError && <p role="alert" className="error">{errText(refresh.error, 'Repos nicht geladen')}</p>}
             </>
           )}
         </li>
@@ -195,12 +195,11 @@ export function GithubSetup() {
             <span className="confirm-inline" role="group" aria-label="Verbindung trennen bestätigen">
               <span className="confirm-note"><IconWarn />Offene Pull Requests bleiben bei GitHub, Airlock verfolgt sie nicht mehr.</span>
               <button type="button" onClick={() => { setConfirmDisconnect(false); requestAnimationFrame(() => disconnectRef.current?.focus()) }} autoFocus>Abbrechen</button>
-              <button type="button" className="button-danger-solid" aria-disabled={disconnect.isPending || undefined} onClick={() => !disconnect.isPending && disconnect.mutate()}>
-                {disconnect.isPending ? 'Wird getrennt …' : 'Ja, trennen'}
+              <button type="button" className="button-danger-solid" aria-disabled={disconnect.isPending || undefined} aria-busy={disconnect.isPending || undefined} onClick={() => !disconnect.isPending && disconnect.mutate()}>
+                Ja, trennen
               </button>
             </span>
           )}
-          {disconnect.isError && <p role="alert" className="error">{errText(disconnect.error, 'Nicht getrennt')}</p>}
         </div>
       )}
     </>
@@ -212,6 +211,7 @@ export function AutoDeploySetting({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['auto-deploy', projectId], queryFn: () => api.autoDeploy(projectId) })
   const set = useMutation({
+    meta: { errorTitle: 'Auto-Deploy nicht geändert' },
     mutationFn: (enabled: boolean) => api.setAutoDeploy(projectId, enabled),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['auto-deploy', projectId] }),
   })
@@ -234,7 +234,6 @@ export function AutoDeploySetting({ projectId }: { projectId: string }) {
         </span>
       </label>
       <p className="hint" role="status">{on ? 'Auto-Deploy ist an.' : 'Auto-Deploy ist aus.'}</p>
-      {set.isError && <p role="alert" className="error">{errText(set.error, 'Nicht gespeichert')}</p>}
     </fieldset>
   )
 }

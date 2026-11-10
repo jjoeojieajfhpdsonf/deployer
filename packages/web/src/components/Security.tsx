@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
+import { api, type ScanReportDto, type FindingDto } from '../api.js'
 import { acceptFindingSchema, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
@@ -241,14 +241,13 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
           <span className="confirm-inline" role="group" aria-label="Scan abbrechen bestätigen">
             <span className="confirm-note">Befunde dieses Laufs werden nicht gewertet.</span>
             <button type="button" className="button-small" onClick={() => setConfirm(false)}>Weiterlaufen lassen</button>
-            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} autoFocus>
-              {cancel.isPending ? 'Bricht ab…' : 'Ja, abbrechen'}
+            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} aria-busy={cancel.isPending || undefined} autoFocus>
+              Ja, abbrechen
             </button>
           </span>
         )}
       </div>
       <div aria-live="polite"><ScanHead s={s} now={now} /></div>
-      {cancel.isError && <p role="alert" className="error-inline">{(cancel.error as Error).message}</p>}
       <StageList stages={s.stages} now={now} open={null} />
     </section>
   )
@@ -372,6 +371,8 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
     idFor: (n) => `f-${f.id}-${n}`,
   })
   const accept = useMutation({
+    // Das Formular (Begründung) zeigt den Fehler selbst
+    meta: { quiet: true },
     mutationFn: () => api.acceptFinding(f.id, reason),
     onSuccess: () => {
       setOpen(false)
@@ -487,9 +488,6 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
           <strong>Aktiver Scan</strong> greift die App mit OWASP ZAP aktiv an (XSS, SQL-Injection) und kann dabei Daten anlegen oder ändern. Nur der interne Container, nie über das Internet.
         </p>
       </div>
-      {start.isError && (
-        <p role="alert" className="error">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>
-      )}
       {running && latest && <LiveScan report={latest} onCancelled={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })} />}
       {!q.data && q.isError ? (
         <ErrorState what="Der Scan-Bericht" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />

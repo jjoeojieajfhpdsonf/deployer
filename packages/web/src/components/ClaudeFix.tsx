@@ -180,8 +180,8 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
             <span className="confirm-inline" role="group" aria-label="Vorschlag übernehmen">
               <span className="confirm-note"><IconWarn />Neue Version im Projekt, Deploy und Nachscan.</span>
               <button type="button" className="button-small" onClick={applyC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-primary" disabled={busy} onClick={() => apply.mutate()}>
-                {apply.isPending ? 'Wird übernommen …' : 'Ja, übernehmen und deployen'}
+              <button type="button" className="button-small button-primary" disabled={busy} aria-busy={apply.isPending || undefined} onClick={() => apply.mutate()}>
+                Ja, übernehmen und deployen
               </button>
             </span>
           )}
@@ -189,8 +189,8 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
             <span className="confirm-inline" role="group" aria-label="Vorschlag verwerfen">
               <span className="confirm-note"><IconWarn />Verworfene Vorschläge lassen sich nicht wieder öffnen.</span>
               <button type="button" className="button-small" onClick={rejectC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-danger-solid" disabled={busy} onClick={() => reject.mutate()}>
-                {reject.isPending ? 'Wird verworfen …' : 'Ja, verwerfen'}
+              <button type="button" className="button-small button-danger-solid" disabled={busy} aria-busy={reject.isPending || undefined} onClick={() => reject.mutate()}>
+                Ja, verwerfen
               </button>
             </span>
           )}

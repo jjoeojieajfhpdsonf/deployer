@@ -53,8 +53,8 @@ export function Login({ onDone }: { onDone: () => void }) {
           />
         </Field>
         {error && <p role="alert" className="error">{error}</p>}
-        <button type="submit" className="button-primary" disabled={busy}>
-          {busy ? 'Prüfe…' : 'Anmelden'}
+        <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
+          Anmelden
         </button>
       </form>
     </main>

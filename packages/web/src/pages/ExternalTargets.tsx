@@ -141,7 +141,7 @@ function Target({ t }: { t: ExternalTargetDto }) {
       )}
 
       <div className="form-actions">
-        <button onClick={() => verify.mutate()} disabled={verify.isPending}>{verify.isPending ? 'Prüft …' : 'Prüfen'}</button>
+        <button onClick={() => verify.mutate()} disabled={verify.isPending} aria-busy={verify.isPending || undefined}>Prüfen</button>
         <label>
           Regelmässig scannen{' '}
           <select value={t.scanInterval} onChange={(e) => interval.mutate(e.target.value)} disabled={!t.verified}>
@@ -163,9 +163,6 @@ function Target({ t }: { t: ExternalTargetDto }) {
         )}
       </div>
       {verifyNote && <p className="hint" role="status">{verifyNote}</p>}
-      {[verify, interval, scan, del].map((m, i) =>
-        m.isError ? <p key={i} role="alert" className="error">{m.error instanceof ApiError ? m.error.message : 'Fehler'}</p> : null,
-      )}
 
       {showReport && (
         !report.data && report.isError ? <ErrorState compact what="Der letzte Scan" error={report.error} retrying={report.isFetching} onRetry={() => void report.refetch()} />

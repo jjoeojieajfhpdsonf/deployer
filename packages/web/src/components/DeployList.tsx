@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DeploymentDto } from '@airlock/shared'
 import { deployReasonTitle } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { relativeTime, shortVersion, deployDuration } from '../lib/format.js'
 import { fmtDateTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkLog } from './States.js'
@@ -60,6 +60,7 @@ export function DeployList({
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
   const [openLog, setOpenLog] = useState<string | null>(null)
   const rollback = useMutation({
+    meta: { errorTitle: 'Rollback nicht gestartet' },
     mutationFn: (id: string) => api.rollback(projectId, id),
     onSuccess: (r) => {
       setConfirming(null)
@@ -108,7 +109,7 @@ export function DeployList({
           {canRoll && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
           {confirming === d.id && (
             <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
-              <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} autoFocus>{rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}</button>
+              <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} aria-busy={rollback.isPending || undefined} autoFocus>Ja, diese Fassung</button>
               <button type="button" className="button-small" onClick={() => setConfirming(null)}>Abbrechen</button>
             </span>
           )}
@@ -141,7 +142,6 @@ export function DeployList({
         {items.map((it) => it.type === 'row' ? row(it.d, it.sameAsActive) : group(it))}
       </ol>
       {anySame && <p className="dl-note">Zurückrollen erscheint nur bei Versionen mit anderem Code-Stand.</p>}
-      {rollback.isError && <p role="alert" className="error-inline">{rollback.error instanceof ApiError && rollback.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (rollback.error as Error).message}</p>}
     </>
   )
 }

@@ -123,7 +123,7 @@ export function Audit() {
       {all.length >= limit && (
         <div className="load-more">
           <span>{limit} neueste Einträge geladen</span>
-          <button onClick={() => setLimit((l) => l + 200)} disabled={events.isFetching}>{events.isFetching ? 'Lädt…' : 'Ältere laden'}</button>
+          <button onClick={() => setLimit((l) => l + 200)} disabled={events.isFetching} aria-busy={events.isFetching || undefined}>Ältere laden</button>
         </div>
       )}
     </section>

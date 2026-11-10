@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import type { ProjectDto } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'
 import { relativeTime } from '../lib/format.js'
@@ -115,7 +115,6 @@ export function SecurityOverview() {
             </table>
           </div>
         )}
-        {scan.isError && <p role="alert" className="error">{scan.error instanceof ApiError ? scan.error.message : 'Scan nicht gestartet'}</p>}
       </div>
     </section>
   )
