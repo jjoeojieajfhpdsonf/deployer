@@ -894,8 +894,6 @@ a.tab { text-decoration: none; }
 /* --- Leer- und Ladezustände --------------------------------------------------------- */
 
 .state { color: var(--muted); padding: var(--sp-8) 0; max-width: none; }
-.state-loading::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 10px; border-radius: 50%; background: var(--faint); vertical-align: 0.1em; animation: pulse 1.2s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
 .state-error { color: var(--bad); }
 .state-empty { padding: var(--sp-10) var(--sp-6); text-align: center; }
 
@@ -914,6 +912,62 @@ a.tab { text-decoration: none; }
 .state-offline { max-width: 620px; margin: 18vh auto; text-align: center; padding: 0 var(--sp-4); }
 .state-offline h1 { margin-bottom: var(--sp-2); }
 .state-offline p { margin: 0 auto var(--sp-5); color: var(--muted); }
+
+/* Skeletons: Formen des Inhalts in der Pillenfläche; ruhiges Atmen nur ohne «weniger Bewegung» */
+.sk { display: block; flex: none; max-width: 100%; background: var(--surface-2); }
+.sk-r-xs { border-radius: var(--r-xs); }
+.sk-r-sm { border-radius: var(--r-sm); }
+.sk-r-pill { border-radius: var(--r-pill); }
+.sk-r-round { border-radius: 50%; }
+.sk-wrap { display: block; }
+.sk-inline { display: inline-block; vertical-align: middle; }
+.sk-wrap.shell { display: grid; }
+@media (prefers-reduced-motion: no-preference) {
+  .sk { animation: sk-breathe 1.6s ease-in-out infinite; }
+}
+@keyframes sk-breathe { 50% { opacity: 0.55; } }
+.sk-lines { display: grid; gap: 10px; }
+.sk-row { display: flex; align-items: center; gap: var(--sp-3); }
+.sk-row-end { justify-content: space-between; }
+.sk-col { display: grid; gap: 6px; flex: 1; min-width: 0; }
+.sk-grow { flex: 1; }
+.sk-gap { margin-top: 10px; }
+.sk-gap-lg { margin-top: 18px; }
+.sk-title { margin-bottom: var(--sp-5); }
+.sk-card { padding: var(--sp-6); background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--sh-card); }
+.sk-rows { display: grid; gap: var(--sp-5); }
+.sk-log { display: grid; gap: 9px; padding: var(--sp-4); border-radius: var(--r-md); background: var(--code); }
+.sk-head { display: grid; gap: var(--sp-3); margin: var(--sp-2) 0 var(--sp-8); }
+.sk-tabs { display: flex; gap: var(--sp-6); padding-bottom: var(--sp-3); margin-bottom: var(--sp-6); box-shadow: inset 0 -1px 0 var(--line); }
+.sk-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.sk-rail { display: grid; align-content: start; gap: var(--sp-8); padding: var(--sp-6) var(--sp-5); }
+.stats + .sk-wrap, .sk-wrap + .sk-wrap { margin-top: var(--sp-6); }
+.stat .sk + .sk { margin-top: 0; }
+
+/* Fehler beim Laden: Grund in Worten und «Erneut versuchen» */
+.error-state { display: flex; align-items: flex-start; gap: var(--sp-3); margin: var(--sp-5) 0; padding: var(--sp-5) var(--sp-6); border-radius: var(--r-lg); background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); }
+.error-state-compact { margin: 0; padding: var(--sp-4); border-radius: var(--r-md); }
+.error-state-icon { flex: none; color: var(--bad); padding-top: 2px; }
+.error-state-body { flex: 1; min-width: 0; }
+.error-state-title { margin: 0; font-weight: 600; color: var(--ink); }
+.error-state-reason { margin: 2px 0 0; color: var(--ink-dim); font-size: var(--fs-14); overflow-wrap: anywhere; }
+.error-state > button { flex: none; }
+
+/* Leer innerhalb einer Karte: kurzer Satz und der nächste Schritt */
+.empty-inline { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; padding: var(--sp-2) 0; }
+.empty-inline p { margin: 0; color: var(--muted); font-size: var(--fs-14); }
+.empty-inline strong { color: var(--ink); font-weight: 500; }
+
+/* Teilweise: ein Teil fehlt, der Rest steht */
+.partial-note { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0; padding: 10px var(--sp-4); border-radius: var(--r-md); background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); color: var(--ink-dim); font-size: var(--fs-14); max-width: none; }
+.partial-note > svg { flex: none; color: var(--warn); }
+.partial-note > span { flex: 1; min-width: 0; }
+
+/* Veraltet: Server antwortet nicht, Daten von vorher */
+.stale-bar { display: flex; align-items: center; gap: var(--sp-3); margin: 0 0 var(--sp-5); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.stale-bar p { flex: 1; margin: 0; max-width: none; font-size: var(--fs-14); color: var(--ink-dim); }
+.stale-bar strong { color: var(--warn); font-weight: 600; }
+.stale-bar-icon { flex: none; color: var(--warn); display: grid; }
 
 /* --- Formulare ------------------------------------------------------------------------ */
 

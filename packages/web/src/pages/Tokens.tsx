@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../components/Status.js'
 import { copyText } from '../lib/clipboard.js'
+import { fmtDate } from '../lib/dates.js'
+import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'
 import { PageHead } from '../components/PageHead.js'
 import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
@@ -94,14 +96,16 @@ export function Tokens() {
         </section>
       )}
 
-      {tokens.isLoading ? (
-        <p className="state state-loading">Wird geladen…</p>
-      ) : (tokens.data?.tokens ?? []).length === 0 ? (
-        <p className="state state-empty">Noch kein Token.</p>
+      {!tokens.data && tokens.isError ? (
+        <ErrorState what="Die Token-Liste" error={tokens.error} retrying={tokens.isFetching} onRetry={() => void tokens.refetch()} />
+      ) : !tokens.data ? (
+        <Loading label="Tokens werden geladen"><SkRows n={3} /></Loading>
       ) : (
         <>
           {active.length === 0 ? (
-            <p className="state state-empty">Noch kein aktives Token. Lege eins an, z.B. «Claude Desktop», und trage es dort als MCP-Server ein.</p>
+            <EmptyState title={tokens.data.tokens.length === 0 ? 'Noch kein Token' : 'Kein aktives Token'} action={<button type="button" onClick={() => document.getElementById(form.idFor('name'))?.focus()}>Token anlegen</button>}>
+              Lege eins an, z.B. «Claude Desktop», und trage es dort als MCP-Server ein.
+            </EmptyState>
           ) : (
             <TokenTable rows={active} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
           )}
@@ -136,7 +140,7 @@ function TokenTable({ rows, confirming, setConfirming, revoke }: {
           {rows.map((t) => (
             <tr key={t.id} className={t.revokedAt ? 'row-muted' : undefined}>
               <td>{t.name}</td>
-              <td>{new Date(t.createdAt).toLocaleDateString('de-CH')}</td>
+              <td>{fmtDate(t.createdAt)}</td>
               <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
               <td>
                 <span className={t.revokedAt ? 'status status-stopped' : 'status status-running'}>

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
+import { fmtTime } from '../lib/dates.js'
+import { ErrorState, Loading, SkCard } from '../components/States.js'
 import { NotificationSettings } from '../components/Notifications.js'
 import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
@@ -59,9 +61,15 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
     }
   }, [ways])
 
-  if (status.isLoading) return <p className="state state-loading">Status wird geladen…</p>
-  if (status.isError || !status.data) {
-    return <p className="state state-error" role="alert">Status nicht abrufbar.</p>
+  if (!status.data) {
+    return (
+      <section className="page page-medium">
+        <PageHead crumbs={[{ label: 'system' }]} title="System" />
+        {status.isError
+          ? <ErrorState what="Der Systemstatus" error={status.error} retrying={status.isFetching} onRetry={() => void status.refetch()} />
+          : <Loading label="Systemstatus wird geladen"><SkCard lines={4} /><SkCard lines={5} className="sk-gap-lg" /></Loading>}
+      </section>
+    )
   }
   const s = status.data
 
@@ -259,7 +267,7 @@ function NetworkSection({ s }: { s: SystemStatusDto }) {
           <span className="check-name">Prüfung</span>
           <span className="check-detail">
             {n.mode === 'detected'
-              ? <>vom Server gelesen {n.checkedAt ? new Date(n.checkedAt).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) : ''}, stündlich erneut – Adressen und Caddy-Filter ziehen bei einer Änderung selbst nach</>
+              ? <>vom Server gelesen {fmtTime(n.checkedAt, false, '')}, stündlich erneut – Adressen und Caddy-Filter ziehen bei einer Änderung selbst nach</>
               : <>Docker Desktop: keine Erkennung, Werte aus <code>.env</code> (SERVER_LAN_IP, LAN_CIDR)</>}
           </span>
         </li>

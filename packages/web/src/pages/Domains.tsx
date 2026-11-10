@@ -4,6 +4,7 @@ import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, isPublic } from '../lib/projects.js'
+import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
 
 /**
  * Domains: woher die Adressen kommen. Intern (Basisdomain oder nip.io,
@@ -21,6 +22,18 @@ export function Domains() {
   const publicProjects = (projects.data?.projects ?? []).filter(isPublic)
   const t = s?.publicTunnel
   const healthy = t?.status === 'healthy'
+
+  // Ohne Systemstatus stünde überall «keine»: erst laden bzw. den Fehler zeigen
+  if (!s) {
+    return (
+      <section className="page page-medium">
+        <PageHead crumbs={[{ label: 'domains' }]} title="Domains" />
+        {system.isError
+          ? <ErrorState what="Der Systemstatus" error={system.error} retrying={system.isFetching} onRetry={() => void system.refetch()} />
+          : <Loading label="Domains werden geladen"><SkCard lines={3} /><SkCard lines={4} className="sk-gap-lg" /></Loading>}
+      </section>
+    )
+  }
 
   return (
     <section className="page page-medium">
@@ -75,10 +88,12 @@ export function Domains() {
             </div>
             <button onClick={() => sync.mutate()} disabled={sync.isPending}>{sync.isPending ? 'Gleicht ab…' : 'Mit Cloudflare abgleichen'}</button>
           </div>
-          {d.isLoading ? (
-            <p className="state state-loading">Wird geladen…</p>
-          ) : (d.data?.domains ?? []).length === 0 ? (
-            <p className="state state-empty">Keine Zonen. Abgleichen holt sie aus dem Cloudflare-Konto.</p>
+          {!d.data && d.isError ? (
+            <ErrorState compact what="Die Zonenliste" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
+          ) : !d.data ? (
+            <Loading label="Zonen werden geladen"><SkRows n={2} /></Loading>
+          ) : d.data.domains.length === 0 ? (
+            <EmptyState compact title="Keine Zonen." action={<button type="button" className="button-small" onClick={() => sync.mutate()}>Mit Cloudflare abgleichen</button>}>Abgleichen holt sie aus dem Cloudflare-Konto.</EmptyState>
           ) : (
             <div className="table-scroll">
               <table className="table">

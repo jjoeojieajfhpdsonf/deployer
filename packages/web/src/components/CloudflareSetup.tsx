@@ -5,7 +5,9 @@ import { api, ApiError, type CfStatusDto, type CfTokenCheckDto } from '../api.js
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
 import { IconExternal } from './Icons.js'
+import { ErrorState, Loading, SkCard } from './States.js'
 import { relativeTime } from '../lib/format.js'
+import { dateOf, fmtDate, fmtTime, msOf } from '../lib/dates.js'
 
 /**
  * «Cloudflare verbinden»: Token, Prüfung, Domains, Tunnel, Zertifikat – in
@@ -56,8 +58,8 @@ export function CloudflareSetup() {
     void qc.invalidateQueries({ queryKey: ['system'] })
   }
 
-  if (status.isLoading) return <p className="state state-loading">Cloudflare-Status wird geladen…</p>
-  if (status.isError || !status.data) return <p className="state state-error" role="alert">Cloudflare-Status nicht abrufbar.</p>
+  if (!status.data && status.isError) return <ErrorState what="Der Cloudflare-Status" error={status.error} retrying={status.isFetching} onRetry={() => void status.refetch()} />
+  if (!status.data) return <Loading label="Cloudflare-Status wird geladen"><SkCard lines={3} /><SkCard lines={3} className="sk-gap-lg" /><SkCard lines={3} className="sk-gap-lg" /></Loading>
   const s = status.data
 
   const ui = s.source === 'ui'
@@ -203,7 +205,7 @@ function CheckResult({ check }: { check: CfTokenCheckDto }) {
         ))}
       </ul>
       {check.valid && check.zones.length > 0 && (
-        <p className="cf-meta">Konto {check.accounts.map((a) => a.name).join(', ') || '–'} · {check.zones.length} {check.zones.length === 1 ? 'Zone' : 'Zonen'}{check.expiresOn ? ` · läuft ab am ${new Date(check.expiresOn).toLocaleDateString('de-CH')}` : ''}</p>
+        <p className="cf-meta">Konto {check.accounts.map((a) => a.name).join(', ') || '–'} · {check.zones.length} {check.zones.length === 1 ? 'Zone' : 'Zonen'}{msOf(check.expiresOn) !== null ? ` · läuft ab am ${fmtDate(check.expiresOn)}` : ''}</p>
       )}
       {!check.complete && <p className="cf-meta">Rechte bei Cloudflare unter «Token bearbeiten» ergänzen, dann hier neu einfügen – das Token selbst bleibt gleich.</p>}
     </>
@@ -405,7 +407,7 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
   const phase = s.tls.phase
   const running = phase === 'staging' || phase === 'production'
   const idx = phase === 'done' ? 2 : phase === 'production' ? 1 : phase === 'staging' ? 0 : -1
-  const retryAt = s.tls.retryAt ? new Date(s.tls.retryAt) : null
+  const retryAt = dateOf(s.tls.retryAt)
   const waiting = useUntil(retryAt)
   return (
     <>
@@ -429,7 +431,7 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
         <ul className="cf-log" aria-live="polite">
           {s.tls.steps.map((x, i) => (
             <li key={i} className={`cf-log-${x.tone}`}>
-              <time dateTime={x.at}>{new Date(x.at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+              <time dateTime={x.at}>{fmtTime(x.at, true)}</time>
               <span>{x.text}</span>
             </li>
           ))}
@@ -441,7 +443,7 @@ function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto)
         </div>
       )}
       {!running && phase !== 'done' && retryAt && waiting && (
-        <p className="cf-meta" aria-live="polite">Nächster Versuch ab {retryAt.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} Uhr. Höchstens ein Versuch pro Stunde bei Let's Encrypt, sonst sperrt es neue Zertifikate für diesen Namen.</p>
+        <p className="cf-meta" aria-live="polite">Nächster Versuch ab {fmtTime(retryAt)} Uhr. Höchstens ein Versuch pro Stunde bei Let's Encrypt, sonst sperrt es neue Zertifikate für diesen Namen.</p>
       )}
       {!running && phase !== 'done' && s.tls.reusesCert && (
         <p className="cf-meta">Ein gültiges Zertifikat liegt schon bei Caddy. Ein neuer Versuch lädt es, ohne neu zu bestellen.</p>
@@ -467,7 +469,7 @@ function useUntil(until: Date | null): boolean {
 function CertSummary({ s }: { s: CfStatusDto }) {
   const c = s.tls.cert
   if (!c) return <>HTTPS aktiv für <code>*.{s.baseDomain}</code></>
-  return <>Gültig bis {c.validTo ? new Date(c.validTo).toLocaleDateString('de-CH') : '–'}{c.daysLeft !== null ? ` (${c.daysLeft} Tage)` : ''} · {c.issuer ?? 'Let\'s Encrypt'} · erneuert sich selbst</>
+  return <>Gültig bis {fmtDate(c.validTo)}{c.daysLeft !== null ? ` (${c.daysLeft} Tage)` : ''} · {c.issuer ?? 'Let\'s Encrypt'} · erneuert sich selbst</>
 }
 
 /* --- Verwalten ---------------------------------------------------------------------- */

@@ -1,0 +1,148 @@
+# Milestone «UI-Grundlagen»
+
+Branch `ui-grundlagen`, abgezweigt von `ui-projektseite` (Commit `ef34124`, weil `ui-projektseite`
+um Mitternacht noch nicht in `main` war; die Session «Projektseite neu gestalten» lief nicht mehr,
+ihr letzter Commit ist die Grundlage). Ein Commit pro Etappe. Nicht nach `main` gemergt, nicht
+gepusht.
+
+Alles in Hell und Dunkel, im bestehenden Design (Tokens in `packages/web/src/styles.css`, Cal Sans,
+Inter, Geist Mono). Nur Desktop: geprüft wird bei 1440 px.
+
+Offene Entscheidungen stehen als Fragen in `docs/FRAGEN-NACHT.md` (Hauptordner, nicht committet);
+hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
+
+## Prüfungen je Etappe
+
+- `pnpm -r typecheck`, alle Tests (`pnpm -r test`, API: `node:test`), `pnpm -r build`
+- Screenshots: bis Etappe 2 mit `design-shots/shoot.ts`, ab Etappe 3 `pnpm test:visual`
+- Kontrast: `node docs/design-cal/contrast.mjs`
+- Impeccable nur als Gutachter (audit/critique/detect); Befunde zu Kontrast, Schriftgrösse und
+  kaputter Darstellung werden behoben, Stilfragen gehen nach dem Taste Skill.
+
+## Etappen
+
+| Nr. | Inhalt | Stand |
+|---|---|---|
+| 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | geplant |
+| 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | geplant |
+| 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | geplant |
+| 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | geplant |
+| 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | geplant |
+| 6 | Befehlspalette und Tastatur | geplant |
+| 7 | Erster Start, Login, Marke | geplant |
+| 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | geplant |
+| 9 | Handyansicht | **entfällt auf Wunsch** («Handy egal») |
+
+### Etappe 1 – Zustände
+
+Schon vorhanden (Commit `1d4c8fc` auf `main`, über `ui-projektseite` enthalten):
+- Error Boundary um die App und um jede Seite (`components/ErrorBoundary.tsx`): «Etwas ist
+  schiefgelaufen», «Neu laden», Details einklappbar, Meldung an `POST /api/v1/client-errors`
+  (gekürzt, Secrets entfernt, Rate-Limit), Log auf dem Server.
+- Datumsprüfung für «Voraussichtlich zurück» (`parseLocalDateTime`, `backAtProblem` in
+  `packages/shared/src/pause-page.ts`), `lib/dates.ts` in der API.
+
+Abnahme:
+- Keine Ansicht zeigt je eine leere oder schwarze Seite; jeder Renderfehler endet in der Fehlerseite.
+- Jede Ansicht hat die fünf Zustände Laden, Leer, Fehler, Teilweise, Veraltet (Tabelle unten).
+- Laden: Skeletons in der Form des Inhalts; kein «wird geladen…»-Text mehr.
+- Leer: Satz mit nächstem Schritt (Knopf oder Link).
+- Fehler: verständlicher Satz und «Erneut versuchen».
+- Teilweise: was da ist, wird gezeigt; der fehlende Teil hat einen eigenen Hinweis.
+- Veraltet: Server nicht erreichbar → letzte Daten bleiben, Hinweisleiste mit «Stand vor n Min.».
+- Kein `new Date(…)`, `toISOString()` oder `toLocale…()` auf ungeprüften Werten (Test).
+
+Umsetzung:
+- `components/States.tsx`: Skeleton-Bausteine (`Sk`, `SkLines`, `SkStats`, `SkProjectCards`, `SkCard`,
+  `SkRows`, `SkLog`, `SkHead`, `SkProjectDetail`), `EmptyState`, `ErrorState` (Grund in Worten,
+  «Erneut versuchen»), `PartialNote`, `QueryView`. Regel: **Daten gehen vor** – scheitert nur ein
+  späteres Nachladen, bleibt die Ansicht stehen (vorher sprang z. B. die Projektliste auf «konnten
+  nicht geladen werden», sobald ein Hintergrund-Abruf scheiterte).
+- `lib/connection.ts` + `components/StaleBar.tsx`: hört auf alle Abfragen; antwortet der Server nicht
+  (Netz weg, 502/503/504), erscheint über dem Inhalt «Keine Verbindung zum Server. Angezeigt ist der
+  Stand vor n Min.» mit «Erneut versuchen»; die nächste erfolgreiche Antwort blendet sie aus.
+- `api.ts`: Netzabbruch und Nicht-JSON-Antworten (Proxy-Fehlerseite) werden zu `ApiError` mit
+  Status 0 bzw. dem HTTP-Status statt eines rohen `TypeError`/`SyntaxError`.
+- `lib/dates.ts` (Oberfläche): einzige Stelle für Datumsumwandlung und -format; ungültige Werte
+  ergeben «–». 40 Stellen umgestellt. `lib/dates.test.ts` prüft die Formatierer mit kaputten Werten
+  (u. a. Jahr 333333) und durchsucht den Quelltext nach `new Date(wert)`, `Date.parse`,
+  `toISOString`, `toLocaleDateString/TimeString` ausserhalb von `lib/dates.ts`.
+- Neues Test-Skript für die Oberfläche: `pnpm --filter @airlock/web test`.
+
+Zustände je Ansicht («V» = gemeinsame Leiste «Keine Verbindung», gilt überall in der Shell):
+
+| Ansicht | Laden | Leer (nächster Schritt) | Fehler | Teilweise | Veraltet |
+|---|---|---|---|---|---|
+| Shell (Anmeldung prüfen) | Skeleton Seitenleiste + Inhalt | – | «Keine Verbindung zur API» + «Erneut versuchen» | – | V |
+| Projekte | Kennzahlen + Karten | «Erstes Projekt anlegen» | ErrorState | Karte «Letzte Aktivität» mit eigenem Fehler | V |
+| Projektseite | Kopf, Reiter, Karten | – | ErrorState; 404 → «Projekt nicht gefunden» | Deployments-, Aktivitäts-, Security-Karte je mit eigenem Fehler; Fehlerbox ohne Log → Hinweis | V |
+| – Deployments | Zeilen | «Noch kein Deployment» | ErrorState | Log je Deployment mit eigenem Fehler | V |
+| – Logs | Log-Zeilen | «Noch keine Ausgabe» (Start über «⋯») | ErrorState | – | V |
+| – Zugriffe (statisch) | Zeilen | «Noch keine Aufrufe» / «Alle zeigen» | ErrorState | – | V |
+| – Security | Kennzahlen + Zeilen | «Jetzt scannen» | ErrorState | gescheiterte Stufe: Hinweis, Rest vollständig | V |
+| – Einstellungen | Zeilen je Karte | – | je Karte (Veröffentlichung, Header) | Karten unabhängig | V |
+| Neues Projekt | – (Formular) | – | Feld- und Formularfehler (bestehend) | – | V |
+| Security (global) | Kennzahlen + Zeilen | «Projekt anlegen» | ErrorState | – | V |
+| Domains | Karten | Zonen: «Mit Cloudflare abgleichen» | ErrorState (Systemstatus, Zonen) | Zonenliste unabhängig | V |
+| Externe Ziele | Zeilen | «Ziel hinzufügen» (Fokus ins Feld) | ErrorState | Scan je Ziel mit eigenem Fehler | V |
+| Tokens | Zeilen | «Token anlegen» (Fokus ins Feld) | ErrorState | – | V |
+| Audit | Zeilen | Suche leeren / alle zeigen / Projekt anlegen | ErrorState | – | V |
+| System (alle Unterseiten) | Karten | – | ErrorState je Bereich (Status, Cloudflare, GitHub, Benachrichtigungen, Pause-Vorlage) | Bereiche unabhängig | V |
+| Konto | Platzhalter in den Werten | – | «nicht abrufbar» beim Token-Zähler | – | V |
+| Nicht gefunden | – | «Zu den Projekten» | – | – | – |
+
+Screenshots: `docs/design-cal/ui-grundlagen/1-zustaende/` (Gruppe `zustand` in `design-shots/shoot.ts`).
+
+### Etappe 2 – Rückmeldung bei Aktionen
+
+Abnahme:
+- Ein Knopf-Muster: Ladezustand mit Spinner, Breite bleibt stabil.
+- Ergebnis als Toast; «Rückgängig» bei Offline nehmen, Header setzen/entfernen, Schaltern.
+- Fehler-Toast mit Grund und Aktion.
+- Aktivitätsanzeige im Kopf für Deploy, Scan, Zertifikat, Tunnel: Zahl laufender Vorgänge, Klick
+  öffnet Liste mit Fortschritt und Link; bleibt beim Seitenwechsel.
+- Ein gemeinsamer Toast und eine gemeinsame Bestätigung für die ganze App; Übergänge nach Emils
+  Skills, `prefers-reduced-motion` beachtet.
+
+### Etappe 3 – Visuelle Regressionstests
+
+Abnahme:
+- Playwright-Screenshot-Tests aller Hauptseiten und wichtigen Zustände mit Fixtures, Hell und
+  Dunkel, 1440 px; feste Uhrzeit, damit die Bilder stabil sind.
+- Vergleich mit Referenzbildern, kleine Schwelle, Diff-Bilder bei Abweichung.
+- `pnpm test:visual` und `pnpm test:visual:update`; Regel in `CLAUDE.md`.
+
+### Etappe 4 – Komponenten-Übersicht
+
+Abnahme:
+- `/design` (nur angemeldet) zeigt alle Bausteine in Hell und Dunkel nebeneinander.
+- Doppelte oder abweichende Varianten im Code zusammengeführt; Liste unten.
+
+### Etappe 5 – Sprache und Texte
+
+Abnahme:
+- `docs/TEXTE.md`: Glossar mit Varianten (a) alles deutsch und (b) feste Fachbegriffe englisch,
+  Empfehlung mit Begründung, Text-Leitfaden. Nichts umbenannt.
+- Wahl a/b: offen, Frage Nr. 1.
+
+### Etappe 6 – Befehlspalette und Tastatur
+
+Abnahme:
+- ⌘K / Ctrl+K öffnet die Palette: Projekte und Seiten suchen, Aktionen (Neu deployen, Offline
+  nehmen, Scan starten, Token erstellen) mit denselben Bestätigungen wie in der Oberfläche.
+- Kürzel `/`, `g p`, `g s`, `g a`, `?`; keine Kürzel, die Browser-Standards überschreiben.
+
+### Etappe 7 – Erster Start, Login, Marke
+
+Abnahme:
+- Login-Seite im Design.
+- Einrichtungs-Assistent (Passwort → Cloudflare → Tailscale/Adressen → Zertifikat → erstes
+  Projekt) mit Fortschritt, jederzeit überspringbar, unter System fortsetzbar.
+- Drei Logo-Varianten in `docs/design-cal/marke/`, eine eingebaut (Wahl offen, siehe Fragen).
+
+### Etappe 8 – Barrierefreiheit
+
+Abnahme:
+- axe-core in den Playwright-Tests (alle Hauptseiten, Hell/Dunkel), ohne Befunde.
+- Sichtbarer Fokus überall; Bedienung per Tastatur (Menüs, Dialoge, Reiter, Palette).
+- `aria-label` für alle Icon-Knöpfe; Live-Regionen für Statuswechsel.

@@ -13,6 +13,8 @@ import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
+import { ageMs, fmtDateTime } from '../lib/dates.js'
+import { EmptyState, ErrorState, Loading, SkProjectCards, SkRows, SkStats } from '../components/States.js'
 
 
 type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
@@ -108,10 +110,10 @@ export function Projects() {
         }
       />
 
-      {projects.isLoading ? (
-        <p className="state state-loading">Projekte werden geladen…</p>
-      ) : projects.isError ? (
-        <p className="state state-error" role="alert">Projekte konnten nicht geladen werden.</p>
+      {!projects.data && projects.isError ? (
+        <ErrorState what="Die Projektliste" error={projects.error} retrying={projects.isFetching} onRetry={() => void projects.refetch()} />
+      ) : !projects.data ? (
+        <Loading label="Projekte werden geladen"><SkStats /><SkProjectCards /></Loading>
       ) : list.length === 0 ? (
         <>
           <Stats list={list} system={system.data} />
@@ -490,7 +492,8 @@ function sourceLine(p: ProjectDto): { text: string; title?: string } {
   const kind = KIND_LABEL[p.sourceType] ?? p.sourceType
   const s = p.source as { image?: string; repoUrl?: string; uploadId?: string } | null
   if (p.sourceType === 'files') {
-    const days = p.expiresAt ? Math.max(0, Math.ceil((new Date(p.expiresAt).getTime() - Date.now()) / 86_400_000)) : null
+    const left = ageMs(p.expiresAt)
+    const days = left !== null ? Math.max(0, Math.ceil(-left / 86_400_000)) : null
     const runtime = p.runtimeKind !== 'static' ? KIND_LABEL[p.runtimeKind] : null
     const life = p.keep ? 'behalten' : days !== null ? `Ablauf in ${days} ${days === 1 ? 'Tag' : 'Tagen'}` : null
     return { text: [kind, runtime, life].filter(Boolean).join(' · ') }
@@ -562,13 +565,17 @@ function Activity({ projects }: { projects: ProjectDto[] }) {
         <h2 id="activity-h">Letzte Aktivität</h2>
         <Link to="/audit" className="muted">Alles im Audit-Log</Link>
       </div>
-      {events.length === 0 ? (
-        <p className="muted">{audit.isLoading ? 'Wird geladen…' : 'Noch nichts passiert.'}</p>
+      {!audit.data && audit.isError ? (
+        <ErrorState compact what="Die Aktivität" error={audit.error} retrying={audit.isFetching} onRetry={() => void audit.refetch()} />
+      ) : !audit.data ? (
+        <Loading label="Aktivität wird geladen"><SkRows n={4} card={false} /></Loading>
+      ) : events.length === 0 ? (
+        <EmptyState compact title="Noch nichts passiert." action={<Link to="/projekte/neu" className="button button-small">Projekt anlegen</Link>}>Hier erscheinen Deploys, Scans und Änderungen.</EmptyState>
       ) : (
         <ul className="activity">
           {events.map((e) => (
             <li key={e.id}>
-              <time dateTime={e.at} title={new Date(e.at).toLocaleString('de-CH')}>{clockOrDay(e.at)}</time>
+              <time dateTime={e.at} title={fmtDateTime(e.at)}>{clockOrDay(e.at)}</time>
               <span className={`dot dot-${auditTone(e)}`} aria-hidden="true" />
               <span className="what">{describeAudit(e, byId)}{e.result === 'error' && e.error ? <span className="muted"> – {shorten(e.error, 90)}</span> : null}</span>
               <span className="who">{actorLabel(e.actor)}</span>

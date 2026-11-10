@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FIX_STATUS_LABEL, headerFixFor } from '@airlock/shared'
 import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
+import { ErrorState, Loading, SkLines } from './States.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
 import { IconWarn } from './Security.js'
@@ -73,8 +74,8 @@ export function ClaudeFixAction({
       </div>
       {offered && open && (
         <div id={panelId} className="claude-fix">
-          {hint.isLoading && <p className="state-loading hint">Wird geladen…</p>}
-          {hint.isError && <p role="alert" className="error">{hint.error instanceof ApiError ? hint.error.message : 'Nicht geladen'}</p>}
+          {!hint.data && !hint.isError && <Loading label="Hinweis wird geladen"><SkLines n={3} /></Loading>}
+          {!hint.data && hint.isError && <ErrorState compact what="Der Hinweis" error={hint.error} retrying={hint.isFetching} onRetry={() => void hint.refetch()} />}
           {h && (
             <>
               <p className="hint">{h.explanation}</p>

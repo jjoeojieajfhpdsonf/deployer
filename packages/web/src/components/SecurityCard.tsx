@@ -3,6 +3,8 @@ import type { CspAnalysisDto, FindingDto, ProjectDto, ScanReportDto, ScanStageDt
 import { headerFixFor } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { relativeTime, inTime } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { ErrorState, Loading, Sk } from './States.js'
 import { isPublic } from '../lib/projects.js'
 import { SEVERITY_LABEL } from './Security.js'
 import { HeaderFixAction, useHeaderRules } from './HeaderFix.js'
@@ -149,6 +151,9 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
     </div>
   )
 
+  if (p.security && !report && r.isError) {
+    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<ErrorState compact what="Der Scan-Bericht" error={r.error} retrying={r.isFetching} onRetry={() => void r.refetch()} /></section>
+  }
   if (!p.security || (!report && !r.isLoading)) {
     return (
       <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">
@@ -158,7 +163,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
     )
   }
   if (!report) {
-    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<p className="muted ov-empty">Wird geladen…</p></section>
+    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<Loading label="Scan-Bericht wird geladen"><div className="sk-row"><Sk w={84} h={84} r="round" /><div className="sk-col"><Sk w="50%" h={18} /><Sk w="80%" /><Sk w="64%" /></div></div></Loading></section>
   }
 
   const s = report.scan
@@ -219,7 +224,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
       <div className="sc-foot">
         <StageFoot stages={s.stages} />
         <p className="sc-when">
-          {scanning ? <span>Scan läuft …</span> : <span>Scan <time dateTime={s.finishedAt ?? s.startedAt} title={new Date(s.finishedAt ?? s.startedAt).toLocaleString('de-CH')}>{relativeTime(s.finishedAt ?? s.startedAt)}</time></span>}
+          {scanning ? <span>Scan läuft …</span> : <span>Scan <time dateTime={s.finishedAt ?? s.startedAt} title={fmtDateTime(s.finishedAt ?? s.startedAt)}>{relativeTime(s.finishedAt ?? s.startedAt)}</time></span>}
           {!scanning && <> · <button type="button" className="link-button" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? 'Startet …' : 'Neu scannen'}</button></>}
         </p>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type NotifyEvent, type NotifySettingsDto } from '../api.js'
+import { ErrorState, Loading, SkCard } from './States.js'
 import { notifySettingsFormSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
@@ -75,8 +76,8 @@ export function NotificationSettings() {
   })
 
   // Fehler zuerst: ohne Daten bleibt form null, die Ladeanzeige stünde sonst ewig.
-  if (q.isError) return <p className="state state-error" role="alert">Einstellungen nicht abrufbar.</p>
-  if (q.isLoading || !form) return <p className="state state-loading">Wird geladen…</p>
+  if (!form && q.isError) return <ErrorState plural what="Die Benachrichtigungs-Einstellungen" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+  if (!form) return <Loading label="Einstellungen werden geladen"><SkCard lines={4} /><SkCard lines={6} className="sk-gap-lg" /></Loading>
 
   const ntfy = form.ntfy ?? { url: '', topic: '', hasToken: false }
   const email = form.email ?? { host: '', port: 587, secure: false, user: null, hasPassword: false, from: '', to: '' }

@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import type { ProjectDto } from '@airlock/shared'
 import { byDay, type ActivityItem, type Category } from '../lib/activity.js'
+import { fmtDateTime, fmtTime } from '../lib/dates.js'
 import { Actor, IconSpark } from './Actor.js'
 
 /**
@@ -31,7 +32,7 @@ const CATEGORY_WORD: Record<Category, string> = {
   config: 'Einstellung', access: 'Zugang', claude: 'Claude', danger: 'Löschen', error: 'Fehler',
 }
 
-const clock = (iso: string) => new Date(iso).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+const clock = (iso: string) => fmtTime(iso)
 
 export function ActivityList({
   items, projects, details = false, emptyText = 'Noch nichts passiert.',
@@ -75,7 +76,7 @@ export function ActivityList({
                           <dl className="act-details">
                             {it.events.map((e) => (
                               <div key={e.id}>
-                                <dt><code>{e.action}</code> · {new Date(e.at).toLocaleString('de-CH')} · {e.result === 'ok' ? 'ok' : 'Fehler'}</dt>
+                                <dt><code>{e.action}</code> · {fmtDateTime(e.at)} · {e.result === 'ok' ? 'ok' : 'Fehler'}</dt>
                                 <dd><code>{e.error ?? JSON.stringify(e.paramsMasked ?? {})}</code></dd>
                               </div>
                             ))}
@@ -84,7 +85,7 @@ export function ActivityList({
                       </>
                     )}
                   </div>
-                  <time className="act-time num" dateTime={it.at} title={new Date(it.at).toLocaleString('de-CH')}>{clock(it.at)}</time>
+                  <time className="act-time num" dateTime={it.at} title={fmtDateTime(it.at)}>{clock(it.at)}</time>
                 </li>
               )
             })}

@@ -8,6 +8,7 @@ import { PageHead } from '../components/PageHead.js'
 import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
+import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
 
 /**
  * Fremde Websites scannen, aber nur nach Nachweis per DNS-TXT-Eintrag
@@ -56,15 +57,17 @@ export function ExternalTargets() {
         <button className="button-primary" type="submit" disabled={add.isPending}>Ziel hinzufügen</button>
       </form>
 
-      {list.isLoading ? (
-        <p className="state state-loading">Wird geladen…</p>
-      ) : list.isError ? (
-        <p className="state state-error" role="alert">Liste nicht abrufbar.</p>
-      ) : list.data!.targets.length === 0 ? (
-        <p className="state state-empty">Noch keine externen Ziele.</p>
+      {!list.data && list.isError ? (
+        <ErrorState what="Die Liste der externen Ziele" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+      ) : !list.data ? (
+        <Loading label="Externe Ziele werden geladen"><SkRows n={3} /></Loading>
+      ) : list.data.targets.length === 0 ? (
+        <EmptyState title="Noch keine externen Ziele" action={<button type="button" onClick={() => document.getElementById(form.idFor('hostname'))?.focus()}>Ziel hinzufügen</button>}>
+          Trage oben eine eigene Domain ein. Gescannt wird erst, wenn ein TXT-Eintrag beweist, dass sie dir gehört.
+        </EmptyState>
       ) : (
         <ul className="target-list">
-          {list.data!.targets.map((t) => <Target key={t.id} t={t} />)}
+          {list.data.targets.map((t) => <Target key={t.id} t={t} />)}
         </ul>
       )}
     </section>
@@ -165,9 +168,10 @@ function Target({ t }: { t: ExternalTargetDto }) {
       )}
 
       {showReport && (
-        report.isLoading ? <p className="state state-loading">Wird geladen…</p>
-        : report.data?.report ? <ScanReport report={report.data.report} onAccepted={() => void report.refetch()} />
-        : <p className="state state-empty">Noch kein Scan.</p>
+        !report.data && report.isError ? <ErrorState compact what="Der letzte Scan" error={report.error} retrying={report.isFetching} onRetry={() => void report.refetch()} />
+        : !report.data ? <Loading label="Scan wird geladen"><SkCard lines={4} /></Loading>
+        : report.data.report ? <ScanReport report={report.data.report} onAccepted={() => void report.refetch()} />
+        : <EmptyState compact title="Noch kein Scan." action={t.verified ? <button type="button" className="button-small" onClick={() => scan.mutate()}>Jetzt scannen</button> : undefined}>{t.verified ? null : 'Erst die Domain bestätigen.'}</EmptyState>
       )}
     </li>
   )

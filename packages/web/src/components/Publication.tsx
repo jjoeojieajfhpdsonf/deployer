@@ -7,6 +7,8 @@ import { api } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { usePublicActions } from '../lib/public.js'
 import { relativeTime } from '../lib/format.js'
+import { ageMs, fmtDate, fmtDateTime, fmtDateTimeMedium, fmtTime, msOf, sameDay } from '../lib/dates.js'
+import { ErrorState, Loading, SkLines } from './States.js'
 import { Field } from './Field.js'
 import { IconExternal, IconGlobe, IconLock, IconPause, IconWarn } from './Icons.js'
 import { Switch } from './Switch.js'
@@ -30,18 +32,12 @@ export function PublicPillFor({ p }: { p: ProjectDto }) {
   return s === 'private' ? null : <PublicPill state={s} />
 }
 
-const when = (iso: string | null) => {
-  const d = iso ? new Date(iso) : null
-  return d && Number.isFinite(d.getTime()) ? d.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' }) : '–'
-}
+const when = (iso: string | null) => fmtDateTimeMedium(iso)
 
 /** Seit wann, kurz: heute die Uhrzeit, sonst das Datum */
 const sinceShort = (iso: string | null) => {
-  const d = iso ? new Date(iso) : null
-  if (!d || !Number.isFinite(d.getTime())) return ''
-  return d.toDateString() === new Date().toDateString()
-    ? d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric', year: 'numeric' })
+  if (msOf(iso) === null) return ''
+  return sameDay(iso, new Date()) ? fmtTime(iso) : fmtDate(iso)
 }
 
 /** Status-Pille im Kopf: «Öffentlich seit 19:21», «Pausiert seit …», «Privat» */
@@ -49,7 +45,7 @@ function StatePill({ s }: { s: PublicStatusDto }) {
   const Icon = s.state === 'live' ? IconGlobe : s.state === 'paused' ? IconPause : IconLock
   const when = s.state === 'private' ? '' : sinceShort(s.since)
   return (
-    <span className={`chip chip-pub-${s.state} set-state`} title={s.since ? new Date(s.since).toLocaleString('de-CH') : undefined}>
+    <span className={`chip chip-pub-${s.state} set-state`} title={fmtDateTime(s.since, '') || undefined}>
       <Icon size={12} />{STATE_LABEL[s.state]}{when ? ` seit ${when}` : ''}
     </span>
   )
@@ -76,8 +72,8 @@ export function Publication({ p }: { p: ProjectDto }) {
       {!s && (
         <div className="set-head"><h2 id={titleId}>Veröffentlichung</h2></div>
       )}
-      {q.isLoading && <p className="set-row-note">Wird geladen…</p>}
-      {q.isError && <p role="alert" className="error set-row-note">Zustand der Veröffentlichung nicht abrufbar.</p>}
+      {!s && !q.isError && <Loading label="Veröffentlichung wird geladen" className="set-row-note"><SkLines n={2} /></Loading>}
+      {!s && q.isError && <div className="set-row-note"><ErrorState compact what="Der Zustand der Veröffentlichung" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} /></div>}
 
       {s && (
         <>
@@ -539,7 +535,7 @@ const STEP_WORD: Record<string, string> = { todo: 'offen', current: 'läuft', do
  * stehen, wenn er scheiterte oder eine Warnung hatte (sonst sagt es der Toast).
  */
 function ProgressSteps({ live, last, pending }: { live: PublicProgressDto | null; last: PublicProgressDto | null; pending: boolean }) {
-  const recent = last && last.finishedAt && Date.now() - Date.parse(last.finishedAt) < 10 * 60_000
+  const recent = last && (ageMs(last.finishedAt) ?? Infinity) < 10 * 60_000
   const show = pending ? live : recent && (last.ok === false || last.steps.some((x) => x.state === 'warn')) ? last : null
   if (!show) return pending ? <p className="hint" role="status">Wird ausgeführt…</p> : null
   const notes = show.steps.filter((x) => x.detail && (x.state === 'warn' || x.state === 'failed'))

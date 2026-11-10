@@ -1,12 +1,12 @@
 import type { AuditEventDto, ProjectDto } from '@airlock/shared'
 import { describeEvent } from './activity.js'
+import { addDays, fmtDate, fmtDayMonth, fmtTime, msOf, sameDay } from './dates.js'
 
 /** «vor 18 Min.», «vor 2 Std.», «gestern», «vor 3 Tagen» */
 export function relativeTime(iso: string | null | undefined): string {
-  if (!iso) return '–'
-  const t = new Date(iso).getTime()
   // Ungültiges Datum: Strich statt «Invalid Date» oder NaN
-  if (!Number.isFinite(t)) return '–'
+  const t = msOf(iso)
+  if (t === null) return '–'
   const diff = Date.now() - t
   const min = Math.floor(diff / 60_000)
   if (min < 1) return 'gerade eben'
@@ -16,7 +16,7 @@ export function relativeTime(iso: string | null | undefined): string {
   const d = Math.floor(h / 24)
   if (d === 1) return 'gestern'
   if (d < 30) return `vor ${d} Tagen`
-  return new Date(iso).toLocaleDateString('de-CH')
+  return fmtDate(t)
 }
 
 /** «seit 2 Std.», «seit gestern» */
@@ -30,14 +30,11 @@ export function since(iso: string | null | undefined): string {
 
 /** Uhrzeit für heute, sonst «gestern» oder Datum – für die Aktivitätsliste. */
 export function clockOrDay(iso: string): string {
-  const d = new Date(iso)
   const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  if (sameDay) return d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
-  const y = new Date(now)
-  y.setDate(now.getDate() - 1)
-  if (d.toDateString() === y.toDateString()) return 'gestern'
-  return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' })
+  if (msOf(iso) === null) return '–'
+  if (sameDay(iso, now)) return fmtTime(iso)
+  if (sameDay(iso, addDays(now, -1))) return 'gestern'
+  return fmtDayMonth(iso)
 }
 
 export function duration(ms: number | null): string {
@@ -48,9 +45,8 @@ export function duration(ms: number | null): string {
 
 /** Zeitpunkt in der Zukunft: «heute», «morgen», «in 6 Tagen» */
 export function inTime(iso: string | null | undefined): string {
-  if (!iso) return '–'
-  const t = new Date(iso).getTime()
-  if (!Number.isFinite(t)) return '–'
+  const t = msOf(iso)
+  if (t === null) return '–'
   const diff = t - Date.now()
   if (diff <= 0) return 'demnächst'
   const h = Math.floor(diff / 3_600_000)

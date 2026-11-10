@@ -16,6 +16,7 @@ import { SiteAccess } from '../components/SiteAccess.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { runtimeStatus, isPublic } from '../lib/projects.js'
+import { EmptyState, ErrorState, Loading, SkLog, SkProjectDetail, SkRows } from '../components/States.js'
 
 const IconGear = () => (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -82,8 +83,17 @@ export function ProjectDetail() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
   })
 
-  if (q.isLoading) return <section className="page"><PageHead crumbs={[{ label: 'projekte', to: '/projekte' }, { label: '…' }]} title="Projekt" /><p className="state state-loading">Wird geladen…</p></section>
-  if (q.isError) {
+  // Daten gehen vor: scheitert nur ein späteres Nachladen, bleibt die Seite stehen (Zustand «Veraltet»)
+  if (!q.data && q.isError && !(q.error instanceof ApiError && q.error.status === 404)) {
+    return (
+      <section className="page">
+        <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }]} title="Projekt" />
+        <ErrorState what="Das Projekt" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+      </section>
+    )
+  }
+  if (!q.data && !q.isError) return <section className="page"><Loading label="Projekt wird geladen"><SkProjectDetail /></Loading></section>
+  if (!q.data) {
     return (
       <section className="page">
         <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }]} title="Projekt nicht gefunden" />
@@ -293,9 +303,16 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
   const list = useDeployments(projectId)
-  if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
-  const rows = list.data?.deployments ?? []
-  if (rows.length === 0) return <p className="state state-empty">Noch kein Deployment.</p>
+  if (!list.data && list.isError) return <ErrorState plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+  if (!list.data) return <Loading label="Deployments werden geladen"><SkRows n={6} /></Loading>
+  const rows = list.data.deployments
+  if (rows.length === 0) {
+    return (
+      <EmptyState title="Noch kein Deployment">
+        Das erste Deployment startet, sobald das Projekt angelegt ist; danach mit «Neu deployen» oben rechts.
+      </EmptyState>
+    )
+  }
 
   return (
     <div className="tab-panel">
@@ -318,30 +335,38 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
 
 function LiveLogs({ projectId }: { projectId: string }) {
   const [lines, setLines] = useState<string[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const ref = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
     setLines([])
     setError(null)
+    setLoaded(false)
     void api
       .getLogs(projectId, 200)
-      .then((r) => setLines(r.logs ? r.logs.split('\n') : r.hint ? [r.hint] : []))
-      .catch((e: Error) => setError(e.message))
+      .then((r) => { setLines(r.logs ? r.logs.split('\n') : r.hint ? [r.hint] : []); setLoaded(true) })
+      .catch((e: unknown) => setError(e))
     return subscribeLogs(projectId, (line) => setLines((l) => [...l.slice(-1000), line]))
-  }, [projectId])
+  }, [projectId, attempt])
 
   useEffect(() => {
     ref.current?.scrollTo({ top: ref.current.scrollHeight })
   }, [lines])
 
-  if (error) return <p className="state state-error" role="alert">{error}</p>
+  if (error) return <ErrorState what="Das Log" error={error} onRetry={() => setAttempt((n) => n + 1)} />
+  if (!loaded && lines.length === 0) return <Loading label="Log wird geladen"><SkLog n={12} /></Loading>
 
   return (
     <div className="tab-panel">
-      <pre className="log log-tall" ref={ref} aria-label="Container-Log">
-        {lines.join('\n') || 'Noch keine Ausgabe…'}
-      </pre>
+      {lines.length === 0 ? (
+        <EmptyState title="Noch keine Ausgabe">
+          Neue Zeilen erscheinen hier live, sobald der Container etwas schreibt. Läuft er nicht, starte ihn über «⋯» oben rechts.
+        </EmptyState>
+      ) : (
+        <pre className="log log-tall" ref={ref} aria-label="Container-Log">{lines.join('\n')}</pre>
+      )}
     </div>
   )
 }

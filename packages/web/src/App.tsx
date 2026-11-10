@@ -3,6 +3,8 @@ import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Route, Routes, Navigate, Link, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary.js'
+import { Loading, Sk, SkHead, SkStats } from './components/States.js'
+import { StaleBar } from './components/StaleBar.js'
 import { api } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -33,12 +35,22 @@ export function App() {
   }, [serverTheme])
 
   if (me.isLoading) {
-    return <main className="state state-loading" aria-busy="true">Einen Moment…</main>
+    // Skeleton der Shell: Seitenleiste und Inhalt in ihrer Form, kein «Einen Moment…»
+    return (
+      <Loading label="Airlock wird geladen" className="shell">
+        <aside className="rail sk-rail" aria-hidden="true">
+          <Sk w={120} h={20} />
+          <div className="sk-lines">{[70, 64, 58, 76, 52, 60, 66].map((w, i) => <Sk key={i} w={`${w}%`} h={14} />)}</div>
+        </aside>
+        <main className="main"><div className="page"><SkHead /><SkStats /></div></main>
+      </Loading>
+    )
   }
 
   // "API nicht erreichbar" ist ein eigener Zustand, nicht derselbe wie
-  // "nicht angemeldet".
-  if (me.isError) {
+  // "nicht angemeldet". Mit Daten von vorher bleibt die Oberfläche stehen
+  // (Zustand «Veraltet», Leiste in der Shell).
+  if (me.isError && !me.data) {
     return (
       <main className="state state-offline" role="alert">
         <h1>Keine Verbindung zur API</h1>
@@ -61,6 +73,7 @@ export function App() {
           <Crumbs />
           <ProfileMenu me={me.data} />
         </div>
+        <StaleBar />
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
         <ErrorBoundary scope="page" resetKey={location.pathname}>
         <Routes>
@@ -149,8 +162,8 @@ function Rail() {
         ))}
       </nav>
       <div className="rail-foot">
-        <span>Server <strong>{system.data?.server.name ?? '…'}</strong></span>
-        <span>Version <strong className="num">{system.data?.version ?? '…'}</strong></span>
+        <span>Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />}</span>
+        <span>Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
       </div>
     </aside>
   )

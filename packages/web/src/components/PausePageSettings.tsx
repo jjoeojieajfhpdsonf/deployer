@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { DEFAULT_PAUSE_PAGE, type PausePage } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
+import { ErrorState, Loading, SkCard } from './States.js'
 import { PausePageEditor, pausePageErrors, samePage, type PausePageErrors } from './PausePageEditor.js'
 
 /**
@@ -30,8 +31,8 @@ export function PausePageSettings() {
     },
   })
 
-  if (q.isLoading || !page) return <p className="state state-loading">Wird geladen…</p>
-  if (q.isError) return <p className="state state-error" role="alert">Vorlage nicht abrufbar.</p>
+  if (!q.data && q.isError) return <ErrorState what="Die Vorlage der Pause-Seite" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+  if (!q.data || !page) return <Loading label="Vorlage wird geladen"><SkCard lines={6} /></Loading>
 
   const dirty = !samePage(page, q.data!.page)
   const isDefault = samePage(page, DEFAULT_PAUSE_PAGE)

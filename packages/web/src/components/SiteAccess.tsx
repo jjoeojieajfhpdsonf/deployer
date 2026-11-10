@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SiteAccessEntryDto } from '@airlock/shared'
 import { api } from '../api.js'
+import { fmtDateTime, fmtTime } from '../lib/dates.js'
+import { EmptyState, ErrorState, Loading, SkRows } from './States.js'
 
 /**
  * Reiter «Zugriffe» einer statischen Seite: Aufrufe aus Caddys Zugriffs-Log
@@ -41,9 +43,12 @@ export function SiteAccess({ projectId }: { projectId: string }) {
             </button>
           ))}
         </div>
-        {q.isLoading ? <p className="muted ov-empty">Wird geladen…</p>
-          : q.data?.error ? <p className="state state-error" role="alert">{q.data.error}</p>
-          : list.length === 0 ? <p className="muted ov-empty">{all.length === 0 ? 'Noch keine Aufrufe in den letzten 24 Stunden.' : 'Keine Aufrufe mit diesem Status.'}</p>
+        {!q.data && q.isError ? <ErrorState compact what="Das Zugriffslog" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+          : !q.data ? <Loading label="Zugriffe werden geladen"><SkRows n={6} card={false} /></Loading>
+          : q.data.error ? <ErrorState compact what="Das Zugriffslog" error={new Error(q.data.error)} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+          : list.length === 0 ? (all.length === 0
+            ? <EmptyState compact title="Noch keine Aufrufe in den letzten 24 Stunden.">Öffne die Seite, dann erscheint der Aufruf hier.</EmptyState>
+            : <EmptyState compact title="Keine Aufrufe mit diesem Status." action={<button type="button" className="button-small" onClick={() => setKlass('alle')}>Alle zeigen</button>} />)
           : (
             <div className="table-scroll">
               <table className="table access-table">
@@ -53,7 +58,7 @@ export function SiteAccess({ projectId }: { projectId: string }) {
                     const k = klassOf(e.status) as Exclude<Klass, 'alle'>
                     return (
                       <tr key={`${e.at}-${i}`}>
-                        <td className="num nowrap" title={new Date(e.at).toLocaleString('de-CH')}>{new Date(e.at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                        <td className="num nowrap" title={fmtDateTime(e.at)}>{fmtTime(e.at, true)}</td>
                         <td><code className="access-method">{e.method}</code></td>
                         <td className="access-path"><code title={e.host}>{e.path}</code></td>
                         <td><span className={`access-status access-status-${k}`}><span className="num">{e.status}</span> {KLASS_WORD[k]}</span></td>

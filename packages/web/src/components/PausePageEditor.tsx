@@ -4,6 +4,7 @@ import {
   PAUSE_HTML_MAX, PAUSE_BACK_MAX_MS, type PausePage,
 } from '@airlock/shared'
 import { Field } from './Field.js'
+import { isoOf } from '../lib/dates.js'
 
 /**
  * Pause-Seite bearbeiten: Felder (Formular) oder eigenes HTML (Code) links,
@@ -199,9 +200,9 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
   const parsed = withBackAt ? parseLocalDateTime(back) : { iso: null, error: null }
   const backIso = parsed.iso
   const backErr = withBackAt ? (backBad ? 'Ungültiges Datum' : parsed.error ?? backAtProblem(backIso) ?? undefined) : undefined
-  const now = new Date()
-  const minBack = toLocalDateTime(now.toISOString())
-  const maxBack = toLocalDateTime(new Date(now.getTime() + PAUSE_BACK_MAX_MS).toISOString())
+  const now = Date.now()
+  const minBack = toLocalDateTime(isoOf(now))
+  const maxBack = toLocalDateTime(isoOf(now + PAUSE_BACK_MAX_MS))
 
   const submit = () => {
     const errs = custom ? pausePageErrors(page) : {}

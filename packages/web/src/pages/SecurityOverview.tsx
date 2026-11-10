@@ -6,6 +6,7 @@ import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'
 import { relativeTime } from '../lib/format.js'
+import { EmptyState, ErrorState, Loading, SkRows, SkStats } from '../components/States.js'
 
 /**
  * Security über alle Projekte: Note, offene Befunde nach Schwere, letzter
@@ -35,6 +36,8 @@ export function SecurityOverview() {
         <p className="lede">Nach jedem Deploy prüfen Trivy, ein Header-Check, OWASP ZAP und Nuclei das Projekt. Öffentlich schalten geht nur ohne offenen kritischen Befund.</p>
       </PageHead>
 
+      {/* Ohne Daten keine Nullen zeigen: erst Skeleton */}
+      {projects.data ? (
       <div className="stats">
         <div className="stat">
           <div className="label">Kritisch</div>
@@ -57,16 +60,21 @@ export function SecurityOverview() {
           <div className="stat-sub">Rescan wöchentlich</div>
         </div>
       </div>
+      ) : !projects.isError && <Loading label="Kennzahlen werden geladen"><SkStats /></Loading>}
 
       <div className="section">
         <div className="section-head">
           <h2>Projekte nach Dringlichkeit</h2>
           <Link to="/extern" className="muted">Externe Ziele</Link>
         </div>
-        {projects.isLoading ? (
-          <p className="state state-loading">Wird geladen…</p>
+        {!projects.data && projects.isError ? (
+          <ErrorState what="Die Projektliste" error={projects.error} retrying={projects.isFetching} onRetry={() => void projects.refetch()} />
+        ) : !projects.data ? (
+          <Loading label="Projekte werden geladen"><SkRows n={5} /></Loading>
         ) : list.length === 0 ? (
-          <div className="state state-empty"><p>Noch kein Projekt – also auch nichts zu prüfen.</p></div>
+          <EmptyState title="Noch kein Projekt" action={<Link className="button" to="/projekte/neu">Projekt anlegen</Link>}>
+            Also auch nichts zu prüfen. Jedes neue Projekt wird nach dem ersten Deploy gescannt.
+          </EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="table">

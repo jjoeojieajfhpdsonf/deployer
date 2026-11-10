@@ -68,16 +68,30 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, {
-    credentials: 'same-origin',
-    // Content-Type nur bei einem JSON-Body: Ohne Body würde der Server
-    // «Body cannot be empty when content-type is set to 'application/json'» melden.
-    headers: typeof init.body === 'string' ? { 'content-type': 'application/json' } : {},
-    ...init,
-  })
+  let res: Response
+  try {
+    res = await fetch(`/api/v1${path}`, {
+      credentials: 'same-origin',
+      // Content-Type nur bei einem JSON-Body: Ohne Body würde der Server
+      // «Body cannot be empty when content-type is set to 'application/json'» melden.
+      headers: typeof init.body === 'string' ? { 'content-type': 'application/json' } : {},
+      ...init,
+    })
+  } catch (e) {
+    // Netz weg, Server aus: eigener Code, damit die Oberfläche «nicht erreichbar» zeigt (Status 0)
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError('unreachable', 'Der Airlock-Server antwortet nicht.', 0)
+  }
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  const data = text ? JSON.parse(text) : {}
+  let data: unknown = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    // Kein JSON: meist eine Fehlerseite eines Proxys (502 vom Gateway)
+    if (!res.ok) throw new ApiError(res.status >= 502 && res.status <= 504 ? 'unreachable' : 'bad_response', `HTTP ${res.status}`, res.status)
+    throw new ApiError('bad_response', 'Unerwartete Antwort vom Server.', res.status)
+  }
   if (!res.ok) {
     const e = (data as { error?: { code: string; message: string; details?: unknown } }).error
     throw new ApiError(e?.code ?? 'unknown', e?.message ?? `HTTP ${res.status}`, res.status, e?.details)

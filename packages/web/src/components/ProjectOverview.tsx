@@ -5,6 +5,7 @@ import type { AddressRowInput, DeploymentDto, EnvEntryDto, ProjectDto, ResourceS
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
 import { api, probeUrl } from '../api.js'
 import { relativeTime, shortVersion, since } from '../lib/format.js'
+import { fmtDayTime, fmtTime, msOf } from '../lib/dates.js'
 import { bundle, isReadOnly } from '../lib/activity.js'
 import { ActivityList } from './ActivityList.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
@@ -12,6 +13,7 @@ import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
 import { KeyFacts } from './KeyFacts.js'
+import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -111,7 +113,10 @@ function DeployFailure({ p, dep, stillRunning, onTab, onDeploy, deploying }: {
           <span>Letzte {lines.length} Zeilen des Deploy-Logs</span>
           <button type="button" className="link-button" onClick={() => onTab('deployments')}>Ganzes Log</button>
         </div>
-        <pre className="log log-failure" aria-label="Letzte Zeilen des Deploy-Logs">{d.isLoading ? 'Log wird geladen…' : lines.join('\n') || 'Kein Log gespeichert.'}</pre>
+        {/* Teilweise: Ursache und Aktionen stehen auch ohne Log */}
+        {!d.data && d.isError ? <PartialNote onRetry={() => void d.refetch()}>Das Deploy-Log ist gerade nicht abrufbar ({errorReason(d.error)})</PartialNote>
+          : !d.data ? <Loading label="Log wird geladen"><SkLog n={6} /></Loading>
+          : <pre className="log log-failure" aria-label="Letzte Zeilen des Deploy-Logs">{lines.join('\n') || 'Für dieses Deployment wurde kein Log gespeichert.'}</pre>}
       </div>
       <div className="failure-actions">
         <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
@@ -140,7 +145,9 @@ function ContainerDown({ projectId, exitCode, missing, onTab, onDeploy, deployin
       <p className="failure-cause">{cause}</p>
       {!missing && <div className="failure-log">
         <div className="failure-log-head"><span>Letzte {lines.length} Zeilen der Container-Ausgabe</span><button type="button" className="link-button" onClick={() => onTab('logs')}>Logs</button></div>
-        <pre className="log log-failure">{logs.isLoading ? 'Wird geladen…' : lines.join('\n') || logs.data?.hint || 'Keine Ausgabe.'}</pre>
+        {!logs.data && logs.isError ? <PartialNote onRetry={() => void logs.refetch()}>Die Container-Ausgabe ist gerade nicht abrufbar ({errorReason(logs.error)})</PartialNote>
+          : !logs.data ? <Loading label="Ausgabe wird geladen"><SkLog n={6} /></Loading>
+          : <pre className="log log-failure">{lines.join('\n') || logs.data.hint || 'Der Container hat nichts ausgegeben.'}</pre>}
       </div>}
       <div className="failure-actions">
         <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
@@ -167,15 +174,15 @@ function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; da
         <dt>Laufzeit</dt>
         <dd>
           {isStatic ? <span>Statische Seite, Caddy liefert sie direkt aus</span>
-            : loading ? <span className="muted">wird geprüft…</span>
-            : c?.startedAt ? <><strong className="state-strong">läuft {since(c.startedAt).replace(/^seit /, 'seit ')}</strong> <span className="muted">· gestartet {new Date(c.startedAt).toLocaleString('de-CH', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></>
+            : loading ? <Sk w={180} h={13} />
+            : c?.startedAt ? <><strong className="state-strong">läuft {since(c.startedAt).replace(/^seit /, 'seit ')}</strong> <span className="muted">· gestartet {fmtDayTime(c.startedAt)}</span></>
             : <span className="muted">unbekannt</span>}
         </dd>
 
         <dt>Healthcheck</dt>
         <dd>
           {isStatic ? <span className="muted">entfällt bei statischen Seiten</span>
-            : !hc ? <span className="hc hc-pending"><IconPending /> {loading ? 'wird geprüft…' : 'noch keiner seit dem Start'}</span>
+            : !hc ? <span className="hc hc-pending"><IconPending /> {loading ? 'Prüfung läuft' : 'noch keiner seit dem Start'}</span>
             : hc.ok ? <span className="hc hc-ok"><IconOk /> gesund <span className="hc-detail">HTTP {hc.status} auf {hc.url} · {hc.ms} ms · {relativeTime(hc.at).replace('gerade eben', 'eben')}</span></span>
             : <span className="hc hc-bad"><IconBad /> antwortet nicht <span className="hc-detail">{hc.error} · {hc.url} · {relativeTime(hc.at)}</span></span>}
         </dd>
@@ -194,10 +201,12 @@ function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; da
  * Verlauf der letzten Stunde gegen die Grenze: die Grenze ist die Oberkante,
  * so sieht man sofort, wie viel Luft bleibt. Ein Wert pro Minute.
  */
-function Meter({ label, unit, limit, samples, pick, fmt }: {
+function Meter({ label, unit, limit, samples: all, pick, fmt }: {
   label: string; unit: string; limit: number; samples: ResourceSample[]; pick: (s: ResourceSample) => number; fmt: (v: number) => string
 }) {
   const [hover, setHover] = useState<number | null>(null)
+  // Messpunkte mit ungültiger Zeit fallen weg, statt die Linie zu zerreissen
+  const samples = all.filter((s) => msOf(s.at) !== null)
   const W = 300
   const H = 56
   const values = samples.map(pick)
@@ -207,9 +216,10 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
   const tone = ratio >= 0.9 ? 'bad' : ratio >= 0.7 ? 'warn' : 'ok'
   // Zeitachse: 60 Minuten, rechts ist jetzt
   const t0 = Date.now() - 60 * 60_000
-  const x = (iso: string) => Math.max(0, Math.min(W, ((new Date(iso).getTime() - t0) / (60 * 60_000)) * W))
+  const x = (t: number) => Math.max(0, Math.min(W, ((t - t0) / (60 * 60_000)) * W))
   const y = (v: number) => H - Math.min(1, v / limit) * (H - 2) - 1
-  const pts = samples.map((s) => [x(s.at), y(pick(s))] as const)
+  // Messpunkte mit ungültiger Zeit fallen weg statt die Linie zu zerreissen
+  const pts = samples.map((s) => [x(msOf(s.at)!), y(pick(s))] as const)
   const line = pts.map(([a, b], i) => `${i ? 'L' : 'M'}${a.toFixed(1)},${b.toFixed(1)}`).join(' ')
   const area = pts.length ? `${line} L${pts.at(-1)![0].toFixed(1)},${H} L${pts[0]![0].toFixed(1)},${H} Z` : ''
   const hv = hover !== null ? samples[hover] : null
@@ -247,7 +257,7 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
         {pts.length === 1 && <span className="ov-meter-dot" style={{ left: `${(pts[0]![0] / W) * 100}%`, top: `${(pts[0]![1] / H) * 100}%` }} aria-hidden="true" />}
         {hv && (
           <span className="ov-meter-tip" style={{ left: `${(pts[hover!]![0] / W) * 100}%` }}>
-            {new Date(hv.at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {fmt(pick(hv))} {unit}
+            {fmtTime(hv.at)} · {fmt(pick(hv))} {unit}
           </span>
         )}
       </div>
@@ -273,7 +283,9 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
         <h2 className="ov-title" id="ov-deploys">Deployments</h2>
         {total > 0 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
       </div>
-      {list.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : rows.length === 0 ? <p className="muted ov-empty">Noch kein Deployment.</p> : (
+      {!list.data && list.isError ? <ErrorState compact plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+        : !list.data ? <Loading label="Deployments werden geladen"><SkRows n={3} card={false} /></Loading>
+        : rows.length === 0 ? <EmptyState compact title="Noch kein Deployment.">Das erste startet nach dem Anlegen von selbst.</EmptyState> : (
         <DeployList projectId={projectId} rows={rows} limit={5} onRollback={onRollback} />
       )}
     </section>
@@ -298,7 +310,9 @@ function Activity({ projectId }: { projectId: string }) {
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
         <Link to="/audit">Audit-Log</Link>
       </div>
-      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : <ActivityList items={shown} />}
+      {!a.data && a.isError ? <ErrorState compact what="Die Aktivität" error={a.error} retrying={a.isFetching} onRetry={() => void a.refetch()} />
+        : !a.data ? <Loading label="Aktivität wird geladen"><SkRows n={3} card={false} /></Loading>
+        : <ActivityList items={shown} />}
       {more > 0 && (
         <p className="act-more">
           {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={`/audit?projekt=${projectId}`}>Alle anzeigen</Link>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { githubManifestRequestSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
+import { ErrorState, Loading, SkCard } from './States.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
 import { Field } from './Field.js'
@@ -86,8 +87,8 @@ export function GithubSetup() {
     },
   })
 
-  if (q.isLoading) return <p className="state state-loading">Wird geladen…</p>
-  if (q.isError || !q.data) return <p className="state state-error" role="alert">GitHub-Status nicht abrufbar.</p>
+  if (!q.data && q.isError) return <ErrorState what="Der GitHub-Status" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+  if (!q.data) return <Loading label="GitHub-Status wird geladen"><SkCard lines={4} /></Loading>
   const s = q.data
   const closeBanner = () => {
     params.delete('ok')

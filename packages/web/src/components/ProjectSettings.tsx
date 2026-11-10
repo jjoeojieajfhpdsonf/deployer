@@ -4,6 +4,8 @@ import { putEnvSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared
 import { api } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
+import { fmtDate } from '../lib/dates.js'
+import { ErrorState, Loading, SkLines } from './States.js'
 import { EnvEditor, type EnvRow } from './EnvEditor.js'
 import { Field } from './Field.js'
 import { Publication, SetRow } from './Publication.js'
@@ -187,7 +189,8 @@ function HeaderSection({ projectId, onManage }: { projectId: string; onManage: (
         <span className="set-count">{rules.length} aktiv</span>
         <div className="set-head-actions"><button type="button" className="button-small" onClick={onManage}>Verwalten</button></div>
       </div>
-      {q.isLoading ? <p className="set-row-note">Wird geladen…</p> : rules.length === 0 ? (
+      {!q.data && q.isError ? <div className="set-row-note"><ErrorState compact plural what="Die Header-Regeln" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} /></div>
+        : !q.data ? <Loading label="Header werden geladen" className="set-row-note"><SkLines n={2} /></Loading> : rules.length === 0 ? (
         <SetRow label="Über Caddy"><span className="muted">keine – die App setzt ihre Header selbst, oder es fehlt noch einer (siehe Security)</span></SetRow>
       ) : (
         <>
@@ -252,7 +255,7 @@ function Expiry({ p }: { p: ProjectDto }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', p.id] }),
   })
   const files = p.sourceType === 'files'
-  const date = p.expiresAt ? new Date(p.expiresAt).toLocaleDateString('de-CH') : null
+  const date = fmtDate(p.expiresAt, '') || null
   return (
     <section className="set-card" id="set-ablauf" aria-labelledby={titleId}>
       <div className="set-head">

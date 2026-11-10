@@ -4,6 +4,8 @@ import type { DeploymentDto } from '@airlock/shared'
 import { deployReasonTitle } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { relativeTime, shortVersion, deployDuration } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { ErrorState, Loading, SkLog } from './States.js'
 import { deployState, groupDeployments, groupSummary, type DeployItem } from '../lib/deployments.js'
 import { Actor } from './Actor.js'
 
@@ -91,7 +93,7 @@ export function DeployList({
             {d.version ? <code className="dl-version" title={d.version}>{shortVersion(d.version)}</code> : <span>ohne Fassung</span>}
             {showMessage && <span className="dl-msg">«{d.message}»</span>}
             {d.actor !== undefined && <Actor actor={d.actor} />}
-            <time dateTime={d.startedAt} title={new Date(d.startedAt).toLocaleString('de-CH')}>{relativeTime(d.startedAt)}</time>
+            <time dateTime={d.startedAt} title={fmtDateTime(d.startedAt)}>{relativeTime(d.startedAt)}</time>
             {dur && <span className="num">{dur}</span>}
           </div>
           {s === 'failed' && d.errorMessage && <p className="dl-error">{d.errorMessage.split('\n')[0]}</p>}
@@ -146,5 +148,7 @@ export function DeployList({
 
 function DeployLog({ id }: { id: string }) {
   const d = useQuery({ queryKey: ['deployment', id], queryFn: () => api.getDeployment(id) })
-  return <pre className="log dl-log" aria-label="Deployment-Log">{d.isLoading ? 'Log wird geladen…' : d.data?.log || 'Kein Log vorhanden.'}</pre>
+  if (!d.data && d.isError) return <ErrorState compact what="Das Deployment-Log" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
+  if (!d.data) return <Loading label="Log wird geladen"><SkLog n={6} /></Loading>
+  return <pre className="log dl-log" aria-label="Deployment-Log">{d.data.log || 'Für dieses Deployment wurde kein Log gespeichert.'}</pre>
 }

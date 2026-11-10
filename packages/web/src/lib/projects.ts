@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
+import { ageMs } from './dates.js'
 
 /**
  * Alle Projekte, gemeinsam für Seitenleiste, Übersicht und Security.
@@ -22,7 +23,8 @@ export function attention(p: ProjectDto): Attention | null {
   if (p.status === 'failed' || p.lastDeployment?.status === 'failed') return { reason: 'Deploy fehlgeschlagen', tone: 'bad' }
   if (p.security && p.security.open.critical > 0) return { reason: `${p.security.open.critical} kritische Befunde`, tone: 'bad' }
   if (p.security && p.security.open.high > 0) return { reason: `${p.security.open.high} hohe Befunde`, tone: 'warn' }
-  if (p.expiresAt && !p.keep && new Date(p.expiresAt).getTime() - Date.now() < 7 * 86_400_000) return { reason: 'läuft bald ab', tone: 'warn' }
+  const left = ageMs(p.expiresAt)
+  if (left !== null && !p.keep && -left < 7 * 86_400_000) return { reason: 'läuft bald ab', tone: 'warn' }
   return null
 }
 

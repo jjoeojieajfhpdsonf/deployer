@@ -92,6 +92,10 @@ type Shot = {
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
   hang?: string[]
+  /** Diese API-Pfade antworten mit 500 (Fehlerzustand) */
+  fail?: string[]
+  /** Scan-Bericht mit gescheiterter Stufe (Zustand «Teilweise») */
+  stageFailed?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
@@ -439,6 +443,25 @@ const shots: Shot[] = [
       await pg.waitForTimeout(300)
     },
   },
+  // Etappe 1 (UI-Grundlagen): fünf Zustände
+  { group: 'zustand', name: 'zustand-laden-projektseite', path: `/projekte/${P}`, full: false, hang: [`/api/v1/projects/${P}`] },
+  { group: 'zustand', name: 'zustand-laden-audit', path: '/audit', full: false, hang: ['/api/v1/audit'] },
+  { group: 'zustand', name: 'zustand-fehler-projekte', path: '/projekte', full: false, fail: ['/api/v1/projects'] },
+  { group: 'zustand', name: 'zustand-fehler-karte', path: `/projekte/${P}`, full: false, fail: [`/api/v1/projects/${P}/deployments`, '/api/v1/audit'] },
+  { group: 'zustand', name: 'zustand-leer-audit', path: '/audit', full: false, empty: true },
+  { group: 'zustand', name: 'zustand-teilweise-scan', path: `/projekte/${S}?tab=security`, full: false, stageFailed: true },
+  {
+    // Veraltet: Seite geladen, danach antwortet der Server nicht mehr
+    group: 'zustand', name: 'zustand-veraltet', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' }))
+      await pg.waitForTimeout(2200)
+      // react-query lauscht auf window «visibilitychange» (Fenster wieder sichtbar → neu laden)
+      await pg.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+      await pg.locator('.stale-bar').waitFor({ timeout: 8000 })
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -469,6 +492,16 @@ try {
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
+            if (s.fail?.includes(url.pathname)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
+            if (s.stageFailed && /\/scans\/latest$/.test(url.pathname)) {
+              const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
+              if (r.report) {
+                const st = r.report.scan.stages
+                const key = Object.keys(st).find((k) => k.startsWith('nuclei')) ?? Object.keys(st).at(-1)!
+                st[key] = { ...st[key]!, ran: false, failed: true, state: 'failed', note: 'Nuclei-Container nach 3 Versuchen nicht gestartet (Image-Pull verweigert)' }
+              }
+              return json(route, r)
+            }
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
             if (s.broken && url.pathname === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
@@ -496,6 +529,8 @@ try {
       const page = await ctx.newPage()
       await page.goto(`http://localhost:${PORT}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
+      // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
+      if (s.fail) await page.locator('.error-state').first().waitFor({ timeout: 8000 })
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)

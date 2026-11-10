@@ -4,6 +4,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { relativeTime } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { Sk } from '../components/States.js'
 import { passwordChangeFormSchema, PASSWORD_MIN } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
@@ -36,11 +38,11 @@ export function Account() {
       <div className="panel panel-pad">
         <dl className="facts">
           <dt>Name</dt>
-          <dd>{m?.name ?? '…'} <span className="muted">· Administrator</span></dd>
+          <dd>{m?.name ?? <Sk w={80} h={12} className="sk-inline" />} <span className="muted">· Administrator</span></dd>
           <dt>Anmeldung</dt>
           <dd>Passwort, Sitzung im Browser{m?.viaHttps ? ' über HTTPS' : ' über HTTP (ohne TLS)'}</dd>
           <dt>Sitzung</dt>
-          <dd>{m?.sessionSince ? <>angemeldet {relativeTime(m.sessionSince)} <span className="muted">({new Date(m.sessionSince).toLocaleString('de-CH')})</span>, gilt 7 Tage</> : '–'}</dd>
+          <dd>{m?.sessionSince ? <>angemeldet {relativeTime(m.sessionSince)} <span className="muted">({fmtDateTime(m.sessionSince)})</span>, gilt 7 Tage</> : '–'}</dd>
           <dt>Passwort</dt>
           <dd>
             {m?.passwordChangedAt
@@ -48,7 +50,7 @@ export function Account() {
               : 'aus der Konfiguration (.env)'}
           </dd>
           <dt>API-Tokens</dt>
-          <dd>{tokens.isLoading ? '…' : `${activeTokens} gültig`} · <Link to="/tokens">verwalten</Link></dd>
+          <dd>{tokens.data ? `${activeTokens} gültig` : tokens.isError ? 'nicht abrufbar' : <Sk w={56} h={12} className="sk-inline" />} · <Link to="/tokens">verwalten</Link></dd>
         </dl>
         <p className="hint" style={{ marginTop: 14 }}>
           Name im Profil: <code>ADMIN_NAME</code> in <code>.env</code>.

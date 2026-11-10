@@ -20,6 +20,7 @@ import '@fontsource/geist-mono/500.css'
 
 import './styles.css'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
+import { watchConnection } from './lib/connection.js'
 
 // index.html hat das Theme schon gesetzt; hier kommt der Wechsel mit dem Gerät dazu («Wie das Gerät»)
 applyTheme(readLocalTheme())
@@ -29,6 +30,8 @@ const queryClient = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: true, staleTime: 2_000 },
   },
 })
+// Zustand «Veraltet»: Server antwortet nicht → letzte Daten bleiben, Leiste in der Shell
+watchConnection(queryClient)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

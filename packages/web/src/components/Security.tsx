@@ -5,6 +5,8 @@ import { acceptFindingSchema, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
+import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
+import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 
@@ -100,7 +102,9 @@ function clock(ms: number): string {
   return `${Math.floor(m / 60)} Std. ${m % 60} Min.`
 }
 
-const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+const hhmm = (iso: string) => fmtTime(iso)
+/** Laufzeit seit `iso`; ungültige Zeit zählt als «gerade gestartet» */
+const runFor = (iso: string | null | undefined, now: number) => clock(Math.max(0, ageMs(iso, now) ?? 0))
 
 /** Kopfzeile: «Gestartet 19:04 · läuft seit 5 Min. · ausgelöst durch MCP» */
 export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) {
@@ -118,7 +122,7 @@ export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) 
     <p className="scan-head">
       <span className="scan-head-state"><IconRunning /> Scan läuft</span>
       <span>Gestartet {hhmm(s.startedAt)}</span>
-      <span>läuft seit {clock(now - new Date(s.startedAt).getTime())}</span>
+      <span>läuft seit {runFor(s.startedAt, now)}</span>
       {by && <span>{by}</span>}
       {s.level === 'active' && <span>aktiver Scan</span>}
     </p>
@@ -190,7 +194,7 @@ function StageList({ stages, now, open, onTool, toolFilter }: {
               {result === 'waiting' && <span className="muted">wartet{v.timeoutMs ? ` · Zeitlimit ${Math.round(v.timeoutMs / 60_000)} Min.` : ''}</span>}
               {result === 'running' && (
                 <span className="stage-live">
-                  läuft seit {v.startedAt ? clock(now - new Date(v.startedAt).getTime()) : '…'}
+                  läuft seit {v.startedAt ? runFor(v.startedAt, now) : '…'}
                   {v.progress && <span className="stage-progress">{v.progress}</span>}
                   {v.timeoutMs ? <span className="muted">Zeitlimit {Math.round(v.timeoutMs / 60_000)} Min.</span> : null}
                 </span>
@@ -251,9 +255,9 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
 }
 
 function scanTime(s: ScanReportDto['scan']) {
-  const start = new Date(s.startedAt)
-  const abs = start.toLocaleString('de-CH', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  const took = s.finishedAt ? duration(new Date(s.finishedAt).getTime() - start.getTime()) : null
+  const abs = fmtDateTimeShort(s.startedAt)
+  const span = spanMs(s.startedAt, s.finishedAt)
+  const took = span !== null ? duration(span) : null
   return { rel: relativeTime(s.startedAt), abs, took }
 }
 
@@ -287,8 +291,19 @@ export function ScanReport({
     requestAnimationFrame(() => document.getElementById('befunde')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // Zustand «Teilweise»: einzelne Stufen gescheitert, der Rest des Berichts gilt
+  const brokenStages = running ? [] : Object.entries(s.stages)
+    .filter(([, v]) => { const st = stateOf(v); return st === 'failed' || st === 'timeout' })
+    .map(([k]) => STAGE_LABEL[k.split(' ')[0]!] ?? k)
+
   return (
     <div className="scan-report">
+      {brokenStages.length > 0 && s.status !== 'failed' && (
+        <PartialNote>
+          {brokenStages.length === 1 ? <>Die Stufe «{brokenStages[0]}» ist gescheitert.</> : <>{brokenStages.length} Stufen sind gescheitert ({brokenStages.join(', ')}).</>}
+          {' '}Alle übrigen Ergebnisse sind vollständig; ihre Befunde stehen unten. Der Grund steht bei der Stufe.
+        </PartialNote>
+      )}
       {/* Ergebnis als Bento: Note, offene Befunde, Zeit; darunter die Stufen */}
       <div className="bento">
         <section className="bento-card" aria-labelledby="sec-result">
@@ -308,7 +323,7 @@ export function ScanReport({
 
         <section className="bento-card" aria-labelledby="sec-time">
           <h3 id="sec-time" className="bento-label">{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
-          <p className="bento-value bento-text">{running ? clock(now - new Date(s.startedAt).getTime()) : t.rel}</p>
+          <p className="bento-value bento-text">{running ? runFor(s.startedAt, now) : t.rel}</p>
           <p className="bento-sub">
             {t.abs}
             {t.took && <> · Dauer {t.took}</>}
@@ -476,10 +491,16 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
         <p role="alert" className="error">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>
       )}
       {running && latest && <LiveScan report={latest} onCancelled={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })} />}
-      {q.isLoading ? (
-        <p className="state state-loading">Wird geladen…</p>
+      {!q.data && q.isError ? (
+        <ErrorState what="Der Scan-Bericht" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+      ) : !q.data ? (
+        <Loading label="Scan-Bericht wird geladen"><SkStats n={3} /><SkRows n={4} /></Loading>
       ) : !finished ? (
-        !running && <p className="state state-empty">Noch kein Scan. Nach jedem Deploy läuft einer automatisch.</p>
+        !running && (
+          <EmptyState title="Noch kein Scan" action={<button type="button" className="button-primary" onClick={() => start.mutate('standard')}>Jetzt scannen</button>}>
+            Nach jedem Deploy läuft einer automatisch.
+          </EmptyState>
+        )
       ) : (
         <>
           {running && <div className="section-head"><h2>Letzter abgeschlossener Scan</h2></div>}
