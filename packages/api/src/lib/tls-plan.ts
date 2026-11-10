@@ -20,7 +20,8 @@ export interface ProdCert {
   validTo: string
   issuer: string | null
   seenAt: string
-  source: 'probe' | 'log'
+  /** probe: ausgeliefert gesehen · log: laut Caddy-Log bezogen · storage: im Caddy-Speicher gefunden */
+  source: 'probe' | 'log' | 'storage'
   /** Kette in Node vertrauenswürdig (nur bei Quelle «probe» bekannt) */
   trusted: boolean | null
 }

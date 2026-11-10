@@ -6,32 +6,32 @@ import type { TlsOptions } from '../drivers/caddy-config.js'
  * Stand der Zertifikats-Einrichtung. Rein, damit jeder Phasenwechsel testbar
  * ist (lib/tls-options.test.ts).
  *
- * Regel: Sobald eine Einrichtung begonnen hat, enthält JEDER Neubau :443 und
- * die Wildcard-Policy – in staging, production, done UND failed. Nur «off»
- * (nie begonnen, zurückgesetzt oder getrennt) baut ohne TLS.
- *
- * Früher fiel TLS bei «failed» weg: Nach einer Zeitüberschreitung lud
- * deployer die Konfiguration ohne :443 neu, und ein längst bezogenes
- * Zertifikat lag ungenutzt im Speicher (autosave.json nur noch srv0 :80).
- * Mit TLS in «failed» liefert Caddy ein vorhandenes Zertifikat weiter aus
- * und versucht es selbst weiter (mit eigenem Backoff).
+ * Regeln:
+ * - Sobald eine Einrichtung begonnen hat, enthält jeder Neubau :443. Nur
+ *   «off» baut ohne TLS.
+ * - Liegt ein gültiges produktives Wildcard-Zertifikat vor (gesehen, laut Log
+ *   bezogen oder im Caddy-Speicher), verwaltet JEDE Phase *.<basis> mit der
+ *   Produktions-CA – auch «failed» und «staging». Caddy lädt es dann aus dem
+ *   Speicher und bestellt nichts.
+ * - Der Staging-Probelauf verwaltet nie *.<basis>, sondern nur
+ *   acme-probe.<basis>: So liegt nie ein Staging-Wildcard in Caddys Cache,
+ *   den ein Neuladen überleben würde.
+ * - «failed» ohne produktives Zertifikat: nur der Probe-Name bei Staging –
+ *   Caddy bestellt im Hintergrund nichts produktiv (Rate-Limit).
+ * - Wechselt die CA für *.<basis>, leert der Abgleich vorher Caddys Cache
+ *   (domain/routes.ts, needsCacheEvict).
  */
 export interface StoredTls {
   phase: CfTlsPhase
   ca: 'production' | 'staging'
 }
 
-/**
- * CA je Phase – ausdrücklich, nie aus einem gespeicherten Feld geerbt:
- * staging → Staging; production/done → Produktion; failed → Produktion nur
- * mit gültigem produktivem Zertifikat (Caddy liefert es aus und erneuert
- * es), sonst Staging: So bestellt Caddy nach einem Fehlschlag nicht im
- * Hintergrund weiter produktiv (Rate-Limit), und :443 bleibt trotzdem da.
- */
-export function caFor(phase: CfTlsPhase, prodUsable: boolean): 'staging' | 'production' {
-  if (phase === 'production' || phase === 'done') return 'production'
-  if (phase === 'failed') return prodUsable ? 'production' : 'staging'
-  return 'staging'
+export type TlsPlanForPhase = { mode: NonNullable<TlsOptions['mode']>; ca: 'staging' | 'production' }
+
+export function planForPhase(phase: CfTlsPhase, prodUsable: boolean): TlsPlanForPhase {
+  if (prodUsable) return { mode: 'wildcard', ca: 'production' }
+  if (phase === 'production' || phase === 'done') return { mode: 'wildcard', ca: 'production' }
+  return { mode: 'probe', ca: 'staging' }
 }
 
 export function tlsOptionsFor(
@@ -41,7 +41,7 @@ export function tlsOptionsFor(
     hasToken: boolean
     tokenFile: string
     email: string | null
-    /** Gültiges produktives Zertifikat bekannt (lib/tls-plan.ts) */
+    /** Gültiges produktives Zertifikat bekannt (lib/tls-plan.ts, Caddy-Speicher) */
     prodUsable?: boolean
     /** Alte Einrichtung über .env (compose.tls.yaml), nur ohne gespeicherten Stand */
     legacy?: { enabled: boolean; acmeCa: 'production' | 'staging'; email: string | null }
@@ -49,9 +49,11 @@ export function tlsOptionsFor(
 ): (TlsOptions & { redirect: boolean }) | null {
   if (tls) {
     if (!o.baseDomain || !o.hasToken || tls.phase === 'off') return null
+    const plan = planForPhase(tls.phase, Boolean(o.prodUsable))
     return {
       baseDomain: o.baseDomain,
-      acmeCa: caFor(tls.phase, Boolean(o.prodUsable)),
+      acmeCa: plan.ca,
+      mode: plan.mode,
       email: o.email,
       tokenFile: o.tokenFile,
       // http → https erst mit dem echten Zertifikat

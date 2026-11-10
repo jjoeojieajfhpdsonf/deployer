@@ -99,6 +99,10 @@ const envSchema = z.object({
   // Gemeinsames Volume mit Caddy: dort liegt das Token für die DNS-Challenge
   // als Datei. Caddys Konfiguration (und autosave.json) enthält nur den Pfad.
   CADDY_SECRETS_DIR: z.string().default('/run/caddy-secrets'),
+  // Caddys Speicher (Volume caddy_data): deployer liest daraus, ob schon ein
+  // gültiges produktives Wildcard-Zertifikat vorliegt, und räumt Staging-
+  // Wildcards früherer Probeläufe weg. Fehlt das Volume, entfällt beides.
+  CADDY_DATA_DIR: z.string().default('/caddy-data'),
 
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),

@@ -12,8 +12,9 @@ import {
   versionOf, latestCloudflaredVersion, compareVersions, imageWithVersion,
 } from '../drivers/cloudflared.js'
 import { TUNNEL_SERVICE, CATCH_ALL } from '../lib/public-hosts.js'
-import type { TlsOptions } from '../drivers/caddy-config.js'
-import { probeCert, checkIssuedCert, productionIssued, type CertInfo } from '../lib/cert.js'
+import { probeName, type TlsOptions } from '../drivers/caddy-config.js'
+import { probeCert, checkIssuedCert, productionIssued, isStagingIssuer, type CertInfo } from '../lib/cert.js'
+import { removeStagingWildcard, storedProductionWildcard, type StoredCert } from '../lib/caddy-storage.js'
 import { planTlsStart, mayOrderProduction, prodCertUsable, nextProdAttemptAt, clock, PROD_LOG_ASSUMED_MS, type ProdState } from '../lib/tls-plan.js'
 import { parseCaddyTlsLog } from '../lib/caddy-tls-log.js'
 import { tlsOptionsFor } from '../lib/tls-options.js'
@@ -155,6 +156,10 @@ export async function ensureManagedTunnelOnBoot(): Promise<void> {
   // In der Produktionsphase ist die Bestellung schon gezählt: nicht neu prüfen.
   if (stored.tls && (stored.tls.phase === 'staging' || stored.tls.phase === 'production')) {
     void runTls('system', { resume: stored.tls.phase === 'production' })
+  } else if (stored.tls?.phase === 'failed' && storedProd()) {
+    // Fehlgeschlagen, aber ein gültiges produktives Zertifikat liegt im
+    // Speicher: Produktions-CA laden und direkt auf «HTTPS aktiv»
+    void runTls('system')
   }
 }
 
@@ -468,7 +473,24 @@ export async function startTls(actor: string): Promise<void> {
   void runTls(actor)
 }
 
-const prodState = (): ProdState => ({ prodAttemptAt: stored.tls?.prodAttemptAt, prodCert: stored.tls?.prodCert })
+/** Gültiges produktives Wildcard-Zertifikat im Caddy-Speicher (Datei gelesen; null ohne eingebundenes Volume). */
+function storedProd(): StoredCert | null {
+  const base = cf.baseDomain()
+  return base ? storedProductionWildcard(config.CADDY_DATA_DIR, base) : null
+}
+
+/**
+ * Was über produktive Zertifikate bekannt ist: gesehen, laut Log bezogen –
+ * oder im Caddy-Speicher gefunden (gewinnt, wenn es länger gilt).
+ */
+const prodState = (): ProdState => {
+  const known = stored.tls?.prodCert
+  const s = storedProd()
+  const fromStorage = s && (!known || Date.parse(s.validTo) > Date.parse(known.validTo))
+    ? { validTo: s.validTo, issuer: s.issuer, seenAt: new Date().toISOString(), source: 'storage' as const, trusted: null }
+    : null
+  return { prodAttemptAt: stored.tls?.prodAttemptAt, prodCert: fromStorage ?? known }
+}
 const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('de-CH') : '–')
 
 /** Produktives Zertifikat gesehen (TLS-Prüfung): merken, damit es nie neu bestellt wird. */
@@ -507,6 +529,16 @@ function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
   tlsRun ??= (async () => {
     const base = cf.baseDomain()!
     try {
+      // Staging-Wildcards früherer Probeläufe aus Caddys Speicher entfernen
+      // (Volume caddy_data, nicht über den Docker-Socket)
+      try {
+        if (removeStagingWildcard(config.CADDY_DATA_DIR, base)) {
+          await step(`Altes Staging-Zertifikat für *.${base} aus Caddys Speicher entfernt`)
+        }
+      } catch (err) {
+        log.warn('Caddy-Speicher nicht aufgeräumt', { dir: config.CADDY_DATA_DIR, err: String(err) })
+      }
+
       const first = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
       await rememberProdCert(first, base)
       if (checkIssuedCert(first, { base, phase: 'production' }).ready) {
@@ -514,21 +546,25 @@ function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
         return
       }
 
-      if (stored.tls?.phase !== 'production') {
+      // Liegt ein gültiges produktives Zertifikat im Speicher: kein Probelauf,
+      // keine Bestellung – die Konfiguration verwaltet *.<basis> dann ohnehin
+      // mit der Produktions-CA, und Caddy lädt es (lib/tls-options.ts).
+      const inStorage = storedProd()
+      if (inStorage) {
+        await step(`Gültiges Zertifikat in Caddys Speicher: ${inStorage.issuer ?? "Let's Encrypt"}, gültig bis ${day(inStorage.validTo)} – kein Probelauf, keine neue Bestellung`, 'ok')
+      } else if (stored.tls?.phase !== 'production') {
+        // Probelauf mit eigenem Namen: prüft Token und DNS-Challenge, ohne je
+        // ein Staging-Wildcard in Caddys Cache zu legen
         await setPhase('staging', 'staging')
-        await step(`Probelauf: Zertifikat für *.${base} bei der Staging-CA von Let's Encrypt anfordern (DNS-Challenge über Cloudflare)`)
+        await step(`Probelauf: Zertifikat für ${probeName(base)} bei der Staging-CA von Let's Encrypt anfordern (prüft Token und DNS-Challenge über Cloudflare)`)
         const t0 = Date.now()
         await reloadCaddy(true)
         const s = await waitForCert(base, 'staging', t0)
         if (!s.ok) throw new Error(s.error)
-        if (s.production) {
-          await finishDone(actor, base, s.issuer, s.validTo, 'produktives Zertifikat schon vorhanden, kein neuer Bezug')
-          return
-        }
         await step(`Probelauf erfolgreich: ${s.issuer}`, 'ok')
       }
 
-      if (!o.resume) {
+      if (!o.resume && !inStorage) {
         const gate = mayOrderProduction(prodState())
         if (!gate.ok) {
           throw new Error(`Kein neuer produktiver Versuch vor ${clock(gate.until)} Uhr: höchstens einer pro Stunde, damit Let's Encrypt nicht sperrt.`)
@@ -546,7 +582,7 @@ function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
       await reloadCaddy(true)
       const p = await waitForCert(base, 'production', t1)
       if (!p.ok) throw new Error(p.error)
-      await finishDone(actor, base, p.issuer, p.validTo, '')
+      await finishDone(actor, base, p.issuer, p.validTo, inStorage ? 'aus Caddys Speicher, kein neuer Bezug' : '')
     } catch (err) {
       const message = (err as Error).message
       await step(message, 'bad')
@@ -560,66 +596,80 @@ function runTls(actor: string, o: { resume?: boolean } = {}): Promise<void> {
   return tlsRun
 }
 
-/** production: ein vertrauenswürdiges produktives Zertifikat wurde gesehen (in jeder Phase) → fertig */
-type CertWait = { ok: true; issuer: string | null; validTo: string | null; production: boolean } | { ok: false; error: string }
+type CertWait = { ok: true; issuer: string | null; validTo: string | null } | { ok: false; error: string }
 
-/** In der Produktionsphase: so lange darf ein ausgeliefertes, aber nicht vertrauenswürdiges Zertifikat bestehen, bevor abgebrochen wird */
-const UNTRUSTED_GRACE_MS = 60_000
+/** In der Produktionsphase: so lange darf ein falsches Zertifikat (nicht vertrauenswürdig oder noch Staging) bestehen, bevor abgebrochen wird */
+const WRONG_CERT_GRACE_MS = 60_000
 
 /**
- * Warten, bis Caddy das Wildcard-Zertifikat hat. Zwei Quellen:
- * - TLS-Prüfung gegen Caddy (SNI deployer.<basis>): Staging ohne Prüfung der
- *   Kette, Produktion voll (checkIssuedCert).
- * - Caddys Log: «certificate obtained successfully» für *.<basis>. In der
- *   Staging-Phase genügt das, wenn die TLS-Prüfung es nach 30 s noch nicht
- *   sieht; die volle Prüfung kommt in der Produktionsphase.
- * Bei Zeitüberschreitung: was die TLS-Prüfung zuletzt sah und was Caddy
- * zuletzt meldete.
+ * Warten, bis Caddy das Zertifikat der Phase ausliefert.
+ * - staging: acme-probe.<basis> von der Staging-CA (ohne Prüfung der Kette)
+ * - production: *.<basis>, vertrauenswürdig (SNI deployer.<basis>)
+ * Zweite Quelle ist Caddys Log («certificate obtained successfully» für den
+ * Namen). Liefert Caddy in der Produktionsphase nach 60 s noch ein Staging-
+ * oder ein nicht vertrauenswürdiges Zertifikat aus, bricht die Phase sofort mit
+ * Erklärung ab statt 6 Minuten zu warten. Bei Zeitüberschreitung: was die
+ * TLS-Prüfung zuletzt sah und was Caddy zuletzt meldete – oder, ohne Treffer,
+ * welcher Zeitraum und welche Logger durchsucht wurden.
  */
 async function waitForCert(base: string, phase: 'staging' | 'production', sinceMs: number): Promise<CertWait> {
   const staging = phase === 'staging'
   const wildcard = `*.${base}`
+  const name = staging ? probeName(base) : wildcard
+  const host = staging ? probeName(base) : `deployer.${base}`
   const deadline = Date.now() + TLS_TIMEOUT_MS
   let lastError = ''
   let lastReason = ''
   let lastLine: string | null = null
+  let logProblem: string | null = null
   let obtainedSeen: number | null = null
-  let untrustedSince: number | null = null
+  let wrongSince: number | null = null
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5_000))
-    const c = await probeCert(config.CADDY_CONTAINER, 443, `deployer.${base}`)
-    await rememberProdCert(c, base)
-    // In jeder Phase: ein vertrauenswürdiges produktives Zertifikat beendet die Einrichtung
-    if (checkIssuedCert(c, { base, phase: 'production' }).ready) return { ok: true, issuer: c.issuer, validTo: c.validTo, production: true }
-    const v = checkIssuedCert(c, { base, phase })
-    if (v.ready) return { ok: true, issuer: c.issuer, validTo: c.validTo, production: false }
+    const c = await probeCert(config.CADDY_CONTAINER, 443, host)
+    if (!staging) await rememberProdCert(c, base)
+    const v = checkIssuedCert(c, { base, phase, name })
+    if (v.ready) return { ok: true, issuer: c.issuer, validTo: c.validTo }
     lastReason = v.reason
 
-    // Produktion: ausgeliefert, aber Node vertraut der Kette nicht → nicht 6 Minuten warten
-    if (!staging && productionIssued(c, base) && !c.ok) {
-      untrustedSince ??= Date.now()
-      if (Date.now() - untrustedSince >= UNTRUSTED_GRACE_MS) {
-        return {
-          ok: false,
-          error: `Caddy liefert das produktive Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}, gültig bis ${day(c.validTo)}), aber deployer vertraut der Kette nicht: ${c.error ?? 'unbekannter Fehler'}. Es bleibt gespeichert und wird nicht neu bestellt.`,
+    // Produktion: nach 60 s noch das falsche Zertifikat → sofort mit Erklärung abbrechen
+    if (!staging) {
+      const servesWildcard = (c.sans?.length ? c.sans : c.subject ? [c.subject] : []).some((n) => n.toLowerCase() === wildcard.toLowerCase())
+      const stillStaging = servesWildcard && isStagingIssuer(c.issuer)
+      const untrusted = productionIssued(c, base) && !c.ok
+      if (stillStaging || untrusted) {
+        wrongSince ??= Date.now()
+        if (Date.now() - wrongSince >= WRONG_CERT_GRACE_MS) {
+          return {
+            ok: false,
+            error: stillStaging
+              ? `Caddy liefert nach 60 s noch das Staging-Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}). Es stammt aus Caddys Zertifikats-Cache eines früheren Laufs; der Cache überlebt das Neuladen. deployer hat ihn geleert und Staging-Wildcards aus dem Speicher entfernt – greift das nicht, «docker restart deployer-caddy» und dann «Nochmals versuchen».`
+              : `Caddy liefert das produktive Zertifikat für ${wildcard} aus (${c.issuer ?? 'unbekannt'}, gültig bis ${day(c.validTo)}), aber deployer vertraut der Kette nicht: ${c.error ?? 'unbekannter Fehler'}. Es bleibt gespeichert und wird nicht neu bestellt.`,
+          }
         }
+      } else {
+        wrongSince = null
       }
-    } else {
-      untrustedSince = null
     }
 
-    const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 400 }).catch(() => '')
-    const ev = parseCaddyTlsLog(logs, wildcard, sinceMs)
+    let logs = ''
+    try {
+      logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 400 })
+      logProblem = null
+    } catch (err) {
+      logProblem = `Caddy-Log nicht lesbar (${(err as Error).message})`
+    }
+    const ev = parseCaddyTlsLog(logs, name, sinceMs)
     lastLine = ev.lastLine ?? lastLine
-    if (ev.obtained && !ev.obtained.staging) await rememberProdFromLog(ev.obtained.at, ev.obtained.issuer)
+    if (ev.obtained && !ev.obtained.staging && !staging) await rememberProdFromLog(ev.obtained.at, ev.obtained.issuer)
     if (ev.obtained && ev.obtained.staging === staging) {
       if (obtainedSeen === null) {
         obtainedSeen = Date.now()
-        await step(`Caddy meldet: Zertifikat für ${wildcard} bezogen (${ev.obtained.issuer || 'ACME'})`, 'ok')
+        await step(`Caddy meldet: Zertifikat für ${name} bezogen (${ev.obtained.issuer || 'ACME'})`, 'ok')
       }
       if (staging && Date.now() - obtainedSeen >= 30_000) {
         await step(`Hinweis: Die TLS-Prüfung sieht es noch nicht (${v.reason}). Weiter mit Produktion, dort wird voll geprüft.`, 'info')
-        return { ok: true, issuer: ev.obtained.issuer || null, validTo: c.validTo, production: false }
+        return { ok: true, issuer: ev.obtained.issuer || null, validTo: c.validTo }
       }
     }
     if (ev.lastError && ev.lastError !== lastError) {
@@ -627,12 +677,13 @@ async function waitForCert(base: string, phase: 'staging' | 'production', sinceM
       await step(`Caddy meldet: ${lastError}`, 'bad')
     }
   }
-  const what = staging ? 'Staging-Zertifikat' : 'vertrauenswürdiges Zertifikat'
+  const what = staging ? `Staging-Zertifikat für ${name}` : `vertrauenswürdiges Zertifikat für ${wildcard}`
+  const searched = `keine Zertifikats-Zeile im Caddy-Log seit ${clock(new Date(sinceMs))} Uhr (Logger tls, tls.obtain, tls.issuance; letzte 400 Zeilen von ${config.CADDY_CONTAINER})`
   const parts = [
-    `Nach ${TLS_TIMEOUT_MS / 60_000} Minuten kein ${what} für ${wildcard}.`,
+    `Nach ${TLS_TIMEOUT_MS / 60_000} Minuten kein ${what}.`,
     obtainedSeen !== null ? 'Caddy hat es laut Log bezogen, liefert es aber nicht aus.' : null,
-    `TLS-Prüfung von deployer.${base}: ${lastReason || 'keine Antwort'}.`,
-    `Letzte Meldung von Caddy zum Zertifikat: ${lastLine ?? 'keine (docker logs deployer-caddy prüfen)'}`,
+    `TLS-Prüfung von ${host}: ${lastReason || 'keine Antwort'}.`,
+    `Letzte Meldung von Caddy zum Zertifikat: ${lastLine ?? logProblem ?? searched}`,
   ]
   return { ok: false, error: parts.filter(Boolean).join(' ') }
 }

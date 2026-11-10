@@ -144,6 +144,9 @@ services:
       - caddy_secrets:/run/caddy-secrets
       - sites:/srv/sites
       - deployer_data:/data
+      # Caddys Zertifikatsspeicher: vorhandenes produktives Zertifikat erkennen,
+      # Staging-Wildcards früherer Probeläufe löschen (CADDY_DATA_DIR)
+      - caddy_data:/caddy-data
     networks:
       internal: {}
       edge:

@@ -3,6 +3,7 @@ import { db, schema } from '../db/index.js'
 import { cf, config, net, primaryHost, aliasHosts, urlForHost } from '../config.js'
 import { caddyTlsOptions, tlsPhase } from './cloudflare-settings.js'
 import * as caddy from '../drivers/caddy.js'
+import { needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
@@ -322,6 +323,17 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
     log.warn('Caddy-Konfiguration ohne TLS (:443 und Wildcard-Policy fallen weg)', { tlsPhase: tlsPhase(), baseDomain: cf.baseDomain() })
   }
   lastBuildHadTls = withTls
+  // Wechselt die CA für *.<basis> (z. B. altes Staging → Produktion), behält
+  // Caddy sonst das gecachte Zertifikat der alten CA – auch nach einem
+  // Neustart, weil autosave.json die alte CA wieder lädt. Zwischenschritt
+  // ohne verwaltete Zertifikate leert den Cache; danach lädt Caddy aus dem
+  // Speicher der neuen CA oder bestellt dort.
+  const current = await caddy.getConfig().catch(() => null)
+  if (needsCacheEvict(current, build, cf.baseDomain())) {
+    await caddy.loadConfig(withoutCertificates(build))
+    log.info('Caddys Zertifikats-Cache für die Wildcard geleert (CA gewechselt)', { baseDomain: cf.baseDomain() })
+    force = true
+  }
   // force: das Token in der Datei hat sich geändert – Caddy liest es nur beim Laden
   const changed = force ? (await caddy.loadConfig(build), true) : await caddy.loadConfigIfChanged(build)
   await caddy.assertAdminOnUnixSocket()
