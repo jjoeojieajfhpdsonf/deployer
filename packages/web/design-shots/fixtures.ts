@@ -6,7 +6,7 @@
  */
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
-  HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto,
+  HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
 } from '@deployer/shared'
 import { fixPrompt } from '@deployer/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
@@ -140,8 +140,32 @@ export function publicStatus(id: string): PublicStatusDto {
       : id === requestWaitingProjectId ? { ok: false, why: 'scan_running', reason: 'Scan läuft seit 5 Min. – veröffentlichen geht, sobald er ohne kritischen Befund fertig ist.' }
       : !p.security ? { ok: false, why: 'no_scan', reason: 'Noch kein abgeschlossener Scan – er startet nach dem ersten erfolgreichen Deploy.' } : { ok: true },
     pendingRequest: pendingRequest(id),
+    // Pausiertes Projekt mit eigenem Text und «zurück um»; sonst Vorlage
+    pause: id === pausedProjectId
+      ? { page: pausePageCustom, backAt: new Date(Date.now() + 14 * HOUR).toISOString(), template: pausePageTemplate }
+      : { page: null, backAt: null, template: pausePageTemplate },
     progress: null,
   }
+}
+
+/* --- Pause-Seite ------------------------------------------------------------------- */
+
+export const pausePageTemplate: PausePage = {
+  lang: 'de',
+  title: 'Vorübergehend nicht erreichbar',
+  message: 'Diese Seite ist gerade pausiert. Bitte später noch einmal versuchen.',
+  linkText: 'Statusseite',
+  linkUrl: 'https://status.example.ch',
+  contact: '',
+}
+
+export const pausePageCustom: PausePage = {
+  lang: 'de',
+  title: 'Wir ziehen um',
+  message: 'Die Vereinsseite bekommt ein **neues Zuhause**.\n\nAnmeldungen für das Sommerfest nehmen wir weiterhin per Mail entgegen – mehr dazu im [Vereinsblog](https://blog.example.ch).',
+  linkText: '',
+  linkUrl: '',
+  contact: 'vorstand@example.ch',
 }
 
 /** Vorgemerkte Öffentlich-Anfragen (per MCP): wartet auf den Scan bzw. gesperrt */

@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { publishPublicSchema, putInternalRoutesSchema } from '@deployer/shared'
+import { z } from 'zod'
+import { publishPublicSchema, putInternalRoutesSchema, pauseOptionsSchema, pausePageSchema, DEFAULT_PAUSE_PAGE } from '@deployer/shared'
+import { setProjectPause, pausePageTemplate, setPausePageTemplate } from '../../domain/pause-page.js'
 import { findProject, toDto } from '../../domain/projects.js'
 import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
 import { publicStatus, publishFlow, pauseFlow, resumeFlow, unpublishFlow, applyApprovedRequest } from '../../domain/public.js'
@@ -44,8 +46,31 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: IdParams }>('/projects/:id/public/pause', async (request) => {
     sessionOnly(request)
     const project = await findProject(request.params.id)
-    const r = await pauseFlow(project, actorFor(request))
+    // Optional: eigene Pause-Seite (null = Vorlage) und «Voraussichtlich zurück»
+    const opts = request.body ? pauseOptionsSchema.parse(request.body) : undefined
+    const r = await pauseFlow(project, actorFor(request), opts)
     return { ...r, project: await toDto(await findProject(project.id)), status: await publicStatus(project) }
+  })
+
+  /** Pause-Seite des Projekts ändern, auch während der Pause (wirkt sofort). */
+  app.put<{ Params: IdParams }>('/projects/:id/public/pause-page', async (request) => {
+    sessionOnly(request)
+    const project = await findProject(request.params.id)
+    const opts = pauseOptionsSchema.parse(request.body ?? {})
+    if (await setProjectPause(project.id, opts, actorFor(request))) await reconcileCaddy()
+    return { status: await publicStatus(project) }
+  })
+
+  /** Globale Vorlage der Pause-Seite (System → Veröffentlichung). */
+  app.get('/settings/pause-page', async () => ({ page: await pausePageTemplate(), defaults: DEFAULT_PAUSE_PAGE }))
+
+  app.put('/settings/pause-page', async (request) => {
+    sessionOnly(request)
+    const body = z.object({ page: pausePageSchema.nullable() }).parse(request.body)
+    const page = await setPausePageTemplate(body.page, actorFor(request))
+    // Pausierte Projekte ohne eigene Seite zeigen die neue Vorlage sofort
+    await reconcileCaddy()
+    return { page, defaults: DEFAULT_PAUSE_PAGE }
   })
 
   app.post<{ Params: IdParams }>('/projects/:id/public/resume', async (request) => {

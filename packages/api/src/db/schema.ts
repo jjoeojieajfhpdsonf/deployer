@@ -2,7 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
-import type { ScanStageDto } from '@deployer/shared'
+import type { ScanStageDto, PausePage } from '@deployer/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -117,6 +117,9 @@ export const routes = pgTable(
     cfAccessAppId: text('cf_access_app_id'),
     // Öffentlich pausiert (Migration 0009): Wartungsseite statt Projekt; NULL = live
     pausedAt: timestamp('paused_at', { withTimezone: true }),
+    // Pause-Seite des Projekts (Migration 0013): NULL = Vorlage; «Voraussichtlich zurück»
+    pausePage: jsonb('pause_page').$type<PausePage>(),
+    pauseBackAt: timestamp('pause_back_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

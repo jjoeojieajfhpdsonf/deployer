@@ -858,6 +858,27 @@ a.tab { display: inline-flex; align-items: center; text-decoration: none; }
 .publication-pending { color: var(--info); background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--info-line); margin-bottom: var(--sp-2); }
 .publication-blocked svg, .publication-pending svg { flex: none; margin-top: 2px; }
 .publication-blocked strong, .publication-pending strong { font-weight: 600; }
+/* Pause-Seite: Felder links, Live-Vorschau rechts (System → Veröffentlichung und Pausieren) */
+.pause-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6); align-items: start; margin-top: var(--sp-3); }
+.pause-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+/* Labels einer Reihe auf gleicher Höhe; die erste Reihe ohne Abstand nach oben */
+.pause-row > .field > label { margin-top: 18px; }
+.pause-fields > .pause-row:first-child > .field > label { margin-top: 0; }
+.pause-row:first-child { grid-template-columns: minmax(0, 1fr) 160px; }
+.pause-fields textarea { min-height: 112px; resize: vertical; }
+.pause-preview { margin: 0; position: sticky; top: var(--sp-4); }
+.pause-preview figcaption { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin: 0 0 var(--sp-2); font-size: var(--fs-14); font-weight: 500; color: var(--ink); }
+.pause-preview figcaption .segmented button { min-height: 28px; padding: 0 10px; font-size: var(--fs-13); }
+.pause-preview iframe { display: block; width: 100%; height: 300px; border: 0; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line), var(--sh-card); background: var(--surface-2); }
+.pause-preview .hint { margin: var(--sp-2) 0 0; font-size: var(--fs-13); }
+.pause-settings h2 { margin: 0 0 var(--sp-1); font-size: var(--fs-16); font-weight: 600; }
+.pause-draft { margin: var(--sp-4) 0 var(--sp-2); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.pause-draft:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.pause-draft-head { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.pause-draft-head h3 { margin: 0; font-size: var(--fs-14); font-weight: 600; }
+.pause-draft-head .hint { margin: 0; font-size: var(--fs-13); }
+.pause-draft > .field { max-width: 280px; }
+
 /* Vorgemerkte Anfrage: Text, darunter die Knöpfe */
 .publication-pending { flex-direction: column; gap: 10px; }
 .publication-pending-blocked, .publication-pending-failed { color: var(--warn); background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }

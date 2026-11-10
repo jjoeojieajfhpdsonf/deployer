@@ -9,7 +9,8 @@ import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
 import { labelOf } from '../lib/hostnames.js'
 import { effectiveKind } from './deployments.js'
-import type { RouteTarget, RouteDto } from '@deployer/shared'
+import { effectivePausePage, type RouteTarget, type RouteDto, type PausePage } from '@deployer/shared'
+import { pausePageTemplate, displayTimeZone } from './pause-page.js'
 import type { HeaderRuleSpec } from '../security/header-rules.js'
 
 /**
@@ -135,6 +136,9 @@ interface RouteRow {
   webContainer: string | null
   /** Öffentlich pausiert: Wartungsseite statt Projekt */
   paused: boolean
+  /** Pausiert: eigene Seite des Projekts (null = Vorlage) und «Voraussichtlich zurück» */
+  pausePage: PausePage | null
+  pauseBackAt: string | null
 }
 
 async function currentRouteRows(): Promise<RouteRow[]> {
@@ -151,6 +155,8 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       deploymentId: schema.deployments.id,
       artifact: schema.deployments.artifact,
       pausedAt: schema.routes.pausedAt,
+      pausePage: schema.routes.pausePage,
+      pauseBackAt: schema.routes.pauseBackAt,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -168,6 +174,8 @@ async function currentRouteRows(): Promise<RouteRow[]> {
     .filter((r) => paused(r) || (r.deploymentId !== null && r.desiredState === 'running'))
     .map((r) => ({
       paused: paused(r),
+      pausePage: r.pausePage ?? null,
+      pauseBackAt: r.pauseBackAt?.toISOString() ?? null,
       projectId: r.projectId,
       slug: r.slug,
       hostname: r.hostname,
@@ -266,7 +274,8 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     const h = headers.get(r.projectId)
     const extra = h ? { headers: h.rules, cspReportKey: h.cspReportKey } : {}
     if (r.paused) {
-      specs.push({ hosts, kind: 'maintenance', cidrs })
+      const page = effectivePausePage(await pausePageTemplate(), r.pausePage)
+      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { page, backAt: r.pauseBackAt, timeZone: displayTimeZone() } })
     } else if (r.sourceType === 'static') {
       specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra })
     } else if (r.port && r.deploymentId) {

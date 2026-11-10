@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, ApiError, type PublicFlowResult } from '../api.js'
+import type { PauseOptions } from '@deployer/shared'
 
 /**
  * Übergänge der Veröffentlichung, gemeinsam für die Karte in den
@@ -12,7 +13,8 @@ import { api, ApiError, type PublicFlowResult } from '../api.js'
 export type PublicAction =
   | { op: 'publish'; name?: string; access: boolean }
   | { op: 'access'; access: boolean }
-  | { op: 'pause' }
+  /** opts: eigene Pause-Seite und «Voraussichtlich zurück» (fehlt: Vorlage) */
+  | { op: 'pause'; opts?: PauseOptions }
   | { op: 'resume' }
   | { op: 'unpublish' }
   /** Rückgängig von «ganz offline»: derselbe Name, derselbe Access */
@@ -29,7 +31,7 @@ function call(id: string, a: PublicAction): Promise<PublicFlowResult & { removed
       return api.publish(id, name ? (name.includes('.') ? { publicHostname: name, accessProtected: a.access } : { publicSubdomain: name, accessProtected: a.access }) : { accessProtected: a.access })
     }
     case 'access': return api.publish(id, { accessProtected: a.access })
-    case 'pause': return api.pausePublic(id)
+    case 'pause': return api.pausePublic(id, a.opts)
     case 'resume': return api.resumePublic(id)
     case 'unpublish': return api.unpublish(id)
     case 'republish': return api.publish(id, { publicHostname: a.hostname, accessProtected: a.access })

@@ -7,6 +7,8 @@ import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError }
 import { cloudflareClient } from './tailnet.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
 import { getPublicRequest, discardPublicRequest, markRequestFailed, toRequestDto, gateReason } from './public-requests.js'
+import { setProjectPause, pausePageTemplate } from './pause-page.js'
+import type { PauseOptions } from '@deployer/shared'
 import { reconcileCaddy, routeDtosFor } from './routes.js'
 import { Progress, withProgress, stepsFor, progressOf } from './public-progress.js'
 import { checkFromOutside, type Expect } from '../lib/outside-probe.js'
@@ -298,10 +300,16 @@ async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; 
  * liefert für den öffentlichen Namen eine neutrale Wartungsseite (503).
  * Die interne Adresse läuft weiter.
  */
-export async function pausePublic(project: Project, actor: string, progress?: Progress): Promise<{ hostname: string; changed: boolean }> {
+export async function pausePublic(project: Project, actor: string, progress?: Progress, opts?: PauseOptions): Promise<{ hostname: string; changed: boolean }> {
   const route = await publicRoute(project.id)
   if (!route) throw badRequest(`«${project.name}» ist nicht öffentlich`)
-  if (route.pausedAt) return { hostname: route.hostname, changed: false }
+  // Eigene Seite und «Voraussichtlich zurück» vor dem Umschalten speichern
+  if (opts) await setProjectPause(project.id, opts, actor)
+  if (route.pausedAt) {
+    // Schon pausiert: nur die Seite aktualisieren
+    if (opts) await reconcileCaddy()
+    return { hostname: route.hostname, changed: false }
+  }
   progress?.start('caddy')
   await db.update(schema.routes).set({ pausedAt: new Date() }).where(eq(schema.routes.id, route.id))
   try {
@@ -327,11 +335,12 @@ export async function resumePublic(project: Project, actor: string, progress?: P
   await assertPublishable(project.id)
   progress?.set('check', 'done', 'Scan ohne offenen kritischen Befund')
   progress?.start('caddy')
-  await db.update(schema.routes).set({ pausedAt: null }).where(eq(schema.routes.id, route.id))
+  // «Voraussichtlich zurück» gilt nur für diese Pause; die eigene Seite bleibt fürs nächste Mal
+  await db.update(schema.routes).set({ pausedAt: null, pauseBackAt: null }).where(eq(schema.routes.id, route.id))
   try {
     await reconcileCaddy()
   } catch (err) {
-    await db.update(schema.routes).set({ pausedAt: route.pausedAt }).where(eq(schema.routes.id, route.id))
+    await db.update(schema.routes).set({ pausedAt: route.pausedAt, pauseBackAt: route.pauseBackAt }).where(eq(schema.routes.id, route.id))
     await audit({ actor, action: 'project.public.resume', targetType: 'project', targetId: project.id, params: { hostname: route.hostname }, result: 'error', error: (err as Error).message })
     throw err
   }
@@ -386,11 +395,11 @@ export function publishFlow(project: Project, input: PublicInput, actor: string)
   })()
 }
 
-export function pauseFlow(project: Project, actor: string): Promise<FlowResult> {
+export function pauseFlow(project: Project, actor: string, opts?: PauseOptions): Promise<FlowResult> {
   return (async () => {
     const route = await publicRoute(project.id)
     return withProgress(project.id, 'pause', route?.hostname ?? null, stepsFor('pause'), async (pr) => {
-      const r = await pausePublic(project, actor, pr)
+      const r = await pausePublic(project, actor, pr, opts)
       const check = await outside(pr, r.hostname, 'paused')
       return { hostname: r.hostname, check, changed: r.changed }
     }, busy)
@@ -494,6 +503,11 @@ export async function publicStatus(project: { id: string; slug: string }): Promi
     internalUrl: internal?.urls[0] ?? null,
     publishable: gate,
     pendingRequest: req && !route ? toRequestDto(req, gate) : null,
+    pause: {
+      page: route?.pausePage ?? null,
+      backAt: route?.pauseBackAt?.toISOString() ?? null,
+      template: await pausePageTemplate(),
+    },
     progress: progressOf(project.id),
   }
 }

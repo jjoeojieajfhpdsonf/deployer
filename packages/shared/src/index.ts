@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { PausePage } from './pause-page.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -431,6 +432,8 @@ export interface PublicStatusDto {
    * in der Oberfläche (approvedBy).
    */
   pendingRequest: PublicRequestDto | null
+  /** Pause-Seite: eigene des Projekts (null = Vorlage), «Voraussichtlich zurück», die Vorlage */
+  pause: { page: PausePage | null; backAt: string | null; template: PausePage }
   /** Letzter oder laufender Übergang (nur im Speicher des Servers). */
   progress: PublicProgressDto | null
 }
@@ -953,3 +956,6 @@ export const cfDomainsSchema = z.object({
 
 /* M8: Fix-Assistent (eigene Datei, damit parallele Änderungen hier nicht kollidieren) */
 export * from './fix.js'
+
+/* Pause-Seite für pausierte öffentliche Projekte (Renderer für Server und Vorschau) */
+export * from './pause-page.js'

@@ -5,14 +5,17 @@
 
 import { coveredByWildcard } from '../lib/hostnames.js'
 import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
+import { DEFAULT_PAUSE_PAGE, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, type PausePage } from '@deployer/shared'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
 export interface RouteSpec {
   /** Kanonischer Hostname zuerst, danach Aliase (nip.io). */
   hosts: string[]
-  /** maintenance: öffentlich pausiert – neutrale Wartungsseite mit 503 */
+  /** maintenance: öffentlich pausiert – Pause-Seite mit 503 */
   kind: 'proxy' | 'files' | 'maintenance'
+  /** Bei kind=maintenance: Seite (Vorlage oder Projekt), «Voraussichtlich zurück», Zeitzone der Anzeige */
+  pause?: { page: PausePage; backAt: string | null; timeZone?: string }
   /** Bei kind=proxy: "container:port" */
   upstream?: string
   /** Bei kind=files: Verzeichnis im sites-Volume */
@@ -49,6 +52,8 @@ export const CSP_REPORT_MAX_BYTES = 64 * 1024
 export const CSP_REPORT_RATE = { window: '1m', maxEvents: 60 }
 
 export interface CaddyBuildOptions {
+  /** Für Tests: «jetzt» (Retry-After nur mit «Voraussichtlich zurück» in der Zukunft) */
+  now?: number
   ipFilter: boolean
   /** Erlaubte Quell-Bereiche, wenn ipFilter aktiv ist. */
   cidrs: string[]
@@ -160,41 +165,25 @@ export { coveredByWildcard }
 type Handler = Record<string, unknown> & { handler: string }
 
 /** Kennung der Wartungsseite; die Prüfung von aussen erkennt daran «pausiert». */
-export const MAINTENANCE_HEADER = 'X-Deployer-State'
-export const MAINTENANCE_VALUE = 'paused'
+export const MAINTENANCE_HEADER = PAUSE_STATE_HEADER
+export const MAINTENANCE_VALUE = PAUSE_STATE_VALUE
 
 /**
- * Neutrale Wartungsseite für pausierte öffentliche Namen: kein Projektname,
- * kein Hinweis auf deployer, hell und dunkel nach Systemeinstellung. 503 mit
- * Retry-After, damit Suchmaschinen den Namen nicht verwerfen; no-store,
- * damit Cloudflare die Seite nach dem Fortsetzen nicht weiter ausliefert.
+ * Pause-Seite für pausierte öffentliche Namen (Renderer in @deployer/shared,
+ * derselbe wie die Vorschau): Vorlage oder Text des Projekts, hell und dunkel
+ * nach Systemeinstellung. 503, Retry-After nur mit «Voraussichtlich zurück»
+ * (als HTTP-Datum), noindex, no-store (Cloudflare liefert sie nach dem
+ * Fortsetzen nicht weiter aus), CSP ohne jede Quelle ausser Inline-Styles.
  */
-export const MAINTENANCE_HTML = `<!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><title>Vorübergehend nicht erreichbar</title>
-<style>
-:root{color-scheme:light dark;--bg:#fafafa;--fg:#111;--muted:#555}
-@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--muted:#aaa}}
-html,body{height:100%;margin:0}
-body{display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 16px}
-main{max-width:32rem}
-h1{font-size:1.375rem;font-weight:600;margin:0 0 .5rem;letter-spacing:-.01em}
-p{margin:0;color:var(--muted)}
-</style></head>
-<body><main><h1>Vorübergehend nicht erreichbar</h1><p>Diese Seite ist gerade pausiert. Bitte später noch einmal versuchen.</p></main></body></html>
-`
+export const MAINTENANCE_HTML = renderPausePage(DEFAULT_PAUSE_PAGE)
 
-function maintenanceHandler(): Handler {
+function maintenanceHandler(pause: RouteSpec['pause'], now: number): Handler {
+  const page = pause?.page ?? DEFAULT_PAUSE_PAGE
   return {
     handler: 'static_response',
     status_code: 503,
-    headers: {
-      'Content-Type': ['text/html; charset=utf-8'],
-      'Cache-Control': ['no-store'],
-      'Retry-After': ['3600'],
-      [MAINTENANCE_HEADER]: [MAINTENANCE_VALUE],
-    },
-    body: MAINTENANCE_HTML,
+    headers: pauseHeaders(pause?.backAt, now),
+    body: renderPausePage(page, { backAt: pause?.backAt, timeZone: pause?.timeZone }),
   }
 }
 type HttpRoute = {
@@ -236,7 +225,7 @@ export function buildCaddyConfig(
     if (probe) proxy.headers = { request: { set: { 'X-Forwarded-Proto': [secure ? 'https' : 'http'] } } }
     const handle: Handler[] =
       r.kind === 'maintenance'
-        ? [maintenanceHandler()]
+        ? [maintenanceHandler(r.pause, opts.now ?? Date.now())]
         : r.kind === 'proxy'
         ? [proxy]
         : [

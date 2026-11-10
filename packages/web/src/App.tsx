@@ -69,6 +69,7 @@ export function App() {
           <Route path="/extern" element={<ExternalTargets />} />
           <Route path="/system" element={<System section="uebersicht" />} />
           <Route path="/system/cloudflare" element={<System section="cloudflare" />} />
+          <Route path="/system/veroeffentlichung" element={<System section="veroeffentlichung" />} />
           <Route path="/system/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/system/github" element={<System section="github" />} />
           <Route path="/audit" element={<Audit />} />

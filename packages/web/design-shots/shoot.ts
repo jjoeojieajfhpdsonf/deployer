@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
+import { DEFAULT_PAUSE_PAGE } from '@deployer/shared'
 
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -35,6 +36,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   let m: RegExpMatchArray | null
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
   if (method !== 'GET') return { body: {} }
+  if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
@@ -194,6 +196,31 @@ const shots: Shot[] = [
   /* Veröffentlichung: Privat (projekt-einstellungen), Öffentlich, Pausiert, gesperrt, Rückfragen, Fortschritt, Toast */
   { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen` },
   { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen` },
+  { group: 'pauseseite', name: 'pauseseite-vorlage', path: '/system/veroeffentlichung' },
+  {
+    group: 'pauseseite', name: 'pauseseite-vorlage-vorschau-dunkel', path: '/system/veroeffentlichung', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Dunkel' }).click(); await pg.waitForTimeout(200) },
+  },
+  {
+    group: 'pauseseite', name: 'pauseseite-pausieren', path: `/projekte/${L}?tab=einstellungen`,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.waitForTimeout(150)
+      await pg.locator('.pause-draft input[id$="-title"]').fill('Wartung am Haushaltsbuch')
+      await pg.locator('.pause-draft textarea').fill('Wir spielen ein **Update** ein.\n\nFragen? Schreib an [hallo@example.ch](mailto:hallo@example.ch).')
+      await pg.locator('.pause-draft input[type="datetime-local"]').fill('2026-12-01T08:00')
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    // Nicht ganzseitig: beim Vergrössern für fullPage malt Chrome das iframe der Vorschau nur halb
+    group: 'pauseseite', name: 'pauseseite-bearbeiten', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Pause-Seite bearbeiten …' }).click()
+      await pg.locator('.pause-preview').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(300)
+    },
+  },
   { group: 'veroeffentlichung', name: 'veroeffentlichung-gesperrt', path: `/projekte/${S}?tab=einstellungen`, full: false },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,

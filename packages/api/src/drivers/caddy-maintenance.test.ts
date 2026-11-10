@@ -13,15 +13,31 @@ describe('Wartungsseite (öffentlich pausiert)', () => {
   const routes = (buildCaddyConfig([paused], opts) as unknown as Cfg).apps.http.servers.srv0.routes
   const r = routes.find((x) => x.match?.[0]?.host.includes('haushalt.example.ch'))!
 
-  test('antwortet mit 503, Retry-After und Kennung', () => {
+  test('antwortet mit 503 und Kennung; ohne «zurück um» kein Retry-After', () => {
     assert.ok(r, 'Route für den pausierten Namen fehlt')
     const h = r.handle[0] as { handler: string; status_code: number; headers: Record<string, string[]>; body: string }
     assert.equal(h.handler, 'static_response')
     assert.equal(h.status_code, 503)
     assert.deepEqual(h.headers[MAINTENANCE_HEADER], [MAINTENANCE_VALUE])
-    assert.deepEqual(h.headers['Retry-After'], ['3600'])
+    assert.equal(h.headers['Retry-After'], undefined)
     assert.deepEqual(h.headers['Cache-Control'], ['no-store'])
+    assert.deepEqual(h.headers['X-Robots-Tag'], ['noindex'])
+    assert.deepEqual(h.headers['Content-Security-Policy'], ["default-src 'none'; style-src 'unsafe-inline'"])
     assert.equal(h.body, MAINTENANCE_HTML)
+  })
+
+  test('eigene Seite des Projekts mit «zurück um»: Text und Retry-After', () => {
+    const custom: RouteSpec = {
+      ...paused,
+      pause: { page: { lang: 'de', title: 'Umzug', message: 'Wir ziehen **um**.', linkText: '', linkUrl: '', contact: '' }, backAt: '2026-11-11T07:00:00Z', timeZone: 'Europe/Zurich' },
+    }
+    const rr = (buildCaddyConfig([custom], { ...opts, now: Date.parse('2026-11-10T19:00:00Z') }) as unknown as Cfg).apps.http.servers.srv0.routes
+      .find((x) => x.match?.[0]?.host.includes('haushalt.example.ch'))!
+    const h = rr.handle[0] as { headers: Record<string, string[]>; body: string }
+    assert.match(h.body, /<h1>Umzug<\/h1>/)
+    assert.match(h.body, /<strong>um<\/strong>/)
+    assert.match(h.body, /Voraussichtlich zurück/)
+    assert.deepEqual(h.headers['Retry-After'], ['Wed, 11 Nov 2026 07:00:00 GMT'])
   })
 
   test('nur aus dem Netz von cloudflared, wie die Live-Route', () => {

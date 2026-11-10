@@ -26,6 +26,8 @@ import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latest
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
+import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/pause-page.js'
+import { pausePageSchema, formatBackAt, type PauseOptions } from '@deployer/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
@@ -510,17 +512,36 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     return ok({ project: (await findProject(id)).slug, public: s.state, hostname: s.hostname, access: s.accessProtected, changed: r.changed, check_from_outside: r.check, internal_url: s.internalUrl })
   }
 
-  tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine neutrale Wartungsseite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Verlangt Bestätigung.', {
-    project, confirmation_token: z.string().optional(),
+  tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine Pause-Seite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Ohne title/message gilt die Vorlage (System → Veröffentlichung). Verlangt Bestätigung; ist das Projekt schon pausiert, ändern title/message/back_at nur die Seite.', {
+    project,
+    title: z.string().max(120).optional().describe('Überschrift der Pause-Seite (sonst aus der Vorlage)'),
+    message: z.string().max(2000).optional().describe('Text der Pause-Seite: einfaches Markdown (Absätze, **fett**, [Link](https://…)), kein HTML'),
+    back_at: z.string().datetime({ offset: true }).optional().describe('Voraussichtlich zurück (ISO 8601, z. B. 2026-11-11T08:00:00+01:00): erscheint auf der Seite und als Retry-After'),
+    confirmation_token: z.string().optional(),
   }, async (a) => {
     const p = await findProject(a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
-    if (route.pausedAt) return publicResult(p.id, { hostname: route.hostname, check: null, changed: false })
-    const c = await confirm('pause_public', { project: p.id, confirmation_token: a.confirmation_token },
-      `"${p.name}" pausieren? Unter ${route.hostname} erscheint eine Wartungsseite (503), DNS und Name bleiben. ${await internalNote(p.id)}`)
+    const template = await pausePageTemplate()
+    const custom = a.title !== undefined || a.message !== undefined
+    const opts: PauseOptions | undefined = custom || a.back_at
+      ? {
+          ...(custom ? { page: pausePageSchema.parse({ ...(route.pausePage ?? template), ...(a.title !== undefined ? { title: a.title } : {}), ...(a.message !== undefined ? { message: a.message } : {}) }) } : {}),
+          ...(a.back_at ? { backAt: a.back_at } : {}),
+        }
+      : undefined
+    if (route.pausedAt) {
+      // Schon pausiert: nur die Seite ändern (keine Rückfrage nötig, nichts geht online oder offline)
+      if (opts) {
+        await setProjectPause(p.id, opts, actor)
+        await reconcileCaddy()
+      }
+      return publicResult(p.id, { hostname: route.hostname, check: null, changed: false })
+    }
+    const c = await confirm('pause_public', { project: p.id, title: a.title, message: a.message, back_at: a.back_at, confirmation_token: a.confirmation_token },
+      `"${p.name}" pausieren? Unter ${route.hostname} erscheint die Pause-Seite «${opts?.page?.title ?? (route.pausePage ?? template).title}» (503)${a.back_at ? `, voraussichtlich zurück ${formatBackAt(a.back_at, 'de', displayTimeZone())}` : ''}; DNS und Name bleiben. ${await internalNote(p.id)}`)
     if (!c.go) return c.result
-    return publicResult(p.id, await pauseFlow(p, actor))
+    return publicResult(p.id, await pauseFlow(p, actor, opts))
   })
 
   tool('resume_public', 'Pausiertes öffentliches Projekt wieder online schalten (nur mit abgeschlossenem Scan ohne offenen kritischen Befund). Verlangt Bestätigung.', {

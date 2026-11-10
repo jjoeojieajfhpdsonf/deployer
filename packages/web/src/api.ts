@@ -1,7 +1,7 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
-  PublicStatusDto, PublicProgressDto, OutsideCheckDto,
+  PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
 } from '@deployer/shared'
 
@@ -122,7 +122,12 @@ export const api = {
   publicProgress: (id: string) => call<{ progress: PublicProgressDto | null }>(`/projects/${id}/public/progress`),
   publish: (id: string, pub: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
     call<PublicFlowResult>(`/projects/${id}/public`, { method: 'POST', body: body(pub) }),
-  pausePublic: (id: string) => call<PublicFlowResult>(`/projects/${id}/public/pause`, { method: 'POST' }),
+  /** opts: eigene Pause-Seite (null = Vorlage) und «Voraussichtlich zurück» */
+  pausePublic: (id: string, opts?: PauseOptions) =>
+    call<PublicFlowResult>(`/projects/${id}/public/pause`, { method: 'POST', ...(opts ? { body: body(opts) } : {}) }),
+  putPausePage: (id: string, opts: PauseOptions) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/pause-page`, { method: 'PUT', body: body(opts) }),
+  pausePageTemplate: () => call<{ page: PausePage; defaults: PausePage }>('/settings/pause-page'),
+  putPausePageTemplate: (page: PausePage | null) => call<{ page: PausePage; defaults: PausePage }>('/settings/pause-page', { method: 'PUT', body: body({ page }) }),
   resumePublic: (id: string) => call<PublicFlowResult>(`/projects/${id}/public/resume`, { method: 'POST' }),
   unpublish: (id: string) => call<PublicFlowResult & { removed: { hostname: string; accessProtected: boolean } }>(`/projects/${id}/public`, { method: 'DELETE' }),
 
