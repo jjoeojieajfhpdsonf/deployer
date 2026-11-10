@@ -28,7 +28,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 | 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | erledigt; Bestätigung offen, Frage Nr. 3 |
 | 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | erledigt |
 | 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | erledigt; 4 Zeichen offen, Frage Nr. 4 |
-| 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | geplant |
+| 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | erledigt; Wahl a/b offen, Frage Nr. 1 |
 | 6 | Befehlspalette und Tastatur | geplant |
 | 7 | Erster Start, Login, Marke | geplant |
 | 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | geplant |
