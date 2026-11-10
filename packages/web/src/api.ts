@@ -2,9 +2,13 @@ import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto,
+  HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
 } from '@deployer/shared'
 
-export type { ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto }
+export type {
+  ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
+  HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto,
+}
 
 export interface PublicFlowResult {
   hostname: string | null
@@ -168,6 +172,27 @@ export const api = {
   deleteExternalTarget: (id: string) => call<void>(`/external-targets/${id}`, { method: 'DELETE' }),
   scanExternal: (id: string) => call<{ scan: { id: string } }>(`/external-targets/${id}/scans`, { method: 'POST', body: body({}) }),
   latestExternalScan: (id: string) => call<{ report: ScanReportDto | null }>(`/external-targets/${id}/scans/latest`),
+
+  /* Fix-Assistent (M8): Header über Caddy */
+  headerRules: (id: string) => call<HeaderRulesDto>(`/projects/${id}/header-rules`),
+  setHeaderRule: (id: string, header: HeaderKey, v: { value?: string; mode: HeaderMode; confirm?: boolean }) =>
+    call<{ rule: HeaderRuleDto; recheck: HeaderRecheckDto }>(`/projects/${id}/header-rules/${header}`, { method: 'PUT', body: body(v) }),
+  removeHeaderRule: (id: string, header: HeaderKey) =>
+    call<{ recheck: HeaderRecheckDto }>(`/projects/${id}/header-rules/${header}`, { method: 'DELETE' }),
+  recheckHeaders: (id: string) => call<HeaderRecheckDto>(`/projects/${id}/header-recheck`, { method: 'POST' }),
+
+  /* Fix-Assistent (M8): Mit Claude lösen */
+  fixHint: (id: string, findingId: string) => call<FixHintDto>(`/projects/${id}/findings/${findingId}/fix-hint`),
+  fixRequests: (id: string) => call<{ fixes: FixRequestDto[] }>(`/projects/${id}/fix-requests`),
+  applyFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/apply`, { method: 'POST', body: body({ confirm: true }) }),
+  /* GitHub App und Auto-Deploy (M8, Etappe 3) */
+  github: () => call<GithubStatusDto>('/github'),
+  githubManifest: (name: string, org?: string) => call<{ action: string; manifest: string; state: string }>('/github/manifest', { method: 'POST', body: body({ name, ...(org ? { org } : {}) }) }),
+  githubRefresh: () => call<{ repos: string[] }>('/github/refresh', { method: 'POST' }),
+  githubDisconnect: () => call<void>('/github', { method: 'DELETE' }),
+  autoDeploy: (id: string) => call<{ autoDeploy: boolean; checkedAt: string | null; available: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`),
+  setAutoDeploy: (id: string, enabled: boolean) => call<{ autoDeploy: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`, { method: 'PUT', body: body({ enabled }) }),
+  rejectFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/reject`, { method: 'POST', body: body({}) }),
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),

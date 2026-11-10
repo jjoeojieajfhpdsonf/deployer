@@ -1015,6 +1015,57 @@ details > summary:hover { color: var(--ink); }
 .finding .form-actions { margin-top: var(--sp-3); }
 .finding-accepted, .finding-fixed { opacity: 0.7; }
 
+/* M8: Beheben neben Akzeptieren */
+.finding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+.finding-actions .error { flex-basis: 100%; margin: 0; }
+.fix-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-13); color: var(--ink-dim); }
+.fix-notice { margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink); font-size: var(--fs-14); }
+.header-value { font-size: var(--fs-13); overflow-wrap: anywhere; }
+.header-rules-table td { white-space: nowrap; }
+.header-rules-table td:nth-child(2) { white-space: normal; width: 100%; }
+.csp-reports { margin-top: var(--sp-6); }
+.csp-reports h3 { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-3); font-size: var(--fs-16); }
+.csp-reports .table-scroll { margin-bottom: var(--sp-3); }
+.csp-notes { padding-left: var(--sp-5); max-width: none; }
+.fix-live .fix-notice { margin-top: var(--sp-3); }
+.scan-actions + .fix-live .fix-notice, .tab-panel > .fix-live .fix-notice { margin-top: 0; }
+/* M8: Mit Claude lösen – Auftrag unter den Knöpfen, Vorschläge mit Diff */
+.claude-fix { margin-top: var(--sp-3); }
+.claude-fix .hint { margin-top: 0; }
+.claude-fix-label { margin: 0; font-size: var(--fs-13); color: var(--ink-dim); }
+.claude-fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.image-hint { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: var(--sp-2) 0 0; font-size: var(--fs-14); }
+.image-hint dt { color: var(--muted); }
+.image-hint dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.fix-requests { margin-top: var(--sp-2); }
+.fix-status { background: var(--surface-2); color: var(--ink-dim); }
+.fix-status-verified { color: var(--ok); background: var(--ok-bg); }
+.fix-status-failed { color: var(--bad); background: var(--bad-bg); }
+.diff-scroll { max-height: 420px; overflow: auto; margin: var(--sp-2) 0 var(--sp-3); border-radius: var(--r-md); }
+.diff-scroll .diff { margin: 0; white-space: pre; }
+.diff .diff-add { color: var(--ok); }
+.diff .diff-del { color: var(--bad); }
+.diff .diff-hunk, .diff .diff-file { color: var(--muted); }
+/* M8: GitHub App in drei Schritten */
+/* Nur auf der GitHub-Seite: Banner so breit wie die Schritt-Karten */
+.page-medium:has(.gh-steps) > .banner { max-width: 1040px; }
+.gh-step h2:focus { outline: none; }
+.gh-step h2:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.gh-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+.gh-step { padding: 22px var(--sp-6); background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--sh-card); }
+.gh-step h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-16); }
+.gh-step p { margin: 0 0 var(--sp-2); color: var(--ink-dim); font-size: var(--fs-14); }
+.gh-step-state { font-family: var(--font); font-weight: 400; color: var(--muted); font-size: var(--fs-14); }
+.gh-step-done h2 { color: var(--ink-dim); }
+.gh-perms { display: grid; grid-template-columns: max-content 1fr; gap: 6px var(--sp-5); margin: 0 0 var(--sp-4); font-size: var(--fs-14); }
+.gh-perms div { display: contents; }
+.gh-perms dt { color: var(--muted); }
+.gh-perms dd { margin: 0; }
+.gh-repos { margin: 0 0 var(--sp-2); padding-left: var(--sp-5); font-size: var(--fs-14); }
+/* Gesperrt, aber fokussierbar (Begründung wird vorgelesen) */
+button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
+.csp-reports .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
 /* --- Externe Ziele, Tokens, Benachrichtigungen --------------------------------------- */
 
 .target-list { list-style: none; margin: var(--sp-5) 0 0; padding: 0; display: grid; gap: var(--sp-3); }

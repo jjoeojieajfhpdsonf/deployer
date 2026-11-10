@@ -27,9 +27,15 @@ export function checkHeaders(r: HttpResponseLike): FindingInput[] {
     out.push({ tool: TOOL, severity, title, location: loc, description, fix })
 
   const csp = one(h['content-security-policy'])
-  if (!csp) {
+  // M8: Eine CSP schützt vor XSS nur mit default-src oder script-src. Eine,
+  // die nur das Einbetten regelt (frame-ancestors, auch von Caddy ergänzt),
+  // zählt nicht – sonst verschwände der Befund, ohne dass etwas geschützt ist.
+  // Gleicher Titel: der Fingerabdruck (und eine Akzeptanz) bleibt.
+  if (!csp || !/(^|;)\s*(default-src|script-src)\b/i.test(csp)) {
     add('medium', 'Content-Security-Policy fehlt',
-      'Ohne CSP kann eingeschleustes Skript (XSS) ungehindert laufen und Daten abfliessen lassen.',
+      csp
+        ? 'Die vorhandene CSP legt nicht fest, woher Skripte kommen dürfen (kein default-src oder script-src); eingeschleustes Skript (XSS) liefe ungehindert.'
+        : 'Ohne CSP kann eingeschleustes Skript (XSS) ungehindert laufen und Daten abfliessen lassen.',
       'Header Content-Security-Policy setzen, z.B. "default-src \'self\'" als Ausgangspunkt.')
   }
 

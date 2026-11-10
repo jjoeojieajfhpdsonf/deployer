@@ -173,7 +173,8 @@ declare module 'fastify' {
  * Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern.
  */
 export function registerAuthGuard(app: FastifyInstance): void {
-  const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health'])
+  // M8: CSP-Meldungen kommen von Browsern ohne Anmeldung (Schlüssel im Pfad)
+  const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key'])
   app.decorateRequest('actor', '')
   app.decorateRequest('tokenId', null)
   app.addHook('onRequest', async (request) => {
@@ -198,6 +199,10 @@ export function registerAuthGuard(app: FastifyInstance): void {
       // sonst auf ein fremdes ntfy oder Postfach umleiten.
       if (route.startsWith('/api/v1/notifications')) {
         throw new AppError('forbidden', 'Benachrichtigungen lassen sich nur mit einer Anmeldung einstellen', 403)
+      }
+      // M8: ebenso die GitHub App – ein Token könnte sie sonst auf eine fremde App umstellen
+      if (route.startsWith('/api/v1/github')) {
+        throw new AppError('forbidden', 'Die GitHub-Verbindung lässt sich nur mit einer Anmeldung einrichten', 403)
       }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {

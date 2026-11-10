@@ -48,6 +48,11 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
+  // M8: Fix-Assistent
+  if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/auto-deploy$/))) return { body: fx.autoDeploy(m[1]!) }
+  if ((m = p.match(/^\/projects\/[^/]+\/findings\/([^/]+)\/fix-hint$/))) return { body: fx.fixHint(m[1]!) }
   if (p === '/audit') {
     const events = fx.audit(u.searchParams.get('targetId') ?? undefined)
     if (count === undefined) return { body: { events } }
@@ -73,6 +78,8 @@ type Shot = {
   full?: boolean
   /** Leere Daten (keine Projekte, kein Audit) */
   empty?: boolean
+  /** M8: GitHub App angelegt und installiert */
+  githubConnected?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -100,6 +107,47 @@ const shots: Shot[] = [
     group: 'security', name: 'projekt-security-laeuft-ausgabe', path: `/projekte/${fx.runningScanProjectId}?tab=security`, full: false,
     prepare: async (pg) => { await pg.locator('.live-scan .stage-tail summary').first().click(); await pg.waitForTimeout(200) },
   },
+  // M8: Header über Caddy – Rückfrage vor HSTS
+  {
+    group: 'fix', name: 'security-hsts-rueckfrage', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      const b = pg.getByRole('button', { name: 'HSTS setzen …' })
+      await b.scrollIntoViewIfNeeded()
+      await b.click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  // M8, Etappe 2: Mit Claude lösen – Auftrag am Befund und Image-Hinweis
+  {
+    group: 'fix', name: 'security-mit-claude-loesen', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      const cards = pg.locator('.finding').filter({ hasText: 'Container läuft als root' })
+      await cards.first().getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.waitForTimeout(300)
+      await cards.first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'fix', name: 'security-image-hinweis', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      const card = pg.locator('.finding').filter({ hasText: 'CVE-2026-31337' }).first()
+      await card.getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.waitForTimeout(300)
+      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'fix', name: 'security-vorschlag-claude', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#fix-requests-title').scrollIntoViewIfNeeded()
+      await pg.evaluate(() => window.scrollBy(0, 300))
+      await pg.waitForTimeout(150)
+    },
+  },
   { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen` },
   {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
@@ -119,6 +167,10 @@ const shots: Shot[] = [
   { group: 'system', name: 'system-uebersicht', path: '/system' },
   { group: 'system', name: 'system-cloudflare', path: '/system/cloudflare' },
   { group: 'system', name: 'system-benachrichtigungen', path: '/system/benachrichtigungen' },
+  // M8, Etappe 3
+  { group: 'github', name: 'system-github', path: '/system/github' },
+  { group: 'github', name: 'system-github-verbunden', path: '/system/github?ok=installiert', githubConnected: true },
+  { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
     group: 'zustaende', name: 'bestaetigung-stoppen', path: `/projekte/${P}`, full: false,
@@ -221,6 +273,8 @@ try {
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
+            // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
+            if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             return json(route, r.body, r.status)
           }

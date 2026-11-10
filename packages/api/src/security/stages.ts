@@ -98,12 +98,13 @@ export async function trivySource(scanId: string, srcDir: string, network: strin
 
 /* --- Stufe 2: Header ------------------------------------------------------------ */
 
-async function fetchForHeaders(url: string, isHttps: boolean) {
+async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: string) {
   // Eigener Agent ohne Keep-Alive: Der Healthcheck des Deploys hat dieselbe
   // Adresse gerade angefragt, und seine Verbindung im globalen Pool ist tot,
   // seit der deployer das Projekt-Netz verlassen hat. Wiederverwendet hiesse
   // das: Anfrage ins Leere, Zeitüberschreitung (gefunden in der M6-Abnahme).
-  const agent = new Agent({ keepAliveTimeout: 1, pipelining: 0 })
+  // M8: mit socketPath über Caddys Probe-Server (Host aus der URL).
+  const agent = new Agent({ keepAliveTimeout: 1, pipelining: 0, ...(socketPath ? { connect: { socketPath } } : {}) })
   let body = ''
   let res: Awaited<ReturnType<typeof request>>
   try {
@@ -118,6 +119,20 @@ async function fetchForHeaders(url: string, isHttps: boolean) {
   const headers: Record<string, string | string[]> = {}
   for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) headers[k.toLowerCase()] = v as string | string[]
   return checkHeaders({ url, status: res.statusCode, headers, body, isHttps })
+}
+
+/**
+ * M8: Header-Check über Caddy, so wie Besucher die Seite sehen – inklusive
+ * der Header, die Caddy ergänzt. Gefragt wird über den Probe-Socket (eigener
+ * Caddy-Server ohne IP-Filter, nur als Datei im gemeinsamen Volume
+ * erreichbar). `url` ist die Adresse, die Besucher benutzen; über den Socket
+ * geht nur HTTP, das Schema bestimmt isHttps (HSTS, Secure-Cookies).
+ */
+export async function headerCheckViaCaddy(url: string, isHttps: boolean): Promise<FindingInput[]> {
+  const u = new URL(url)
+  const viaSocket = `http://${u.host}${u.pathname}`
+  const found = await fetchForHeaders(viaSocket, isHttps, config.CADDY_PROBE_SOCKET)
+  return found.map((f) => ({ ...f, location: f.location === viaSocket ? url : f.location }))
 }
 
 export async function headerCheck(t: ScanTarget): Promise<FindingInput[]> {

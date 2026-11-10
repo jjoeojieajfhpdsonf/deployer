@@ -26,6 +26,10 @@ const envSchema = z.object({
 
   DOCKER_HOST: z.string().default('tcp://socket-proxy:2375'),
   CADDY_ADMIN_SOCKET: z.string().default('/run/caddy/admin.sock'),
+  // M8: Probe-Server von Caddy (gleiches Volume wie der Admin-Socket). Der
+  // Header-Check fragt darüber, wie Besucher die Seite sehen, ohne dass der
+  // IP-Filter für den deployer geöffnet werden muss. Leer = aus.
+  CADDY_PROBE_SOCKET: z.string().default('/run/caddy/probe.sock'),
 
   DATA_DIR: z.string().default('/data'),
   SITES_DIR: z.string().default('/srv/sites'),
@@ -103,6 +107,12 @@ const envSchema = z.object({
   // gültiges produktives Wildcard-Zertifikat vorliegt, und räumt Staging-
   // Wildcards früherer Probeläufe weg. Fehlt das Volume, entfällt beides.
   CADDY_DATA_DIR: z.string().default('/caddy-data'),
+
+  // M8: GitHub (in Tests durch eine Attrappe ersetzbar)
+  GITHUB_API: z.string().url().default('https://api.github.com'),
+  GITHUB_WEB: z.string().url().default('https://github.com'),
+  // Alle so viele Sekunden: Auto-Deploy nach Merge und Status offener Pull Requests (SPEC: 5 Minuten)
+  AUTO_DEPLOY_INTERVAL_S: z.coerce.number().int().min(30).default(300),
 
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),

@@ -13,8 +13,10 @@ import { AppError, badRequest, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import { siteDir } from '../deploy/sources/static.js'
 import { score, grade, fingerprint, dedupe, bySeverity, publishable, type FindingInput, type Severity } from './score.js'
-import { trivyImage, trivySource, headerCheck, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
+import { trivyImage, trivySource, headerCheck, headerCheckViaCaddy, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
+import { probeTargetFor } from '../domain/routes.js'
+import type { HeaderRecheckDto } from '@deployer/shared'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
 
@@ -331,7 +333,16 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
   }
 
   try {
-    await stage('headers', () => headerCheck(target))
+    // M8: Header über Caddy prüfen, wie Besucher sie sehen (mit ergänzten
+    // Headern). Ohne Caddy-Route direkt am Container wie bisher.
+    const probe = await probeTargetFor(project.id).catch(() => null)
+    if (probe) {
+      await stage('headers', () => headerCheckViaCaddy(probe.url, probe.secure))
+      if (stages.headers?.ran) stages.headers.checked = 'über Caddy, wie Besucher die Seite sehen'
+    } else {
+      await stage('headers', () => headerCheck(target))
+      if (stages.headers?.ran) stages.headers.checked = 'direkt am Container: Caddy bedient das Projekt nicht'
+    }
     await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', (onLogs) => zap(run.id, target, scanLabels, run.level === 'active', onLogs))
     await stage('nuclei', (onLogs) => nuclei(run.id, target, scanLabels, onLogs))
     // TLS endet bei Caddy, nicht im Projekt-Container: geprüft würde für jedes
@@ -442,6 +453,17 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
     if (gone.length) await db.update(schema.findings).set({ status: 'fixed' }).where(inArray(schema.findings.id, gone))
   }
 
+  // M8: übernommene Vorschläge (Mit Claude lösen) bestätigen. Dynamisch
+  // geladen: fix-service zieht die Deploy-Pipeline nach, die diese Datei lädt.
+  if (run.projectId) {
+    const { verifyFixesAfterScan } = await import('./fix-service.js')
+    await verifyFixesAfterScan({
+      projectId: run.projectId, deploymentId: run.deploymentId,
+      // Alles, was der Scan noch findet (auch akzeptiert): nur Verschwundenes ist behoben
+      openFingerprints: new Set(rows.map((r) => r.fingerprint)), checkedTools: toolsChecked(stages),
+    }).catch((err) => log.warn('Vorschläge nach dem Scan nicht geprüft', { scan: run.id, err: String(err) }))
+  }
+
   // Neu hinzugekommene kritische und hohe Befunde melden.
   const name = run.projectId
     ? (await findProject(run.projectId)).name
@@ -454,6 +476,98 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
       }, run.projectId ?? undefined)
     }
   }
+}
+
+/* --- M8: Nachscan der Stufe «headers» ------------------------------------------------- */
+
+type Status = 'open' | 'accepted' | 'fixed'
+
+/**
+ * Was ein Nachscan der Header im letzten Scan ändert. Rein: bekommt die
+ * bisherigen Header-Befunde des Scans, die neu gefundenen (mit
+ * Fingerabdruck) und die Akzeptanzen.
+ * - nicht mehr gefunden und offen: behoben
+ * - wieder gefunden, aber als behoben markiert (Regel entfernt): wieder offen
+ *   bzw. akzeptiert
+ * - neu: einfügen
+ */
+export function planHeaderRecheck(
+  existing: { id: string; fingerprint: string; status: Status }[],
+  found: (FindingInput & { fingerprint: string })[],
+  accepted: Map<string, string>,
+): { fix: string[]; reopen: { id: string; status: Status; acceptReason: string | null }[]; insert: (FindingInput & { fingerprint: string; status: Status; acceptReason: string | null })[] } {
+  const now = new Set(found.map((f) => f.fingerprint))
+  const byFp = new Map(existing.map((e) => [e.fingerprint, e]))
+  const fix = existing.filter((e) => e.status === 'open' && !now.has(e.fingerprint)).map((e) => e.id)
+  const reopen: { id: string; status: Status; acceptReason: string | null }[] = []
+  const insert: (FindingInput & { fingerprint: string; status: Status; acceptReason: string | null })[] = []
+  for (const f of found) {
+    const reason = accepted.get(f.fingerprint) ?? null
+    const e = byFp.get(f.fingerprint)
+    if (!e) insert.push({ ...f, status: reason ? 'accepted' : 'open', acceptReason: reason })
+    else if (e.status === 'fixed') reopen.push({ id: e.id, status: reason ? 'accepted' : 'open', acceptReason: reason })
+  }
+  return { fix, reopen, insert }
+}
+
+/**
+ * Header-Check erneut über Caddy und das Ergebnis in den letzten
+ * abgeschlossenen Scan übernehmen (Score und Note neu). Ein eigener
+ * Scan-Lauf nur mit Headern würde im «letzten Scan» die Befunde aller
+ * anderen Werkzeuge verstecken.
+ */
+export async function recheckHeaders(projectId: string, actor: string): Promise<HeaderRecheckDto> {
+  const none = (error: string): HeaderRecheckDto => ({ ok: false, error, fixed: [], opened: [], score: null, grade: null })
+  const last = await latestScan(projectId, true)
+  if (!last) return none('Noch kein abgeschlossener Scan; der nächste Scan prüft die Header')
+  const probe = await probeTargetFor(projectId)
+  if (!probe) return none('Caddy bedient das Projekt gerade nicht (gestoppt oder ohne Adresse)')
+  let raw: FindingInput[]
+  try {
+    raw = await headerCheckViaCaddy(probe.url, probe.secure)
+  } catch (err) {
+    return none(`Header-Check über Caddy gescheitert: ${(err as Error).message.slice(0, 200)}`)
+  }
+  const found = dedupe(raw).map((f) => ({ ...f, fingerprint: fingerprint(f) }))
+  const accepted = new Map(
+    (await db.select().from(schema.findingAcceptances).where(eq(schema.findingAcceptances.projectId, projectId))).map((a) => [a.fingerprint, a.reason]),
+  )
+  const existing = await db.select().from(schema.findings).where(and(eq(schema.findings.scanRunId, last.id), eq(schema.findings.tool, 'header-check')))
+  const plan = planHeaderRecheck(existing, found, accepted)
+
+  await db.transaction(async (tx) => {
+    if (plan.fix.length) await tx.update(schema.findings).set({ status: 'fixed' }).where(inArray(schema.findings.id, plan.fix))
+    for (const r of plan.reopen) await tx.update(schema.findings).set({ status: r.status, acceptReason: r.acceptReason }).where(eq(schema.findings.id, r.id))
+    if (plan.insert.length) {
+      await tx.insert(schema.findings).values(plan.insert.map(({ key: _k, ...f }) => ({ scanRunId: last.id, ...f })))
+    }
+    const open = await tx.select().from(schema.findings).where(and(eq(schema.findings.scanRunId, last.id), eq(schema.findings.status, 'open')))
+    const s = score(open)
+    const stages: ScanStages = {
+      ...last.stages,
+      // Bisherige Angaben der Stufe (was sie prüft) behalten, Ergebnis ersetzen
+      headers: {
+        ...(last.stages.headers ?? {}),
+        ran: true, state: 'done', failed: undefined, findings: found.length, finishedAt: new Date().toISOString(),
+        checked: 'über Caddy, wie Besucher die Seite sehen',
+        note: `Nachscan über Caddy, ${new Date().toLocaleString('de-CH', { timeZone: 'Europe/Zurich', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+        progress: undefined, tail: undefined,
+      },
+    }
+    await tx.update(schema.scanRuns).set({ score: s, grade: grade(s), stages }).where(eq(schema.scanRuns.id, last.id))
+  })
+
+  const after = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.id, last.id)).limit(1))[0]!
+  const fixedTitles = existing.filter((e) => plan.fix.includes(e.id)).map((e) => e.title)
+  const openedTitles = [
+    ...plan.insert.filter((f) => f.status === 'open').map((f) => f.title),
+    ...existing.filter((e) => plan.reopen.some((r) => r.id === e.id && r.status === 'open')).map((e) => e.title),
+  ]
+  await audit({
+    actor, action: 'scan.recheck_headers', targetType: 'project', targetId: projectId,
+    params: { scan: last.id, fixed: fixedTitles, opened: openedTitles }, result: 'ok',
+  })
+  return { ok: true, error: null, fixed: fixedTitles, opened: openedTitles, score: after.score, grade: after.grade }
 }
 
 /* --- Lesen, Akzeptieren, Schwelle ----------------------------------------------------- */

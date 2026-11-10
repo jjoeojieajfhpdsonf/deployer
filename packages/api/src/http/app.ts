@@ -14,6 +14,8 @@ import { systemRoutes } from './routes/system.js'
 import { uploadRoutes } from './routes/uploads.js'
 import { tokenRoutes } from './routes/tokens.js'
 import { securityRoutes } from './routes/security.js'
+import { fixRoutes, cspReportRoutes } from './routes/fix.js'
+import { githubRoutes } from './routes/github.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 import { redactSecrets, redactDeep } from '../lib/redact.js'
@@ -122,6 +124,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(authRoutes)
       await api.register(tokenRoutes)
       await api.register(securityRoutes)
+      // M8: Fix-Assistent und CSP-Meldungen (eigene Parser, nur in diesem Plugin)
+      await api.register(fixRoutes)
+      await api.register(cspReportRoutes)
+      await api.register(githubRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
       await api.register(systemRoutes)

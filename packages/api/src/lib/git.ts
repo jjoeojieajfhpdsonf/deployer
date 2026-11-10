@@ -127,6 +127,29 @@ export async function pushRepo(o: {
   return { displayUrl: displayUrl(checked.url) }
 }
 
+/**
+ * M8: Kopf eines Branches (oder HEAD) ohne Klonen, für Auto-Deploy nach
+ * Merge. Dieselbe URL-Prüfung wie beim Clone; ein Token (GitHub App) kommt
+ * wie bei pushRepo über die Umgebung, nie in die Argumente.
+ */
+export async function lsRemoteHead(o: { url: string; ref?: string | null; policy: RepoUrlPolicy; token?: string }): Promise<string> {
+  if (o.ref && (!/^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/.test(o.ref) || o.ref.includes('..'))) {
+    throw new AppError('git_failed', `Ungültiger Branch "${o.ref}"`, 400)
+  }
+  const checked = await checkRepoUrl(o.url, o.policy)
+  const env: NodeJS.ProcessEnv = {}
+  if (o.token) {
+    env.GIT_CONFIG_COUNT = '1'
+    env.GIT_CONFIG_KEY_0 = 'http.extraHeader'
+    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${Buffer.from(`x-access-token:${o.token}`).toString('base64')}`
+  }
+  const target = o.ref ? `refs/heads/${o.ref}` : 'HEAD'
+  const out = await run([...baseArgs(checked.host, checked.port, checked.addresses), 'ls-remote', '--', checked.url.toString(), target], { timeoutMs: 30_000, env })
+  const sha = out.split('\n').find((l) => l.endsWith(`\t${target}`))?.split('\t')[0] ?? ''
+  if (!FULL_SHA.test(sha)) throw new AppError('git_failed', `${target} gibt es im Repo nicht`, 400)
+  return sha
+}
+
 export async function cloneRepo(o: CloneOptions): Promise<{ commit: string; displayUrl: string }> {
   const checked = await checkRepoUrl(o.url, o.policy)
   const timeoutMs = o.timeoutMs ?? 5 * 60_000

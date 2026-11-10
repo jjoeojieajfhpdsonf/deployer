@@ -6,7 +6,9 @@
  */
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
+  HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto,
 } from '@deployer/shared'
+import { fixPrompt } from '@deployer/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -238,7 +240,11 @@ const findings: FindingDto[] = [
   { id: 'f1', tool: 'trivy', severity: 'critical', title: 'CVE-2026-31337 in openssl 3.0.13 (Remote Code Execution)', location: 'image: kontoauszug-reader-api · /usr/lib/libssl.so.3', description: 'Ein präpariertes Zertifikat kann beim TLS-Handshake Code ausführen.', fix: 'Basis-Image auf debian:12.8-slim oder neuer aktualisieren.', status: 'open', acceptReason: null },
   { id: 'f2', tool: 'zap', severity: 'high', title: 'Session-Cookie ohne Secure-Attribut', location: 'https://kontoauszug-reader.int.example.ch/login', description: 'Das Cookie «sid» wird auch über http gesendet.', fix: 'Cookie mit Secure und SameSite=Lax setzen.', status: 'open', acceptReason: null },
   { id: 'f3', tool: 'trivy', severity: 'medium', title: 'Container läuft als root', location: 'compose: service api', description: 'Der Prozess läuft mit UID 0.', fix: 'user: "1000:1000" im Compose-Service setzen.', status: 'open', acceptReason: null },
-  { id: 'f4', tool: 'zap', severity: 'medium', title: 'Content-Security-Policy fehlt', location: 'https://kontoauszug-reader.int.example.ch/', description: 'Ohne CSP kann eingeschleustes Script ungehindert laufen.', fix: "Header Content-Security-Policy: default-src 'self' setzen.", status: 'open', acceptReason: null },
+  { id: 'f4', tool: 'header-check', severity: 'medium', title: 'Content-Security-Policy fehlt', location: 'https://kontoauszug-reader.int.example.ch/', description: 'Ohne CSP kann eingeschleustes Skript (XSS) ungehindert laufen und Daten abfliessen lassen.', fix: "Header Content-Security-Policy setzen, z.B. \"default-src 'self'\" als Ausgangspunkt.", status: 'open', acceptReason: null },
+  // M8: Header-Befunde mit «Header setzen»
+  { id: 'f7', tool: 'header-check', severity: 'medium', title: 'Strict-Transport-Security fehlt', location: 'https://kontoauszug-reader.int.example.ch/', description: 'Ohne HSTS kann eine erste Verbindung auf HTTP herabgestuft werden.', fix: 'Header Strict-Transport-Security: max-age=31536000 setzen.', status: 'open', acceptReason: null },
+  { id: 'f8', tool: 'header-check', severity: 'low', title: 'X-Content-Type-Options: nosniff fehlt', location: 'https://kontoauszug-reader.int.example.ch/', description: 'Browser könnten Inhalte anders deuten als ausgeliefert (MIME-Sniffing).', fix: 'Header X-Content-Type-Options: nosniff setzen.', status: 'open', acceptReason: null },
+  { id: 'f9', tool: 'header-check', severity: 'medium', title: 'Schutz gegen Einbetten fehlt (frame-ancestors / X-Frame-Options)', location: 'https://kontoauszug-reader.int.example.ch/', description: 'Die Seite lässt sich in fremde Seiten einbetten (Clickjacking).', fix: "In der CSP \"frame-ancestors 'self'\" setzen oder X-Frame-Options: DENY.", status: 'fixed', acceptReason: null },
   { id: 'f5', tool: 'nuclei', severity: 'medium', title: 'Server-Version im Header sichtbar', location: 'Server: uvicorn', description: 'Verrät die Version des Webservers.', fix: 'Server-Header entfernen (--no-server-header).', status: 'accepted', acceptReason: 'Nur im Tailnet erreichbar' },
   { id: 'f6', tool: 'trivy', severity: 'low', title: 'Veraltetes Paket: tzdata 2024a', location: 'image: kontoauszug-reader-api', description: 'Zeitzonendaten sind nicht aktuell.', fix: 'Image neu bauen.', status: 'open', acceptReason: null },
 ]
@@ -267,7 +273,10 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
       stages: {
         'trivy-image': { ran: true, state: 'done', findings: 4, checks: CHECKS.trivyImage, durationMs: 98_000 },
         'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
-        headers: { ran: true, state: 'done', findings: 0, checks: CHECKS.headers, durationMs: 1_200 },
+        // M8: Header über Caddy geprüft
+        headers: id === securityProjectId
+          ? { ran: true, state: 'done', findings: 4, checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_200 }
+          : { ran: true, state: 'done', findings: 0, checks: CHECKS.headers, durationMs: 1_200 },
         'zap-baseline': { ran: true, state: 'done', findings: 2, checks: CHECKS.zap, durationMs: 142_000 },
         nuclei: { ran: true, state: 'done', findings: 1, checks: CHECKS.nuclei, durationMs: 61_000 },
         testssl: { ran: false, state: 'skipped', note: 'TLS endet zentral bei Caddy, siehe Systemseite' },
@@ -307,6 +316,86 @@ function runningScan(p: ProjectDto): ScanReportDto {
     top: [],
     findings: [],
   }
+}
+
+/** M8: Header über Caddy – CSP im Report-Only mit gesammelten Verstössen, frame-ancestors aktiv. */
+export function headerRules(id: string): HeaderRulesDto {
+  if (id !== securityProjectId) return { rules: [], hsts: { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }, viaCaddy: true, csp: { violations: [], total: 0, suggestion: null, notes: [] } }
+  return {
+    rules: [
+      { header: 'content-security-policy', value: "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'", mode: 'report-only', createdAt: ago(2 * HOUR), updatedAt: ago(2 * HOUR) },
+      { header: 'frame-ancestors', value: "'self'", mode: 'enforce', createdAt: ago(2 * HOUR), updatedAt: ago(2 * HOUR) },
+    ],
+    hsts: { ok: true, reason: null },
+    viaCaddy: true,
+    csp: {
+      violations: [
+        { directive: 'script-src', blocked: 'https://cdn.jsdelivr.net', samplePath: '/auswertung', count: 42, lastSeen: ago(6 * MIN) },
+        { directive: 'style-src', blocked: 'inline', samplePath: '/', count: 17, lastSeen: ago(9 * MIN) },
+        { directive: 'connect-src', blocked: 'wss://kontoauszug-reader.int.example.ch', samplePath: '/live', count: 5, lastSeen: ago(31 * MIN) },
+      ],
+      total: 64,
+      suggestion: "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self' wss://kontoauszug-reader.int.example.ch; object-src 'none'; base-uri 'self'; form-action 'self'",
+      notes: ["Inline-Code in style-src: in eine Datei auslagern oder per Hash/Nonce erlauben – 'unsafe-inline' schlägt deployer nicht vor."],
+    },
+  }
+}
+
+/** M8, Etappe 2: Auftrag am Befund «Container läuft als root» und am CVE (fertiges Image) */
+export function fixHint(findingId: string): FixHintDto {
+  if (findingId === 'f1') {
+    return {
+      way: 'image', prompt: null,
+      explanation: 'Fertiges Image: deployer kann nichts daran ändern. Abhilfe ist eine neuere Image-Version, in der das Paket aktualisiert ist.',
+      image: { image: 'ghcr.io/example/kontoauszug-reader-api:1.4-bookworm', fixedIn: 'openssl 3.0.15-1~deb12u1', candidates: ['1.6-bookworm', '2.1-bookworm'], note: 'Kandidaten derselben Linie; ob sie das Paket wirklich aktualisieren, zeigt erst der Scan nach dem Wechsel.' },
+    }
+  }
+  return {
+    way: 'files',
+    prompt: fixPrompt({ projectName: 'Kontoauszug-Reader', slug: 'kontoauszug-reader', findingId: '3f1c9a52-7d40-4e8b-9b1a-0c2d6e8f4a17', title: 'Container läuft als root', severity: 'medium', way: 'files' }),
+    explanation: 'Chat-Projekt: Die Änderung wird als Vorschlag mit Diff angelegt (propose_fix). Erst nach Zustimmung entsteht eine neue Version, deployer deployt und scannt nach.',
+    image: null,
+  }
+}
+
+export function fixRequests(id: string): FixRequestDto[] {
+  if (id !== securityProjectId) return []
+  const base = { findingId: 'f3', tool: 'trivy', way: 'mcp' as const, baseCommit: 'a3f9c21d0be4', branch: null, prUrl: null, actor: 'token:claude-code' }
+  return [
+    {
+      ...base, id: 'x1', findingTitle: 'Container läuft als root', status: 'proposed', commit: null, note: null,
+      explanation: 'Der API-Dienst läuft jetzt als Benutzer node (UID 1000). Das Volume /data gehört diesem Benutzer bereits; sonst ändert sich nichts.',
+      diff: ['--- a/compose.yaml', '+++ b/compose.yaml', '@@ -4,6 +4,7 @@', '   api:', '     build: ./api', '     restart: unless-stopped', '+    user: "1000:1000"', '     volumes:', '       - data:/data', '     environment:'].join('\n'),
+      createdAt: ago(7 * MIN), updatedAt: ago(7 * MIN),
+    },
+    {
+      ...base, id: 'x2', findingTitle: 'Offene Datei /backup.sql', tool: 'nuclei', status: 'verified', commit: '9c1e07b2aa41', note: 'Der Nachscan findet den Befund nicht mehr.',
+      explanation: 'backup.sql aus dem Projekt entfernt und in .dockerignore aufgenommen.',
+      diff: ['--- a/backup.sql', '+++ /dev/null', '@@ -1,1 +0,0 @@', '-«Binärdatei»'].join('\n'),
+      createdAt: ago(26 * HOUR), updatedAt: ago(25 * HOUR),
+    },
+  ]
+}
+
+/** M8, Etappe 3: GitHub-Seite – vor dem Anlegen oder fertig installiert */
+export function github(connected: boolean): GithubStatusDto {
+  const base = {
+    permissions: { contents: 'write', pull_requests: 'write', metadata: 'read (von GitHub immer dabei)' },
+    suggestedName: 'deployer heimserver 4f2a',
+    callbackUrl: `https://deployer.${BASE}/api/v1/github/manifest/callback`,
+  }
+  if (!connected) return { ...base, connected: false, app: null, installed: false, repos: [], installUrl: null }
+  return {
+    ...base, connected: true, installed: true,
+    app: { name: 'deployer heimserver 4f2a', slug: 'deployer-heimserver-4f2a', htmlUrl: 'https://github.com/apps/deployer-heimserver-4f2a', owner: 'example', createdAt: ago(2 * HOUR) },
+    repos: ['example/fotoalbum', 'example/rezepte-api'],
+    installUrl: 'https://github.com/apps/deployer-heimserver-4f2a/installations/new',
+  }
+}
+
+export function autoDeploy(id: string) {
+  const repo = id === 'p-foto' || id === 'p-rezepte'
+  return { autoDeploy: id === 'p-foto', checkedAt: ago(3 * MIN), available: repo, viaGithubApp: repo }
 }
 
 export function audit(targetId?: string): AuditEventDto[] {

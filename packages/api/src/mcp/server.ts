@@ -27,6 +27,7 @@ import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
 import type { TokenIdentity } from '../domain/tokens.js'
+import { registerFixTools } from './fix-tools.js'
 import type { DeploymentDto, ProjectDto } from '@deployer/shared'
 
 /**
@@ -41,7 +42,7 @@ const wait = z.boolean().default(true).describe('Auf das Ende des Deploys warten
 
 
 type Content = { type: 'text'; text: string } | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } }
-type ToolResult = { content: Content[]; isError?: boolean }
+export type ToolResult = { content: Content[]; isError?: boolean }
 
 const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] })
 const fail = (msg: string): ToolResult => ({ content: [{ type: 'text', text: msg }], isError: true })
@@ -549,6 +550,9 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     if (!c.go) return c.result
     return publicResult(p.id, await unpublishFlow(p, actor))
   })
+
+  // M8: Fix-Assistent (eigene Datei, siehe mcp/fix-tools.ts)
+  registerFixTools({ tool, confirm, actor, ok, fail })
 
   return server
 }
