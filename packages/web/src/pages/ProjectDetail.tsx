@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
-import { StatusBadge, relativeTime, duration } from '../components/Status.js'
+import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
@@ -13,6 +13,7 @@ import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
+import { DeployList, useDeployments } from '../components/DeployList.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
@@ -265,104 +266,25 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 /* --- Deployments ----------------------------------------------------------- */
 
-const DEPLOY_STATUS: Record<string, string> = {
-  pending: 'wartet',
-  pulling: 'holt Quelle',
-  starting: 'startet',
-  healthchecking: 'Healthcheck',
-  active: 'aktiv',
-  superseded: 'abgelöst',
-  failed: 'fehlgeschlagen',
-  rolled_back: 'zurückgerollt',
-}
-
 function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
-  const qc = useQueryClient()
-  const [open, setOpen] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId) })
-  const detail = useQuery({
-    queryKey: ['deployment', open],
-    queryFn: () => api.getDeployment(open!),
-    enabled: open !== null,
-  })
-  const rollback = useMutation({
-    mutationFn: (deploymentId: string) => api.rollback(projectId, deploymentId),
-    onSuccess: (r) => {
-      setConfirming(null)
-      void qc.invalidateQueries({ queryKey: ['deployments', projectId] })
-      onRollback(r.deployment.id)
-    },
-  })
-
+  const list = useDeployments(projectId)
   if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
   const rows = list.data?.deployments ?? []
   if (rows.length === 0) return <p className="state state-empty">Noch kein Deployment.</p>
 
   return (
     <div className="tab-panel">
-      <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr><th>Start</th><th>Version</th><th>Dauer</th><th>Ergebnis</th><th /></tr>
-          </thead>
-          <tbody>
-            {rows.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  {new Date(d.startedAt).toLocaleString('de-CH')}
-                  {d.trigger === 'rollback' && <span className="muted"> · Rollback</span>}
-                </td>
-                <td><code className="version" title={d.version ?? undefined}>{shortVersion(d.version)}</code></td>
-                <td>{duration(d.durationMs)}</td>
-                <td>
-                  {/* Ergebnis als Pille: Punkt + Wort, Farbe nur für aktiv und fehlgeschlagen */}
-                  <span className={`status ${d.status === 'active' ? 'status-running' : d.status === 'failed' ? 'status-failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'status-deploying' : 'status-stopped'}`}>
-                    <span className="status-dot" aria-hidden="true" />{DEPLOY_STATUS[d.status] ?? d.status}
-                  </span>
-                </td>
-                <td className="row-actions">
-                  <button onClick={() => setOpen(open === d.id ? null : d.id)}>
-                    {open === d.id ? 'Log schliessen' : 'Log'}
-                  </button>
-                  {d.canRollback && confirming !== d.id && (
-                    <button onClick={() => setConfirming(d.id)}>Zurückrollen</button>
-                  )}
-                  {confirming === d.id && (
-                    <>
-                      <button
-                        className="button-primary"
-                        disabled={rollback.isPending}
-                        onClick={() => rollback.mutate(d.id)}
-                      >
-                        {rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}
-                      </button>
-                      <button onClick={() => setConfirming(null)}>Abbrechen</button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {rollback.isError && (
-        <p role="alert" className="error">
-          {rollback.error instanceof ApiError && rollback.error.status === 409
-            ? 'Für dieses Projekt läuft bereits ein Deploy.'
-            : (rollback.error as Error).message}
-        </p>
-      )}
-      <p className="hint">
+      <section className="panel panel-pad ov-section" aria-labelledby="dl-all">
+        <div className="ov-head">
+          <h2 className="ov-title" id="dl-all">Deployments</h2>
+          <span className="muted num">{rows[0]?.seq ?? rows.length} insgesamt</span>
+        </div>
+        <DeployList projectId={projectId} rows={rows} withLog onRollback={onRollback} />
+      </section>
+      <p className="hint dl-hint">
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
-
-      {open && (
-        <pre className="log" aria-label="Deployment-Log">
-          {detail.isLoading ? 'Log wird geladen…' : detail.data?.log || 'Kein Log vorhanden.'}
-        </pre>
-      )}
     </div>
   )
 }

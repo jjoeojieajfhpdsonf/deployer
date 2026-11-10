@@ -40,6 +40,8 @@ const checks = [
   ['warn', ['surface-3'], 3, 'Statusbalken'],
   ['bad', ['surface-3'], 3, 'Statusbalken'],
   ['info', ['surface-3'], 3, 'Statusbalken'],
+  // Projektseite: Claude-Funke als Auslöser (Zeichen neben dem Token-Namen)
+  ['claude', ['claude-bg', 'surface', 'surface-2'], 3, 'Auslöser-Zeichen'],
 ]
 
 let fails = 0

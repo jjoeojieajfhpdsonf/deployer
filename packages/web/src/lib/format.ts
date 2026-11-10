@@ -45,6 +45,12 @@ export function duration(ms: number | null): string {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`
 }
 
+/** Dauer eines Deployments: unter einer Sekunde «sofort» (statische Seiten, nur Umschalten) */
+export function deployDuration(ms: number | null): string | null {
+  if (ms === null || ms < 0) return null
+  return ms < 1000 ? 'sofort' : duration(ms)
+}
+
 /** Gigabyte mit Komma, eine Stelle unter 10, sonst ganze Zahl: «6,4», «142» */
 export function gb(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return '–'

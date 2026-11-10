@@ -246,11 +246,41 @@ export const securityProjectId = 'p-kontoauszug'
 
 export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system' }
 
+/**
+ * Deployments mit Grund und Auslöser (Projektseite). Fotoalbum zeigt alle
+ * Fälle: aktiv, gescheitert, Rollback möglich, drei ältere mit gleichem Stand
+ * (Sammelzeile). hallo-welt ist der Fall der Referenz: dreimal derselbe Stand.
+ */
 export function deployments(id: string): DeploymentDto[] {
-  const p = projects.find((x) => x.id === id)!
-  const list = [0, 1, 2, 3, 4].map((n) => dep(id, n + 1))
-  list[1] = { ...list[1]!, status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false }
-  return [p.activeDeployment!, ...list]
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const at = (h: number, secs: number) => ({ startedAt: ago(h), finishedAt: new Date(Date.now() - h + secs * 1000).toISOString(), durationMs: secs * 1000 })
+  if (id === 'p-hallo') {
+    const v = '5a19cd4e8b21'
+    return [
+      { ...p.lastDeployment!, ...at(57 * MIN, 0.4), seq: 3, reason: { kind: 'headers', detail: 'Strict-Transport-Security' }, actor: 'ui:joel', message: 'Erste Version' },
+      dep(id, 2, { version: v, ...at(62 * MIN, 0.3), seq: 2, reason: { kind: 'public', detail: 'hallo-welt.example.ch' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+      dep(id, 1, { version: v, ...at(2 * HOUR, 4), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+    ]
+  }
+  const active = p.activeDeployment!
+  const same = active.version ?? 'a3f9c21d0be4'
+  if (id === 'p-foto') {
+    return [
+      { ...active, seq: 6, reason: { kind: 'auto_merge', detail: 'Galerie lädt Vorschaubilder träge' }, actor: 'system:auto-deploy', message: 'Galerie lädt Vorschaubilder träge' },
+      dep(id, 5, { version: '51c0aa8e2d93', ...at(5 * HOUR, 26), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel', message: 'Bildvorschau mit sharp' }),
+      dep(id, 4, { version: 'e04d17b6c2fa', ...at(26 * HOUR, 44), seq: 4, reason: { kind: 'auto_merge', detail: 'Upload-Grenze auf 20 MB' }, actor: 'system:auto-deploy', message: 'Upload-Grenze auf 20 MB' }),
+      dep(id, 3, { version: '9be20c4d7f11', ...at(3 * DAY, 39), seq: 3, reason: { kind: 'headers', detail: 'X-Frame-Options' }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
+      dep(id, 2, { version: '9be20c4d7f11', ...at(4 * DAY, 41), seq: 2, reason: { kind: 'public', detail: null }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
+      dep(id, 1, { version: '9be20c4d7f11', ...at(9 * DAY, 52), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Alben teilen per Link' }),
+    ]
+  }
+  return [
+    { ...active, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel' },
+    dep(id, 4, { version: same, ...at(9 * HOUR, 37), seq: 4, reason: { kind: 'paused' }, actor: 'token:backup-skript', canRollback: true }),
+    dep(id, 3, { version: '9be20c4d7f11', ...at(2 * DAY, 41), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 3, reason: { kind: 'code', detail: 'Abhängigkeiten aktualisiert' }, actor: 'mcp:claude-code-mac' }),
+    dep(id, 2, { version: 'e04d17b6c2fa', ...at(5 * DAY, 44), seq: 2, reason: { kind: 'rollback' }, actor: 'ui:joel' }),
+    dep(id, 1, { version: '7d2e9f03ab58', ...at(12 * DAY, 58), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+  ]
 }
 
 export const deployLog = [

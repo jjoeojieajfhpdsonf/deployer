@@ -523,6 +523,46 @@ export interface DeploymentDto {
   rollbackOf: string | null
   /** Lässt sich auf diese Fassung zurückrollen (Artefakt noch vorhanden, nicht aktiv)? */
   canRollback: boolean
+  /**
+   * Warum deployt wurde (Titel der Zeile). Neue Einträge speichern ihn beim
+   * Start, ältere leitet die API aus dem Audit-Log ab; ohne Hinweis «redeploy».
+   */
+  reason?: DeployReason
+  /** Wer ausgelöst hat: «ui:…», «token:<Name>», «system:…»; null = unbekannt (alt) */
+  actor?: string | null
+  /** Betreff des Commits dieser Fassung, soweit bekannt (Chat-Projekte, Repo) */
+  message?: string | null
+  /** Laufende Nummer im Projekt (#1 = erstes Deployment) */
+  seq?: number
+}
+
+export const deployReasonKinds = [
+  'first', 'code', 'redeploy', 'rollback', 'recreate', 'headers', 'public', 'internal', 'paused', 'auto_merge', 'start',
+] as const
+export type DeployReasonKind = (typeof deployReasonKinds)[number]
+
+export interface DeployReason {
+  kind: DeployReasonKind
+  /** code/auto_merge: Commit-Nachricht; headers: Header-Name; public: Hostname */
+  detail?: string | null
+}
+
+/** Titel einer Deployment-Zeile aus dem Grund, z. B. «Erstes Deployment», «Hintergrund blau». */
+export function deployReasonTitle(r: DeployReason | undefined | null, message?: string | null): string {
+  const d = r?.detail?.trim()
+  switch (r?.kind) {
+    case 'first': return 'Erstes Deployment'
+    case 'code': return d || message?.trim() || 'Code geändert'
+    case 'auto_merge': return 'Auto-Deploy nach Merge'
+    case 'rollback': return 'Zurückgerollt'
+    case 'recreate': return 'Neu erstellt'
+    case 'headers': return d ? `Header geändert: ${d}` : 'Header geändert'
+    case 'public': return 'Öffentlich gemacht'
+    case 'internal': return 'Erreichbarkeit intern geändert'
+    case 'paused': return 'Öffentlich pausiert'
+    case 'start': return 'Gestartet'
+    default: return 'Neu deployt'
+  }
 }
 
 export interface ProjectDto {

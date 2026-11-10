@@ -244,7 +244,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const req = wantsPublic
       ? await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
       : null
-    const dep = await startDeploy(p.id, actor)
+    const dep = await startDeploy(p.id, actor, undefined, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({
       ...summarize(await toDto(await findProject(p.id))),
@@ -266,7 +266,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     if (a.port) await updateProject(r.project.id, { port: a.port })
     if (!a.deploy) return ok({ commit: r.commit, changed: r.changed })
     if (!r.changed && !a.port) return ok({ commit: r.commit, changed: false, note: 'Keine Änderung, kein Deploy' })
-    const dep = await startDeploy(r.project.id, actor)
+    const dep = await startDeploy(r.project.id, actor, undefined, { via: 'mcp', reason: { kind: 'code', detail: a.message.split('\n')[0]!.trim().slice(0, 120) || null } })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ commit: r.commit, changed: r.changed, ...summarize(await toDto(await findProject(r.project.id))), deploy: result })
   })
@@ -303,7 +303,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('deploy', 'Neu deployen (optional mit Branch, Tag oder Commit)', {
     project, ref: z.string().max(255).optional(), wait,
   }, async (a) => {
-    const dep = await startDeploy(a.project, actor, a.ref)
+    const dep = await startDeploy(a.project, actor, a.ref, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ ...summarize(await toDto(await findProject(a.project))), deploy: result })
   })
@@ -328,7 +328,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const p = await findProject(a.project)
     const c = await confirm('rollback', { project: p.id, version: a.version ?? null, confirmation_token: a.confirmation_token }, `Projekt "${p.name}" auf ${a.version ? `Fassung ${a.version}` : 'die vorherige Fassung'} zurückrollen?`)
     if (!c.go) return c.result
-    const dep = await startRollback(p.id, actor, a.version)
+    const dep = await startRollback(p.id, actor, a.version, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ ...summarize(await toDto(await findProject(p.id))), deploy: result })
   })

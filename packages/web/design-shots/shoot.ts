@@ -95,12 +95,15 @@ type Shot = {
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
   legacy?: boolean
   prepare?: (page: Page) => Promise<void>
+  /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
+  el?: string
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
 const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
+const H = 'p-hallo'
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
@@ -359,6 +362,17 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
+  // Projektseite im neuen Design (docs/design-cal/ui-projektseite)
+  { group: 'p1', name: '1-deployments-karte-container', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-deploys"]' },
+  { group: 'p1', name: '1-deployments-karte-statisch', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-deploys"]' },
+  {
+    group: 'p1', name: '1-deployments-reiter-aufgeklappt', path: `/projekte/${P}?tab=deployments`,
+    prepare: async (pg) => {
+      await pg.locator('.dl-group-toggle').first().click()
+      await pg.getByRole('button', { name: 'Zurückrollen' }).first().click()
+      await pg.waitForTimeout(300)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -416,7 +430,14 @@ try {
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)
       const file = join(outDir, `${s.name}-${theme}.png`)
-      await page.screenshot({ path: file, fullPage: s.full !== false })
+      if (s.el) {
+        const box = await page.locator(s.el).first().boundingBox()
+        if (!box) throw new Error(`${s.name}: ${s.el} nicht gefunden`)
+        const pad = 24
+        await page.screenshot({ path: file, fullPage: true, clip: { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + 2 * pad, height: box.height + 2 * pad } })
+      } else {
+        await page.screenshot({ path: file, fullPage: s.full !== false })
+      }
       n++
       console.log(`✓ ${file.replace(repo + '/', '')}`)
       await ctx.close()

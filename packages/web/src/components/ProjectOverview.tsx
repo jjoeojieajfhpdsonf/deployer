@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
-import { api, ApiError, probeUrl } from '../api.js'
-import { duration, relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
+import { api, probeUrl } from '../api.js'
+import { relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
 import { GradeBadge, SeverityChips, SEVERITY_LABEL, IconWarn } from './Security.js'
+import { DeployList, useDeployments } from './DeployList.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -16,11 +17,6 @@ const IconBad = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 
 const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
 const IconCheck = () => <svg {...svg}><path d="m3.5 8.5 3 3 6-7" /></svg>
-
-const DEPLOY_STATUS: Record<string, string> = {
-  pending: 'wartet', pulling: 'holt Quelle', starting: 'startet', healthchecking: 'Healthcheck',
-  active: 'aktiv', superseded: 'abgelöst', failed: 'fehlgeschlagen', rolled_back: 'zurückgerollt',
-}
 
 /** Läuft der Container der aktiven Fassung wirklich? (für Kopf und Übersicht) */
 export function useProjectHealth(p: ProjectDto) {
@@ -288,60 +284,19 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
 /* --- Deployments ------------------------------------------------------------ */
 
 function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; onTab: (t: Tab) => void; onRollback: (id: string) => void }) {
-  const qc = useQueryClient()
-  const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: 10_000 })
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const rollback = useMutation({
-    mutationFn: (id: string) => api.rollback(projectId, id),
-    onSuccess: (r) => {
-      setConfirming(null)
-      void qc.invalidateQueries({ queryKey: ['deployments', projectId] })
-      onRollback(r.deployment.id)
-    },
-  })
-  const rows = (list.data?.deployments ?? []).slice(0, 5)
-  const total = list.data?.deployments.length ?? 0
+  const list = useDeployments(projectId)
+  const rows = list.data?.deployments ?? []
+  const total = rows[0]?.seq ?? rows.length
 
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-deploys">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-deploys">Deployments</h2>
-        {total > 5 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
+        {total > 0 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
       </div>
       {list.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : rows.length === 0 ? <p className="muted ov-empty">Noch kein Deployment.</p> : (
-        <ol className="timeline">
-          {rows.map((d) => {
-            const state = d.isActive ? 'active' : d.status === 'failed' ? 'failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'busy' : 'past'
-            return (
-              <li key={d.id} className={`tl tl-${state}`}>
-                <span className="tl-mark" aria-hidden="true">{state === 'active' ? <IconOk /> : state === 'failed' ? <IconBad /> : state === 'busy' ? <IconPending /> : <span className="tl-dot" />}</span>
-                <div className="tl-body">
-                  <div className="tl-line">
-                    {d.version ? <code className="version" title={d.version}>{shortVersion(d.version)}</code> : <span className="muted">ohne Fassung</span>}
-                    <span className={`tl-status tl-status-${state}`}>{d.isActive ? 'aktiv' : DEPLOY_STATUS[d.status] ?? d.status}</span>
-                    {d.trigger === 'rollback' && <span className="muted">Rollback</span>}
-                  </div>
-                  <div className="tl-meta">
-                    <time dateTime={d.startedAt} title={new Date(d.startedAt).toLocaleString('de-CH')}>{relativeTime(d.startedAt)}</time>
-                    {d.durationMs !== null && <> · {duration(d.durationMs)}</>}
-                    {d.status === 'failed' && d.errorMessage && <> · <span className="tl-error">{d.errorMessage.split('\n')[0]}</span></>}
-                  </div>
-                </div>
-                <div className="tl-actions">
-                  {d.canRollback && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
-                  {confirming === d.id && (
-                    <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
-                      <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} autoFocus>{rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}</button>
-                      <button type="button" className="button-small" onClick={() => setConfirming(null)}>Abbrechen</button>
-                    </span>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ol>
+        <DeployList projectId={projectId} rows={rows} limit={5} onRollback={onRollback} />
       )}
-      {rollback.isError && <p role="alert" className="error-inline">{rollback.error instanceof ApiError && rollback.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (rollback.error as Error).message}</p>}
     </section>
   )
 }

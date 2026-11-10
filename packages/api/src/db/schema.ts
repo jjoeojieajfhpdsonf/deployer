@@ -2,7 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
-import type { ScanStageDto, PausePage } from '@airlock/shared'
+import type { ScanStageDto, PausePage, DeployReason } from '@airlock/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -69,6 +69,10 @@ export const deployments = pgTable(
     artifact: jsonb('artifact').$type<DeploymentArtifact>().notNull().default({}),
     trigger: text('trigger').$type<'deploy' | 'rollback'>().notNull().default('deploy'),
     rollbackOf: uuid('rollback_of'),
+    // Projektseite (Migration 0016): Grund, Auslöser, Commit-Betreff
+    reason: jsonb('reason').$type<DeployReason>(),
+    actor: text('actor'),
+    message: text('message'),
   },
   (t) => [index('deployments_project_started').on(t.projectId, t.startedAt)],
 )
