@@ -1,6 +1,8 @@
 import { toast } from 'sonner'
 import { MutationCache, type Mutation } from '@tanstack/react-query'
 import { errorReason } from '../components/States.js'
+import { ApiError } from '../api.js'
+import { isUnreachable } from './connection.js'
 
 /**
  * Rückmeldung bei Aktionen, ein Muster für die ganze App:
@@ -37,7 +39,7 @@ export function notifyError(title: string, err: unknown, opts: { action?: Action
  *   errorTitle  – Titel des Fehler-Toasts («Nicht gespeichert»)
  *   quiet       – die Stelle zeigt den Fehler selbst (Feldfehler, eigener Toast)
  */
-export interface FeedbackMeta { errorTitle?: string; quiet?: boolean }
+export interface FeedbackMeta { errorTitle?: string; quiet?: boolean; noRetry?: boolean }
 
 declare module '@tanstack/react-query' {
   interface Register { mutationMeta: FeedbackMeta }
@@ -54,8 +56,12 @@ export function mutationCacheWithToasts(): MutationCache {
       if (meta.quiet) return
       const details = (err as { details?: unknown } | null)?.details
       if (Array.isArray(details) && details.length) return
+      // «Erneut versuchen» nur, wo ein zweiter Versuch helfen kann (Server weg, 5xx) und nie bei
+      // zerstörerischen Aktionen (meta.noRetry); bei 400/403/404/409 ändert Wiederholen nichts
+      const status = err instanceof ApiError ? err.status : null
+      const retryable = !meta.noRetry && (isUnreachable(err) || (status !== null && status >= 500))
       notifyError(meta.errorTitle ?? 'Aktion fehlgeschlagen', err, {
-        action: { label: 'Erneut versuchen', onClick: () => void mutation.execute(variables).catch(() => {}) },
+        action: retryable ? { label: 'Erneut versuchen', onClick: () => void mutation.execute(variables).catch(() => {}) } : undefined,
       })
     },
   })

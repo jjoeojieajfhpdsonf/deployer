@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { NavLink, Route, Routes, Navigate, Link, useLocation } from 'react-router-dom'
+import { NavLink, Route, Routes, Navigate, Link, useLocation, useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary.js'
 import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
@@ -84,7 +84,7 @@ export function App() {
           <Route path="/" element={<Navigate to="/projekte" replace />} />
           <Route path="/projekte" element={<Projects />} />
           <Route path="/projekte/neu" element={<NewProject />} />
-          <Route path="/projekte/:id" element={<ProjectDetail />} />
+          <Route path="/projekte/:id" element={<ProjectDetailRoute />} />
           <Route path="/security" element={<SecurityOverview />} />
           <Route path="/domains" element={<Domains />} />
           <Route path="/extern" element={<ExternalTargets />} />
@@ -171,6 +171,15 @@ function Rail() {
       </div>
     </aside>
   )
+}
+
+/**
+ * Eine Projektseite pro Projekt (key): Aktionen und «Rückgängig» behalten
+ * ihr Projekt, auch wenn inzwischen ein anderes offen ist.
+ */
+function ProjectDetailRoute() {
+  const { id = '' } = useParams()
+  return <ProjectDetail key={id} />
 }
 
 function NotFound() {

@@ -470,7 +470,7 @@ function CertSummary({ s }: { s: CfStatusDto }) {
 
 function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void; onReplaceToken: () => void }) {
   const [confirm, setConfirm] = useState(false)
-  const disconnect = useMutation({ mutationFn: api.cloudflareDisconnect, onSuccess: (st) => { setConfirm(false); onChanged(st) } })
+  const disconnect = useMutation({ meta: { errorTitle: 'Cloudflare nicht getrennt', noRetry: true }, mutationFn: api.cloudflareDisconnect, onSuccess: (st) => { setConfirm(false); onChanged(st) } })
   return (
     <section className="cf-manage" aria-labelledby="cf-manage-title">
       <h3 id="cf-manage-title">Verbindung</h3>

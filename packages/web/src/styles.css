@@ -365,17 +365,20 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 /* Drehender Ring: zeigt «läuft» zusammen mit Zahl und Wort; ohne Bewegung ein ruhiger Ring */
 .activity-spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface-3); border-top-color: var(--ink); }
 @media (prefers-reduced-motion: no-preference) {
-  .activity-spinner { animation: stage-spin 900ms linear infinite; }
+  .activity-spinner { animation: stage-spin 1.1s linear infinite; }
 }
 .activity-indicator .menu-list { min-width: 320px; }
-.menu-list a.activity-row { display: grid; gap: 2px; padding: 10px var(--sp-3); }
+/* Grid mit einer vollen Spalte: sonst schrumpft die Zeile auf ihren Inhalt und die Balken sind ungleich lang */
+.menu-list a.activity-row { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 2px; padding: 10px var(--sp-3); }
 .activity-row-title { font-weight: 500; color: var(--ink); }
 .activity-row-detail { font-size: var(--fs-13); color: var(--muted); }
 .activity-bar { display: block; height: 4px; margin-top: 6px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
 .activity-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ink); }
-.activity-bar-open > span { width: 30%; }
+/* Fortschritt unbekannt: ohne Bewegung die ganze Spur blass (kein Teilbalken, der wie 30 % aussähe),
+   sonst ein wandernder Abschnitt in gleichmässigem Tempo */
+.activity-bar-open > span { width: 100%; opacity: 0.35; }
 @media (prefers-reduced-motion: no-preference) {
-  .activity-bar-open > span { animation: activity-slide 1.4s var(--ease-out) infinite; }
+  .activity-bar-open > span { width: 30%; opacity: 1; animation: activity-slide 1.4s ease-in-out infinite; }
 }
 @keyframes activity-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .activity-empty { margin: 0; padding: var(--sp-2) var(--sp-3) var(--sp-3); font-size: var(--fs-14); color: var(--muted); }
@@ -473,7 +476,8 @@ button[aria-busy='true']::after {
   border-top-color: var(--busy-ink, var(--ink));
 }
 @media (prefers-reduced-motion: no-preference) {
-  button[aria-busy='true']::after { animation: stage-spin 800ms linear infinite; }
+  /* Ein Tempo für alle Ringe (Knopf, Kopf, Scan-Stufen) */
+  button[aria-busy='true']::after { animation: stage-spin 1.1s linear infinite; }
 }
 button.button-primary[aria-busy='true']:disabled { background: var(--primary); border-color: var(--primary); box-shadow: var(--sh-btn-primary); --busy-ink: var(--primary-ink); --busy-track: var(--primary-highlight); }
 button.button-danger-solid[aria-busy='true']:disabled { background: var(--bad); border-color: var(--bad); --busy-ink: var(--primary-ink); --busy-track: var(--primary-highlight); }

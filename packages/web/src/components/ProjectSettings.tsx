@@ -308,7 +308,7 @@ function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDel
   const [purge, setPurge] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
   const ref = useRef<HTMLElement>(null)
-  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht' } })
+  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht', noRetry: true } })
   useEffect(() => {
     if (!requested) return
     setOpen(true)

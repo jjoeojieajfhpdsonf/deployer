@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { CfStatusDto } from '@airlock/shared'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useActivities, type RunningActivity } from '../lib/activities.js'
@@ -17,10 +18,19 @@ import { useMenu } from './useMenu.js'
 export function ActivityIndicator() {
   const list = useActivities()
   const id = useId()
-  const { open, toggle, close, rootRef, triggerRef, listProps } = useMenu()
+  const { open, shown, toggle, close, rootRef, triggerRef, listProps } = useMenu()
   useFinishedToasts(list)
   const n = list.length
-  if (n === 0 && !open) return null
+  // Verschwinden erst, wenn das Menü fertig geschlossen ist; lag der Fokus auf
+  // dem Auslöser, geht er vorher zum Profil (statt ins Leere auf <body>)
+  const [gone, setGone] = useState(n === 0)
+  useEffect(() => {
+    if (n > 0) { setGone(false); return }
+    if (shown) return
+    if (document.activeElement === triggerRef.current) document.querySelector<HTMLElement>('.profile-trigger')?.focus()
+    setGone(true)
+  }, [n, shown, triggerRef])
+  if (gone && n === 0) return null
   return (
     <div className="menu activity-indicator" ref={rootRef}>
       <button
@@ -86,6 +96,7 @@ function useFinishedToasts(list: RunningActivity[]) {
   const prev = useRef<Map<string, RunningActivity> | null>(null)
   const projects = useProjects()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   useEffect(() => {
     const now = new Map(list.map((a) => [a.key, a]))
     const before = prev.current
@@ -94,7 +105,11 @@ function useFinishedToasts(list: RunningActivity[]) {
     for (const [key, a] of before) {
       if (now.has(key)) continue
       const p = projects.data?.projects.find((x) => x.id === a.projectId)
-      if (a.kind === 'deploy' && p) {
+      if (a.kind === 'cert') {
+        const tls = qc.getQueryData<CfStatusDto>(['cloudflare'])?.tls
+        if (tls?.phase === 'done') notifyOk('Zertifikat eingerichtet', { id: key, description: 'Interne Adressen laufen jetzt über https.', action: { label: 'Ansehen', onClick: () => navigate('/system/cloudflare') } })
+        else if (tls?.phase === 'failed') notifyError('Zertifikat gescheitert', new Error(tls.steps.at(-1)?.text ?? 'Let’s Encrypt hat kein Zertifikat ausgestellt.'), { id: key, action: { label: 'Ansehen', onClick: () => navigate('/system/cloudflare') } })
+      } else if (a.kind === 'deploy' && p) {
         const d = p.lastDeployment
         if (d?.status === 'failed') {
           notifyError(`Deploy gescheitert · ${p.name}`, new Error(d.errorMessage ?? 'Der neue Stand ist nicht live gegangen.'), {
@@ -116,5 +131,5 @@ function useFinishedToasts(list: RunningActivity[]) {
         }
       }
     }
-  }, [list, projects.data, navigate])
+  }, [list, projects.data, navigate, qc])
 }

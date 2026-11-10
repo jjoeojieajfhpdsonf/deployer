@@ -80,7 +80,7 @@ export function GithubSetup() {
     },
   })
   const disconnect = useMutation({
-    meta: { errorTitle: 'GitHub nicht getrennt' },
+    meta: { errorTitle: 'GitHub nicht getrennt', noRetry: true },
     mutationFn: api.githubDisconnect,
     onSuccess: () => {
       setConfirmDisconnect(false)
