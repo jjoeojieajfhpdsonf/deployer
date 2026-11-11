@@ -619,7 +619,7 @@ export function demuxDockerLog(buf: Buffer): string {
 
 export async function getLogs(
   id: string,
-  opts: { tail?: number; since?: number } = {},
+  opts: { tail?: number; since?: number; timestamps?: boolean } = {},
 ): Promise<string> {
   try {
     const buf = (await docker.getContainer(id).logs({
@@ -627,7 +627,7 @@ export async function getLogs(
       stderr: true,
       tail: opts.tail ?? 200,
       ...(opts.since ? { since: opts.since } : {}),
-      timestamps: false,
+      timestamps: opts.timestamps ?? false,
     })) as unknown as Buffer
     return demuxDockerLog(Buffer.from(buf))
   } catch (err) {
@@ -638,12 +638,13 @@ export async function getLogs(
   }
 }
 
-export async function followLogs(id: string, since?: number): Promise<Readable> {
+export async function followLogs(id: string, since?: number, o: { tail?: number; timestamps?: boolean } = {}): Promise<Readable> {
   return (await docker.getContainer(id).logs({
     stdout: true,
     stderr: true,
     follow: true,
-    tail: 100,
+    tail: o.tail ?? 100,
+    timestamps: o.timestamps ?? false,
     ...(since ? { since } : {}),
   })) as unknown as Readable
 }

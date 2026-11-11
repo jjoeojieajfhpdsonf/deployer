@@ -46,6 +46,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/log-lines$/))) return { body: fx.logLines(m[1]!, u.searchParams.get('service')) }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/access$/))) return { body: fx.siteAccess(m[1]!) }
   if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
@@ -135,6 +136,20 @@ const shots: Shot[] = [
   },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
+  // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand
+  {
+    group: 'logs', name: 'logs-suche', path: `/projekte/${P}?tab=logs`, full: false, el: '.logs',
+    prepare: async (pg) => {
+      await pg.getByRole('searchbox', { name: 'Im Log suchen' }).fill('vorschau')
+      await pg.getByRole('button', { name: 'Zeilennummern' }).click()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'logs', name: 'logs-fehler', path: `/projekte/${P}?tab=logs`, full: false, el: '.logs',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Warnungen und Fehler' }).click(); await pg.waitForTimeout(150) },
+  },
+  { group: 'logs', name: 'logs-leer', path: `/projekte/${W}?tab=logs`, full: false, el: '.logs' },
   { group: 'projekte', name: 'projekt-security', path: `/projekte/${S}?tab=security` },
   { group: 'security', name: 'projekt-security-laeuft', path: `/projekte/${fx.runningScanProjectId}?tab=security` },
   {
@@ -563,6 +578,19 @@ export const contextOptions = (t: 'light' | 'dark') => ({
  */
 export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | 'dark', port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
+      // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
+      await ctx.addInitScript({ content: `(() => {
+        const Real = window.EventSource
+        window.EventSource = function (url, init) {
+          if (!/\\/(logs|access)\\/stream/.test(String(url))) return new Real(url, init)
+          const es = { url: String(url), readyState: 0, onopen: null, onmessage: null, onerror: null,
+            addEventListener() {}, removeEventListener() {}, close() { es.readyState = 2 } }
+          setTimeout(() => { es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          return es
+        }
+        window.EventSource.CLOSED = 2; window.EventSource.OPEN = 1; window.EventSource.CONNECTING = 0
+      })()` })
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {

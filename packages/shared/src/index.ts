@@ -1170,3 +1170,6 @@ export * from './pause-page.js'
 
 /* UI-Qualität 2: Fehler erklären – eine Erklärung für Oberfläche und MCP */
 export * from './failure.js'
+
+/* UI-Qualität 4: Logzeilen mit Zeit, Dienst und Stufe */
+export * from './logs.js'

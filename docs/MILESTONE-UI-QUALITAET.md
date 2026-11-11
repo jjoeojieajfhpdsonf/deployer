@@ -19,7 +19,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | 1 | Widersprüche in den Daten: ein Projektzustand vom Server, eine Befundzählung, Stufen | erledigt; Header-Themen nur in ZAP offen, Frage Nr. 7 |
 | 2 | Fehler erklären: Muster aus Build-/Container-Log und Healthcheck, auch im MCP-Ergebnis | erledigt; Ändern von Port/RAM ausserhalb der Fehlerbox offen, Frage Nr. 8 |
 | 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | erledigt |
-| 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | geplant |
+| 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | erledigt |
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | geplant |
 | 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | geplant |
 | 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | geplant |
@@ -196,6 +196,25 @@ Befunde aus dem Gutachten (behoben):
   Herunterladen, Zeitraum (15 Min., 1 Std., 24 Std.). Ortszeit (Schweizer Format), UTC im Tooltip.
   WARN/ERROR farbig und mit Wort, Zeilennummern optional. Compose: Dienst wählen, Dienstname als
   Spalte. Statische Seiten: «Zugriffe» im gleichen Muster. Leerer Zustand statt leerem Kasten.
+
+Umsetzung:
+- Server: `GET /projects/:id/log-lines?range=15m|1h|24h&service=` liefert Zeilen mit Zeit (UTC von
+  Docker, `timestamps: true`), Dienst und erkannter Stufe (`shared/logs.ts`: Wörter, logfmt, JSON/
+  pino, Traceback). Compose: alle laufenden Dienste des Projekts (`domain/logs.ts`), nach Zeit
+  gemischt, höchstens 2000 Zeilen. Der Live-Strom sendet dieselben Zeilen, nur neue (tail 0 – vorher
+  standen bis zu 100 Zeilen doppelt), für einen oder alle Dienste.
+- Zugriffe: `?range=` und neu `GET /projects/:id/access/stream` (Caddys Log live, gefiltert auf
+  die Adressen des Projekts) – damit pollt auch dieser Reiter nicht mehr.
+- Oberfläche: gemeinsame Werkzeugleiste (`LogTools.tsx`): Suche mit Hervorhebung, Filter (Stufe
+  bzw. Statusklasse), Zeitraum, Live/Pausiert (pausiert sammeln sich neue Zeilen: «Pausiert · 3
+  neu», Fortsetzen hängt sie an), Herunterladen (gefilterte Zeilen; Logs als .log, Zugriffe als
+  CSV). Logs zusätzlich: Zeilenumbruch und Zeilennummern (pro Browser gemerkt), Dienst-Auswahl und
+  Dienst-Spalte bei Compose. Zeit in Ortszeit (Schweizer Format), UTC im Tooltip (`fmtUtc`). WARN/
+  ERROR als Wort mit Farbe und getönter Zeile. Wer hochscrollt, wird nicht ans Ende gerissen.
+  Bricht der Live-Strom ab, steht es in der Kopfzeile.
+- Leere Zustände: keine Ausgabe in der Zeitspanne (mit «Letzte 24 Std. zeigen»), Suche/Filter ohne
+  Treffer (mit «Filter zurücksetzen»), kein Container (Hinweis).
+- Neue Szenen: `logs-suche`, `logs-fehler`, `logs-leer`; Bilder `projekt-logs`, `5-zugriffe` neu.
 
 ### 5 – Neues Projekt
 - Validierung erst beim Verlassen eines Feldes bzw. beim Absenden. Platzhalter und Fehlermeldung mit

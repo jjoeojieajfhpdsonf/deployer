@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
-import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
+import { api, ApiError, type ProjectDto } from '../api.js'
+import { LogsTab } from '../components/LogsTab.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
@@ -241,7 +242,7 @@ export function ProjectDetail() {
           }}
         />
       )}
-      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} /> : <LiveLogs projectId={id} />)}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : <LogsTab projectId={id} slug={p.slug} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings
@@ -334,46 +335,6 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
-    </div>
-  )
-}
-
-/* --- Live-Logs --------------------------------------------------------------- */
-
-function LiveLogs({ projectId }: { projectId: string }) {
-  const [lines, setLines] = useState<string[]>([])
-  const [error, setError] = useState<unknown>(null)
-  const [loaded, setLoaded] = useState(false)
-  const [attempt, setAttempt] = useState(0)
-  const ref = useRef<HTMLPreElement>(null)
-
-  useEffect(() => {
-    setLines([])
-    setError(null)
-    setLoaded(false)
-    void api
-      .getLogs(projectId, 200)
-      .then((r) => { setLines(r.logs ? r.logs.split('\n') : r.hint ? [r.hint] : []); setLoaded(true) })
-      .catch((e: unknown) => setError(e))
-    return subscribeLogs(projectId, (line) => setLines((l) => [...l.slice(-1000), line]))
-  }, [projectId, attempt])
-
-  useEffect(() => {
-    ref.current?.scrollTo({ top: ref.current.scrollHeight })
-  }, [lines])
-
-  if (error) return <ErrorState what="Das Log" error={error} onRetry={() => setAttempt((n) => n + 1)} />
-  if (!loaded && lines.length === 0) return <Loading label="Log wird geladen"><SkLog n={12} /></Loading>
-
-  return (
-    <div className="tab-panel">
-      {lines.length === 0 ? (
-        <EmptyState title="Noch keine Ausgabe">
-          Neue Zeilen erscheinen hier live, sobald der Container etwas schreibt. Läuft er nicht, starte ihn über «⋯» oben rechts.
-        </EmptyState>
-      ) : (
-        <pre className="log log-tall" ref={ref} aria-label="Container-Log">{lines.join('\n')}</pre>
-      )}
     </div>
   )
 }

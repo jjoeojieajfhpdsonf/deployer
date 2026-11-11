@@ -81,6 +81,20 @@ export const fmtDayMonth = (v: string | number | Date | null | undefined, fallba
 export const fmtTime = (v: string | number | Date | null | undefined, seconds = false, fallback = '–') =>
   fmt(v, seconds ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' }, fallback)
 
+/** «10.11.2026, 13:46:01 UTC» – derselbe Zeitpunkt in UTC (Tooltip neben der Ortszeit, UI-Qualität 4) */
+export const fmtUtc = (v: string | number | Date | null | undefined, fallback = '–') => {
+  const s = fmt(v, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }, fallback)
+  return s === fallback ? s : `${s} UTC`
+}
+
+/** Zeitstempel für Dateinamen und Downloads: «2026-11-10 14:46:01» in Ortszeit */
+export const fmtStamp = (v: string | number | Date | null | undefined, fallback = '') => {
+  const d = dateOf(v)
+  if (!d) return fallback
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 /** «Mittwoch, 11. November» – für Tagesüberschriften. */
 export const fmtWeekday = (v: string | number | Date | null | undefined, withYear = false, fallback = '–') =>
   fmt(v, withYear ? { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } : { weekday: 'long', day: 'numeric', month: 'long' }, fallback)

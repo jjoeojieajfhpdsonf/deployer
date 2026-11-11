@@ -1,7 +1,11 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { Readable } from 'node:stream'
 import {
   createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
+  parseDockerLines, rangeMinutes,
 } from '@airlock/shared'
+import { logSources, readLogLines } from '../../domain/logs.js'
+import { trackStream } from '../../lib/events.js'
 import { checkSourceEarly } from '../../domain/source-checks.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import {
@@ -224,6 +228,15 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   /* --- Logs ---------------------------------------------------------------- */
 
+  /**
+   * UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe für den Reiter «Logs».
+   * range: 15m | 1h | 24h; service: ein Compose-Dienst (sonst alle, nach Zeit gemischt).
+   */
+  app.get<{ Params: IdParams; Querystring: { range?: string; service?: string } }>('/projects/:id/log-lines', async (request) => {
+    const project = await findProject(request.params.id)
+    return readLogLines(project, { minutes: rangeMinutes(request.query.range), service: request.query.service || null })
+  })
+
   app.get<{ Params: IdParams; Querystring: { lines?: string; since?: string } }>(
     '/projects/:id/logs',
     async (request) => {
@@ -242,11 +255,11 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
    * Projektseite, Reiter «Zugriffe»: Aufrufe einer statischen Seite aus
    * Caddys Zugriffs-Log (letzte 24 Stunden, höchstens 500, IP gekürzt).
    */
-  app.get<{ Params: IdParams }>('/projects/:id/access', async (request) => {
+  // UI-Qualität 4: Zeitraum wählbar (15m, 1h, 24h; Standard wie bisher 24 Stunden)
+  app.get<{ Params: IdParams; Querystring: { range?: string } }>('/projects/:id/access', async (request) => {
     const project = await findProject(request.params.id)
-    const routes = await routeDtosFor(project.id, project.slug)
-    const hosts = routes.flatMap((r) => [r.hostname, ...r.aliases])
-    const sinceMs = Date.now() - 24 * 60 * 60_000
+    const hosts = await siteHosts(project)
+    const sinceMs = Date.now() - (request.query.range ? rangeMinutes(request.query.range) : 24 * 60) * 60_000
     try {
       const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
       return { entries: parseSiteAccess(logs, { hosts, sinceMs }), since: new Date(sinceMs).toISOString(), error: null }
@@ -255,38 +268,84 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  app.get<{ Params: IdParams }>('/projects/:id/logs/stream', async (request, reply) => {
+  /** UI-Qualität 4: neue Zugriffe live (wie der Reiter «Logs»), aus Caddys Log gefiltert auf die Adressen des Projekts */
+  app.get<{ Params: IdParams }>('/projects/:id/access/stream', async (request, reply) => {
     const project = await findProject(request.params.id)
-    const active = await activeDeployment(project.id)
-    if (!active?.containerId) throw notFound('Laufender Container')
-
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    })
-
-    const stream = await docker.followLogs(active.containerId)
+    const hosts = await siteHosts(project)
+    const stream = await docker.followLogs(config.CADDY_CONTAINER, undefined, { tail: 0 })
+    openSse(reply)
+    let rest = ''
     const send = (chunk: Buffer) => {
-      const text = docker.demuxDockerLog(chunk)
-      for (const line of text.split('\n')) {
-        if (line.length) reply.raw.write(`data: ${JSON.stringify(line)}\n\n`)
-      }
+      // Caddy schreibt JSON-Zeilen; ein Stück kann mitten in einer Zeile enden
+      const text = rest + docker.demuxDockerLog(chunk)
+      const cut = text.lastIndexOf('\n')
+      rest = cut < 0 ? text : text.slice(cut + 1)
+      if (cut < 0) return
+      for (const e of parseSiteAccess(text.slice(0, cut), { hosts, sinceMs: 0 })) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`)
     }
-    stream.on('data', send)
-
-    const keepalive = setInterval(() => reply.raw.write(': ping\n\n'), 20_000)
-    const close = () => {
-      clearInterval(keepalive)
-      stream.removeListener('data', send)
-      ;(stream as unknown as { destroy?: () => void }).destroy?.()
-      reply.raw.end()
-    }
-    request.raw.on('close', close)
-    stream.on('end', close)
-    stream.on('error', close)
-
+    followUntilClosed(request, reply, [stream], send)
     return reply
   })
+
+  /**
+   * Neue Zeilen live, als LogLineDto (Zeit, Dienst, Stufe). Nur neue Zeilen
+   * (tail 0) – den Stand davor holt die Oberfläche über /log-lines, sonst
+   * stünden Zeilen doppelt. Compose: alle Dienste oder ?service=.
+   */
+  app.get<{ Params: IdParams; Querystring: { service?: string } }>('/projects/:id/logs/stream', async (request, reply) => {
+    const project = await findProject(request.params.id)
+    const sources = (await logSources(project)).filter((s) => !request.query.service || s.service === request.query.service)
+    if (!sources.length) throw notFound('Laufender Container')
+    const streams = await Promise.all(sources.map((s) => docker.followLogs(s.containerId, undefined, { tail: 0, timestamps: true })))
+    openSse(reply)
+    followUntilClosed(request, reply, streams, (chunk, i) => {
+      for (const l of parseDockerLines(docker.demuxDockerLog(chunk), sources[i]!.service)) reply.raw.write(`data: ${JSON.stringify(l)}\n\n`)
+    })
+    return reply
+  })
+}
+
+/** Adressen einer statischen Seite (für das Zugriffs-Log) */
+async function siteHosts(project: { id: string; slug: string }): Promise<string[]> {
+  const routes = await routeDtosFor(project.id, project.slug)
+  return routes.flatMap((r) => [r.hostname, ...r.aliases])
+}
+
+function openSse(reply: FastifyReply): void {
+  reply.raw.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+}
+
+/**
+ * Docker-Ströme an eine SSE-Antwort hängen, mit Herzschlag; alles schliesst,
+ * sobald der Browser geht oder ein Strom endet. Nach dem Ende wird nichts
+ * mehr geschrieben.
+ */
+function followUntilClosed(request: FastifyRequest, reply: FastifyReply, streams: Readable[], send: (chunk: Buffer, i: number) => void): void {
+  let closed = false
+  const handlers = streams.map((s, i) => {
+    const h = (chunk: Buffer) => { if (!closed) send(chunk, i) }
+    s.on('data', h)
+    return h
+  })
+  const keepalive = setInterval(() => { if (!closed) reply.raw.write(': ping\n\n') }, 20_000)
+  const close = () => {
+    if (closed) return
+    closed = true
+    clearInterval(keepalive)
+    untrack()
+    streams.forEach((s, i) => {
+      s.removeListener('data', handlers[i]!)
+      ;(s as unknown as { destroy?: () => void }).destroy?.()
+    })
+    reply.raw.end()
+  }
+  // Beim Herunterfahren schliessen (sonst wartet app.close())
+  const untrack = trackStream(close)
+  request.raw.on('close', close)
+  for (const s of streams) { s.on('end', close); s.on('error', close) }
 }

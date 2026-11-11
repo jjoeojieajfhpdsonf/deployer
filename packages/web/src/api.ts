@@ -4,6 +4,8 @@ import type {
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
   SiteAccessEntryDto,
+  LogLineDto,
+  LogLinesDto,
 } from '@airlock/shared'
 
 export type {
@@ -187,7 +189,10 @@ export const api = {
 
   /* Dateien eines Chat-Projekts (M3) */
   /** Statische Seiten: Aufrufe aus Caddys Zugriffs-Log (24 Stunden) */
-  siteAccess: (id: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access`),
+  siteAccess: (id: string, range?: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access${range ? `?range=${range}` : ''}`),
+  /** UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe */
+  logLines: (id: string, range: string, service: string | null) =>
+    call<LogLinesDto>(`/projects/${id}/log-lines?range=${range}${service ? `&service=${encodeURIComponent(service)}` : ''}`),
   listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
 
   /* Security (M6) */
@@ -278,16 +283,30 @@ export function subscribeDeployment(id: string, onEvent: (e: DeployEvent) => voi
   return () => es.close()
 }
 
-export function subscribeLogs(projectId: string, onLine: (line: string) => void): () => void {
-  const es = new EventSource(`/api/v1/projects/${projectId}/logs/stream`)
+/**
+ * UI-Qualität 4: neue Zeilen live (Zeit, Dienst, Stufe). onState meldet, ob
+ * der Strom offen ist – bricht er ab, zeigt der Reiter es an, statt still zu stehen.
+ */
+export function subscribeLogs(projectId: string, service: string | null, onLine: (line: LogLineDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<LogLineDto>(`/api/v1/projects/${projectId}/logs/stream${service ? `?service=${encodeURIComponent(service)}` : ''}`, onLine, onState)
+}
+
+/** UI-Qualität 4: neue Zugriffe einer statischen Seite live */
+export function subscribeAccess(projectId: string, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream`, onEntry, onState)
+}
+
+function subscribeJson<T>(url: string, on: (v: T) => void, onState?: (open: boolean) => void): () => void {
+  const es = new EventSource(url)
+  es.onopen = () => onState?.(true)
   es.onmessage = (m) => {
     try {
-      onLine(JSON.parse(m.data) as string)
+      on(JSON.parse(m.data as string) as T)
     } catch {
       /* ignorieren */
     }
   }
-  es.onerror = () => es.close()
+  es.onerror = () => { es.close(); onState?.(false) }
   return () => es.close()
 }
 

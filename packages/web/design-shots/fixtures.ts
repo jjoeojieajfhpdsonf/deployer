@@ -832,6 +832,36 @@ export function siteAccess(id: string) {
   return { entries: rows.map(([t, method, path, status, durationMs, ip]) => ({ at: ago(t), method, path, status, durationMs, bytes: null, ip, host: 'hallo-welt.example.ch' })), since: ago(DAY), error: null }
 }
 
+/**
+ * UI-Qualität 4: Zeilen des Reiters «Logs» (wie GET /log-lines). Fotoalbum ist
+ * ein Compose-Projekt mit drei Diensten; andere Projekte haben einen Container.
+ */
+export function logLines(id: string, service: string | null): import('@airlock/shared').LogLinesDto {
+  const compose = id === 'p-foto'
+  // Wetterstation: in der Zeitspanne still (leerer Zustand)
+  if (id === 'p-wetter') return { lines: [], services: [], hint: null }
+  const rows: [number, string | null, string][] = [
+    [14 * MIN, 'db', 'LOG:  database system is ready to accept connections'],
+    [14 * MIN - 2_000, 'web', 'Server listening at http://0.0.0.0:8080'],
+    [14 * MIN - 2_100, 'worker', 'Vorschau-Warteschlange verbunden (redis:6379)'],
+    [11 * MIN, 'web', 'GET /api/albums 200 12 ms'],
+    [11 * MIN - 3_000, 'web', 'GET /api/albums/41/photos?page=2 200 38 ms'],
+    [9 * MIN, 'web', 'POST /api/upload 201 412 ms (3 Dateien, 11,4 MB)'],
+    [9 * MIN - 1_000, 'worker', 'Vorschaubilder: 3 in Warteschlange'],
+    [9 * MIN - 5_000, 'worker', 'WARN Vorschau IMG_4412.HEIC: Format ohne Farbprofil, sRGB angenommen'],
+    [9 * MIN - 6_000, 'worker', 'Vorschaubilder fertig (2,1 s)'],
+    [6 * MIN, 'db', 'LOG:  checkpoint complete: wrote 412 buffers (2.5%)'],
+    [4 * MIN, 'web', 'GET /api/albums/7 404 3 ms'],
+    [3 * MIN, 'worker', 'ERROR Vorschau IMG_5120.MOV: Video wird nicht unterstützt, übersprungen'],
+    [2 * MIN, 'web', 'GET /health 200 1 ms'],
+    [40_000, 'web', 'GET /api/albums 200 9 ms'],
+  ]
+  const lines = rows
+    .filter(([, s]) => !service || s === service)
+    .map(([t, s, text]) => ({ at: ago(t), service: compose ? s : null, text, level: (/\bERROR\b/.test(text) ? 'error' : /\bWARN\b/.test(text) ? 'warn' : null) as import('@airlock/shared').LogLevel | null }))
+  return { lines, services: compose ? ['db', 'web', 'worker'] : [], hint: null }
+}
+
 /** Dateien eines Chat-Projekts (Eckdaten «Inhalt», Dialog «Dateien ansehen») */
 export function files(id: string): { commit: string | null; files: { path: string; size: number }[] } {
   if (id !== 'p-hallo') return { commit: null, files: [] }
