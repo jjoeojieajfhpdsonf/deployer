@@ -1,5 +1,6 @@
 import { Suspense, lazy, useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { notifyOk } from '../lib/feedback.js'
 import {
   TRAFFIC_RANGES, TRAFFIC_WAYS, TRAFFIC_WAY_LABEL, TRAFFIC_DEVICE_LABEL, countryName,
   type TrafficDevice, type TrafficPointDto, type TrafficRange, type TrafficRowDto, type TrafficSummaryDto, type TrafficWay, type ProjectDto,
@@ -251,6 +252,7 @@ export function TrafficTab({ p, onAccessLog }: { p: ProjectDto; onAccessLog?: ()
   const wayCount = (w: TrafficWay) => s.ways.find((x) => x.way === w)?.views ?? 0
   const allViews = s.ways.reduce((a, x) => a + x.views, 0)
   const showOrigin = (way === 'all' || way === 'public') && s.countries.length > 0
+  const wayHasInternet = wayCount('public') > 0
   const nothing = s.totals.views === 0
 
   return (
@@ -337,9 +339,34 @@ export function TrafficTab({ p, onAccessLog }: { p: ProjectDto; onAccessLog?: ()
         Besucher sind eindeutig je Tag (Hash mit täglich neuem Salz), Bots, Healthchecks, statische Dateien und eigene Prüfungen von Airlock zählen nicht.
         Aufbewahrung 13 Monate. Länder von Cloudflare; Tailnet ohne Gerätenamen.
         {s.source.cityDb && <> Städte: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> (CC BY 4.0, Stand {s.source.cityDb}).</>}
+        {!s.source.cityDb && wayHasInternet && <CityDbButton />}
         {onAccessLog && <> <button type="button" className="link-button" onClick={onAccessLog}>Einzelne Aufrufe im Reiter «Zugriffe»</button></>}
       </p>
     </div>
+  )
+}
+
+/**
+ * Städte sind optional: erst nach diesem Klick lädt der Server die Datei von
+ * DB-IP (rund 130 MB, monatlich neu, CC BY 4.0). Vorher fragt Airlock nie dort an.
+ */
+function CityDbButton() {
+  const qc = useQueryClient()
+  const load = useMutation({
+    meta: { errorTitle: 'Städte-Datenbank nicht geladen' },
+    mutationFn: () => api.loadCityDb(),
+    onSuccess: (r) => {
+      notifyOk('Städte-Datenbank geladen', { description: `DB-IP «IP to City Lite», Stand ${r.month}. Städte erscheinen für neue Aufrufe.` })
+      void qc.invalidateQueries({ queryKey: ['traffic'] })
+    },
+  })
+  return (
+    <>
+      {' '}Städte zeigt Airlock mit der freien Datenbank «IP to City Lite» von DB-IP (CC BY 4.0, rund 130 MB, monatlich aktualisiert):{' '}
+      <button type="button" className="link-button" onClick={() => load.mutate()} disabled={load.isPending} aria-busy={load.isPending || undefined}>
+        {load.isPending ? 'Wird geladen …' : 'Städte-Datenbank laden'}
+      </button>
+    </>
   )
 }
 

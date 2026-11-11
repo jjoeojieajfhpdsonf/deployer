@@ -210,6 +210,17 @@ Der Scanner beantwortet, ob ein Angriff klappen *würde*. Die Angriffserkennung 
 
 **Grenze.** Ob ein Angriff erfolgreich war, lässt sich nie lückenlos beweisen. Airlock liefert Indizien und meldet sie früh; die Beurteilung bleibt bei dir.
 
+## Besucher und Herkunft
+
+Ohne Cookies und ohne Skript in den Projekten: Quelle ist Caddys Zugriffs-Log.
+
+- **Log.** Jede Projekt-Route schreibt über den Logger `visits` eine JSON-Zeile (mit allen Request-Headern, also auch `CF-IPCountry` und User-Agent; Cookie und Authorization schwärzt Caddy) in die Datei `visits.log` im Volume `caddy_access` (Caddy: `/var/log/airlock-access`, Airlock nur lesend: `/caddy-access`, `ACCESS_LOG_DIR`). Rotation durch Caddy: 20 MB je Datei, 2 alte Dateien, höchstens 2 Tage. Nicht im Container-Log, nicht im Backup. Die Oberfläche von Airlock und Weiterleitungen schreiben nicht hinein.
+- **Ingest.** Airlock liest die Datei fortlaufend (Inode und Position, über die Rotation hinweg; Position in `app_settings`). Verworfen: eigene Prüfungen (User-Agent `airlock-probe`), Healthchecks (Pfad des Projekts und übliche wie `/healthz`), Nicht-GET, statische Dateien (ausser die Seite liefert nie HTML aus). Bots (`isbot`, leerer User-Agent) zählen getrennt und ohne Pfad. Vom IP-Filter abgewiesene Anfragen (Sperrseite mit `X-Airlock-Block`) zählen nicht.
+- **Herkunft.** Zugang wie im Reiter «Aufbau»: öffentlicher Name = Internet (`public`), 100.64.0.0/10 = Tailnet, sonst Heimnetz (`lan`). Land nur aus `CF-IPCountry`; Stadt optional aus DB-IP «IP to City Lite» (CC BY 4.0, in der Oberfläche genannt) – erst nach ausdrücklichem Laden (`POST /api/v1/system/traffic/city-db`), dann monatlich aktualisiert. Ohne Datei nur Länder. Tailnet ohne Gerätenamen (Airlock hat keinen Zugang zur Tailscale-API).
+- **Datenschutz.** Keine IP, kein User-Agent und kein Hash wird gespeichert. Eindeutige Besucher: Hash aus Tagessalz (zufällig, nur im Speicher, täglich neu), IP und User-Agent; gezählt wird nur, ob eine Anfrage die erste des Besuchers am Tag war. Gespeichert werden Stundenzähler (`traffic_hourly`: Projekt, Stunde, Zugang, Pfad, Land, Stadt, Referrer-Host, Gerät, Status, Bot → Aufrufe, Besucher). Aufbewahrung 13 Monate, ein täglicher Job löscht Älteres.
+- **Live-Strom.** `GET /api/v1/projects/:id/traffic/live` (Server-Sent Events): je Anfrage `data: {"at","access","host","service","status","blocked","bot"}` – ohne IP, Pfad und User-Agent; zu Beginn `: verbunden`, alle 20 s `: ping`. `access`, `host`, `service` passen zu den Knoten `way:…`, `host:…`, `svc:…` von `GET /topology`.
+- **Oberfläche.** Reiter «Besucher» (Auswertung für alle Projektarten); der Reiter «Zugriffe» statischer Seiten bleibt die Liste einzelner Aufrufe. Karte «Besucher» in der Übersicht, «Aufrufe heute» in der Projektliste. MCP: `get_traffic`.
+
 ## Fix-Assistent
 
 Neben jedem Befund bietet Airlock einen Weg an, ihn zu beheben statt nur zu akzeptieren. Welcher Weg angeboten wird, hängt vom Befund und von der Quelle des Projekts ab. Jede Änderung braucht deine Zustimmung, erzeugt eine neue Version und wird durch einen Nachscan bestätigt.
@@ -573,6 +584,7 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | `set_targets` | `project`, `targets`, `subdomain`; öffentlich `public_subdomain` + `public_zone` (Zone der Umgebung, Standard Hauptzone) statt vollem Hostnamen, `public_apex` (direkt unter der Zone), `take_over_dns` (fremden DNS-Eintrag ersetzen). Der Name wird normalisiert und vorher geprüft (vergeben, reserviert, fremder DNS-Eintrag), Fehler mit den möglichen Zonen | Ja, wenn `public` dazukommt |
 | `list_domains` | – | Nein |
 | `get_backup_status` | – (nur lesen: letzter Lauf, Alter, Art des Ziels ohne Zugangsdaten) | Nein |
+| `get_traffic` | `project`, `range` (`24h`, `7d`, `30d`; Standard `7d`) – nur lesen: Aufrufe, Besucher je Tag, Verlauf, Top-Seiten, Referrer, Länder (Städte nur mit DB-IP-Datei), Geräte, Statuscodes, nach Internet/Tailnet/Heimnetz | Nein |
 | `add_external_target` | `hostname` | Nein |
 | `verify_external_target` | `hostname` | Nein |
 | `run_scan` | `project` oder externer `hostname`, `level` (`standard` oder `active`) | Ja bei `active` |

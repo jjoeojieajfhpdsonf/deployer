@@ -242,6 +242,8 @@ export const api = {
   traffic: (id: string, range: TrafficRange, way: TrafficWay | 'all' = 'all') => call<TrafficSummaryDto>(`/projects/${id}/traffic?range=${range}&way=${way}`),
   /** Aufrufe heute je Projekt der Umgebung (Projektliste) */
   trafficToday: () => call<TrafficTodayDto>(e('/traffic/today')),
+  /** Städte-Datenbank (DB-IP «IP to City Lite», CC BY 4.0) auf den Server laden; danach monatlich aktuell */
+  loadCityDb: () => call<{ month: string | null; downloadedAt: string | null }>('/system/traffic/city-db', { method: 'POST' }),
   /** Adresse vom Server aus prüfen (http-Adressen auf einer https-Seite) */
   addressCheck: (id: string, url: string) => call<AddressCheckDto>(`/projects/${id}/address-check?url=${encodeURIComponent(url)}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),
