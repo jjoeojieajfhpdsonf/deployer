@@ -29,7 +29,7 @@ function Step({ n, title, state, summary, onEdit, children }: {
     <li className={`cf-step cf-step-${state}`} aria-current={state === 'current' ? 'step' : undefined}>
       <div className="cf-step-head">
         <span className="cf-step-n" aria-hidden="true">{state === 'done' ? <IconOk /> : n}</span>
-        <h3 className="cf-step-title">
+        <h3 className="cf-step-title" aria-level={2}>
           <span className="visually-hidden">Schritt {n}{state === 'done' ? ', erledigt' : state === 'locked' ? ', noch nicht möglich' : ''}: </span>
           {title}
         </h3>

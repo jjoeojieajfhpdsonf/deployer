@@ -51,6 +51,28 @@ test('Zeilenmenü einer Projektkarte: Enter öffnet, Esc schliesst', async ({ br
   await page.context().close()
 })
 
+test('Rückfrage im Menü: Fokus auf die Antwort, Esc setzt zurück, Tab schliesst', async ({ browser }) => {
+  const page = await open(browser, 'projekt-uebersicht')
+  const trigger = page.getByRole('button', { name: 'Weitere Aktionen' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const stop = page.getByRole('menuitem', { name: /^Stoppen/ })
+  await stop.focus()
+  await page.keyboard.press('Enter')
+  // Der Eintrag «Stoppen …» ist weg – der Fokus steht auf der Antwort, nicht auf <body>
+  await expect(page.getByRole('menuitem', { name: 'Ja, stoppen' })).toBeFocused()
+  await expect(page.getByRole('menuitem', { name: 'Ja, stoppen' })).toHaveAttribute('aria-describedby', /menu-confirm-/)
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+  // Wieder öffnen: normale Einträge, keine alte Rückfrage
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menuitem', { name: /^Stoppen/ })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('menu', { name: 'Weitere Aktionen' })).toBeHidden()
+  await expect(trigger).toBeFocused()
+  await page.context().close()
+})
+
 test('Reiter der Projektseite: Pfeiltasten wechseln und fokussieren', async ({ browser }) => {
   const page = await open(browser, 'projekt-uebersicht')
   await page.getByRole('tab', { name: /^Übersicht/ }).focus()
@@ -71,7 +93,8 @@ test('Befehlspalette: öffnen, suchen, mit Enter zur Seite, Fokus im Inhalt', as
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/audit$/)
   await expect(page.getByRole('dialog', { name: 'Befehle und Suche' })).toBeHidden()
-  expect((await focused(page)).tag).not.toBe('BODY')
+  // Fokus folgt im nächsten Frame nach dem close-Ereignis des Dialogs
+  await expect.poll(async () => (await focused(page)).tag, { timeout: 2000 }).toBe('MAIN')
   await page.context().close()
 })
 

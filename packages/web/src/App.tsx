@@ -57,9 +57,12 @@ export function App() {
   // (Zustand «Veraltet», Leiste in der Shell).
   if (me.isError && !me.data) {
     return (
-      <main className="state state-offline" role="alert">
-        <h1>Keine Verbindung zur API</h1>
-        <p>Der Airlock-Dienst antwortet nicht. Läuft der Container noch?</p>
+      <main className="state state-offline">
+        {/* Alarm auf dem Inhalt, nicht auf <main> (sonst geht der Landmark verloren) */}
+        <div role="alert">
+          <h1>Keine Verbindung zur API</h1>
+          <p>Der Airlock-Dienst antwortet nicht. Läuft der Container noch?</p>
+        </div>
         <button onClick={() => void me.refetch()}>Erneut versuchen</button>
       </main>
     )
@@ -138,11 +141,14 @@ function Rail() {
     })
   }
 
-  const items: { to: string; label: string; icon: ReactNode; count?: ReactNode }[] = [
-    { to: '/projekte', label: 'Projekte', icon: <IconProjects />, count: projects.data ? <span className="rail-count">{list.length}</span> : null },
+  // Zahl sichtbar (aria-hidden), Bedeutung als Text: auch im eingeklappten Zustand Teil des Namens
+  const urgentText = urgent > 0 ? `${urgent} offene kritische oder hohe Befunde${critical ? `, davon ${critical} kritisch` : ''}` : undefined
+  const items: { to: string; label: string; icon: ReactNode; count?: ReactNode; countText?: string }[] = [
+    { to: '/projekte', label: 'Projekte', icon: <IconProjects />, count: projects.data ? <span className="rail-count" aria-hidden="true">{list.length}</span> : null, countText: projects.data ? `${list.length} Projekte` : undefined },
     {
       to: '/security', label: 'Security', icon: <IconShield />,
-      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-bad' : 'rail-count-warn'}`} aria-label={`${urgent} offene kritische oder hohe Befunde`}>{urgent}</span> : null,
+      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-bad' : 'rail-count-warn'}`} aria-hidden="true">{urgent}</span> : null,
+      countText: urgentText,
     },
     { to: '/domains', label: 'Domains', icon: <IconGlobe /> },
     { to: '/extern', label: 'Externe Ziele', icon: <IconTarget /> },
@@ -169,9 +175,10 @@ function Rail() {
       </div>
       <nav className="rail-nav" id="rail-nav" aria-label="Hauptnavigation">
         {items.map((it) => (
-          <NavLink key={it.to} to={it.to} title={collapsed ? it.label : undefined} aria-label={collapsed ? it.label : undefined}>
+          <NavLink key={it.to} to={it.to} title={collapsed ? it.label : undefined} aria-label={collapsed ? (it.countText ? `${it.label}, ${it.countText}` : it.label) : undefined}>
             <span className="rail-item">{it.icon}<span className="rail-label">{it.label}</span></span>
             {it.count}
+            {it.countText && !collapsed && <span className="sr-only">, {it.countText}</span>}
           </NavLink>
         ))}
       </nav>
@@ -223,7 +230,7 @@ function NotFound() {
   return (
     <div className="page">
       <div className="state state-empty">
-        <h2>Diese Seite gibt es nicht</h2>
+        <h2 aria-level={1}>Diese Seite gibt es nicht</h2>
         <p>Vielleicht wurde das Projekt gelöscht oder die Adresse ist veraltet.</p>
         <Link className="button" to="/projekte">Zu den Projekten</Link>
       </div>

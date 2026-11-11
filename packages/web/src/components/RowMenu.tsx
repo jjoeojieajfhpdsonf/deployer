@@ -7,7 +7,7 @@ import { useMenu } from './useMenu.js'
  * Escape und nach einer Auswahl (alle über `close`, siehe useMenu).
  * Tastatur: Enter/Leertaste öffnet, Pfeile wandern durch die Einträge.
  */
-export function RowMenu({ label, children }: { label: string; children: (close: () => void) => ReactNode }) {
+export function RowMenu({ label, children, onClose }: { label: string; children: (close: () => void) => ReactNode; onClose?: () => void }) {
   const [pos, setPos] = useState<{ style: CSSProperties; side: 'top' | 'bottom' }>({ style: {}, side: 'bottom' })
   const listId = useId()
 
@@ -24,7 +24,7 @@ export function RowMenu({ label, children }: { label: string; children: (close: 
       : { side: 'bottom', style: { position: 'fixed', top: r.bottom + 6, right: window.innerWidth - r.right } })
     // triggerRef kommt aus useMenu (stabil); aufgerufen wird erst beim Klick
   }, [])
-  const { open, shown, toggle, triggerRef, rootRef, listProps, close } = useMenu({ onOpen: place })
+  const { open, shown, toggle, triggerRef, rootRef, listProps, close } = useMenu({ onOpen: place, onClose })
 
   // Solange sichtbar (auch beim Ausblenden) mit der Seite mitwandern
   useEffect(() => {
