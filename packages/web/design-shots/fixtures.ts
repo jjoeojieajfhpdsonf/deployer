@@ -72,7 +72,11 @@ function project(p: P): ProjectDto {
 }
 
 export const projects: ProjectDto[] = [
-  project({ id: 'p-foto', name: 'Fotoalbum', slug: 'fotoalbum', runtimeKind: 'compose', sourceType: 'compose', source: { type: 'compose', repoUrl: 'https://github.com/example/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as ProjectDto['source'], memoryLimitMb: 1024 }),
+  project({
+    id: 'p-foto', name: 'Fotoalbum', slug: 'fotoalbum', runtimeKind: 'compose', sourceType: 'compose', source: { type: 'compose', repoUrl: 'https://github.com/example/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as ProjectDto['source'], memoryLimitMb: 1024,
+    // Projektseite: der Fall «Ohne offene Befunde»
+    security: { scanId: 'p-foto-s', status: 'done', score: 100, grade: 'A', finishedAt: ago(2 * MIN), open: { critical: 0, high: 0, medium: 0, low: 0 } },
+  }),
   project({
     id: 'p-haushalt', name: 'Haushaltsbuch', slug: 'haushaltsbuch',
     routes: [route(['tailnet', 'lan'], `haushaltsbuch.${BASE}`), { ...route(['public'], 'haushalt.example.ch'), accessProtected: true, since: ago(12 * DAY), pausedAt: null }],
@@ -103,10 +107,12 @@ export const projects: ProjectDto[] = [
 const halloWelt = project({
   id: 'p-hallo', name: 'hallo-welt', slug: 'hallo-welt', sourceType: 'files', runtimeKind: 'static', filesKind: 'static',
   source: { type: 'files' } as ProjectDto['source'], keep: false, expiresAt: new Date(Date.now() + 30 * DAY - HOUR).toISOString(), port: 80,
+  expiryDays: 30, createdBy: 'mcp:claude-code-mac',
   routes: [route(['tailnet', 'lan'], `hallo-welt.${BASE}`), route(['public'], 'hallo-welt.example.ch')],
-  security: { scanId: 'p-hallo-s', status: 'done', score: 90, grade: 'A', finishedAt: ago(20 * MIN), open: { critical: 0, high: 0, medium: 2, low: 2 } },
-  lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(25 * MIN), finishedAt: ago(25 * MIN - 9_000), durationMs: 9_000 }),
+  security: { scanId: 'p-hallo-s', status: 'done', score: 96, grade: 'A', finishedAt: ago(48 * MIN), open: { critical: 0, high: 0, medium: 1, low: 0 } },
+  lastDeployment: dep('p-hallo', 0, { version: '5a19cd4e8b21', status: 'active', isActive: true, canRollback: false, startedAt: ago(57 * MIN), finishedAt: ago(57 * MIN - 400), durationMs: 400 }),
 })
+halloWelt.activeDeployment = halloWelt.lastDeployment
 
 /**
  * Projektliste mit fester Anzahl (0 bis 7) für die Screenshots der Übersicht.
@@ -247,11 +253,41 @@ export const securityProjectId = 'p-kontoauszug'
 
 export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system' }
 
+/**
+ * Deployments mit Grund und Auslöser (Projektseite). Fotoalbum zeigt alle
+ * Fälle: aktiv, gescheitert, Rollback möglich, drei ältere mit gleichem Stand
+ * (Sammelzeile). hallo-welt ist der Fall der Referenz: dreimal derselbe Stand.
+ */
 export function deployments(id: string): DeploymentDto[] {
-  const p = projects.find((x) => x.id === id)!
-  const list = [0, 1, 2, 3, 4].map((n) => dep(id, n + 1))
-  list[1] = { ...list[1]!, status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false }
-  return [p.activeDeployment!, ...list]
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const at = (h: number, secs: number) => ({ startedAt: ago(h), finishedAt: new Date(Date.now() - h + secs * 1000).toISOString(), durationMs: secs * 1000 })
+  if (id === 'p-hallo') {
+    const v = '5a19cd4e8b21'
+    return [
+      { ...p.lastDeployment!, ...at(57 * MIN, 0.4), seq: 3, reason: { kind: 'headers', detail: 'Strict-Transport-Security' }, actor: 'ui:joel', message: 'Erste Version' },
+      dep(id, 2, { version: v, ...at(62 * MIN, 0.3), seq: 2, reason: { kind: 'public', detail: 'hallo-welt.example.ch' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+      dep(id, 1, { version: v, ...at(2 * HOUR, 4), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+    ]
+  }
+  const active = p.activeDeployment!
+  const same = active.version ?? 'a3f9c21d0be4'
+  if (id === 'p-foto') {
+    return [
+      { ...active, seq: 6, reason: { kind: 'auto_merge', detail: 'Galerie lädt Vorschaubilder träge' }, actor: 'system:auto-deploy', message: 'Galerie lädt Vorschaubilder träge' },
+      dep(id, 5, { version: '51c0aa8e2d93', ...at(5 * HOUR, 26), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel', message: 'Bildvorschau mit sharp' }),
+      dep(id, 4, { version: 'e04d17b6c2fa', ...at(26 * HOUR, 44), seq: 4, reason: { kind: 'auto_merge', detail: 'Upload-Grenze auf 20 MB' }, actor: 'system:auto-deploy', message: 'Upload-Grenze auf 20 MB' }),
+      dep(id, 3, { version: '9be20c4d7f11', ...at(3 * DAY, 39), seq: 3, reason: { kind: 'headers', detail: 'X-Frame-Options' }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
+      dep(id, 2, { version: '9be20c4d7f11', ...at(4 * DAY, 41), seq: 2, reason: { kind: 'public', detail: null }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
+      dep(id, 1, { version: '9be20c4d7f11', ...at(9 * DAY, 52), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Alben teilen per Link' }),
+    ]
+  }
+  return [
+    { ...active, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel' },
+    dep(id, 4, { version: same, ...at(9 * HOUR, 37), seq: 4, reason: { kind: 'paused' }, actor: 'token:backup-skript', canRollback: true }),
+    dep(id, 3, { version: '9be20c4d7f11', ...at(2 * DAY, 41), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 3, reason: { kind: 'code', detail: 'Abhängigkeiten aktualisiert' }, actor: 'mcp:claude-code-mac' }),
+    dep(id, 2, { version: 'e04d17b6c2fa', ...at(5 * DAY, 44), seq: 2, reason: { kind: 'rollback' }, actor: 'ui:joel' }),
+    dep(id, 1, { version: '7d2e9f03ab58', ...at(12 * DAY, 58), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
+  ]
 }
 
 export const deployLog = [
@@ -314,17 +350,34 @@ const CHECKS = {
 /** Projekt, dessen Scan in den Screenshots gerade läuft */
 export const runningScanProjectId = 'p-haushalt'
 
+/** hallo-welt: nur die fehlende CSP offen (Referenz «Mit offenem Befund») */
+const halloFindings: FindingDto[] = [
+  { id: 'h1', tool: 'header-check', severity: 'medium', title: 'Content-Security-Policy fehlt', location: 'https://hallo-welt.example.ch/', description: 'Ohne CSP kann eingeschleustes Skript (XSS) ungehindert laufen.', fix: "Header Content-Security-Policy setzen, z.B. \"default-src 'self'\".", status: 'open', acceptReason: null },
+  { id: 'h2', tool: 'header-check', severity: 'low', title: 'X-Content-Type-Options: nosniff fehlt', location: 'https://hallo-welt.example.ch/', description: 'MIME-Sniffing möglich.', fix: 'Header X-Content-Type-Options: nosniff setzen.', status: 'fixed', acceptReason: null },
+]
+
 export function scan(id: string, onlyDone = false): ScanReportDto | null {
-  const p = projects.find((x) => x.id === id)
+  const p = allProjects.find((x) => x.id === id)
   if (!p?.security) return null
   if (id === runningScanProjectId && !onlyDone) return runningScan(p)
-  const f = id === securityProjectId ? findings : findings.slice(5)
+  const f = id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
+  const isStatic = p.runtimeKind === 'static'
+  const startedAt = new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString()
+  const previous: Record<string, number> = { 'p-hallo': 90, 'p-foto': 100, 'p-kontoauszug': 41 }
   return {
     scan: {
       id: p.security.scanId, status: 'done', level: 'standard',
-      startedAt: new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString(), finishedAt: p.security.finishedAt,
+      startedAt, finishedAt: p.security.finishedAt,
       score: p.security.score, grade: p.security.grade, error: null, trigger: 'deploy', actor: 'admin', queue: null,
-      stages: {
+      previousScore: previous[id] ?? (p.security.score ?? 0) - 3,
+      nextScheduledAt: new Date(Date.parse(startedAt) + 7 * DAY).toISOString(),
+      stages: isStatic ? {
+        'trivy-image': { ran: false, state: 'skipped', note: 'kein Image, statische Seite', checks: CHECKS.trivyImage },
+        'trivy-source': { ran: true, state: 'done', findings: 0, checks: CHECKS.trivySource, durationMs: 12_000 },
+        headers: { ran: true, state: 'done', findings: 1, checks: CHECKS.headers, durationMs: 900 },
+        'zap-baseline': { ran: true, state: 'done', findings: 0, checks: CHECKS.zap, durationMs: 98_000 },
+        nuclei: { ran: true, state: 'done', findings: 0, checks: CHECKS.nuclei, durationMs: 41_000 },
+      } : {
         'trivy-image': { ran: true, state: 'done', findings: 4, checks: CHECKS.trivyImage, durationMs: 98_000 },
         'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
         // M8: Header über Caddy geprüft
@@ -374,6 +427,21 @@ function runningScan(p: ProjectDto): ScanReportDto {
 
 /** M8: Header über Caddy – CSP im Report-Only mit gesammelten Verstössen, frame-ancestors aktiv. */
 export function headerRules(id: string, reverted = false): HeaderRulesDto {
+  const none = { violations: [], total: 0, suggestion: null, notes: [], readiness: null, inlinePrompt: null }
+  if (id === 'p-hallo') {
+    // Noch keine Regel; die Analyse läuft trotzdem (Unterzeile in der Security-Karte)
+    return { rules: [], hsts: { ok: true, reason: null }, viaCaddy: true, csp: { ...none, analysis: { pages: ['/'], inlineScripts: 1, inlineStyles: 1, styleAttributes: 0, eventHandlers: 0, external: {}, conflicts: ['Inline-Skript auf /', 'Inline-Style auf /'], error: null } } }
+  }
+  if (id === 'p-foto') {
+    const r = (header: HeaderRulesDto['rules'][number]['header'], value: string) => ({ header, value, mode: 'enforce' as const, createdAt: ago(3 * DAY), updatedAt: ago(3 * DAY) })
+    return {
+      rules: [
+        r('content-security-policy', "default-src 'self'; img-src 'self' data:"), r('frame-ancestors', "'self'"), r('referrer-policy', 'strict-origin-when-cross-origin'),
+        r('strict-transport-security', 'max-age=31536000'), r('x-content-type-options', 'nosniff'),
+      ],
+      hsts: { ok: true, reason: null }, viaCaddy: true, csp: { ...none, analysis: null },
+    }
+  }
   if (id !== securityProjectId) return { rules: [], hsts: { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }, viaCaddy: true, csp: { violations: [], total: 0, suggestion: null, notes: [], analysis: null, readiness: null, inlinePrompt: null } }
   const policy = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"
   // CSP-Fix: der Fall hallo-welt – Inline-Skript und Inline-Style; nach einem Scharfschalten automatisch zurück
@@ -477,27 +545,57 @@ export function autoDeploy(id: string) {
   return { autoDeploy: id === 'p-foto', checkedAt: ago(3 * MIN), available: repo, viaGithubApp: repo }
 }
 
+/**
+ * Audit-Log. hallo-welt zeigt den Ablauf der Referenz «Aktivität»: Header
+ * gesetzt + Nachprüfung, pausiert + Pause-Seite angepasst, wieder öffentlich,
+ * vier Header auf einmal, Scan über MCP; dazu ein unbekannter Typ
+ * («deploy.failed») und Anmeldungen für das globale Log.
+ */
 export function audit(targetId?: string): AuditEventDto[] {
-  const rows: [number, string, string, string | null, 'ok' | 'error', string | null][] = [
-    [4 * MIN, 'ui', 'project.deploy', 'p-rezepte', 'ok', null],
-    [9 * MIN, 'ui', 'auth.login', null, 'ok', null],
-    [13 * MIN, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+  const C = 'token:claude-code-mac'
+  const H = 'p-hallo'
+  const hh = 'hallo-welt.example.ch'
+  type Row = [number, string, string, string | null, 'ok' | 'error', string | null, Record<string, unknown>?]
+  const rows: Row[] = [
+    [3 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Strict-Transport-Security fehlt'], opened: [], before: 93, after: 96, grade: 'A' }],
+    [3 * MIN + 20_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'strict-transport-security', mode: 'enforce' }],
+    [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
+    [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
+    [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+    [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
+    [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
+    [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],
+    [32 * MIN + 10_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'referrer-policy', mode: 'enforce' }],
+    [32 * MIN + 20_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'x-content-type-options', mode: 'enforce' }],
+    [32 * MIN + 30_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'frame-ancestors', mode: 'enforce' }],
+    [32 * MIN + 40_000, 'ui:joel', 'header.set', H, 'ok', null, { header: 'content-security-policy', mode: 'report-only' }],
+    [33 * MIN, 'system', 'scan.done', H, 'ok', null, { scan: 's9', level: 'standard', score: 90, grade: 'A', open: 4, durationMs: 7 * MIN }],
     [40 * MIN, 'ip:192.168.1.77', 'auth.login', null, 'error', 'falsches Passwort'],
-    [70 * MIN, 'ui', 'auth.login', null, 'ok', null],
-    [2 * HOUR, 'ui', 'project.deploy', 'p-foto', 'ok', null],
-    [3 * HOUR, 'system', 'scan.done', 'p-kontoauszug', 'ok', null],
-    [4 * HOUR, 'ui', 'auth.login', null, 'ok', null],
-    [5 * HOUR, 'mcp:claude', 'project.env', 'p-haushalt', 'ok', null],
-    [7 * HOUR, 'ui', 'auth.login', null, 'ok', null],
-    [26 * HOUR, 'ui', 'cloudflare.tls', 'cloudflare', 'ok', null],
+    [40 * MIN, C, 'mcp.run_scan', H, 'ok', null, { project: 'hallo-welt' }],
+    [40 * MIN + 2_000, C, 'scan.start', H, 'ok', null, { scan: 's9', level: 'standard' }],
+    [62 * MIN, C, 'mcp.get_project', H, 'ok', null, { project: 'hallo-welt' }],
+    [70 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
+    [2 * HOUR, 'ui:joel', 'project.deploy', 'p-foto', 'ok', null, { deployment: 'p-foto-d0' }],
+    [26 * HOUR, 'system', 'scan.done', H, 'ok', null, { scan: 's8', level: 'standard', score: 86, grade: 'B', open: 5, durationMs: 6 * MIN }],
+    [26 * HOUR + 6 * MIN, 'system', 'scan.start', H, 'ok', null, { scan: 's8', level: 'standard' }],
+    [26 * HOUR + 6 * MIN + 1_000, C, 'project.deploy', H, 'ok', null, { deployment: 'p-hallo-d1' }],
+    [26 * HOUR + 6 * MIN + 5_000, C, 'mcp.create_project', H, 'ok', null, { name: 'hallo-welt' }],
+    [26 * HOUR + 6 * MIN + 6_000, C, 'files.init', H, 'ok', null, { files: ['index.html', 'style.css', 'app.js'], commit: '5a19cd4e8b21' }],
+    [3 * HOUR, 'system', 'scan.done', 'p-kontoauszug', 'ok', null, { scan: 'k1', level: 'standard', score: 38, grade: 'D', open: 9, durationMs: 11 * MIN }],
+    [4 * HOUR, 'ui:joel', 'auth.login', null, 'ok', null],
+    [5 * HOUR, C, 'project.env.replace', 'p-haushalt', 'ok', null, { keys: ['DATABASE_URL', 'SESSION_SECRET'] }],
+    [7 * HOUR, 'ui:joel', 'auth.login', null, 'ok', null],
+    [27 * HOUR, 'ui:joel', 'cloudflare.tls', 'cloudflare', 'ok', null],
   ]
   return rows
     .filter((r) => !targetId || r[3] === targetId)
-    .map(([t, actor, action, tid, result, error], i) => {
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, actor, action, tid, result, error, params], i) => {
       // M9: Anmeldungen sind Server-Ereignisse (in jeder Umgebung sichtbar, markiert)
       const isServer = action.startsWith('auth.')
       return {
-        id: String(100 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: {}, result, error,
+        id: String(200 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: params ?? {}, result, error,
         environmentId: isServer ? null : 'env-example', server: isServer,
       }
     })
@@ -622,6 +720,31 @@ export const externalTargets: ExternalTargetDto[] = [
 ]
 
 export const externalScan: ScanReportDto | null = null
+
+/** Zugriffs-Log einer statischen Seite (Reiter «Zugriffe») */
+export function siteAccess(id: string) {
+  if (id !== 'p-hallo') return { entries: [], since: ago(DAY), error: null }
+  const rows: [number, string, string, number, number, string][] = [
+    [12_000, 'GET', '/', 200, 1.4, '84.72.10.x'],
+    [12_400, 'GET', '/style.css', 200, 0.6, '84.72.10.x'],
+    [12_500, 'GET', '/app.js', 200, 0.5, '84.72.10.x'],
+    [13_000, 'GET', '/favicon.ico', 404, 0.3, '84.72.10.x'],
+    [4 * MIN, 'GET', '/', 200, 1.1, '100.88.41.x'],
+    [9 * MIN, 'HEAD', '/', 200, 0.4, '172.25.0.x'],
+    [26 * MIN, 'GET', '/wp-login.php', 404, 0.2, '45.155.205.x'],
+    [26 * MIN + 2_000, 'GET', '/.env', 404, 0.2, '45.155.205.x'],
+    [47 * MIN, 'GET', '/alt', 301, 0.3, '2a02:1210:4e3a:…'],
+    [2 * HOUR, 'POST', '/', 405, 0.4, '193.32.249.x'],
+    [3 * HOUR, 'GET', '/', 200, 1.6, '2a02:1210:4e3a:…'],
+  ]
+  return { entries: rows.map(([t, method, path, status, durationMs, ip]) => ({ at: ago(t), method, path, status, durationMs, bytes: null, ip, host: 'hallo-welt.example.ch' })), since: ago(DAY), error: null }
+}
+
+/** Dateien eines Chat-Projekts (Eckdaten «Inhalt», Dialog «Dateien ansehen») */
+export function files(id: string): { commit: string | null; files: { path: string; size: number }[] } {
+  if (id !== 'p-hallo') return { commit: null, files: [] }
+  return { commit: '5a19cd4e8b21', files: [{ path: 'index.html', size: 1_840 }, { path: 'style.css', size: 1_310 }, { path: 'app.js', size: 912 }] }
+}
 
 export function env(id: string) {
   return id === detailProjectId

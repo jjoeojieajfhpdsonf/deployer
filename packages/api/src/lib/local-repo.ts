@@ -95,6 +95,17 @@ export async function initRepo(dir: string): Promise<void> {
   await gitText(dir, ['init', '-q', '-b', 'main'])
 }
 
+/** Betreff eines Commits (erste Zeile), null wenn nicht lesbar. Wirft nie. */
+export async function commitSubjectOf(dir: string, rev: string): Promise<string | null> {
+  if (!/^[0-9a-f]{7,40}$/i.test(rev) || !existsSync(join(dir, '.git'))) return null
+  try {
+    const s = await gitText(dir, ['log', '-1', '--format=%s', rev, '--'])
+    return s ? s.slice(0, 200) : null
+  } catch {
+    return null
+  }
+}
+
 export async function headCommit(dir: string): Promise<string | null> {
   try {
     return await gitText(dir, ['rev-parse', '--verify', '-q', 'HEAD'])

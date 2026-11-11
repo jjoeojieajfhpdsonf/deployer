@@ -18,7 +18,10 @@ import { withProjectNetwork } from './attach.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
 import { prepareStatic, prepareStaticFromDir, activateStatic, siteDir } from './sources/static.js'
 import { buildFromRepo, buildFromDir } from './sources/dockerfile.js'
-import { checkoutFiles, KIND_LABEL, type FilesConfig } from './sources/files.js'
+import { checkoutFiles, KIND_LABEL, localRepoPath, type FilesConfig } from './sources/files.js'
+import { commitSubjectOf } from '../lib/local-repo.js'
+import { deriveReason } from '../domain/deploy-reason.js'
+import { reasonEvents } from '../domain/deployments.js'
 import { prepareCompose, materialize, takeOverLegacyCompose, restoreLegacyCompose } from './sources/compose.js'
 import { dropWorkDir, dropArtifactDir, workDir, ensureArtifactDir } from './workdir.js'
 import { copyFile, rm, rename, mkdir } from 'node:fs/promises'
@@ -27,7 +30,7 @@ import { enqueueProjectScan, scanSourceDir } from '../security/scan.js'
 import { notify } from '../notify/send.js'
 import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
-import type { DeploymentDto } from '@airlock/shared'
+import type { DeploymentDto, DeployReason } from '@airlock/shared'
 import { isOwnImage } from '../lib/names.js'
 
 /** Wie viele erfolgreiche Fassungen pro Projekt für ein Rollback aufgehoben werden. */
@@ -53,12 +56,15 @@ type Job =
  * (stirbt der Prozess, gibt Postgres den Lock frei). Rollbacks benutzen
  * dieselbe Sperre.
  */
-export async function startDeploy(scope: Scope, idOrSlug: string, actor: string, ref?: string): Promise<DeploymentDto> {
-  return startJob(await findProject(scope, idOrSlug), actor, { kind: 'deploy', ref })
+/** reason: Grund statt der Ableitung; via 'mcp': Auslöser wird als «mcp:<Token>» gespeichert (Claude-Symbol in der Liste) */
+type StartOptions = { reason?: DeployReason; via?: 'mcp' }
+
+export async function startDeploy(scope: Scope, idOrSlug: string, actor: string, ref?: string, o: StartOptions = {}): Promise<DeploymentDto> {
+  return startJob(await findProject(scope, idOrSlug), actor, { kind: 'deploy', ref }, o)
 }
 
 /** Ohne Angabe: die zuletzt aktive Fassung vor der jetzigen. */
-export async function startRollback(scope: Scope, idOrSlug: string, actor: string, deploymentId?: string): Promise<DeploymentDto> {
+export async function startRollback(scope: Scope, idOrSlug: string, actor: string, deploymentId?: string, o: StartOptions = {}): Promise<DeploymentDto> {
   const project = await findProject(scope, idOrSlug)
   const target = deploymentId ? await getDeployment(deploymentId) : await previousGood(project.id)
   if (!target || target.projectId !== project.id) throw badRequest('Keine frühere Fassung für ein Rollback gefunden')
@@ -66,7 +72,7 @@ export async function startRollback(scope: Scope, idOrSlug: string, actor: strin
   if (!canRollbackTo(target)) {
     throw badRequest('Auf diese Fassung lässt sich nicht zurückrollen (fehlgeschlagen oder Artefakt entfernt)')
   }
-  return startJob(project, actor, { kind: 'rollback', target })
+  return startJob(project, actor, { kind: 'rollback', target }, o)
 }
 
 /**
@@ -101,11 +107,31 @@ async function previousGood(projectId: string): Promise<Deployment | null> {
   return rows[0] ?? null
 }
 
-async function startJob(project: Project, actor: string, job: Job): Promise<DeploymentDto> {
+/**
+ * Grund beim Start: ausdrücklich übergeben (Auto-Deploy), sonst aus dem, was
+ * seit dem vorherigen Deployment im Audit-Log steht (domain/deploy-reason.ts).
+ */
+async function reasonAtStart(project: Project, actor: string, job: Job, explicit?: DeployReason): Promise<DeployReason> {
+  if (explicit) return explicit
+  const prev = (await db
+    .select({ startedAt: schema.deployments.startedAt })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.projectId, project.id))
+    .orderBy(desc(schema.deployments.startedAt))
+    .limit(1))[0]
+  const events = prev ? await reasonEvents(project.id, prev.startedAt, new Date()) : []
+  return deriveReason({ trigger: job.kind, recreate: job.kind === 'rollback' && job.recreate, actor, isFirst: !prev, events })
+}
+
+async function startJob(project: Project, actor: string, job: Job, o: StartOptions = {}): Promise<DeploymentDto> {
   const lock = await tryLockProject(project.id)
   if (!lock) throw conflict('Für dieses Projekt läuft bereits ein Deploy')
 
   try {
+    const reason = await reasonAtStart(project, actor, job, o.reason).catch((err) => {
+      log.warn('Grund des Deployments nicht bestimmt', { project: project.slug, err: String(err) })
+      return { kind: job.kind === 'rollback' ? 'rollback' : 'redeploy', detail: null } as DeployReason
+    })
     const inserted = await db
       .insert(schema.deployments)
       .values({
@@ -114,6 +140,10 @@ async function startJob(project: Project, actor: string, job: Job): Promise<Depl
         status: 'pending',
         trigger: job.kind,
         rollbackOf: job.kind === 'rollback' ? job.target.id : null,
+        reason,
+        actor: o.via === 'mcp' ? actor.replace(/^token:/, 'mcp:') : actor,
+        // Rollback: dieselbe Fassung, derselbe Commit-Betreff
+        message: job.kind === 'rollback' ? job.target.message : null,
       })
       .returning()
     const row = inserted[0]!
@@ -227,6 +257,14 @@ async function run(
 
     // M6: Quellordner für den Scan aufheben (der Scan räumt ihn danach weg).
     const repoDir = join(workDir(deploymentId), 'repo')
+
+    // Betreff des Commits für die Deployments-Liste (Chat-Projekt: lokales Repo, sonst der Klon)
+    if (job.kind === 'deploy') {
+      const version = (await getDeployment(deploymentId)).version
+      const dir = project.sourceType === 'files' ? (project.localRepoPath ?? localRepoPath(project.slug)) : repoDir
+      const subject = version ? await commitSubjectOf(dir, version) : null
+      if (subject) await setDeployment(deploymentId, { message: subject })
+    }
     if (config.SCAN_AFTER_DEPLOY && existsSync(repoDir)) {
       await mkdir(dirname(scanSourceDir(deploymentId)), { recursive: true })
       await rename(repoDir, scanSourceDir(deploymentId)).catch(() => {})

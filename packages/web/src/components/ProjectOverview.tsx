@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useEnvPath } from '../lib/env.js'
-import type { AddressRowInput, DeploymentDto, EnvEntryDto, FindingDto, ProjectDto, ResourceSample } from '@airlock/shared'
+import type { AddressRowInput, DeploymentDto, EnvEntryDto, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, splitAddresses } from '@airlock/shared'
-import { api, ApiError, probeUrl } from '../api.js'
-import { duration, relativeTime, shortVersion, since, describeAudit, auditTone, clockOrDay } from '../lib/format.js'
+import { api, probeUrl } from '../api.js'
+import { relativeTime, shortVersion, since } from '../lib/format.js'
+import { bundle, isReadOnly } from '../lib/activity.js'
+import { ActivityList } from './ActivityList.js'
 import { explainDeployFailure, logTail } from '../lib/failure.js'
-import { GradeBadge, SeverityChips, SEVERITY_LABEL, IconWarn } from './Security.js'
+import { IconWarn } from './Security.js'
+import { DeployList, useDeployments } from './DeployList.js'
+import { SecurityCard } from './SecurityCard.js'
+import { KeyFacts } from './KeyFacts.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -17,11 +22,6 @@ const IconBad = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 
 const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
 const IconCheck = () => <svg {...svg}><path d="m3.5 8.5 3 3 6-7" /></svg>
-
-const DEPLOY_STATUS: Record<string, string> = {
-  pending: 'wartet', pulling: 'holt Quelle', starting: 'startet', healthchecking: 'Healthcheck',
-  active: 'aktiv', superseded: 'abgelöst', failed: 'fehlgeschlagen', rolled_back: 'zurückgerollt',
-}
 
 /** Läuft der Container der aktiven Fassung wirklich? (für Kopf und Übersicht) */
 export function useProjectHealth(p: ProjectDto) {
@@ -34,7 +34,7 @@ export function useProjectHealth(p: ProjectDto) {
 }
 
 export function ProjectOverview({
-  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep,
+  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy,
 }: {
   p: ProjectDto
   env: EnvEntryDto[]
@@ -43,6 +43,7 @@ export function ProjectOverview({
   deploying: boolean
   onRollback: (deploymentId: string) => void
   onToggleKeep: () => void
+  keepBusy?: boolean
 }) {
   const running = p.desiredState === 'running' && Boolean(p.activeDeployment)
   const health = useProjectHealth(p)
@@ -71,39 +72,13 @@ export function ProjectOverview({
             </section>
           )}
           <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />
-          <SecuritySummary p={p} onTab={onTab} />
-          <Activity projectId={p.id} p={p} />
+          <SecurityCard p={p} onTab={onTab} />
+          <Activity projectId={p.id} />
         </div>
 
         <aside className="overview-side" aria-label="Eckdaten">
           <Addresses p={p} down={containerDown} />
-          <section className="panel panel-pad ov-section">
-            <h2 className="ov-title">Eckdaten</h2>
-            <dl className="side-facts">
-              <dt>Quelle</dt>
-              <dd><SourceLine p={p} /></dd>
-              <dt>Version</dt>
-              <dd>
-                {p.activeDeployment
-                  ? <><code className="version" title={p.activeDeployment.version ?? undefined}>{shortVersion(p.activeDeployment.version)}</code> <span className="muted">{relativeTime(p.activeDeployment.startedAt)}</span></>
-                  : <span className="muted">keine aktive Fassung</span>}
-              </dd>
-              <dt>Grenzen</dt>
-              <dd>{fmtCpu(p.cpuLimit)} CPU · {p.memoryLimitMb.toLocaleString('de-CH')} MB RAM</dd>
-              <dt>Umgebung</dt>
-              <dd>
-                <button type="button" className="link-button" onClick={() => onTab('einstellungen')}>
-                  {env.length === 0 ? 'keine Variablen' : `${env.length} ${env.length === 1 ? 'Variable' : 'Variablen'}`}
-                </button>
-                {env.some((e) => e.isSecret) && <span className="muted">, davon {env.filter((e) => e.isSecret).length} geheim</span>}
-              </dd>
-              {p.port !== null && <><dt>Port</dt><dd className="num">{p.port}{p.healthcheckPath ? <span className="muted"> · Healthcheck {p.healthcheckPath}</span> : null}</dd></>}
-              {p.sourceType === 'files' && (
-                <><dt>Ablauf</dt><dd>{p.keep ? 'läuft nicht ab' : p.expiresAt ? `stoppt am ${new Date(p.expiresAt).toLocaleDateString('de-CH')}, wenn sich nichts ändert` : '–'}{' '}<button type="button" className="link-button" onClick={onToggleKeep}>{p.keep ? 'Ablauf einschalten' : 'Behalten'}</button></dd></>
-              )}
-            </dl>
-            {p.runsAsRoot && <p className="side-note"><IconWarn /> Der Container läuft als root. Erlaubt, aber vermeidbar.</p>}
-          </section>
+          <KeyFacts p={p} env={env} health={h ?? null} onTab={onTab} onToggleKeep={onToggleKeep} keepBusy={keepBusy} />
         </aside>
       </div>
     </div>
@@ -289,134 +264,47 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
 /* --- Deployments ------------------------------------------------------------ */
 
 function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; onTab: (t: Tab) => void; onRollback: (id: string) => void }) {
-  const qc = useQueryClient()
-  const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: 10_000 })
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const rollback = useMutation({
-    mutationFn: (id: string) => api.rollback(projectId, id),
-    onSuccess: (r) => {
-      setConfirming(null)
-      void qc.invalidateQueries({ queryKey: ['deployments', projectId] })
-      onRollback(r.deployment.id)
-    },
-  })
-  const rows = (list.data?.deployments ?? []).slice(0, 5)
-  const total = list.data?.deployments.length ?? 0
+  const list = useDeployments(projectId)
+  const rows = list.data?.deployments ?? []
+  const total = rows[0]?.seq ?? rows.length
 
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-deploys">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-deploys">Deployments</h2>
-        {total > 5 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
+        {total > 0 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
       </div>
       {list.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : rows.length === 0 ? <p className="muted ov-empty">Noch kein Deployment.</p> : (
-        <ol className="timeline">
-          {rows.map((d) => {
-            const state = d.isActive ? 'active' : d.status === 'failed' ? 'failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'busy' : 'past'
-            return (
-              <li key={d.id} className={`tl tl-${state}`}>
-                <span className="tl-mark" aria-hidden="true">{state === 'active' ? <IconOk /> : state === 'failed' ? <IconBad /> : state === 'busy' ? <IconPending /> : <span className="tl-dot" />}</span>
-                <div className="tl-body">
-                  <div className="tl-line">
-                    {d.version ? <code className="version" title={d.version}>{shortVersion(d.version)}</code> : <span className="muted">ohne Fassung</span>}
-                    <span className={`tl-status tl-status-${state}`}>{d.isActive ? 'aktiv' : DEPLOY_STATUS[d.status] ?? d.status}</span>
-                    {d.trigger === 'rollback' && <span className="muted">Rollback</span>}
-                  </div>
-                  <div className="tl-meta">
-                    <time dateTime={d.startedAt} title={new Date(d.startedAt).toLocaleString('de-CH')}>{relativeTime(d.startedAt)}</time>
-                    {d.durationMs !== null && <> · {duration(d.durationMs)}</>}
-                    {d.status === 'failed' && d.errorMessage && <> · <span className="tl-error">{d.errorMessage.split('\n')[0]}</span></>}
-                  </div>
-                </div>
-                <div className="tl-actions">
-                  {d.canRollback && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
-                  {confirming === d.id && (
-                    <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
-                      <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} autoFocus>{rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}</button>
-                      <button type="button" className="button-small" onClick={() => setConfirming(null)}>Abbrechen</button>
-                    </span>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ol>
+        <DeployList projectId={projectId} rows={rows} limit={5} onRollback={onRollback} />
       )}
-      {rollback.isError && <p role="alert" className="error-inline">{rollback.error instanceof ApiError && rollback.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (rollback.error as Error).message}</p>}
     </section>
   )
 }
 
 /* --- Security ---------------------------------------------------------------- */
 
-const SEV_ORDER: FindingDto['severity'][] = ['critical', 'high', 'medium', 'low']
-
-function SecuritySummary({ p, onTab }: { p: ProjectDto; onTab: (t: Tab) => void }) {
-  const r = useQuery({ queryKey: ['scan-done', p.id], queryFn: () => api.latestScan(p.id, true), enabled: Boolean(p.security) })
-  const report = r.data?.report
-  const top = (report?.findings ?? [])
-    .filter((f) => f.status === 'open')
-    .sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity))
-    .slice(0, 3)
-  const scanning = p.security?.status === 'running' || p.security?.status === 'queued'
-
-  return (
-    <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">
-      <div className="ov-head">
-        <h2 className="ov-title" id="ov-sec">Security</h2>
-        <button type="button" className="link-button" onClick={() => onTab('security')}>Alle Befunde</button>
-      </div>
-      {!p.security || (!report && !r.isLoading) ? (
-        <p className="muted ov-empty">{scanning ? 'Der erste Scan läuft.' : 'Noch kein Scan. Er startet nach dem ersten erfolgreichen Deploy.'}</p>
-      ) : !report ? <p className="muted ov-empty">Wird geladen…</p> : (
-        <>
-          <div className="sec-line">
-            <GradeBadge grade={report.scan.grade} score={report.scan.score} />
-            <SeverityChips counts={report.counts} />
-          </div>
-          {top.length === 0 ? <p className="muted ov-empty">Keine offenen Befunde.</p> : (
-            <ul className="top-findings">
-              {top.map((f) => (
-                <li key={f.id}>
-                  <span className={`badge sev-${f.severity}`}>{SEVERITY_LABEL[f.severity]}</span>
-                  <span className="top-finding-title">{f.title}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="ov-foot">Scan {relativeTime(report.scan.finishedAt ?? report.scan.startedAt)}{scanning ? ' · ein neuer läuft gerade' : ''}</p>
-        </>
-      )}
-    </section>
-  )
-}
-
 /* --- Aktivität ---------------------------------------------------------------- */
 
-function Activity({ projectId, p }: { projectId: string; p: ProjectDto }) {
+/** Höchstens so viele Einträge in der Karte */
+const ACTIVITY_SHOWN = 5
+
+function Activity({ projectId }: { projectId: string }) {
   const ep = useEnvPath()
-  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(8, projectId), refetchInterval: 15_000 })
-  const byId = useMemo(() => new Map([[p.id, p]]), [p])
-  const events = a.data?.events ?? []
+  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: 15_000 })
+  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
+  const shown = items.slice(0, ACTIVITY_SHOWN)
+  const more = items.length - shown.length
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-act">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
         <Link to={ep('/audit')}>Audit-Log</Link>
       </div>
-      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : events.length === 0 ? <p className="muted ov-empty">Noch nichts passiert.</p> : (
-        <ul className="pact-list">
-          {events.map((e) => {
-            const tone = auditTone(e)
-            const text = describeAudit(e, byId).replace(new RegExp(`^${p.slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '')
-            return (
-              <li key={e.id} className={`pact pact-${tone}`}>
-                <time className="pact-time" dateTime={e.at} title={new Date(e.at).toLocaleString('de-CH')}>{clockOrDay(e.at)}</time>
-                <span className="pact-text">{text.charAt(0).toUpperCase() + text.slice(1)}{e.result === 'error' && !/fehl|Fehler/.test(text) ? ' – Fehler' : ''}</span>
-              </li>
-            )
-          })}
-        </ul>
+      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : <ActivityList items={shown} />}
+      {more > 0 && (
+        <p className="act-more">
+          {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={ep(`/audit?projekt=${projectId}`)}>Alle anzeigen</Link>
+        </p>
       )}
     </section>
   )
@@ -510,20 +398,3 @@ function AddressRow({ projectId, url, ways, access, live, idle }: { projectId: s
   )
 }
 
-/* --- Quelle ----------------------------------------------------------------- */
-
-const FILES_KIND: Record<string, string> = { compose: 'Docker Compose', dockerfile: 'Dockerfile', 'static-build': 'statische Seite mit Build', static: 'statische Seite' }
-
-export function SourceLine({ p }: { p: ProjectDto }) {
-  const s = (p.source ?? {}) as Record<string, string | undefined>
-  switch (p.sourceType) {
-    case 'image': return <><span className="muted">Image </span><code>{s.image ?? '–'}</code></>
-    case 'dockerfile': return <><span className="muted">Dockerfile aus </span><code>{s.repoUrl}</code>{s.ref ? <span className="muted"> ({s.ref})</span> : null}</>
-    case 'compose': return s.repoUrl
-      ? <><span className="muted">Compose aus </span><code>{s.repoUrl}</code><span className="muted">, Dienst </span><code>{s.webService}</code></>
-      : <><span className="muted">hochgeladene compose.yaml, Dienst </span><code>{s.webService}</code></>
-    case 'static': return s.repoUrl ? <><span className="muted">statische Seite aus </span><code>{s.repoUrl}</code></> : <>statische Seite (ZIP)</>
-    case 'files': return <>Chat-Projekt{p.filesKind ? <span className="muted">, erkannt als {FILES_KIND[p.filesKind]}</span> : null}</>
-    default: return <>{p.sourceType}</>
-  }
-}

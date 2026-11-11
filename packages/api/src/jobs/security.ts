@@ -1,6 +1,6 @@
 import { eq, desc } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
-import { enqueueProjectScan, enqueueExternalScan } from '../security/scan.js'
+import { enqueueProjectScan, enqueueExternalScan, RESCAN_EVERY_MS } from '../security/scan.js'
 import { serverJob } from '../lib/scope.js'
 import { notify } from '../notify/send.js'
 import { log } from '../lib/log.js'
@@ -29,7 +29,7 @@ export async function runSecurityJobs(now = new Date()): Promise<{ projects: str
 
   for (const p of await db.select().from(schema.projects).where(eq(schema.projects.desiredState, 'running'))) {
     const last = await lastScanAt(eq(schema.scanRuns.projectId, p.id))
-    if (!last || now.getTime() - last.getTime() >= 7 * DAY) {
+    if (!last || now.getTime() - last.getTime() >= RESCAN_EVERY_MS) {
       await enqueueProjectScan(serverJob('wöchentlicher-rescan'), p.id, { actor: 'system', trigger: 'schedule' }).then(() => projects.push(p.slug), () => {})
     }
   }

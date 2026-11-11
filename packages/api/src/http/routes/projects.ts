@@ -10,13 +10,14 @@ import {
   assertSourceSupported,
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
-import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
+import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
+import { parseSiteAccess } from '../../lib/site-access.js'
 import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject, restartProject } from '../../domain/lifecycle.js'
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
-import { audit } from '../../domain/audit.js'
+import { audit, createdBy } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
 import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
@@ -66,6 +67,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams }>('/projects/:id', async (request) => {
     const project = await findProject(request.scope, request.params.id)
     const dto = await toDto(project)
+    // Projektseite, Eckdaten «Quelle: Chat über <Token>»
+    dto.createdBy = await createdBy(project.id, project.sourceType)
 
     // Hinweis, ob der Container als root laeuft. Kein Fehler, nur sichtbar.
     const active = await activeDeployment(project.id)
@@ -241,6 +244,23 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       return { logs: await docker.getLogs(active.containerId, { tail: lines, ...(since ? { since } : {}) }) }
     },
   )
+
+  /**
+   * Projektseite, Reiter «Zugriffe»: Aufrufe einer statischen Seite aus
+   * Caddys Zugriffs-Log (letzte 24 Stunden, höchstens 500, IP gekürzt).
+   */
+  app.get<{ Params: IdParams }>('/projects/:id/access', async (request) => {
+    const project = await findProject(request.scope, request.params.id)
+    const routes = await routeDtosFor(project.id, project.slug)
+    const hosts = routes.flatMap((r) => [r.hostname, ...r.aliases])
+    const sinceMs = Date.now() - 24 * 60 * 60_000
+    try {
+      const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
+      return { entries: parseSiteAccess(logs, { hosts, sinceMs }), since: new Date(sinceMs).toISOString(), error: null }
+    } catch (err) {
+      return { entries: [], since: new Date(sinceMs).toISOString(), error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
+    }
+  })
 
   app.get<{ Params: IdParams }>('/projects/:id/logs/stream', async (request, reply) => {
     const project = await findProject(request.scope, request.params.id)

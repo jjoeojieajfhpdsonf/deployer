@@ -4,6 +4,7 @@ import type {
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  SiteAccessEntryDto,
 } from '@airlock/shared'
 
 export type {
@@ -37,6 +38,9 @@ export interface NotifySettingsDto {
   email: { host: string; port: number; secure: boolean; user: string | null; hasPassword: boolean; from: string; to: string } | null
   matrix: Record<NotifyEvent, { push: boolean; email: boolean }>
 }
+
+/** Frist der Chat-Projekte; fromEnv = CHAT_EXPIRY_DAYS, changed = in den Einstellungen geändert */
+export interface ExpirySettingDto { days: number; fromEnv: number; changed: boolean }
 
 export interface MeDto {
   loggedIn: boolean
@@ -196,6 +200,8 @@ export const api = {
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */
+  /** Statische Seiten: Aufrufe aus Caddys Zugriffs-Log (24 Stunden) */
+  siteAccess: (id: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access`),
   listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
 
   /* Security (M6) */
@@ -239,7 +245,6 @@ export const api = {
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
 
-  /* Cloudflare verbinden */
   /* Cloudflare verbinden (M9: je Umgebung) */
   cloudflare: () => call<CfStatusDto>(e('/cloudflare')),
   cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>(e('/cloudflare/check'), { method: 'POST', body: body({ token }) }),
@@ -251,6 +256,9 @@ export const api = {
   cloudflareTunnelUpdate: () => call<CfStatusDto>(e('/cloudflare/tunnel/update'), { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>(e('/cloudflare/tls'), { method: 'POST' }),
   cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
+  /** Frist der Chat-Projekte (Tage ohne Änderung bis zum Stopp; serverweit) */
+  expiry: () => call<ExpirySettingDto>('/system/expiry'),
+  setExpiry: (days: number) => call<ExpirySettingDto>('/system/expiry', { method: 'PUT', body: body({ days }) }),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),

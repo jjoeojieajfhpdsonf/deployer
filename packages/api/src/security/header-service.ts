@@ -109,6 +109,7 @@ export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<H
     .where(eq(schema.cspViolations.projectId, p.id))
     .orderBy(desc(schema.cspViolations.count))
   const csp = rules.find((r) => r.header === 'content-security-policy')
+  const viaCaddy = Boolean(await probeTargetFor(p.id))
   const s = violations.length ? suggestCsp(csp?.value ?? HEADER_DEFAULT['content-security-policy'], violations) : null
   // CSP-Fix: die ausgelieferten Seiten kennen, bevor vorgeschlagen oder scharf geschaltet wird
   let analysis: CspAnalysisDto | null = null
@@ -116,12 +117,15 @@ export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<H
   let suggestion = s?.policy ?? null
   const notes = [...(s?.notes ?? [])]
   let prompt: string | null = null
-  if (csp) {
+  // Projektseite: auch ohne CSP-Regel analysieren (gecacht, 60 s) – die
+  // Security-Karte zeigt schon vor dem Setzen, ob Inline-Code im Weg ist.
+  const target = csp?.value ?? HEADER_DEFAULT['content-security-policy']
+  if (csp || viaCaddy) {
     const pages = await analyzeProjectPages(p.id)
     const { pageUrls: _u, ...a } = pages
-    const conflicts = a.error ? [] : conflictsFor(csp.value, a)
+    const conflicts = a.error ? [] : conflictsFor(target, a)
     analysis = { ...a, conflicts }
-    if (!a.error) {
+    if (!a.error && csp) {
       // Externe Quellen der Seiten in den Vorschlag; Inline-Code nur als Warnung
       suggestion = suggestWithAnalysis(suggestion ?? csp.value, a)
       const summary = conflictSummary(a, suggestion)
@@ -131,13 +135,13 @@ export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<H
         if (fid) prompt = inlinePrompt(p, fid, summary)
       }
     }
-    readiness = await cspReadiness(csp, a, conflicts, violations)
+    if (csp) readiness = await cspReadiness(csp, a, conflicts, violations)
   }
   return {
     rules: rules.map(toDto).sort((a, b) => a.header.localeCompare(b.header)),
     inherited,
     hsts: await hstsReadiness(p.id),
-    viaCaddy: Boolean(await probeTargetFor(p.id)),
+    viaCaddy,
     csp: {
       violations: violations.slice(0, 100).map((v) => ({
         directive: v.directive, blocked: v.blocked, samplePath: v.samplePath, count: v.count, lastSeen: v.lastSeen.toISOString(),

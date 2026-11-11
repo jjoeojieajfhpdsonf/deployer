@@ -104,6 +104,8 @@ export const PROBE_SERVER = 'probe'
 export const ACCESS_LOGGER = 'airlock'
 /** Logger für Aufrufe von Projekten mit Report-Only-CSP (http.log.access.csp) */
 export const CSP_VIEW_LOGGER = 'csp'
+/** Logger für Aufrufe statischer Seiten (http.log.access.site), Reiter «Zugriffe» */
+export const SITE_LOGGER = 'site'
 
 export interface TlsOptions {
   baseDomain: string
@@ -383,6 +385,8 @@ export function buildCaddyConfig(
   // werden darf. Nur solange Report-Only läuft – danach kein Log mehr.
   const loggerNames: Record<string, string[]> = Object.fromEntries((opts.accessLogHosts ?? []).map((h) => [h, [ACCESS_LOGGER]]))
   for (const r of routes) {
+    // Projektseite: statische Seiten zeigen ihr Zugriffs-Log im Reiter «Zugriffe»
+    if (r.kind === 'files') for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), SITE_LOGGER]
     if (!r.headers?.some((h) => h.header === 'content-security-policy' && h.mode === 'report-only')) continue
     for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), CSP_VIEW_LOGGER]
   }

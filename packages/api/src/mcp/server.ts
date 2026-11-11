@@ -122,14 +122,20 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     handler: (args: z.objectOutputType<S, z.ZodTypeAny>) => Promise<ToolResult>,
   ) {
     server.registerTool(name, { description, inputSchema: shape }, (async (args: z.objectOutputType<S, z.ZodTypeAny>) => {
+      // Projektseite: der Aufruf gehört zum Projekt (Aktivität zeigt «Claude (<Token>)» als Auslöser)
+      const target = async () => {
+        const ref = (args as Record<string, unknown>).project
+        const p = typeof ref === 'string' ? await findProject(scope, ref).catch(() => null) : null
+        return p ? { targetType: 'project', targetId: p.id } : {}
+      }
       try {
         const r = await handler(args)
         // M9: MCP-Aufrufe gehören zur Umgebung des Tokens
-        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
+        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, ...(await target()), params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
         return r
       } catch (err) {
         const msg = err instanceof AppError || err instanceof z.ZodError ? (err as Error).message : 'Interner Fehler'
-        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
+        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, ...(await target()), params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
         return fail(msg)
       }
     }) as never)
@@ -254,7 +260,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const req = wantsPublic
       ? await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
       : null
-    const dep = await startDeploy(scope, p.id, actor)
+    const dep = await startDeploy(scope, p.id, actor, undefined, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({
       ...summarize(await toDto(await findProject(scope, p.id))),
@@ -276,7 +282,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     if (a.port) await updateProject(r.project.id, { port: a.port })
     if (!a.deploy) return ok({ commit: r.commit, changed: r.changed })
     if (!r.changed && !a.port) return ok({ commit: r.commit, changed: false, note: 'Keine Änderung, kein Deploy' })
-    const dep = await startDeploy(scope, r.project.id, actor)
+    const dep = await startDeploy(scope, r.project.id, actor, undefined, { via: 'mcp', reason: { kind: 'code', detail: a.message.split('\n')[0]!.trim().slice(0, 120) || null } })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ commit: r.commit, changed: r.changed, ...summarize(await toDto(await findProject(scope, r.project.id))), deploy: result })
   })
@@ -313,7 +319,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('deploy', 'Neu deployen (optional mit Branch, Tag oder Commit)', {
     project, ref: z.string().max(255).optional(), wait,
   }, async (a) => {
-    const dep = await startDeploy(scope, a.project, actor, a.ref)
+    const dep = await startDeploy(scope, a.project, actor, a.ref, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ ...summarize(await toDto(await findProject(scope, a.project))), deploy: result })
   })
@@ -338,7 +344,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const p = await findProject(scope, a.project)
     const c = await confirm('rollback', { project: p.id, version: a.version ?? null, confirmation_token: a.confirmation_token }, `Projekt "${p.name}" auf ${a.version ? `Fassung ${a.version}` : 'die vorherige Fassung'} zurückrollen?`)
     if (!c.go) return c.result
-    const dep = await startRollback(scope, p.id, actor, a.version)
+    const dep = await startRollback(scope, p.id, actor, a.version, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({ ...summarize(await toDto(await findProject(scope, p.id))), deploy: result })
   })

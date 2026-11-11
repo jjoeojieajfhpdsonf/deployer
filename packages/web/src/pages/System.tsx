@@ -7,6 +7,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
 import { GithubSetup } from '../components/GithubSetup.js'
 import { useEnvPath } from '../lib/env.js'
+import { ExpirySettings } from '../components/ExpirySettings.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -213,6 +214,8 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
           </button>
         </>
       )}
+
+      <ExpirySettings />
     </>
   )
 }

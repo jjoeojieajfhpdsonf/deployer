@@ -523,6 +523,46 @@ export interface DeploymentDto {
   rollbackOf: string | null
   /** Lässt sich auf diese Fassung zurückrollen (Artefakt noch vorhanden, nicht aktiv)? */
   canRollback: boolean
+  /**
+   * Warum deployt wurde (Titel der Zeile). Neue Einträge speichern ihn beim
+   * Start, ältere leitet die API aus dem Audit-Log ab; ohne Hinweis «redeploy».
+   */
+  reason?: DeployReason
+  /** Wer ausgelöst hat: «ui:…», «token:<Name>», «system:…»; null = unbekannt (alt) */
+  actor?: string | null
+  /** Betreff des Commits dieser Fassung, soweit bekannt (Chat-Projekte, Repo) */
+  message?: string | null
+  /** Laufende Nummer im Projekt (#1 = erstes Deployment) */
+  seq?: number
+}
+
+export const deployReasonKinds = [
+  'first', 'code', 'redeploy', 'rollback', 'recreate', 'headers', 'public', 'internal', 'paused', 'auto_merge', 'start',
+] as const
+export type DeployReasonKind = (typeof deployReasonKinds)[number]
+
+export interface DeployReason {
+  kind: DeployReasonKind
+  /** code/auto_merge: Commit-Nachricht; headers: Header-Name; public: Hostname */
+  detail?: string | null
+}
+
+/** Titel einer Deployment-Zeile aus dem Grund, z. B. «Erstes Deployment», «Hintergrund blau». */
+export function deployReasonTitle(r: DeployReason | undefined | null, message?: string | null): string {
+  const d = r?.detail?.trim()
+  switch (r?.kind) {
+    case 'first': return 'Erstes Deployment'
+    case 'code': return d || message?.trim() || 'Code geändert'
+    case 'auto_merge': return 'Auto-Deploy nach Merge'
+    case 'rollback': return 'Zurückgerollt'
+    case 'recreate': return 'Neu erstellt'
+    case 'headers': return d ? `Header geändert: ${d}` : 'Header geändert'
+    case 'public': return 'Öffentlich gemacht'
+    case 'internal': return 'Erreichbarkeit intern geändert'
+    case 'paused': return 'Öffentlich pausiert'
+    case 'start': return 'Gestartet'
+    default: return 'Neu deployt'
+  }
 }
 
 export interface ProjectDto {
@@ -551,6 +591,10 @@ export interface ProjectDto {
   lastChangeAt: string
   /** M3: wann ein Chat-Projekt ohne Änderung gestoppt wird; null = läuft nicht ab. */
   expiresAt: string | null
+  /** Projektseite: Frist der Chat-Projekte in Tagen (System-Einstellungen); null bei anderen Quellen */
+  expiryDays?: number | null
+  /** Projektseite (nur GET /projects/:id): wer das Projekt angelegt hat, z. B. «mcp:claude-code-mac» */
+  createdBy?: string | null
   /** M6: letzter Scan in Kurzform. */
   security: {
     scanId: string
@@ -621,6 +665,10 @@ export interface ScanReportDto {
     actor: string | null
     /** Solange der Scan wartet: Position (1 = als Nächstes), Scans davor */
     queue: { position: number; ahead: number } | null
+    /** Score des vorherigen abgeschlossenen Scans; null = erster Scan */
+    previousScore?: number | null
+    /** Projekte: frühester nächster automatischer Scan (wöchentlich) */
+    nextScheduledAt?: string | null
   }
   counts: Record<'critical' | 'high' | 'medium' | 'low', number>
   top: { id: string; severity: string; title: string; location: string; fix: string }[]
@@ -689,6 +737,19 @@ export interface SystemStatusDto {
   } | null
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
+}
+
+/** Projektseite, Reiter «Zugriffe» (statische Seiten): ein Aufruf aus Caddys Zugriffs-Log */
+export interface SiteAccessEntryDto {
+  at: string
+  method: string
+  path: string
+  status: number
+  durationMs: number | null
+  bytes: number | null
+  /** gekürzt: «192.168.1.x» */
+  ip: string
+  host: string
 }
 
 export interface AuditEventDto {

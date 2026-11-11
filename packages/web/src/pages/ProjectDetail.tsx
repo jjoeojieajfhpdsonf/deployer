@@ -2,25 +2,28 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { useEnvPath } from '../lib/env.js'
-import { MoveProject } from '../components/MoveProject.js'
 import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
-import { StatusBadge, relativeTime, duration } from '../components/Status.js'
+import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
-import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { ProjectSecurity } from '../components/Security.js'
-import { AutoDeploySetting } from '../components/GithubSetup.js'
-import { Reachability } from '../components/Reachability.js'
-import { Publication, PublicPillFor } from '../components/Publication.js'
+import { PublicPillFor } from '../components/Publication.js'
+import { ProjectSettings } from '../components/ProjectSettings.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
+import { DeployList, useDeployments } from '../components/DeployList.js'
+import { SiteAccess } from '../components/SiteAccess.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
-import { useFormErrors } from '../lib/form.js'
-import { Field } from '../components/Field.js'
-import { putEnvSchema } from '@airlock/shared'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { runtimeStatus, isPublic } from '../lib/projects.js'
+
+const IconGear = () => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="8" cy="8" r="2" />
+    <path d="M6.9 1.8h2.2l.4 1.6 1.1.5 1.4-.9 1.6 1.6-.9 1.4.5 1.1 1.6.4v2.2l-1.6.4-.5 1.1.9 1.4-1.6 1.6-1.4-.9-1.1.5-.4 1.6H6.9l-.4-1.6-1.1-.5-1.4.9-1.6-1.6.9-1.4-.5-1.1-1.6-.4V6.9l1.6-.4.5-1.1-.9-1.4 1.6-1.6 1.4.9 1.1-.5Z" />
+  </svg>
+)
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -30,7 +33,8 @@ export function ProjectDetail() {
   const navigate = useNavigate()
   const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
-  const TABS: Tab[] = ['uebersicht', 'deployments', 'logs', 'security', 'einstellungen']
+  // Reihenfolge nach Wichtigkeit; Einstellungen rechts abgesetzt
+  const TABS: Tab[] = ['uebersicht', 'security', 'deployments', 'logs', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
@@ -38,16 +42,11 @@ export function ProjectDetail() {
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
   const [watching, setWatching] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // «Löschen …» aus dem Menü: zur bestehenden Rückfrage (Kurzname eintippen) in den Einstellungen
+  // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
+  const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
     setTab('einstellungen')
-    const focus = (tries: number) => {
-      const zone = document.querySelector<HTMLElement>('.danger-zone')
-      if (!zone) { if (tries > 0) requestAnimationFrame(() => focus(tries - 1)); return }
-      zone.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      zone.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
-    }
-    requestAnimationFrame(() => focus(30))
+    setDeleteRequested(true)
   }
 
   const q = useQuery({
@@ -78,6 +77,8 @@ export function ProjectDetail() {
   })
 
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
+  // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
+  const deployList = useDeployments(id)
   const keep = useMutation({
     mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
@@ -103,6 +104,17 @@ export function ProjectDetail() {
   // Der Container fehlt oder ist beendet, obwohl er laufen sollte: dann zählt das, nicht die Datenbank
   const down = Boolean(health.data?.container && !health.data.container.running)
   const rt = down && dbRt.status === 'running' ? { status: 'failed' as const, deployFailed: dbRt.deployFailed } : dbRt
+  const isStatic = p.runtimeKind === 'static'
+  const openFindings = p.security ? Object.values(p.security.open).reduce((a, b) => a + b, 0) : 0
+  const deployCount = deployList.data?.deployments[0]?.seq ?? deployList.data?.deployments.length
+  const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn'; countLabel?: string; live?: boolean }> = {
+    uebersicht: { label: 'Übersicht' },
+    security: { label: 'Security', count: openFindings, tone: 'warn', countLabel: `${openFindings} ${openFindings === 1 ? 'offener Befund' : 'offene Befunde'}` },
+    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
+    // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
+    logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
+    einstellungen: { label: 'Einstellungen' },
+  }
 
   return (
     <section className="page page-project">
@@ -147,34 +159,42 @@ export function ProjectDetail() {
         role="tablist"
         aria-label="Bereiche des Projekts"
         onKeyDown={(e) => {
-          // Pfeiltasten wechseln den Reiter (Tablist-Muster)
-          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+          // Pfeiltasten wechseln den Reiter (Tablist-Muster), Pos1/Ende springen
           const i = TABS.indexOf(tab)
-          const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!
+          const next = e.key === 'ArrowRight' ? TABS[(i + 1) % TABS.length]
+            : e.key === 'ArrowLeft' ? TABS[(i + TABS.length - 1) % TABS.length]
+            : e.key === 'Home' ? TABS[0] : e.key === 'End' ? TABS.at(-1) : null
+          if (!next) return
+          e.preventDefault()
           setTab(next)
           requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
         }}
       >
-        {([
-          ['uebersicht', 'Übersicht'],
-          ['deployments', 'Deployments'],
-          ['logs', 'Logs'],
-          ['security', 'Security'],
-          ['einstellungen', 'Einstellungen'],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            id={`tab-${key}`}
-            aria-selected={tab === key}
-            aria-controls="tab-panel"
-            tabIndex={tab === key ? 0 : -1}
-            className={tab === key ? 'tab tab-active' : 'tab'}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
+        {TABS.map((key) => {
+          const t = tabInfo[key]
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls="tab-panel"
+              tabIndex={tab === key ? 0 : -1}
+              className={`tab${tab === key ? ' tab-active' : ''}${key === 'einstellungen' ? ' tab-end' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {key === 'einstellungen' && <IconGear />}
+              {t.label}
+              {t.count !== undefined && t.count > 0 && (
+                <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`}>
+                  <span aria-hidden="true">{t.count}</span><span className="visually-hidden">, {t.countLabel}</span>
+                </span>
+              )}
+              {t.live && <span className="tab-live" role="img" aria-label="Container läuft" title="Container läuft" />}
+            </button>
+          )
+        })}
       </nav>
       <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
 
@@ -198,6 +218,7 @@ export function ProjectDetail() {
             deploying={act.isPending || p.status === 'deploying'}
             onRollback={(depId) => setWatching(depId)}
             onToggleKeep={() => keep.mutate(!p.keep)}
+            keepBusy={keep.isPending}
           />
         </div>
       )}
@@ -211,18 +232,25 @@ export function ProjectDetail() {
           }}
         />
       )}
-      {tab === 'logs' && <LiveLogs projectId={id} />}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} /> : <LiveLogs projectId={id} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
-      {tab === 'einstellungen' && <Publication p={p} />}
-      {tab === 'einstellungen' && <Reachability p={p} />}
-      {tab === 'einstellungen' && <AutoDeploySetting projectId={p.id} />}
       {tab === 'einstellungen' && (
-        <Settings
-          projectId={id}
-          slug={p.slug}
+        <ProjectSettings
+          p={p}
           env={env}
           onDeleted={() => navigate(ep('/projekte'))}
-          beforeDanger={<MoveProject p={p} />}
+          deleteRequested={deleteRequested}
+          onDeleteShown={() => setDeleteRequested(false)}
+          onManageHeaders={() => {
+            setTab('security')
+            // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
+            const go = (tries: number) => {
+              const el = document.getElementById('header-caddy')
+              if (el) el.scrollIntoView({ block: 'start' })
+              else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+            }
+            go(20)
+          }}
         />
       )}
       </div>
@@ -269,104 +297,25 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 /* --- Deployments ----------------------------------------------------------- */
 
-const DEPLOY_STATUS: Record<string, string> = {
-  pending: 'wartet',
-  pulling: 'holt Quelle',
-  starting: 'startet',
-  healthchecking: 'Healthcheck',
-  active: 'aktiv',
-  superseded: 'abgelöst',
-  failed: 'fehlgeschlagen',
-  rolled_back: 'zurückgerollt',
-}
-
 function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
-  const qc = useQueryClient()
-  const [open, setOpen] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const list = useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId) })
-  const detail = useQuery({
-    queryKey: ['deployment', open],
-    queryFn: () => api.getDeployment(open!),
-    enabled: open !== null,
-  })
-  const rollback = useMutation({
-    mutationFn: (deploymentId: string) => api.rollback(projectId, deploymentId),
-    onSuccess: (r) => {
-      setConfirming(null)
-      void qc.invalidateQueries({ queryKey: ['deployments', projectId] })
-      onRollback(r.deployment.id)
-    },
-  })
-
+  const list = useDeployments(projectId)
   if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
   const rows = list.data?.deployments ?? []
   if (rows.length === 0) return <p className="state state-empty">Noch kein Deployment.</p>
 
   return (
     <div className="tab-panel">
-      <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr><th>Start</th><th>Version</th><th>Dauer</th><th>Ergebnis</th><th /></tr>
-          </thead>
-          <tbody>
-            {rows.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  {new Date(d.startedAt).toLocaleString('de-CH')}
-                  {d.trigger === 'rollback' && <span className="muted"> · Rollback</span>}
-                </td>
-                <td><code className="version" title={d.version ?? undefined}>{shortVersion(d.version)}</code></td>
-                <td>{duration(d.durationMs)}</td>
-                <td>
-                  {/* Ergebnis als Pille: Punkt + Wort, Farbe nur für aktiv und fehlgeschlagen */}
-                  <span className={`status ${d.status === 'active' ? 'status-running' : d.status === 'failed' ? 'status-failed' : ['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? 'status-deploying' : 'status-stopped'}`}>
-                    <span className="status-dot" aria-hidden="true" />{DEPLOY_STATUS[d.status] ?? d.status}
-                  </span>
-                </td>
-                <td className="row-actions">
-                  <button onClick={() => setOpen(open === d.id ? null : d.id)}>
-                    {open === d.id ? 'Log schliessen' : 'Log'}
-                  </button>
-                  {d.canRollback && confirming !== d.id && (
-                    <button onClick={() => setConfirming(d.id)}>Zurückrollen</button>
-                  )}
-                  {confirming === d.id && (
-                    <>
-                      <button
-                        className="button-primary"
-                        disabled={rollback.isPending}
-                        onClick={() => rollback.mutate(d.id)}
-                      >
-                        {rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}
-                      </button>
-                      <button onClick={() => setConfirming(null)}>Abbrechen</button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {rollback.isError && (
-        <p role="alert" className="error">
-          {rollback.error instanceof ApiError && rollback.error.status === 409
-            ? 'Für dieses Projekt läuft bereits ein Deploy.'
-            : (rollback.error as Error).message}
-        </p>
-      )}
-      <p className="hint">
+      <section className="panel panel-pad ov-section" aria-labelledby="dl-all">
+        <div className="ov-head">
+          <h2 className="ov-title" id="dl-all">Deployments</h2>
+          <span className="muted num">{rows[0]?.seq ?? rows.length} insgesamt</span>
+        </div>
+        <DeployList projectId={projectId} rows={rows} withLog onRollback={onRollback} />
+      </section>
+      <p className="hint dl-hint">
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
-
-      {open && (
-        <pre className="log" aria-label="Deployment-Log">
-          {detail.isLoading ? 'Log wird geladen…' : detail.data?.log || 'Kein Log vorhanden.'}
-        </pre>
-      )}
     </div>
   )
 }
@@ -403,103 +352,3 @@ function LiveLogs({ projectId }: { projectId: string }) {
   )
 }
 
-/* --- Einstellungen ----------------------------------------------------------- */
-
-function Settings({
-  projectId, slug, env, onDeleted, beforeDanger,
-}: {
-  projectId: string
-  slug: string
-  env: { key: string; value: string | null; isSecret: boolean }[]
-  onDeleted: () => void
-  /** M9: Karte «In andere Umgebung verschieben» vor dem Löschen */
-  beforeDanger?: ReactNode
-}) {
-  const qc = useQueryClient()
-  const [rows, setRows] = useState<EnvRow[]>(
-    env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true })),
-  )
-  const [confirm, setConfirm] = useState('')
-  const [purge, setPurge] = useState(false)
-  const [confirmError, setConfirmError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
-  const entries = () => rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))
-  const envForm = useFormErrors({ schema: putEnvSchema, values: () => ({ entries: entries() }) })
-  const save = useMutation({
-    mutationFn: () => api.putEnv(projectId, entries()),
-    onSuccess: () => {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-      void qc.invalidateQueries({ queryKey: ['project', projectId] })
-    },
-    onError: (err) => void envForm.setServerErrors(err),
-  })
-
-  const remove = useMutation({
-    mutationFn: () => api.deleteProject(projectId, purge),
-    onSuccess: onDeleted,
-  })
-
-  return (
-    <div className="tab-panel">
-      <form noValidate ref={envForm.formRef} onSubmit={(ev) => { ev.preventDefault(); if (envForm.validateAll()) save.mutate() }}>
-      <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={envForm.errors} field={envForm.field} />
-      <div className="form-actions">
-        <button type="submit" disabled={save.isPending}>
-          {save.isPending ? 'Wird gespeichert…' : saved ? 'Gespeichert' : 'Variablen speichern'}
-        </button>
-        <span className="hint">Wirksam beim nächsten Deploy.</span>
-      </div>
-      </form>
-      {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
-
-      {beforeDanger}
-
-      <section className="danger-zone">
-        <h2>Projekt löschen</h2>
-        <p>
-          Entfernt Container, Netz, Route und Dateien. Lässt sich nicht rückgängig machen.
-        </p>
-        <form
-          noValidate
-          onSubmit={(ev) => {
-            ev.preventDefault()
-            if (confirm.trim() !== slug) {
-              setConfirmError(confirm.trim() ? `Das ist nicht «${slug}». Tippe den Kurznamen genau so ein, um das Löschen zu bestätigen.` : `Tippe «${slug}» ein, um das Löschen zu bestätigen.`)
-              requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus())
-              return
-            }
-            setConfirmError(null)
-            remove.mutate()
-          }}
-        >
-          <Field id="f-delete-confirm" label="Kurzname zur Bestätigung" error={confirmError ?? undefined}>
-            <input
-              id="f-delete-confirm"
-              aria-invalid={confirmError ? true : undefined}
-              aria-describedby={confirmError ? 'f-delete-confirm-error' : undefined}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onBlur={() => { if (confirmError && confirm.trim() === slug) setConfirmError(null) }}
-              placeholder={slug}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          <label className="choice">
-            <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
-            <span>
-              Auch die Daten-Volumes löschen
-              <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small>
-            </span>
-          </label>
-          <button type="submit" className="button-danger-solid" disabled={remove.isPending}>
-            {remove.isPending ? 'Wird gelöscht…' : 'Endgültig löschen'}
-          </button>
-        </form>
-        {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
-      </section>
-    </div>
-  )
-}

@@ -1,8 +1,9 @@
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, gt, lte, count } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import type { DeploymentArtifact } from '../db/schema.js'
 import { notFound } from '../lib/errors.js'
 import type { DeploymentDto } from '@airlock/shared'
+import { withHistory, type ReasonEvent } from './deploy-reason.js'
 
 type Row = typeof schema.deployments.$inferSelect
 
@@ -49,8 +50,23 @@ export function toDeploymentDto(r: Row): DeploymentDto {
     trigger: r.trigger,
     rollbackOf: r.rollbackOf,
     canRollback: canRollbackTo(r),
+    reason: r.reason ?? undefined,
+    actor: r.actor ?? null,
+    message: r.message ?? null,
   }
 }
+
+/** Audit-Einträge eines Projekts im Zeitraum (after, until] für die Ableitung des Grunds. */
+export async function reasonEvents(projectId: string, after: Date, until: Date): Promise<ReasonEvent[]> {
+  const rows = await db
+    .select({ at: schema.auditEvents.at, actor: schema.auditEvents.actor, action: schema.auditEvents.action, params: schema.auditEvents.paramsMasked })
+    .from(schema.auditEvents)
+    .where(and(eq(schema.auditEvents.targetId, projectId), gt(schema.auditEvents.at, after), lte(schema.auditEvents.at, until), eq(schema.auditEvents.result, 'ok')))
+    .orderBy(desc(schema.auditEvents.at))
+    .limit(2000)
+  return rows.map((r) => ({ at: r.at, actor: r.actor, action: r.action, params: (r.params ?? {}) as Record<string, unknown> }))
+}
+
 
 export async function listDeployments(projectId: string, limit = 20): Promise<DeploymentDto[]> {
   const rows = await db
@@ -59,7 +75,12 @@ export async function listDeployments(projectId: string, limit = 20): Promise<De
     .where(eq(schema.deployments.projectId, projectId))
     .orderBy(desc(schema.deployments.startedAt))
     .limit(limit)
-  return rows.map(toDeploymentDto)
+  const total = Number((await db.select({ n: count() }).from(schema.deployments).where(eq(schema.deployments.projectId, projectId)))[0]?.n ?? rows.length)
+  const old = rows.filter((r) => !r.reason || !r.actor)
+  const events = old.length
+    ? await reasonEvents(projectId, new Date(Math.min(...old.map((r) => r.startedAt.getTime())) - 30 * 86_400_000), new Date())
+    : []
+  return withHistory(rows, total, events, toDeploymentDto)
 }
 
 export async function getDeployment(id: string): Promise<Row> {

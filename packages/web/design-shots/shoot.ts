@@ -58,7 +58,9 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
-  if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: { commit: null, files: [] } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/access$/))) return { body: fx.siteAccess(m[1]!) }
+  if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
   // M8: Fix-Assistent
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
@@ -104,13 +106,18 @@ type Shot = {
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
   legacy?: boolean
+  /** Projekt patchen (GET /projects/:id), z. B. Ablauf in 5 Tagen */
+  patch?: Partial<import('@airlock/shared').ProjectDto>
   prepare?: (page: Page) => Promise<void>
+  /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
+  el?: string
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
 const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
+const H = 'p-hallo'
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
@@ -277,7 +284,7 @@ const shots: Shot[] = [
     group: 'fehler', name: 'pauseseite-datum-ungueltig', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
-      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Einfach', exact: true }).click()
       const f = pg.locator('.pause-dialog input[type="datetime-local"]')
       // Ganz links (Tag) beginnen, dann Tag, Monat und ein sechsstelliges Jahr wie im Absturz
       await f.click({ position: { x: 14, y: 20 } })
@@ -313,14 +320,49 @@ const shots: Shot[] = [
     group: 'pauseseite', name: 'pauseseite-dialog-formular', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
-      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Einfach', exact: true }).click()
       await pg.waitForTimeout(300)
     },
   },
   {
-    // Vorlage: von Formular zu Code wechseln – das Codefeld beginnt mit dem HTML des Formulars
+    // Vorlage: von Einfach zu HTML wechseln – der Editor beginnt mit dem HTML der Felder
     group: 'pauseseite', name: 'pauseseite-vorlage-code', path: '/system/veroeffentlichung', full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Code', exact: true }).click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'HTML', exact: true }).click(); await pg.waitForTimeout(250) },
+  },
+  // Projektseite 7: Pause-Seiten-Editor (hallo-welt, live: Seite für das nächste Pausieren)
+  {
+    group: 'p7', name: '7-pause-einfach', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click(); await pg.waitForTimeout(350) },
+  },
+  {
+    group: 'p7', name: '7-pause-html', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formatieren' }).click()
+      await pg.waitForTimeout(350)
+    },
+  },
+  {
+    group: 'p7', name: '7-pause-html-verstoss', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.locator('.pause-dialog .cm-content').click()
+      await pg.keyboard.press('ControlOrMeta+End')
+      // Der Editor schliesst das Tag selbst
+      await pg.keyboard.type('\n<script src="https://cdn.example/x.js">')
+      await pg.waitForTimeout(350)
+    },
+  },
+  {
+    group: 'p7', name: '7-pause-html-vollbild', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.getByRole('button', { name: 'Editor im Vollbild' }).click()
+      await pg.waitForTimeout(350)
+    },
   },
   { group: 'veroeffentlichung', name: 'veroeffentlichung-gesperrt', path: `/projekte/${S}?tab=einstellungen`, full: false },
   {
@@ -399,6 +441,79 @@ const shots: Shot[] = [
   { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
   { group: 'm9', name: 'm9-server', path: '/server' },
   { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
+  // Projektseite im neuen Design (docs/design-cal/ui-projektseite)
+  { group: 'p1', name: '1-deployments-karte-container', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-deploys"]' },
+  { group: 'p1', name: '1-deployments-karte-statisch', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-deploys"]' },
+  {
+    group: 'p1', name: '1-deployments-reiter-aufgeklappt', path: `/projekte/${P}?tab=deployments`,
+    prepare: async (pg) => {
+      await pg.locator('.dl-group-toggle').first().click()
+      await pg.getByRole('button', { name: 'Zurückrollen' }).first().click()
+      await pg.waitForTimeout(300)
+    },
+  },
+  { group: 'p2', name: '2-security-karte-offen', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p2', name: '2-security-karte-ohne-befunde', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p2', name: '2-security-karte-handlungsbedarf', path: `/projekte/${S}`, el: 'section[aria-labelledby="ov-sec"]' },
+  { group: 'p3', name: '3-aktivitaet-karte', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-act"]' },
+  { group: 'p3', name: '3-audit-log', path: '/audit', count: 7 },
+  {
+    group: 'p3', name: '3-audit-log-projekt-details', path: `/audit?projekt=${H}`, count: 7, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Details' }).nth(2).click(); await pg.waitForTimeout(200) },
+  },
+  { group: 'p4', name: '4-eckdaten-statisch', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]' },
+  { group: 'p4', name: '4-eckdaten-container', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-facts"]' },
+  { group: 'p4', name: '4-eckdaten-ablauf-bald', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]', patch: { expiresAt: new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString() } },
+  { group: 'p4', name: '4-eckdaten-unbegrenzt', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-facts"]', patch: { keep: true, expiresAt: null } },
+  {
+    group: 'p4', name: '4-eckdaten-dateien', path: `/projekte/${H}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Dateien ansehen' }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'p4', name: '4-system-frist', path: '/system', el: '.expiry-settings' },
+  { group: 'p5', name: '5-reiter-container', path: `/projekte/${L}`, full: false },
+  { group: 'p5', name: '5-reiter-statisch', path: `/projekte/${H}?tab=security`, full: false },
+  {
+    group: 'p5', name: '5-reiter-hover', path: `/projekte/${L}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('tab', { name: /^Deployments/ }).hover(); await pg.waitForTimeout(200) },
+  },
+  { group: 'p5', name: '5-zugriffe', path: `/projekte/${H}?tab=logs` },
+  {
+    group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
+  },
+  { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
+  { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
+  {
+    group: 'p6', name: '6-einstellungen-gespeichert', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('switch', { name: 'Heimnetz (LAN)' }).click()
+      await pg.waitForTimeout(500)
+      await pg.locator('#set-erreichbarkeit').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-access-rueckfrage', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('switch', { name: 'Cloudflare Access' }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-header-offen', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'aufklappen' }).click()
+      await pg.waitForTimeout(300)
+      await pg.locator('#set-header').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(400)
+    },
+  },
+  {
+    group: 'p6', name: '6-einstellungen-gefahrenzone', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('link', { name: 'Gefahrenzone' }).click()
+      await pg.waitForTimeout(600)
+      await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      await pg.waitForTimeout(300)
+    },
+  },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -441,6 +556,10 @@ try {
               const b = r.body as { project: object }
               return json(route, { ...b, project: { ...b.project, legacyContainers: true } })
             }
+            if (s.patch && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
+              const b = r.body as { project: object }
+              return json(route, { ...b, project: { ...b.project, ...s.patch } })
+            }
             return json(route, r.body, r.status)
           }
           if (url.pathname === '/health') return json(route, { ok: true })
@@ -456,7 +575,14 @@ try {
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)
       const file = join(outDir, `${s.name}-${theme}.png`)
-      await page.screenshot({ path: file, fullPage: s.full !== false })
+      if (s.el) {
+        const box = await page.locator(s.el).first().boundingBox()
+        if (!box) throw new Error(`${s.name}: ${s.el} nicht gefunden`)
+        const pad = 24
+        await page.screenshot({ path: file, fullPage: true, clip: { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + 2 * pad, height: box.height + 2 * pad } })
+      } else {
+        await page.screenshot({ path: file, fullPage: s.full !== false })
+      }
       n++
       console.log(`✓ ${file.replace(repo + '/', '')}`)
       await ctx.close()

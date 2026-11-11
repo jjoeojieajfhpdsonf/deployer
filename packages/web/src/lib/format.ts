@@ -1,4 +1,5 @@
 import type { AuditEventDto, ProjectDto } from '@airlock/shared'
+import { describeEvent } from './activity.js'
 
 /** «vor 18 Min.», «vor 2 Std.», «gestern», «vor 3 Tagen» */
 export function relativeTime(iso: string | null | undefined): string {
@@ -43,6 +44,27 @@ export function duration(ms: number | null): string {
   if (ms === null) return '–'
   const s = Math.round(ms / 1000)
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`
+}
+
+/** Zeitpunkt in der Zukunft: «heute», «morgen», «in 6 Tagen» */
+export function inTime(iso: string | null | undefined): string {
+  if (!iso) return '–'
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return '–'
+  const diff = t - Date.now()
+  if (diff <= 0) return 'demnächst'
+  const h = Math.floor(diff / 3_600_000)
+  if (h < 1) return 'in weniger als einer Stunde'
+  if (h < 24) return `in ${h} Std.`
+  const d = Math.round(diff / 86_400_000)
+  if (d === 1) return 'morgen'
+  return `in ${d} Tagen`
+}
+
+/** Dauer eines Deployments: unter einer Sekunde «sofort» (statische Seiten, nur Umschalten) */
+export function deployDuration(ms: number | null): string | null {
+  if (ms === null || ms < 0) return null
+  return ms < 1000 ? 'sofort' : duration(ms)
 }
 
 /** Gigabyte mit Komma, eine Stelle unter 10, sonst ganze Zahl: «6,4», «142» */
@@ -91,66 +113,15 @@ export function auditTone(e: AuditEventDto): 'ok' | 'bad' | 'info' | 'warn' | 'n
   return 'none'
 }
 
-const VERBS: Record<string, string> = {
-  'project.create': 'angelegt',
-  'project.delete': 'gelöscht',
-  'project.deploy': 'deployt',
-  'project.rollback': 'zurückgerollt',
-  'project.recreate': 'neu erstellt',
-  'project.start': 'gestartet',
-  'project.stop': 'gestoppt',
-  'project.update': 'geändert',
-  'project.env.replace': 'Variablen geändert',
-  'project.routes.set': 'Erreichbarkeit geändert',
-  'project.public': 'öffentlich geschaltet',
-  'project.public.remove': 'ganz offline genommen',
-  'project.public.pause': 'öffentlich pausiert',
-  'project.public.resume': 'wieder online',
-  'project.public.access': 'Cloudflare Access geändert',
-  'project.public.rename': 'öffentlichen Namen geändert',
-  'project.public.change': 'Veröffentlichung geändert',
-  'project.expiry_warning': 'läuft bald ab',
-  'project.expired': 'wegen Ablauf gestoppt',
-  'scan.start': 'Scan gestartet',
-  'finding.accept': 'Befund akzeptiert',
-  'files.update': 'Dateien geändert',
-  'files.init': 'Dateien angelegt',
-  'files.export': 'exportiert',
-}
-
-const GENERAL: Record<string, string> = {
-  'auth.login': 'Anmeldung',
-  'token.create': 'Token angelegt',
-  'token.revoke': 'Token widerrufen',
-  'notifications.update': 'Benachrichtigungen geändert',
-  'notifications.test': 'Test-Benachrichtigung',
-  'external_target.add': 'Externes Ziel eingetragen',
-  'external_target.verify': 'Externes Ziel geprüft',
-  'external_target.verification_lost': 'Besitznachweis verloren',
-  'external_target.update': 'Externes Ziel geändert',
-  'external_target.delete': 'Externes Ziel entfernt',
-  'domain.default': 'Standard-Domain gesetzt',
-  'dns.tailnet': 'Tailnet-DNS gesetzt',
-  'upload.create': 'Datei hochgeladen',
-  'reconcile.container_missing': 'Container fehlte, neu gestartet',
-}
-
-/** Ein Audit-Eintrag als Satz: «blog-api: deployt», «wetter: Deploy fehlgeschlagen». */
+/**
+ * Ein Audit-Eintrag als Satz für kurze Listen (Projektliste): «fotoalbum:
+ * Header gesetzt: CSP». Titel aus der zentralen Tabelle in lib/activity.ts,
+ * nie der rohe Schlüssel.
+ */
 export function describeAudit(e: AuditEventDto, projects: Map<string, ProjectDto>): string {
   const p = e.targetType === 'project' && e.targetId ? projects.get(e.targetId) : undefined
   const params = (e.paramsMasked ?? {}) as Record<string, unknown>
-  const name = p?.slug ?? (typeof params.slug === 'string' ? params.slug : typeof params.name === 'string' ? params.name : null)
-  let action = e.action
-  const viaMcp = action.startsWith('mcp.')
-  if (viaMcp) action = action.slice(4)
-  if (e.result === 'error' && /deploy|rollback/.test(action)) return `${name ?? 'Projekt'}: ${action.includes('rollback') ? 'Rollback' : 'Deploy'} fehlgeschlagen`
-  const verb = VERBS[action]
-  if (verb) return `${name ?? 'Projekt'}: ${verb}${viaMcp ? ' über MCP' : ''}${e.result === 'error' ? ' (Fehler)' : ''}`
-  const general = GENERAL[action]
-  if (general) {
-    const h = typeof params.hostname === 'string' ? ` ${params.hostname}` : typeof params.name === 'string' ? ` «${params.name}»` : ''
-    return `${general}${h}${e.result === 'error' ? ' (Fehler)' : ''}`
-  }
-  if (viaMcp) return `MCP: ${action}${name ? ` (${name})` : ''}${e.result === 'error' ? ' – Fehler' : ''}`
-  return `${action}${name ? ` (${name})` : ''}`
+  const name = p?.slug ?? (typeof params.slug === 'string' ? params.slug : null)
+  const title = describeEvent(e).title
+  return name ? `${name}: ${title}` : title
 }

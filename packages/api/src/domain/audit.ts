@@ -1,4 +1,4 @@
-import { desc, lt, and, eq, or, isNull, sql, type SQL } from 'drizzle-orm'
+import { desc, asc, lt, and, eq, or, isNull, inArray, sql, type SQL } from 'drizzle-orm'
 import type { ListScope } from '../lib/scope.js'
 import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
@@ -112,6 +112,21 @@ export async function listAudit(scope: ListScope, opts: { limit?: number; before
     environmentId: r.environmentId,
     server: r.environmentId === null,
   }))
+}
+
+/**
+ * Wer ein Projekt angelegt hat (erstes «project.create»/«files.init»).
+ * Chat-Projekte entstehen über MCP: dann «mcp:<Token>».
+ */
+export async function createdBy(projectId: string, sourceType: string): Promise<string | null> {
+  const rows = await db
+    .select({ actor: schema.auditEvents.actor })
+    .from(schema.auditEvents)
+    .where(and(eq(schema.auditEvents.targetId, projectId), inArray(schema.auditEvents.action, ['project.create', 'files.init'])))
+    .orderBy(asc(schema.auditEvents.at))
+    .limit(1)
+  const a = rows[0]?.actor ?? null
+  return a && sourceType === 'files' && a.startsWith('token:') ? `mcp:${a.slice(6)}` : a
 }
 
 /**

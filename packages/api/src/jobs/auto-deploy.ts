@@ -71,7 +71,7 @@ async function checkProjects(): Promise<void> {
       const busy = (await db.select({ s: schema.deployments.status }).from(schema.deployments).where(and(eq(schema.deployments.projectId, p.id), inArray(schema.deployments.status, [...BUSY])))).length > 0
       const d = autoDeployDecision({ head, activeVersion: active?.version, busy, pinnedCommit: pinned })
       if (d.deploy) {
-        const dep = await startDeploy(JOB, p.id, 'system:auto-deploy')
+        const dep = await startDeploy(JOB, p.id, 'system:auto-deploy', undefined, { reason: { kind: 'auto_merge', detail: null } })
         await audit({ actor: 'system:auto-deploy', action: 'project.auto_deploy', targetType: 'project', targetId: p.id, params: { head, deployment: dep.id }, result: 'ok' })
         log.info('Auto-Deploy nach neuem Commit', { project: p.slug, head: head.slice(0, 12) })
       }

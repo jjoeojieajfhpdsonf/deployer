@@ -5,6 +5,7 @@ import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
 import { IconWarn } from './Security.js'
+import { IconSpark } from './Actor.js'
 
 /**
  * M8, Etappe 2: «Mit Claude lösen». Am Befund ein fertiger Auftrag zum
@@ -65,7 +66,7 @@ export function ClaudeFixAction({
         {before}
         {offered && (
           <button type="button" className="button-small" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
-            {label}
+            {label === 'Mit Claude lösen' && <span className="claude-spark"><IconSpark /></span>}{label}
           </button>
         )}
         {after}
