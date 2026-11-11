@@ -250,7 +250,7 @@ export function pauseResult(id: string): PublicFlowResult {
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'
 
-export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system' }
+export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] } }
 
 /**
  * Deployments mit Grund und Auslöser (Projektseite). Fotoalbum zeigt alle

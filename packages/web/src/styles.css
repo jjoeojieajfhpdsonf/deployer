@@ -1404,6 +1404,7 @@ button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .login { min-height: 100vh; display: grid; place-items: center; padding: var(--sp-6); background: var(--surface-2); }
 .login-form { width: min(380px, 100%); padding: var(--sp-8); }
 .login-form .brand { padding: 0; margin-bottom: var(--sp-6); }
+.brand-logo { flex: none; color: var(--ink); }
 .login-form h1 { font-size: var(--fs-30); margin-bottom: var(--sp-1); }
 .login-lede { margin: 0 0 var(--sp-2); font-size: var(--fs-14); }
 .login-form button[type='submit'] { width: 100%; margin-top: var(--sp-6); min-height: 40px; border-radius: var(--r-md); }
@@ -1871,10 +1872,16 @@ kbd + kbd { margin-left: 4px; }
 .palette-search { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--line); color: var(--muted); }
 .palette-search input { flex: 1; min-width: 0; height: 32px; padding: 0; border: none; background: transparent; box-shadow: none; font-size: var(--fs-16); color: var(--ink); }
 .palette-search input:focus, .palette-search input:focus-visible { outline: none; box-shadow: none; }
-.palette-list { list-style: none; margin: 0; padding: var(--sp-2); max-height: min(420px, 56vh); overflow-y: auto; }
+.palette-list { margin: 0; padding: var(--sp-2); max-height: min(420px, 56vh); overflow-y: auto; }
 .palette-group { padding: var(--sp-3) var(--sp-3) var(--sp-1); font-size: var(--fs-12); font-weight: 600; color: var(--muted); }
 .palette-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 9px var(--sp-3); border-radius: var(--r-sm); cursor: pointer; }
-.palette-item[aria-selected='true'] { background: var(--surface-2); }
+/* Aktive Zeile: Fläche, dazu ein Balken links in Tintenfarbe (≥ 3:1) und das Zeichen ↵ – nie nur die Fläche */
+.palette-item[aria-selected='true'] { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--ink); }
+.palette-item-blocked { cursor: default; }
+.palette-item-blocked .palette-label { color: var(--muted); }
+.palette-enter { flex: none; margin-left: calc(var(--sp-2) * -1); }
+/* Fokus sichtbar: das Feld selbst hat keinen Rahmen, die Suchzeile bekommt eine Linie in Tintenfarbe */
+.palette-search:focus-within { box-shadow: inset 0 -2px 0 var(--ink); }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: var(--fs-14); }
 .palette-hint { flex: none; color: var(--muted); font-size: var(--fs-13); }
 .palette-empty { padding: var(--sp-5) var(--sp-3); color: var(--muted); font-size: var(--fs-14); }
@@ -1888,6 +1895,31 @@ kbd + kbd { margin-left: 4px; }
 .shortcut-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: var(--sp-4); }
 .shortcut-list dt { display: flex; align-items: center; }
 .shortcut-list dd { margin: 0; color: var(--ink-dim); font-size: var(--fs-14); }
+
+/* --- Einrichtungs-Assistent ----------------------------------------------------------- */
+
+.setup-progress { display: flex; align-items: center; gap: var(--sp-4); margin: 0 0 var(--sp-6); }
+.setup-progress-text { flex: none; font-size: var(--fs-14); color: var(--ink-dim); }
+.setup-progress-text strong { color: var(--ink); font-weight: 600; }
+.setup-bar { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.setup-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ink); }
+.setup-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+.setup-step { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--sp-4); padding: var(--sp-5) var(--sp-6); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--sh-card); }
+/* Erledigt und übersprungen: grau wie die erledigten Assistenten-Schritte unter System */
+.setup-step-done, .setup-step-skipped { background: var(--surface-2); box-shadow: none; }
+.setup-step-n { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); color: var(--ink-dim); font-weight: 600; font-size: var(--fs-14); }
+.setup-step-current .setup-step-n { background: var(--primary); color: var(--primary-ink); }
+.setup-step-done .setup-step-n, .setup-step-skipped .setup-step-n { background: var(--surface); }
+.setup-step-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: 32px; }
+.setup-step-head h2 { margin: 0; font-size: var(--fs-16); font-weight: 600; }
+.setup-step-current .setup-step-head h2 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); }
+.setup-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-13); font-weight: 500; color: var(--muted); }
+.setup-state-done { color: var(--ok); }
+.setup-state-open { color: var(--ink-dim); }
+.setup-step-detail { margin: var(--sp-1) 0 0; color: var(--ink-dim); font-size: var(--fs-14); }
+.setup-step-why { margin: var(--sp-2) 0 0; color: var(--muted); font-size: var(--fs-14); max-width: var(--measure); }
+.setup-step-actions { display: flex; align-items: center; gap: var(--sp-4); margin-top: var(--sp-4); }
+.setup-summary { margin-bottom: var(--sp-6); }
 
 /* --- Komponenten-Übersicht /design: Hell und Dunkel nebeneinander ---------------------- */
 

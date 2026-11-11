@@ -1,11 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { publicStateOf, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
-import { useProjects } from '../lib/projects.js'
+import { useProjects, runtimeStatus } from '../lib/projects.js'
 import { usePublicActions } from '../lib/public.js'
 import { notifyOk } from '../lib/feedback.js'
+import { isScanRunning } from '../lib/activities.js'
 import { IconSearch, IconWarn } from './Icons.js'
 
 /**
@@ -13,7 +14,8 @@ import { IconSearch, IconWarn } from './Icons.js'
  * ausführen. Aktionen mit Rückfrage in der Oberfläche fragen hier gleich
  * nach (Offline nehmen: derselbe Text und dieselben Knöpfe wie im
  * «⋯»-Menü des Projekts); Aktionen ohne Rückfrage laufen sofort und melden
- * sich mit Toast.
+ * sich mit Toast. Gesperrt ist, was auch in der Oberfläche gesperrt ist
+ * (Deploy läuft schon, Scan läuft schon, Projekt gestoppt) – mit Grund.
  */
 
 type Group = 'Seiten' | 'Projekte' | 'Aktionen'
@@ -25,6 +27,8 @@ interface Item {
   hint?: string
   /** Weitere Suchwörter */
   words?: string
+  /** Gesperrt, mit Grund (wird statt des Hinweises gezeigt) */
+  blocked?: string
   run: () => void
 }
 
@@ -37,6 +41,7 @@ const PAGES: { label: string; to: string; words?: string }[] = [
   { label: 'Tokens', to: '/tokens', words: 'mcp claude schlüssel' },
   { label: 'Audit-Log', to: '/audit', words: 'audit protokoll aktivität' },
   { label: 'System', to: '/system', words: 'server dienste netz' },
+  { label: 'Einrichtung', to: '/einrichtung', words: 'assistent erster start' },
   { label: 'Cloudflare & HTTPS', to: '/system/cloudflare', words: 'tunnel zertifikat https' },
   { label: 'Veröffentlichung', to: '/system/veroeffentlichung', words: 'pause-seite vorlage' },
   { label: 'Benachrichtigungen', to: '/system/benachrichtigungen', words: 'ntfy e-mail' },
@@ -54,6 +59,16 @@ const matches = (it: Item, q: string) => {
 }
 
 const PER_GROUP = 8
+
+/** Nach einem Seitenwechsel: Fokus an den Anfang des Inhalts, nicht ins Leere */
+function focusMain() {
+  requestAnimationFrame(() => {
+    const main = document.querySelector<HTMLElement>('main.main')
+    if (!main) return
+    main.tabIndex = -1
+    main.focus({ preventScroll: true })
+  })
+}
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -97,7 +112,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     },
   })
 
-  const go = (to: string) => { onClose(); navigate(to) }
+  const go = (to: string) => { onClose(); navigate(to); focusMain() }
 
   const items = useMemo<Item[]>(() => {
     // Nur vollständige Projekte (kaputte Einträge legen die Palette nicht lahm)
@@ -107,42 +122,66 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     out.push({ id: 'act:new', group: 'Aktionen', label: 'Neues Projekt anlegen', words: 'erstellen', run: () => go('/projekte/neu') })
     out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go('/tokens?neu=1') })
     for (const p of list) {
-      out.push({ id: `act:deploy:${p.id}`, group: 'Aktionen', label: `Neu deployen · ${p.name}`, hint: p.slug, words: 'deploy', run: () => { onClose(); deploy.mutate(p) } })
-      out.push({ id: `act:scan:${p.id}`, group: 'Aktionen', label: `Scan starten · ${p.name}`, hint: p.slug, words: 'security prüfen', run: () => { onClose(); scan.mutate(p) } })
+      // Gleiche Sperren wie Projektkopf und Security-Übersicht
+      const deploying = p.status === 'deploying' || (deploy.isPending && deploy.variables?.id === p.id)
+      out.push({
+        id: `act:deploy:${p.id}`, group: 'Aktionen', label: `Neu deployen · ${p.name}`, hint: p.slug, words: 'deploy',
+        blocked: deploying ? 'Deploy läuft schon' : undefined,
+        run: () => { onClose(); deploy.mutate(p) },
+      })
+      const scanning = isScanRunning(p) || (scan.isPending && scan.variables?.id === p.id)
+      const stopped = runtimeStatus(p).status !== 'running' && p.runtimeKind !== 'static'
+      out.push({
+        id: `act:scan:${p.id}`, group: 'Aktionen', label: `Scan starten · ${p.name}`, hint: p.slug, words: 'security prüfen',
+        blocked: scanning ? 'Scan läuft schon' : stopped ? 'Projekt läuft nicht' : undefined,
+        run: () => { onClose(); scan.mutate(p) },
+      })
       if (publicStateOf(p.routes) !== 'private') {
         out.push({ id: `act:offline:${p.id}`, group: 'Aktionen', label: `${publicStateOf(p.routes) === 'live' ? 'Offline nehmen' : 'Ganz offline nehmen'} · ${p.name}`, hint: p.slug, words: 'pausieren öffentlich', run: () => setConfirm(p) })
       }
     }
     return out
-    // go/deploy/scan ändern sich nicht in einer Weise, die die Liste betrifft
-  }, [projects.data])
+    // go/onClose ändern sich nicht in einer Weise, die die Liste betrifft
+  }, [projects.data, deploy.isPending, deploy.variables, scan.isPending, scan.variables])
 
   // Gefiltert und je Gruppe begrenzt; ohne Suche nur Seiten und Projekte, Aktionen ab dem ersten Zeichen
-  const shown = useMemo(() => {
+  const groups = useMemo(() => {
     const q = query.trim()
-    const groups: Group[] = q ? ['Aktionen', 'Projekte', 'Seiten'] : ['Seiten', 'Projekte']
-    return groups.flatMap((g) => items.filter((it) => it.group === g && matches(it, q)).slice(0, PER_GROUP))
+    const order: Group[] = q ? ['Aktionen', 'Projekte', 'Seiten'] : ['Seiten', 'Projekte']
+    return order.map((g) => ({ group: g, items: items.filter((it) => it.group === g && matches(it, q)).slice(0, PER_GROUP) })).filter((g) => g.items.length > 0)
   }, [items, query])
+  const shown = groups.flatMap((g) => g.items)
 
   useEffect(() => { setActive(0) }, [query])
   const current = shown[Math.min(active, shown.length - 1)]
 
+  const pick = (it: Item | undefined) => { if (it && !it.blocked) it.run() }
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (confirm) return
+    // Eingabe mit IME noch nicht bestätigt: Enter gehört der Eingabe
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(i + 1, shown.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)) }
-    else if (e.key === 'Enter' && current) { e.preventDefault(); current.run() }
+    else if (e.key === 'Enter') { e.preventDefault(); pick(current) }
   }
 
   useEffect(() => {
     if (current) document.getElementById(`${listId}-${current.id}`)?.scrollIntoView({ block: 'nearest' })
   }, [current, listId])
 
-  let lastGroup: Group | null = null
+  // Esc in der Rückfrage: zurück zur Liste (wie «Abbrechen»), nicht gleich alles zu
+  const backToList = () => { setConfirm(null); requestAnimationFrame(() => inputRef.current?.focus()) }
+
   return (
-    <dialog ref={ref} className="dialog palette" aria-label="Befehle und Suche" onClose={onClose} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <dialog
+      ref={ref}
+      className="dialog palette"
+      aria-label="Befehle und Suche"
+      onClose={onClose}
+      onCancel={(e) => { if (confirm) { e.preventDefault(); backToList() } }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
       {confirm ? (
-        <OfflineStep p={confirm} onBack={() => { setConfirm(null); requestAnimationFrame(() => inputRef.current?.focus()) }} onDone={onClose} />
+        <OfflineStep p={confirm} onBack={backToList} onDone={onClose} />
       ) : (
         <>
           <div className="palette-search">
@@ -151,7 +190,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               ref={inputRef}
               type="text"
               role="combobox"
-              aria-expanded="true"
+              aria-expanded={shown.length > 0}
               aria-controls={listId}
               aria-activedescendant={current ? `${listId}-${current.id}` : undefined}
               aria-autocomplete="list"
@@ -165,29 +204,38 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             />
             <kbd className="palette-kbd">Esc</kbd>
           </div>
-          <ul className="palette-list" id={listId} role="listbox" aria-label="Ergebnisse">
-            {shown.length === 0 && <li className="palette-empty" role="presentation">Nichts gefunden. Versuche einen Projektnamen oder «deployen».</li>}
-            {shown.map((it, i) => {
-              const head: ReactNode = it.group !== lastGroup ? <li key={`h-${it.group}`} className="palette-group" role="presentation">{it.group}</li> : null
-              lastGroup = it.group
-              return [
-                head,
-                <li
-                  key={it.id}
-                  id={`${listId}-${it.id}`}
-                  role="option"
-                  aria-selected={it === current}
-                  className="palette-item"
-                  onMouseMove={() => setActive(i)}
-                  onClick={() => it.run()}
-                >
-                  <span className="palette-label">{it.label}</span>
-                  {it.hint && <span className="palette-hint">{it.hint}</span>}
-                </li>,
-              ]
-            })}
-          </ul>
-          <p className="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> auswählen · <kbd>Enter</kbd> ausführen · <kbd>?</kbd> alle Kürzel</p>
+          <div className="palette-list" id={listId} role="listbox" aria-label="Ergebnisse">
+            {groups.map(({ group, items: list }) => (
+              <div key={group} role="group" aria-labelledby={`${listId}-g-${group}`}>
+                <div className="palette-group" id={`${listId}-g-${group}`} role="presentation">{group}</div>
+                {list.map((it) => {
+                  const i = shown.indexOf(it)
+                  const isActive = it === current
+                  return (
+                    <div
+                      key={it.id}
+                      id={`${listId}-${it.id}`}
+                      role="option"
+                      aria-selected={isActive}
+                      aria-disabled={it.blocked ? true : undefined}
+                      className={`palette-item${it.blocked ? ' palette-item-blocked' : ''}`}
+                      onMouseMove={() => setActive(i)}
+                      onClick={() => pick(it)}
+                    >
+                      <span className="palette-label">{it.label}</span>
+                      <span className="palette-hint">{it.blocked ?? it.hint}</span>
+                      {/* Aktive Zeile: Zeichen dazu, nicht nur die Fläche */}
+                      {isActive && !it.blocked && <kbd className="palette-enter" aria-hidden="true">↵</kbd>}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            {shown.length === 0 && <p className="palette-empty">Nichts gefunden. Versuche einen Projektnamen oder «deployen».</p>}
+          </div>
+          {/* Trefferzahl für Screenreader */}
+          <p className="sr-only" role="status">{query.trim() ? (shown.length === 0 ? 'Nichts gefunden' : shown.length === 1 ? '1 Treffer' : `${shown.length} Treffer`) : ''}</p>
+          <p className="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> auswählen · <kbd>Enter</kbd> ausführen · <kbd>Esc</kbd> schliessen</p>
         </>
       )}
     </dialog>
@@ -201,11 +249,12 @@ function OfflineStep({ p, onBack, onDone }: { p: ProjectDto; onBack: () => void;
   const host = p.routes.find((r) => r.target === 'public')?.hostname
   const internal = p.routes.find((r) => r.target !== 'public')?.urls[0]?.replace(/^https?:\/\//, '')
   const first = useRef<HTMLButtonElement>(null)
+  const noteId = useId()
   useEffect(() => { first.current?.focus() }, [])
   return (
-    <div className="palette-confirm" role="group" aria-label={`${p.name} offline nehmen bestätigen`}>
+    <div className="palette-confirm" role="group" aria-label={`${p.name} offline nehmen bestätigen`} aria-describedby={noteId}>
       <p className="palette-confirm-title">{state === 'live' ? 'Offline nehmen' : 'Ganz offline nehmen'} · {p.name}</p>
-      <div className="menu-confirm">
+      <div className="menu-confirm" id={noteId}>
         <IconWarn />
         <span>
           {state === 'live' ? <>Pausieren: Wartungsseite unter {host}. Ganz offline: der Name wird frei.</> : <>Der Name {host} wird frei.</>}
@@ -214,8 +263,8 @@ function OfflineStep({ p, onBack, onDone }: { p: ProjectDto; onBack: () => void;
       </div>
       <div className="palette-confirm-actions">
         <button type="button" ref={first} onClick={onBack}>Abbrechen</button>
-        {state === 'live' && <button type="button" className="button-danger-solid" onClick={() => { onDone(); pub.run({ op: 'pause' }) }}>Ja, pausieren</button>}
-        <button type="button" className={state === 'live' ? 'button-danger' : 'button-danger-solid'} onClick={() => { onDone(); pub.run({ op: 'unpublish' }) }}>Ja, ganz offline nehmen</button>
+        {state === 'live' && <button type="button" className="button-danger-solid" disabled={pub.pending} onClick={() => { onDone(); pub.run({ op: 'pause' }) }}>Ja, pausieren</button>}
+        <button type="button" className={state === 'live' ? 'button-danger' : 'button-danger-solid'} disabled={pub.pending} onClick={() => { onDone(); pub.run({ op: 'unpublish' }) }}>Ja, ganz offline nehmen</button>
       </div>
     </div>
   )

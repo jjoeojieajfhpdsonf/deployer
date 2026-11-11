@@ -38,7 +38,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       viaHttps: viaHttps(request),
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
-      theme: (await getUiPrefs()).theme,
+      ...(await (async () => { const p = await getUiPrefs(); return { theme: p.theme, setup: p.setup ?? null } })()),
     }
   })
 

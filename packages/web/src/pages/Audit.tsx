@@ -64,7 +64,7 @@ export function Audit() {
         actions={
           <div className="search">
             <IconSearch />
-            <input data-page-search type="search" aria-label="Audit-Log durchsuchen (Taste /)" placeholder="Projekt, Aktion oder Akteur" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <input data-page-search aria-keyshortcuts="/" type="search" aria-label="Audit-Log durchsuchen (Taste /)" placeholder="Projekt, Aktion oder Akteur" value={filter} onChange={(e) => setFilter(e.target.value)} />
           </div>
         }
       />

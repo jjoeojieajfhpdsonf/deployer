@@ -96,6 +96,10 @@ type Shot = {
   stageFailed?: boolean
   /** Projektliste: Scan von Haushaltsbuch läuft (wie der Scan-Bericht dieses Projekts) */
   scanRunning?: boolean
+  /** Angemeldet, aber mit anderen Angaben (z. B. Einrichtung noch nicht ausgeblendet) */
+  me?: Partial<import('../src/api.js').MeDto>
+  /** Leerer Speicher der Sitzung erzwingen (Assistent erscheint wie beim ersten Start) */
+  freshSession?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
@@ -492,19 +496,26 @@ const shots: Shot[] = [
       await pg.waitForTimeout(500)
     },
   },
+  // Etappe 7: Erster Start – der Assistent öffnet sich von der Startseite aus von selbst
+  { group: 'start', name: 'einrichtung', path: '/projekte', me: { passwordSource: 'env', setup: null } },
+  {
+    group: 'start', name: 'einrichtung-uebersprungen', path: '/einrichtung', full: false,
+    me: { passwordSource: 'env', setup: { dismissed: false, skipped: ['adressen'] } },
+  },
+  { group: 'start', name: 'einrichtung-system', path: '/system', full: false, me: { passwordSource: 'env', setup: { dismissed: true, skipped: [] } } },
   // Etappe 6: Befehlspalette und Tastatur
   {
     group: 'tastatur', name: 'palette', path: '/projekte', full: false,
-    prepare: async (pg) => { await pg.keyboard.press('Control+k'); await pg.waitForTimeout(400) },
+    prepare: async (pg) => { await pg.keyboard.press('ControlOrMeta+k'); await pg.waitForTimeout(400) },
   },
   {
     group: 'tastatur', name: 'palette-suche', path: '/projekte', full: false,
-    prepare: async (pg) => { await pg.keyboard.press('Control+k'); await pg.keyboard.type('haus'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(400) },
+    prepare: async (pg) => { await pg.keyboard.press('ControlOrMeta+k'); await pg.keyboard.type('haus'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(400) },
   },
   {
     group: 'tastatur', name: 'palette-offline', path: '/projekte', full: false,
     prepare: async (pg) => {
-      await pg.keyboard.press('Control+k')
+      await pg.keyboard.press('ControlOrMeta+k')
       await pg.keyboard.type('offline haus')
       await pg.keyboard.press('Enter')
       await pg.waitForTimeout(400)
@@ -546,6 +557,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
+            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, ...s.me })
             if (s.scanRunning && url.pathname === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })

@@ -1,6 +1,6 @@
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
+  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
   SiteAccessEntryDto,
@@ -49,6 +49,8 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
+  /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
+  setup?: SetupPrefs | null
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -107,7 +109,8 @@ export const api = {
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
   login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
-  setPreferences: (prefs: UiPrefs) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
+  /** Nur geänderte Teile (Darstellung oder Einrichtung); der Server führt zusammen */
+  setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>('/projects'),

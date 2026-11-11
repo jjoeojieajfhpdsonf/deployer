@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { NavLink, Route, Routes, Navigate, Link, useLocation, useParams } from 'react-router-dom'
+import { NavLink, Route, Routes, Navigate, Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary.js'
 import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
@@ -22,6 +22,8 @@ import { useSystem } from './components/ServerName.js'
 import { useProjects } from './lib/projects.js'
 import { Account } from './pages/Account.js'
 import { Design } from './pages/Design.js'
+import { Setup } from './pages/Setup.js'
+import { useSetup } from './lib/setup.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
@@ -80,6 +82,7 @@ export function App() {
           </div>
         </div>
         <StaleBar />
+        <ErrorBoundary scope="part"><SetupRedirect /></ErrorBoundary>
         {/* ⌘K, «/», «g p/s/a», «?» */}
         <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
@@ -102,6 +105,7 @@ export function App() {
           <Route path="/konto" element={<Account />} />
           {/* Interne Komponenten-Übersicht (nur angemeldet, nicht in der Navigation) */}
           <Route path="/design" element={<Design />} />
+          <Route path="/einrichtung" element={<Setup />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         </ErrorBoundary>
@@ -177,6 +181,29 @@ function Rail() {
       </div>
     </aside>
   )
+}
+
+const SETUP_SHOWN = 'airlock.setup.shown'
+
+/**
+ * Erster Start: Fehlt noch etwas und ist der Assistent nicht mit «Später»
+ * ausgeblendet, öffnet er sich einmal pro Sitzung von selbst – nur von der
+ * Startseite aus, nie über einen direkten Link hinweg.
+ */
+function SetupRedirect() {
+  const s = useSetup()
+  const location = useLocation()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!s.ready || s.dismissed || s.open === 0) return
+    if (location.pathname !== '/' && location.pathname !== '/projekte') return
+    try {
+      if (sessionStorage.getItem(SETUP_SHOWN)) return
+      sessionStorage.setItem(SETUP_SHOWN, '1')
+    } catch { /* ohne Speicher: trotzdem nur, solange die Seite offen ist */ }
+    navigate('/einrichtung', { replace: true })
+  }, [s.ready, s.dismissed, s.open, location.pathname, navigate])
+  return null
 }
 
 /**

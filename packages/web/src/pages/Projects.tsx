@@ -84,7 +84,7 @@ export function Projects() {
           <>
             <div className="search">
               <IconSearch />
-              <input ref={searchRef} data-page-search type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input ref={searchRef} data-page-search aria-keyshortcuts="/" type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <Link className="button button-primary" to="/projekte/neu"><IconPlus /> Neues Projekt</Link>
           </>

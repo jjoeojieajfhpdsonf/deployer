@@ -899,8 +899,24 @@ export const addExternalTargetSchema = z.object({ hostname: externalHostnameSche
 /** system: folgt prefers-color-scheme des Geräts */
 export const themePrefs = ['light', 'dark', 'system'] as const
 export type ThemePref = (typeof themePrefs)[number]
-export const uiPrefsSchema = z.object({ theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }) })
+/** Schritte des Einrichtungs-Assistenten (erster Start), in dieser Reihenfolge */
+export const setupSteps = ['passwort', 'cloudflare', 'adressen', 'zertifikat', 'projekt'] as const
+export type SetupStep = (typeof setupSteps)[number]
+export const setupPrefsSchema = z.object({
+  /** «Später»: der Assistent erscheint nicht mehr von selbst (unter System fortsetzbar) */
+  dismissed: z.boolean(),
+  /** Bewusst übersprungene Schritte (gelten nicht als «fehlt») */
+  skipped: z.array(z.enum(setupSteps)).max(setupSteps.length),
+})
+export type SetupPrefs = z.infer<typeof setupPrefsSchema>
+export const uiPrefsSchema = z.object({
+  theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }),
+  setup: setupPrefsSchema.optional(),
+})
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
+/** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */
+export const uiPrefsPatchSchema = uiPrefsSchema.partial()
+export type UiPrefsPatch = z.infer<typeof uiPrefsPatchSchema>
 
 export const PASSWORD_MIN = 12
 

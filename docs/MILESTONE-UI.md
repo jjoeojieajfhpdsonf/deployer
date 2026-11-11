@@ -30,7 +30,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 | 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | erledigt; 4 Zeichen offen, Frage Nr. 4 |
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | erledigt; Wahl a/b offen, Frage Nr. 1 |
 | 6 | Befehlspalette und Tastatur | erledigt; Browser-Konflikt offen, Frage Nr. 5 |
-| 7 | Erster Start, Login, Marke | geplant |
+| 7 | Erster Start, Login, Marke | erledigt; Wahl der Marke offen, Frage Nr. 6 |
 | 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | geplant |
 | 9 | Handyansicht | **entfällt auf Wunsch** («Handy egal») |
 
@@ -257,6 +257,35 @@ Abnahme:
 - Einrichtungs-Assistent (Passwort → Cloudflare → Tailscale/Adressen → Zertifikat → erstes
   Projekt) mit Fortschritt, jederzeit überspringbar, unter System fortsetzbar.
 - Drei Logo-Varianten in `docs/design-cal/marke/`, eine eingebaut (Wahl offen, siehe Fragen).
+
+Umsetzung:
+- **Login:** war schon im Design (Karte, Cal Sans, Tokens); neu nur die Bildmarke statt des
+  Pfeil-Quadrats.
+- **Einrichtungs-Assistent** `/einrichtung` (`pages/Setup.tsx`, `lib/setup.ts`): fünf Schritte
+  Passwort → Cloudflare → Tailscale/Adressen → Zertifikat → erstes Projekt, mit Fortschritt
+  («3 von 5 erledigt», Balken). Ob ein Schritt erledigt ist, kommt aus den Daten (Passwort aus der
+  Oberfläche, Cloudflare-Token, Basisdomain + Tailscale-Adresse, Zertifikat, Projektzahl); jeder
+  Schritt führt an die Stelle, an der man ihn einrichtet. «Überspringen»/«Doch einrichten» je
+  Schritt, «Später fortsetzen» blendet ihn aus. Zustand mit Zeichen und Wort (erledigt,
+  übersprungen, als Nächstes, offen).
+- Gespeichert auf dem Server (`UiPrefs.setup`: ausgeblendet, übersprungene Schritte). Die API führt
+  Einstellungen jetzt zusammen statt sie zu ersetzen – ein Theme-Wechsel löscht den Stand der
+  Einrichtung nicht (Test `ui-prefs.test.ts`). `/auth/me` liefert `setup`.
+- Erscheint von selbst einmal pro Sitzung, solange etwas fehlt und er nicht ausgeblendet ist – nur
+  von der Startseite aus, nie über einen direkten Link hinweg. Unter System → Übersicht steht eine
+  Karte «Einrichtung · n von 5 erledigt · Einrichtung fortsetzen», solange etwas offen ist.
+- **Marke:** drei Varianten (Doppeltor, Kammer, Schiebetore) nach dem Taste Skill in
+  `docs/design-cal/marke/` mit Proben bei 16/32/128 px. Provisorisch eingebaut: Variante 1 (nach der
+  Nummer) als Favicon (hell/dunkel über `prefers-color-scheme`) und auf der Anmeldeseite
+  (`components/Logo.tsx`); Seitenleiste unverändert. Wahl und Ort: offen, Frage Nr. 6.
+- Befunde zu Etappe 6 (Gutachten) mit diesem Commit behoben: aktive Zeile der Palette mit Balken
+  und ↵ (nicht nur Fläche), sichtbarer Fokus im Suchfeld, «Neu deployen»/«Scan starten» gesperrt wie
+  in der Oberfläche (mit Grund), keine Doppelausführung, IME-Eingabe, Gruppen als `role="group"`,
+  Trefferzahl als Live-Region, Esc in der Rückfrage führt zurück zur Liste, Fokus nach Seitenwechsel
+  auf den Inhalt; Kürzel: auf dem Mac nur ⌘K, keine Tastenwiederholung, Ankreuzfelder sperren
+  Kürzel nicht mehr, «/» nur auf sichtbare Suche (markiert den Text), `aria-keyshortcuts`.
+- Screenshots `docs/design-cal/ui-grundlagen/7-start/`, visuelle Szenen `einrichtung`,
+  `einrichtung-uebersprungen`, `einrichtung-system`.
 
 ### Etappe 8 – Barrierefreiheit
 

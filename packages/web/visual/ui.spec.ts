@@ -27,6 +27,8 @@ export const VISUAL_SCENES = [
   'bestaetigung-stoppen', 'aktion-vorgaenge', 'aktion-knopf-laedt',
   // Komponenten-Übersicht (Etappe 4), Befehlspalette und Kürzel (Etappe 6)
   'design-bausteine', 'palette', 'palette-offline', 'kuerzel',
+  // Erster Start (Etappe 7)
+  'einrichtung', 'einrichtung-uebersprungen', 'einrichtung-system',
 ] as const
 
 for (const theme of ['hell', 'dunkel'] as const) {

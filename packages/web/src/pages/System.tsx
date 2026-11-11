@@ -4,6 +4,7 @@ import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkCard } from '../components/States.js'
+import { SetupSummary } from './Setup.js'
 import { NotificationSettings } from '../components/Notifications.js'
 import { Link, NavLink } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
@@ -102,6 +103,7 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 
       {section === 'github' && <GithubSetup />}
 
+      {section === 'uebersicht' && <SetupSummary />}
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
     </section>
   )

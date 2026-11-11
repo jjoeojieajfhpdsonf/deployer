@@ -12,6 +12,7 @@ import { Field } from '../components/Field.js'
 import { EmptyState, ErrorState, PartialNote, Loading, SkCard, SkLines, SkRows, SkStats } from '../components/States.js'
 import { IconAlert, IconBad, IconMore, IconOk, IconPending, IconPlus, IconSearch, IconWarn } from '../components/Icons.js'
 import { notifyError, notifyOk, notifyWarn } from '../lib/feedback.js'
+import { Logo } from '../components/Logo.js'
 import { isoOf } from '../lib/dates.js'
 
 /**
@@ -224,6 +225,7 @@ function Catalog() {
 
       <Block title="Zeichen">
         <div className="design-row design-icons">
+          <span><Logo size={24} /> Bildmarke (provisorisch)</span>
           <span className="cf-ok"><IconOk /> ok</span><span className="cf-bad"><IconBad /> Fehler</span><span className="muted"><IconPending /> offen</span><span className="muted"><IconWarn /> Warnung</span>
         </div>
       </Block>

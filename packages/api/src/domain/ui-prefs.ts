@@ -1,4 +1,4 @@
-import { uiPrefsSchema, type UiPrefs } from '@airlock/shared'
+import { uiPrefsPatchSchema, uiPrefsSchema, type UiPrefs, type UiPrefsPatch } from '@airlock/shared'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 
@@ -25,8 +25,16 @@ export async function getUiPrefs(): Promise<UiPrefs> {
   return parseUiPrefs(await getSetting(KEY))
 }
 
+/**
+ * Rein: Änderung mit dem Bestand zusammenführen. Ein Theme-Wechsel darf den
+ * Stand der Einrichtung nicht löschen (und umgekehrt).
+ */
+export function mergeUiPrefs(current: UiPrefs, patch: UiPrefsPatch): UiPrefs {
+  return uiPrefsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })
+}
+
 export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs> {
-  const prefs = uiPrefsSchema.parse(input)
+  const prefs = mergeUiPrefs(await getUiPrefs(), uiPrefsPatchSchema.parse(input))
   await setSetting(KEY, JSON.stringify(prefs))
   await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: prefs, result: 'ok' })
   return prefs
