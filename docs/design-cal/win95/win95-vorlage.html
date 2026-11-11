@@ -1,0 +1,44 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+body{background:#008080;font-family:'DejaVu Sans',sans-serif;font-size:13px;color:#000}
+.icn{position:absolute;width:84px;text-align:center;color:#fff;font-size:12px}
+.icn i{display:block;font-style:normal;font-size:34px;margin-bottom:4px}
+.win{position:absolute;background:#c0c0c0;box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px #808080,inset 2px 2px #dfdfdf;padding:3px}
+.tb{background:linear-gradient(90deg,#000080,#1084d0);color:#fff;font-weight:700;padding:3px 6px;display:flex;justify-content:space-between;align-items:center}
+.tb.in{background:linear-gradient(90deg,#808080,#b5b5b5)}
+.x{display:flex;gap:2px}.x i{width:16px;height:14px;background:#c0c0c0;box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff;font-style:normal;color:#000;font-size:10px;display:grid;place-items:center}
+.mb{display:flex;gap:12px;padding:3px 6px}
+.lv{background:#fff;margin:4px;box-shadow:inset 1px 1px #808080,inset -1px -1px #fff;padding:2px}
+table{width:100%;border-collapse:collapse}
+th{background:#c0c0c0;box-shadow:inset -1px -1px #808080,inset 1px 1px #fff;text-align:left;font-weight:400;padding:2px 6px}
+td{padding:3px 6px}
+tr.s td{background:#000080;color:#fff}
+.btn{display:inline-block;background:#c0c0c0;box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px #808080,inset 2px 2px #dfdfdf;padding:5px 14px;margin:4px}
+.sb{display:flex;gap:2px;padding:2px 4px}.sb span{flex:1;box-shadow:inset 1px 1px #808080,inset -1px -1px #fff;padding:2px 6px}
+.task{position:absolute;left:0;right:0;bottom:0;height:34px;background:#c0c0c0;box-shadow:inset 0 1px #fff;display:flex;align-items:center;gap:6px;padding:0 4px}
+.start{font-weight:700;padding:4px 8px}
+.clock{margin-left:auto;box-shadow:inset 1px 1px #808080,inset -1px -1px #fff;padding:4px 10px}
+.bar{height:18px;box-shadow:inset 1px 1px #808080,inset -1px -1px #fff;background:#fff;padding:2px;display:flex;gap:2px}.bar i{width:12px;background:#000080}
+</style></head><body>
+<div class="icn" style="left:18px;top:18px"><i>🖥️</i>homeserver</div>
+<div class="icn" style="left:18px;top:110px"><i>🛡️</i>Security</div>
+<div class="icn" style="left:18px;top:202px"><i>📜</i>Audit-Log</div>
+<div class="icn" style="left:18px;top:294px"><i>🗑️</i>Papierkorb</div>
+<div class="win" style="left:130px;top:40px;width:820px">
+<div class="tb"><span>📁 Airlock – Projekte auf jherren.com</span><span class="x"><i>_</i><i>□</i><i>×</i></span></div>
+<div class="mb"><u>D</u>atei <u>B</u>earbeiten <u>A</u>nsicht <u>D</u>eploy <u>?</u></div>
+<div class="lv"><table><tr><th>Name</th><th>Status</th><th>Erreichbar</th><th>Security</th><th>Geändert</th></tr>
+<tr><td>🌐 hallo-welt</td><td>Läuft</td><td>Öffentlich</td><td>A 96</td><td>11.11.2026 20:45</td></tr>
+<tr class="s"><td>⚠️ wetterstation</td><td>Fehler</td><td>Intern</td><td>C 61</td><td>11.11.2026 21:18</td></tr>
+<tr><td>⏳ fotoalbum</td><td>Deployt …</td><td>Intern</td><td>–</td><td>11.11.2026 21:41</td></tr>
+<tr><td>📝 notizen</td><td>Läuft</td><td>Intern</td><td>A 100</td><td>08.11.2026 10:02</td></tr>
+<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr><tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr></table></div>
+<div class="sb"><span>4 Objekte</span><span>1 öffentlich</span><span>RAM 3,0 / 16 GB</span></div></div>
+<div class="win" style="left:520px;top:340px;width:440px">
+<div class="tb"><span>Airlock</span><span class="x"><i>×</i></span></div>
+<div style="display:flex;gap:14px;padding:16px"><span style="font-size:34px">⛔</span><div>Die neue Version von <b>wetterstation</b> konnte nicht gestartet werden.<br><br>Ursache: Variable SENSOR_URL fehlt.<br>Die alte Version läuft weiter.</div></div>
+<div style="text-align:center;padding-bottom:8px"><span class="btn"><u>V</u>ariable setzen</span><span class="btn">Log anzeigen</span><span class="btn">Abbrechen</span></div></div>
+<div class="win" style="left:990px;top:120px;width:380px">
+<div class="tb in"><span>Kopieren … fotoalbum</span><span class="x"><i>×</i></span></div>
+<div style="padding:14px">📄 ➜ 🖥️<br><br>Healthcheck /health …<br><br><div class="bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div style="margin-top:6px">Noch etwa 15 Sekunden</div></div></div>
+<div class="task"><span class="btn start">🪟 Start</span><span class="btn">📁 Projekte</span><span class="btn">⛔ Airlock</span><span class="clock">🔊 21:42</span></div>
+<div class="tag" style="bottom:44px;color:#fff">B03 · RETRO-BETRIEBSSYSTEM</div></body></html>

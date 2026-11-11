@@ -1,5 +1,6 @@
 // WCAG-Kontrast der Design-Tokens, gelesen direkt aus packages/web/src/styles.css
-// (:root = Hell, :root[data-theme='dark'] = Dunkel). Läuft mit: node docs/design-cal/contrast.mjs
+// (:root = Hell, :root[data-theme='dark'] = Dunkel, :root[data-theme='win95'] = Windows 95).
+// Läuft mit: node docs/design-cal/contrast.mjs
 //
 // Ziele:  Text ≥ 4.5:1 (AA) · Lesetext (ink, ink-dim) ≥ 7:1
 //         Feldrahmen, Statuszeichen und Statusflächen (Punkte, Balken, Linien, Primärfläche) ≥ 3:1
@@ -18,6 +19,8 @@ const block = (sel) => {
 const tokens = (txt) => Object.fromEntries([...txt.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\b/gi)].map((m) => [m[1], m[2].toLowerCase()]))
 const light = tokens(block(':root, .theme-light {'))
 const dark = { ...light, ...tokens(block(":root[data-theme='dark'], .theme-dark {")) }
+// Verstecktes Theme «Windows 95»: eigene Tokens über Hell (Code-Editor bleibt hell)
+const win95 = { ...light, ...tokens(block(":root[data-theme='win95'], .theme-win95 {")) }
 
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
@@ -48,11 +51,17 @@ const checks = [
   ['cm-gutter', ['cm-bg'], 3, 'Zeilennummern'],
   ['cm-token', ['cm-token-bg'], 4.5, 'Platzhalter im Editor'],
 ]
+// Nur Windows 95: weisser Titel auf der Titelleiste (Verlauf #000080 → #1084d0; der Text reicht höchstens bis 60 %)
+const win95Checks = [['white', ['title-from', 'title-mid'], 4.5, 'Titel in der Titelleiste']]
+const w95extra = tokens(block(":root[data-theme='win95'] {"))
+win95.white = '#ffffff'
+win95['title-from'] = '#000080'
+win95['title-mid'] = w95extra['w95-title-mid']
 
 let fails = 0
-for (const [name, t] of [['Hell', light], ['Dunkel', dark]]) {
+for (const [name, t] of [['Hell', light], ['Dunkel', dark], ['Windows 95', win95]]) {
   console.log(`\n== ${name}`)
-  for (const [fg, bgs, min, kind] of checks) {
+  for (const [fg, bgs, min, kind] of t === win95 ? [...checks, ...win95Checks] : checks) {
     const vals = bgs.map((b) => {
       if (!t[fg] || !t[b]) throw new Error(`Token fehlt: --${!t[fg] ? fg : b}`)
       const v = cr(t[fg], t[b])
