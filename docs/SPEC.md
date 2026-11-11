@@ -100,6 +100,8 @@ Zu jedem Projekt gehören Umgebungsvariablen und Secrets. Secrets werden verschl
 
 Pro Projekt lassen sich die Ziele frei kombinieren. Standard für neue Projekte ist **nur intern**, öffentlich wird ein Projekt nur auf ausdrücklichen Wunsch.
 
+Der Wunsch kann schon beim Anlegen kommen: In «Neues Projekt» lässt sich «Öffentlich über Cloudflare Tunnel» ankreuzen (Standard aus) und die öffentliche Adresse gleich wählen und prüfen. Das Projekt ist dann zuerst nur intern erreichbar und wird nach dem ersten Scan ohne kritischen Befund automatisch öffentlich. (Entscheid vom 11.11.2026: behalten.)
+
 | Ziel | Adresse | Technik |
 | --- | --- | --- |
 | Öffentlich | `projekt.deinedomain.ch` (frei wählbar) | Cloudflare Tunnel: Airlock setzt per API eine Ingress-Regel und einen proxied CNAME auf den Tunnel. TLS übernimmt Cloudflare. Keine offenen Ports am Router. |
