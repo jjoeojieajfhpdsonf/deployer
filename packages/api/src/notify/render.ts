@@ -17,6 +17,8 @@ export const notifyEvents = [
   // Meilenstein Backup, Etappe 2
   'backup_failed',
   'backup_stale',
+  // Antwort 11: Caddy sieht Docker-Gateway-Adressen statt der Geräte (IP-Filter greift dann nicht)
+  'gateway_warning',
 ] as const
 export type NotifyEvent = (typeof notifyEvents)[number]
 
@@ -36,6 +38,7 @@ export const DEFAULT_MATRIX: Matrix = {
   // Ohne Backup fällt es erst auf, wenn man es braucht: beide Kanäle
   backup_failed: { push: true, email: true },
   backup_stale: { push: true, email: true },
+  gateway_warning: { push: false, email: true },
 }
 
 export const EVENT_LABEL: Record<NotifyEvent, string> = {
@@ -49,6 +52,7 @@ export const EVENT_LABEL: Record<NotifyEvent, string> = {
   weekly_summary: 'Wöchentliche Zusammenfassung',
   backup_failed: 'Backup fehlgeschlagen',
   backup_stale: 'Seit über 48 Stunden kein erfolgreiches Backup',
+  gateway_warning: 'Anfragen kommen über das Docker-Gateway',
 }
 
 export interface Message {
@@ -92,6 +96,7 @@ const PRIORITY: Record<NotifyEvent, number> = {
   weekly_summary: 2,
   backup_failed: 4,
   backup_stale: 4,
+  gateway_warning: 3,
 }
 
 export function renderMessage(event: NotifyEvent, data: Record<string, unknown>): Message {
@@ -102,9 +107,10 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
     case 'finding_critical':
     case 'finding_high': {
       const list = (data.findings as { title: string; location: string }[] | undefined) ?? []
-      const word = event === 'finding_critical' ? 'kritische' : 'hohe'
+      const one = list.length === 1
+      const word = event === 'finding_critical' ? (one ? 'neuer kritischer Befund' : 'neue kritische Befunde') : (one ? 'neuer hoher Befund' : 'neue hohe Befunde')
       return {
-        title: `${list.length} neue ${word} Befunde: ${s('target')}`,
+        title: `${list.length} ${word}: ${s('target')}`,
         body: `${list.slice(0, 5).map((f) => `• ${f.title} (${f.location})`).join('\n')}${list.length > 5 ? `\n… und ${list.length - 5} weitere` : ''}\nScore ${s('score')} (${s('grade')})`,
         priority: PRIORITY[event],
       }
@@ -129,6 +135,12 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
       return {
         title: 'Seit über 48 Stunden kein Backup',
         body: `${data.lastSuccess ? `Das letzte erfolgreiche Backup ist vom ${s('lastSuccess')}.` : 'Es gibt noch kein erfolgreiches Backup.'}${data.lastError ? `\nLetzter Fehler: ${s('lastError')}` : ''}\nPrüfen unter Server › Backup.`,
+        priority: PRIORITY[event],
+      }
+    case 'gateway_warning':
+      return {
+        title: 'Anfragen über das Docker-Gateway',
+        body: `In den letzten 30 Minuten kamen ${s('fromGateway')} von ${s('total')} fremden Anfragen auf Airlock von ${s('ips')}. Caddy sieht dann nicht das Gerät, der IP-Filter greift nicht. Einzelheiten unter Server › Übersicht.`,
         priority: PRIORITY[event],
       }
   }

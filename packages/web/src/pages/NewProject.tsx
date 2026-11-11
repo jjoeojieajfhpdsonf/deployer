@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useEnvPath } from '../lib/env.js'
-import { slugify, createProjectSchema } from '@airlock/shared'
+import { useEnv, useEnvPath } from '../lib/env.js'
+import { slugify, createProjectSchema, normalizePublicLabel } from '@airlock/shared'
+import { PublicNameField, usePublicNameCheck } from '../components/PublicNameField.js'
+import type { PublicName } from '../lib/public-name.js'
 import { api, ApiError } from '../api.js'
 import { ChatSteps } from '../components/ChatSteps.js'
 import { IconWarn } from '../components/Security.js'
@@ -123,6 +125,19 @@ export function NewProject() {
   const [error, setError] = useState<string | null>(null)
 
   const slug = slugify(name || '')
+
+  // Öffentlich nach dem ersten Scan: Name + Domain der Umgebung; der Name folgt dem Kurznamen, bis jemand ihn ändert
+  const { env: currentEnv } = useEnv()
+  const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
+  const zones = domains.data?.domains.map((d) => d.name) ?? []
+  const mainZone = (currentEnv?.zone && zones.includes(currentEnv.zone) ? currentEnv.zone : null) ?? domains.data?.domains.find((d) => d.isDefault)?.name ?? zones[0] ?? ''
+  const canPublish = Boolean(domains.data?.publicEnabled) && zones.length > 0
+  const [pub, setPub] = useState(false)
+  const [pubDraft, setPubDraft] = useState<PublicName & { touched: boolean }>({ label: '', zone: '', apex: false, touched: false })
+  const [pubAccess, setPubAccess] = useState<boolean | null>(null)
+  const pubName: PublicName = { label: pubDraft.touched ? pubDraft.label : slug, zone: pubDraft.zone || mainZone, apex: pubDraft.apex }
+  const access = pubAccess ?? Boolean(currentEnv?.accessDefault)
+  const pubCheck = usePublicNameCheck({ projectId: null, name: pubName, enabled: pub && canPublish && kind !== 'chat', takeOver: false, canTakeOver: false })
   const needsPort = kind !== 'static'
   const usesUpload = (kind === 'static' || kind === 'compose') && origin === 'upload'
   const usesRepo = kind === 'dockerfile' || ((kind === 'static' || kind === 'compose') && origin === 'repo')
@@ -148,6 +163,12 @@ export function NewProject() {
       env: env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
       targets: [...(tailnet ? ['tailnet' as const] : []), ...(lan ? ['lan' as const] : [])],
       deploy: true,
+      ...(pub && canPublish ? {
+        public: {
+          ...(pubName.apex ? { apex: true } : { subdomain: normalizePublicLabel(pubName.label) }),
+          zone: pubName.zone, accessProtected: access,
+        },
+      } : {}),
     }
   }
 
@@ -155,14 +176,20 @@ export function NewProject() {
     schema: createProjectSchema,
     values: () => payload(file ? PENDING_UPLOAD : undefined),
     extra: (): Errors => {
-      if (!usesUpload) return {}
-      if (!file) return { file: kind === 'compose' ? 'Wähle deine compose.yaml aus' : 'Wähle das ZIP mit den Dateien der Seite aus, z.B. dist.zip' }
-      if (kind === 'compose' && file.size > MAX_COMPOSE) return { file: `Die Datei ist ${Math.ceil(file.size / 1024)} KB gross; eine compose.yaml darf höchstens 256 KB haben` }
-      if (kind === 'static' && file.size > MAX_ZIP) return { file: `Das ZIP ist ${Math.ceil(file.size / 1024 / 1024)} MB gross; höchstens 100 MB` }
-      if (kind === 'static' && !/\.zip$/i.test(file.name)) return { file: 'Wähle eine ZIP-Datei (.zip) aus' }
-      return {}
+      // Die Prüfung beim Tippen fand ein Hindernis: nicht anlegen (der Grund steht unter dem Feld)
+      const pubErr: Errors = pub && canPublish && pubCheck.blocking && pubCheck.verdict.tone === 'bad'
+        ? { 'public.subdomain': `Wähle eine andere Adresse: ${pubCheck.verdict.word}` } : {}
+      if (!usesUpload) return pubErr
+      return { ...pubErr, ...fileErrors() }
     },
   })
+  function fileErrors(): Errors {
+    if (!file) return { file: kind === 'compose' ? 'Wähle deine compose.yaml aus' : 'Wähle das ZIP mit den Dateien der Seite aus, z.B. dist.zip' }
+    if (kind === 'compose' && file.size > MAX_COMPOSE) return { file: `Die Datei ist ${Math.ceil(file.size / 1024)} KB gross; eine compose.yaml darf höchstens 256 KB haben` }
+    if (kind === 'static' && file.size > MAX_ZIP) return { file: `Das ZIP ist ${Math.ceil(file.size / 1024 / 1024)} MB gross; höchstens 100 MB` }
+    if (kind === 'static' && !/\.zip$/i.test(file.name)) return { file: 'Wähle eine ZIP-Datei (.zip) aus' }
+    return {}
+  }
   const e = form.errors
   const showPreview = !e.name || name.trim() !== ''
   // «Upload oder Repo» meldet das Schema auf "source"; beim Hochladen gehört die Meldung zum Dateifeld.
@@ -227,7 +254,7 @@ export function NewProject() {
             <p className="hint">Ohne Formular: Claude legt das Projekt über den MCP-Server von Airlock an und deployt es. Einmal einrichten:</p>
             <ChatSteps />
             <div className="form-actions">
-              <Link className="button button-primary" to="/tokens">Token anlegen</Link>
+              <Link className="button button-primary" to={ep('/einstellungen/tokens?neu=1')}>Token anlegen</Link>
             </div>
           </section>
         ) : (<>
@@ -326,24 +353,51 @@ export function NewProject() {
             <input type="checkbox" checked={tailnet} onChange={(x) => setTailnet(x.target.checked)} />
             <span>
               Tailnet
-              <small>Über Tailscale, im Heimnetz und unterwegs – die Hauptadresse des Servers</small>
+              <small>Im Heimnetz und unterwegs – die Hauptadresse des Servers</small>
             </span>
           </label>
           <label className="choice">
             <input type="checkbox" checked={lan} onChange={(x) => setLan(x.target.checked)} />
             <span>
-              Heimnetz (LAN) ohne Tailscale
+              Heimnetz (LAN) ohne Tailnet
               <small>Für die eigene interne Adresse braucht es einen lokalen DNS (Router, AdGuard, Pi-hole), der sie auf die LAN-IP des Servers zeigt; sonst geht es nur über die nip.io-Adresse mit der LAN-IP, die sich ändern kann</small>
             </span>
           </label>
           {!tailnet && !lan && <p className="hint">Ohne Weg ist das Projekt nirgends erreichbar; das lässt sich später unter Einstellungen → Erreichbarkeit ändern.</p>}
-          <label className="choice choice-disabled">
-            <input type="checkbox" disabled />
-            <span>
-              Öffentlich über Cloudflare Tunnel
-              <small>Erst nach dem ersten Scan, unter Einstellungen → Erreichbarkeit</small>
-            </span>
-          </label>
+          {canPublish ? (
+            <>
+              <label className="choice">
+                <input type="checkbox" checked={pub} onChange={(x) => { setPub(x.target.checked); form.validateField('public.subdomain') }} />
+                <span>
+                  Öffentlich über Cloudflare Tunnel
+                  <small>Nach dem ersten Scan ohne kritischen Befund automatisch; bis dahin nur intern erreichbar</small>
+                </span>
+              </label>
+              {pub && (
+                <div className="public-options">
+                  <PublicNameField inputId={form.idFor('public.subdomain')} label="Öffentliche Adresse" zones={zones} value={pubName} result={pubCheck}
+                    onChange={(n) => setPubDraft({ ...n, touched: true })}
+                    takeOver={false} onTakeOver={() => {}} canTakeOver={false}
+                    error={e['public.subdomain'] ?? e['public.zone']} placeholder={slug}
+                    onBlur={() => form.validateField('public.subdomain')} />
+                  <label className="choice">
+                    <input type="checkbox" checked={access} onChange={(x) => setPubAccess(x.target.checked)} />
+                    <span>Cloudflare Access <small>nur nach Anmeldung per E-Mail-Code</small></span>
+                  </label>
+                </div>
+              )}
+            </>
+          ) : (
+            <label className="choice choice-disabled">
+              <input type="checkbox" disabled />
+              <span>
+                Öffentlich über Cloudflare Tunnel
+                <small>{domains.data && !domains.data.publicEnabled
+                  ? 'In dieser Umgebung nicht eingerichtet: Einstellungen → Cloudflare & HTTPS'
+                  : 'Erst nach dem ersten Scan, unter Einstellungen → Erreichbarkeit'}</small>
+              </span>
+            </label>
+          )}
         </fieldset>
 
         <FormError id={form.idFor('_form')} message={error ?? e._form ?? (usesUpload ? undefined : e.source && !usesRepo ? e.source : undefined)} />

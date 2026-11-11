@@ -16,6 +16,7 @@ const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'external_verification_lost', label: 'Externes Ziel nicht mehr verifiziert' },
   { key: 'infra_problem', label: 'Infrastruktur-Problem' },
   { key: 'expiry', label: 'Chat-Projekt läuft ab' },
+  { key: 'gateway_warning', label: 'Anfragen über das Docker-Gateway' },
   { key: 'weekly_summary', label: 'Wochenübersicht' },
   { key: 'backup_failed', label: 'Backup fehlgeschlagen' },
   { key: 'backup_stale', label: 'Über 48 Stunden kein Backup' },

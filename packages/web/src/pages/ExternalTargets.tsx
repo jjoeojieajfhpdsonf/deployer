@@ -8,6 +8,7 @@ import { poll } from '../lib/live.js'
 import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
+import { InlineConfirm } from '../components/Confirm.js'
 import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
 
 /**
@@ -156,10 +157,8 @@ function Target({ t }: { t: ExternalTargetDto }) {
         {!confirmDelete ? (
           <button onClick={() => setConfirmDelete(true)}>Entfernen</button>
         ) : (
-          <>
-            <button onClick={() => setConfirmDelete(false)}>Abbrechen</button>
-            <button className="button-danger-solid" onClick={() => del.mutate()}>Ja, entfernen</button>
-          </>
+          <InlineConfirm label="Entfernen bestätigen" confirmLabel="Ja, entfernen" busy={del.isPending}
+            onCancel={() => setConfirmDelete(false)} onConfirm={() => del.mutate()} />
         )}
       </div>
       {verifyNote && <p className="hint" role="status">{verifyNote}</p>}

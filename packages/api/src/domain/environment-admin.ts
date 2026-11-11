@@ -363,7 +363,7 @@ export async function checkLanDns(key: string): Promise<LanDnsCheckDto> {
   const detail = ok
     ? `Umschreibung greift: ${base} → ${lan}`
     : tailscale && resolved.includes(tailscale)
-      ? `Der Name löst auf die Tailscale-IP auf (Eintrag bei Cloudflare), nicht auf die LAN-IP – im LAN fehlt die Umschreibung.`
+      ? `Der Name löst auf die Tailnet-IP auf (Eintrag bei Cloudflare), nicht auf die LAN-IP – im LAN fehlt die Umschreibung.`
       : `Der Name löst auf ${resolved.join(', ')} auf, erwartet ${lan}.`
   return { baseDomain: base, line, expected: lan, resolved, ok, detail }
 }

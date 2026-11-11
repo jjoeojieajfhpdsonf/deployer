@@ -13,12 +13,13 @@ import { EmptyState, ErrorState, PartialNote, Loading, SkCard, SkLines, SkRows, 
 import { IconAlert, IconBad, IconMore, IconOk, IconPending, IconPlus, IconSearch, IconWarn } from '../components/Icons.js'
 import { notifyError, notifyOk, notifyWarn } from '../lib/feedback.js'
 import { Logo } from '../components/Logo.js'
+import { ConfirmDialogBody, InlineConfirm } from '../components/Confirm.js'
 import { isoOf } from '../lib/dates.js'
 
 /**
  * Interne Komponenten-Übersicht (nur angemeldet, nicht in der Navigation):
- * alle Bausteine in Hell und Dunkel nebeneinander. Die beiden Spalten setzen
- * die Tokens über .theme-light / .theme-dark (styles.css), unabhängig vom
+ * alle Bausteine in Hell, Dunkel und Windows 95 nebeneinander. Die Spalten setzen
+ * die Tokens über .theme-light / .theme-dark / .theme-win95 (styles.css), unabhängig vom
  * Theme der Seite. Neue Bausteine hier eintragen, damit Varianten sichtbar
  * bleiben und nicht doppelt entstehen.
  */
@@ -26,11 +27,13 @@ export function Design() {
   return (
     <section className="page page-design">
       <PageHead crumbs={[{ label: 'Bausteine' }]} title="Bausteine">
-        <p className="lede">Alle Bausteine der Oberfläche in Hell und Dunkel. Interne Seite, nur zum Nachschlagen.</p>
+        <p className="lede">Alle Bausteine der Oberfläche in Hell, Dunkel und Windows 95. Interne Seite, nur zum Nachschlagen.</p>
       </PageHead>
       <div className="design-cols">
         <section className="design-col theme-light" aria-labelledby="design-hell"><p className="design-col-label" id="design-hell">Hell</p><Catalog /></section>
         <section className="design-col theme-dark" aria-labelledby="design-dunkel"><p className="design-col-label" id="design-dunkel">Dunkel</p><Catalog /></section>
+        {/* Verstecktes Theme (Easter Egg): immer sichtbar, damit es beim Ändern nicht vergessen geht */}
+        <section className="design-col theme-win95" aria-labelledby="design-win95"><p className="design-col-label" id="design-win95">Windows 95</p><Catalog /></section>
       </div>
     </section>
   )
@@ -197,6 +200,21 @@ function Catalog() {
             <p className="dialog-lede">Ein Satz, worum es geht.</p>
             <div className="dialog-actions"><button type="button">Abbrechen</button><button type="button" className="button-primary">Speichern</button></div>
           </div>
+        </div>
+      </Block>
+
+      <Block title="Rückfragen">
+        {/* Antwort 3/10: inline für normale Rückfragen, modal nur für Zerstörerisches (components/Confirm.tsx) */}
+        <div className="design-row">
+          <InlineConfirm label="Beispiel-Rückfrage" focus="none" note="Was passiert, in einem Satz." confirmLabel="Ja, stoppen" onCancel={() => {}} onConfirm={() => {}} />
+        </div>
+        <div className="design-row">
+          <InlineConfirm label="Beispiel-Rückfrage klein" focus="none" small tone="primary" note="Kleine Variante in Zeilen und Karten." confirmLabel="Ja, übernehmen" onCancel={() => {}} onConfirm={() => {}} />
+        </div>
+        <div className="dialog confirm-dialog design-static-dialog" role="group" aria-label="Beispiel: Löschen bestätigen">
+          <ConfirmDialogBody title="«Beispiel» löschen?" confirmLabel="Endgültig löschen" ready={false} typeToConfirm={{ value: 'beispiel', label: 'Kurzname zur Bestätigung' }}>
+            <p>Lässt sich nicht rückgängig machen.</p>
+          </ConfirmDialogBody>
         </div>
       </Block>
 

@@ -71,7 +71,7 @@ const WHY: Record<string, string> = {
   volumes_from: 'hängt fremde Volumes ein',
   extra_hosts: 'nicht nötig und umgeht DNS',
   configs: 'arbeitet mit Dateien des Hosts',
-  secrets: 'arbeitet mit Dateien des Hosts; Secrets kommen aus der Projekt-Env',
+  secrets: 'arbeitet mit Dateien des Hosts; geheime Werte kommen aus den Umgebungsvariablen des Projekts',
   deploy: 'Grenzen kommen aus dem Projekt',
   mem_limit: 'Grenzen kommen aus dem Projekt',
   memswap_limit: 'Grenzen kommen aus dem Projekt',
@@ -153,7 +153,7 @@ export function parseDotenv(text: string, field: string): Record<string, string>
 function normalizeEnvironment(field: string, v: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   const set = (k: string, val: string) => {
-    if (!ENV_KEY_RE.test(k)) fail(field, `Variablenname "${k}" ist ungültig`)
+    if (!ENV_KEY_RE.test(k)) fail(field, `Name der Umgebungsvariable "${k}" ist ungültig`)
     out[k] = val
   }
   if (Array.isArray(v)) {
@@ -261,7 +261,7 @@ export function withServiceEnv(normalizedYaml: string, service: string, env: Rec
   const svc = doc.services?.[service]
   if (!svc) throw new AppError('compose_rejected', `Dienst "${service}" fehlt in der normalisierten Datei`, 500)
   for (const k of Object.keys(env)) {
-    if (!ENV_KEY_RE.test(k)) throw new AppError('compose_rejected', `Variablenname "${k}" ist ungültig`, 400)
+    if (!ENV_KEY_RE.test(k)) throw new AppError('compose_rejected', `Name der Umgebungsvariable "${k}" ist ungültig`, 400)
   }
   svc.environment = { ...(svc.environment ?? {}), ...escapeDollars(env) }
   return `${HEADER}${stringify(doc)}`

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FIX_STATUS_LABEL, headerFixFor } from '@airlock/shared'
 import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
@@ -6,8 +6,8 @@ import { ErrorState, Loading, SkLines } from './States.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
 import { poll } from '../lib/live.js'
-import { IconWarn } from './Security.js'
 import { IconSpark } from './Actor.js'
+import { InlineConfirm, useConfirmState } from './Confirm.js'
 
 /**
  * M8, Etappe 2: «Mit Claude lösen». Am Befund ein fertiger Auftrag zum
@@ -17,19 +17,8 @@ import { IconSpark } from './Actor.js'
 
 const fixesKey = (projectId: string) => ['fix-requests', projectId]
 
-/** Rückfrage mit Fokus zurück auf den auslösenden Knopf (auch nach einem Fehler). */
-function useConfirm() {
-  const [open, setOpen] = useState(false)
-  const trigger = useRef<HTMLButtonElement>(null)
-  const back = useRef(false)
-  useEffect(() => {
-    if (!open && back.current) {
-      back.current = false
-      trigger.current?.focus()
-    }
-  }, [open])
-  return { open, trigger, show: () => setOpen(true), close: () => { back.current = true; setOpen(false) } }
-}
+/** Rückfrage mit Fokus zurück auf den auslösenden Knopf (auch nach einem Fehler; Confirm.tsx). */
+const useConfirm = useConfirmState
 
 /** Fertiges Image mit CVE: kein Auftrag, nur Abhilfe (ohne den Hinweis erst laden zu müssen) */
 const isImageCve = (f: FindingDto, sourceType?: string) => sourceType === 'image' && f.tool === 'trivy' && /bekannte Schwachstelle/.test(f.title)
@@ -178,22 +167,14 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
             </>
           )}
           {applyC.open && (
-            <span className="confirm-inline" role="group" aria-label="Vorschlag übernehmen">
-              <span className="confirm-note"><IconWarn />Neue Version im Projekt, Deploy und Nachscan.</span>
-              <button type="button" className="button-small" onClick={applyC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-primary" disabled={busy} aria-busy={apply.isPending || undefined} onClick={() => apply.mutate()}>
-                Ja, übernehmen und deployen
-              </button>
-            </span>
+            <InlineConfirm label="Vorschlag übernehmen" small tone="primary" focus="cancel"
+              note="Neue Version im Projekt, Deploy und Nachscan." confirmLabel="Ja, übernehmen und deployen"
+              busy={apply.isPending} disabled={busy} onCancel={applyC.close} onConfirm={() => apply.mutate()} />
           )}
           {rejectC.open && (
-            <span className="confirm-inline" role="group" aria-label="Vorschlag verwerfen">
-              <span className="confirm-note"><IconWarn />Verworfene Vorschläge lassen sich nicht wieder öffnen.</span>
-              <button type="button" className="button-small" onClick={rejectC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-danger-solid" disabled={busy} aria-busy={reject.isPending || undefined} onClick={() => reject.mutate()}>
-                Ja, verwerfen
-              </button>
-            </span>
+            <InlineConfirm label="Vorschlag verwerfen" small focus="cancel"
+              note="Verworfene Vorschläge lassen sich nicht wieder öffnen." confirmLabel="Ja, verwerfen"
+              busy={reject.isPending} disabled={busy} onCancel={rejectC.close} onConfirm={() => reject.mutate()} />
           )}
         </div>
       )}

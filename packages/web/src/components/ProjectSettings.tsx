@@ -1,20 +1,24 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { putEnvSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared'
+import { putEnvSchema, updateProjectSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
 import { useFormErrors } from '../lib/form.js'
 import { useUnsaved } from '../lib/unsaved.js'
-import { relativeTime } from '../lib/format.js'
+import { gb, relativeTime } from '../lib/format.js'
 import { fmtDate } from '../lib/dates.js'
+import { parseNumber, serverFreeMb, suggestCpuLimit, suggestMemoryLimit, usageOf, type LimitSuggestion } from '../lib/limits.js'
 import { ErrorState, Loading, SkLines } from './States.js'
-import { EnvEditor, type EnvRow } from './EnvEditor.js'
 import { Field } from './Field.js'
+import { useSystem } from './ServerName.js'
+import { useProjectHealth } from './ProjectOverview.js'
+import { EnvEditor, type EnvRow } from './EnvEditor.js'
 import { Publication, SetRow } from './Publication.js'
 import { Reachability } from './Reachability.js'
 import { useHeaderRules } from './HeaderFix.js'
 import { Switch } from './Switch.js'
 import { MoveProject } from './MoveProject.js'
+import { ConfirmDialog } from './Confirm.js'
 
 /**
  * Projekt → Einstellungen: Abschnitte als Karten mit kompakten Zeilen
@@ -32,10 +36,22 @@ const HEADER_SHORT: Record<string, string> = {
 
 export function ProjectSettings({
   p, env, onDeleted, onManageHeaders, deleteRequested, onDeleteShown, envRequest, onEnvShown,
+  containerRequest, onContainerShown, onContainerSaved, onDeploy, deploying, publishRequested, onPublishShown,
 }: {
+  /** «Veröffentlichen →» im Reiter «Aufbau»: Karte «Veröffentlichung» mit offenem Ablauf */
+  publishRequested?: boolean
+  onPublishShown?: () => void
   /** Fehlerbox «Hinzufügen»: Variable mit diesem Namen vorbelegen und den Wert fokussieren */
   envRequest?: string | null
   onEnvShown?: () => void
+  /** Fehlerbox «Port ändern», «Grenze erhöhen» …: Feld im Abschnitt Container vorbelegen und fokussieren */
+  containerRequest?: ContainerRequest | null
+  onContainerShown?: () => void
+  /** Gespeichert bzw. rückgängig gemacht (für den Hinweis in der Fehlerbox) */
+  onContainerSaved?: (patch: ContainerPatch, undo: boolean) => void
+  /** «Neu deployen» nach einer Änderung am Container */
+  onDeploy: () => void
+  deploying: boolean
   p: ProjectDto
   env: EnvEntryDto[]
   onDeleted: () => void
@@ -46,10 +62,13 @@ export function ProjectSettings({
   onDeleteShown?: () => void
 }) {
   const auto = useQuery({ queryKey: ['auto-deploy', p.id], queryFn: () => api.autoDeploy(p.id) })
+  // Antwort 8: Port, Healthcheck und Grenzen nur bei Projekten mit Container (nicht bei statischen Seiten)
+  const hasContainer = p.runtimeKind !== 'static'
   const sections: Section[] = [
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
-    { id: 'set-umgebung', label: 'Umgebung' },
+    { id: 'set-umgebung', label: 'Umgebungsvariablen' },
+    ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
     { id: 'set-header', label: 'Security-Header' },
     ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
     { id: 'set-ablauf', label: 'Ablauf' },
@@ -85,9 +104,12 @@ export function ProjectSettings({
         </ul>
       </nav>
       <div className="set-sections">
-        <Publication p={p} />
+        <Publication p={p} request={publishRequested} onShown={onPublishShown} />
         <Reachability p={p} />
         <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
+        {hasContainer && (
+          <Container p={p} request={containerRequest ?? null} onShown={onContainerShown} onSaved={onContainerSaved} onDeploy={onDeploy} deploying={deploying} />
+        )}
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
         {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
         <Expiry p={p} />
@@ -125,7 +147,7 @@ function useActiveSection(ids: string[]): string {
   return active
 }
 
-/* --- Umgebung ----------------------------------------------------------------- */
+/* --- Umgebungsvariablen --------------------------------------------------------- */
 
 function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntryDto[]; request: string | null; onShown?: () => void }) {
   const qc = useQueryClient()
@@ -137,7 +159,7 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
   const entries = () => rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))
   const envForm = useFormErrors({ schema: putEnvSchema, values: () => ({ entries: entries() }) })
   const save = useMutation({
-    meta: { errorTitle: 'Variablen nicht gespeichert' },
+    meta: { errorTitle: 'Umgebungsvariablen nicht gespeichert' },
     mutationFn: () => api.putEnv(p.id, entries()),
     onSuccess: () => {
       setSaved(true)
@@ -173,15 +195,15 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
   return (
     <section className="set-card" id="set-umgebung" aria-labelledby={titleId}>
       <div className="set-head">
-        <h2 id={titleId} tabIndex={-1}>Umgebung</h2>
+        <h2 id={titleId} tabIndex={-1}>Umgebungsvariablen</h2>
         {saved && <span className="set-saved set-saved-on" role="status">✓ gespeichert · wirkt beim nächsten Deploy</span>}
         <div className="set-head-actions">
           {!editing && env.length > 0 && <button type="button" className="button-small" onClick={() => setEditing(true)}>Bearbeiten</button>}
-          <button type="button" className="button-small" onClick={add}>Variable hinzufügen</button>
+          <button type="button" className="button-small" onClick={add}>Umgebungsvariable hinzufügen</button>
         </div>
       </div>
       {!editing && (
-        <SetRow label="Variablen">
+        <SetRow label="Gesetzt">
           {env.length === 0
             ? <span className="muted">keine{isStatic ? ' – bei einer statischen Seite nicht nötig' : ''}</span>
             : <><strong className="set-strong">{env.map((e) => e.key).join(', ')}</strong>{secret > 0 && <span className="muted"> · {secret} geheim</span>}</>}
@@ -191,11 +213,265 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
         <form className="set-row-block" noValidate ref={envForm.formRef} onSubmit={(ev) => { ev.preventDefault(); if (envForm.validateAll()) save.mutate() }}>
           <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={envForm.errors} field={envForm.field} />
           <div className="form-actions">
-            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Variablen speichern</button>
+            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Umgebungsvariablen speichern</button>
             <button type="button" onClick={() => { setEditing(false); setRows(env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true }))); envForm.reset() }}>Abbrechen</button>
             <span className="hint">Wirksam beim nächsten Deploy.</span>
           </div>
         </form>
+      )}
+    </section>
+  )
+}
+
+/* --- Container (Antwort 8) -------------------------------------------------------- */
+
+export type ContainerKey = 'port' | 'healthcheckPath' | 'cpuLimit' | 'memoryLimitMb'
+export type ContainerPatch = Partial<{ port: number; healthcheckPath: string; cpuLimit: number; memoryLimitMb: number }>
+/**
+ * Sprung aus der Fehlerbox: Feld fokussieren und vorbelegen – mit value (Port
+ * aus dem Log), mit dem Vorschlag (suggest: «Grenze erhöhen») oder mit dem
+ * aktuellen Wert.
+ */
+export type ContainerRequest = { field: ContainerKey; value?: number | string | null; suggest?: boolean }
+
+type Draft = Record<ContainerKey, string>
+const draftOf = (p: ProjectDto): Draft => ({
+  port: p.port === null ? '' : String(p.port),
+  healthcheckPath: p.healthcheckPath,
+  cpuLimit: String(p.cpuLimit),
+  memoryLimitMb: String(p.memoryLimitMb),
+})
+
+/** Was sich gegenüber dem Projekt ändert (ungültige Eingaben als NaN, damit die Prüfung sie meldet) */
+function patchOf(p: ProjectDto, d: Draft): ContainerPatch {
+  const out: ContainerPatch = {}
+  if (!(d.port.trim() === '' && p.port === null)) {
+    const port = parseNumber(d.port)
+    if (port !== p.port) out.port = port
+  }
+  const path = d.healthcheckPath.trim()
+  if (path !== p.healthcheckPath) out.healthcheckPath = path
+  const cpu = parseNumber(d.cpuLimit)
+  if (cpu !== p.cpuLimit) out.cpuLimit = cpu
+  const mem = parseNumber(d.memoryLimitMb)
+  if (mem !== p.memoryLimitMb) out.memoryLimitMb = mem
+  return out
+}
+
+const fmtMb = (v: number) => `${Math.round(v).toLocaleString('de-CH')} MB`
+const fmtCpu = (v: number) => v.toLocaleString('de-CH', { maximumFractionDigits: 2 })
+
+/** «RAM-Grenze 1’024 MB, Port 3000» */
+function patchText(patch: ContainerPatch): string {
+  const parts: string[] = []
+  if (patch.port !== undefined) parts.push(`Port ${patch.port}`)
+  if (patch.healthcheckPath !== undefined) parts.push(`Healthcheck ${patch.healthcheckPath}`)
+  if (patch.cpuLimit !== undefined) parts.push(`CPU-Grenze ${fmtCpu(patch.cpuLimit)}`)
+  if (patch.memoryLimitMb !== undefined) parts.push(`RAM-Grenze ${fmtMb(patch.memoryLimitMb)}`)
+  return parts.join(', ')
+}
+
+/** Satz zum Vorschlag: woher er kommt und was ihn begrenzt hat */
+function suggestionText(s: LimitSuggestion, before: string, room: string | null): string {
+  if (!s.raised) return s.capped === 'max' ? `Schon am Höchstwert (${before}).` : `Mehr geht nicht: auf dem Server ist ${room ? `nur ${room}` : 'kaum etwas'} frei.`
+  const base = `Vorschlag: doppelt so viel wie bisher (${before})`
+  if (s.capped === 'server') return `${base}, gedeckelt durch den Server${room ? ` (${room} frei)` : ''}.`
+  if (s.capped === 'max') return `${base}, gedeckelt durch den Höchstwert.`
+  return `${base}.`
+}
+
+function Container({ p, request, onShown, onSaved, onDeploy, deploying }: {
+  p: ProjectDto
+  request: ContainerRequest | null
+  onShown?: () => void
+  onSaved?: (patch: ContainerPatch, undo: boolean) => void
+  onDeploy: () => void
+  deploying: boolean
+}) {
+  const qc = useQueryClient()
+  const titleId = useId()
+  const health = useProjectHealth(p)
+  const sys = useSystem()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<Draft>(() => draftOf(p))
+  /** Woher die Vorbelegung kam (Hinweis unter dem Feld) und welches Feld den Fokus bekommt */
+  const [from, setFrom] = useState<{ field: ContainerKey; text: string } | null>(null)
+  const [focus, setFocus] = useState<{ field: ContainerKey; scroll: boolean } | null>(null)
+  /** Nach dem Speichern: Hinweis «wirkt beim nächsten Deploy» mit «Neu deployen» */
+  const [pending, setPending] = useState<string | null>(null)
+
+  const samples = health.data?.samples ?? []
+  const mem = usageOf(samples, (s) => s.memMb)
+  const cpu = usageOf(samples, (s) => s.cpu)
+  const freeMb = serverFreeMb(sys.data?.server)
+  const room = sys.data?.server.memTotalBytes != null && sys.data.server.memUsedBytes != null
+    ? `${gb(sys.data.server.memTotalBytes - sys.data.server.memUsedBytes)} GB`
+    : null
+
+  const patch = () => patchOf(p, draft)
+  const form = useFormErrors({ schema: updateProjectSchema, values: patch, idFor: (n) => `ct-${n}` })
+  const dirty = editing && Object.keys(patch()).length > 0
+  // UI-Qualität 8: Rückfrage beim Verlassen, auch nach einem Sprung aus der Fehlerbox (vorbelegt = geändert)
+  useUnsaved(dirty, 'Container-Einstellungen')
+
+  const save = useMutation({
+    meta: { errorTitle: 'Container-Einstellungen nicht gespeichert' },
+    mutationFn: (v: { patch: ContainerPatch; before: ContainerPatch; undo?: boolean }) => api.updateProject(p.id, v.patch),
+    onSuccess: (_r, v) => {
+      // Rückgängig aus dem Toast: Fokus bleibt, wo er ist
+      if (editing) setRefocus(true)
+      setEditing(false)
+      setFrom(null)
+      form.reset()
+      void qc.invalidateQueries({ queryKey: ['project', p.id] })
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      onSaved?.(v.undo ? v.before : v.patch, Boolean(v.undo))
+      setPending(v.undo ? null : patchText(v.patch))
+      notifyOk(v.undo ? 'Rückgängig: Container-Einstellungen' : 'Container-Einstellungen gespeichert', {
+        id: `container-${p.id}`,
+        description: `${patchText(v.patch)}. Wirkt beim nächsten Deploy.`,
+        undo: v.undo || Object.keys(v.before).length === 0 ? undefined : () => save.mutate({ patch: v.before, before: v.patch, undo: true }),
+      })
+    },
+    onError: (err) => void form.setServerErrors(err),
+  })
+
+  // Nach Abbrechen bzw. Speichern zurück auf «Bearbeiten» (das Formular verschwindet, der Fokus nicht auf <body>)
+  const editRef = useRef<HTMLButtonElement>(null)
+  const [refocus, setRefocus] = useState(false)
+  useEffect(() => {
+    if (!refocus || editing) return
+    editRef.current?.focus()
+    setRefocus(false)
+  }, [refocus, editing])
+  const start = () => { setDraft(draftOf(p)); setFrom(null); form.reset(); setEditing(true); setFocus({ field: 'port', scroll: false }) }
+  const cancel = () => { setEditing(false); setFrom(null); setDraft(draftOf(p)); form.reset(); setRefocus(true) }
+  const submit = () => {
+    if (!form.validateAll()) return
+    const ch = patch()
+    if (Object.keys(ch).length === 0) { cancel(); return }
+    // Rückweg für «Rückgängig»; ein vorher fehlender Port lässt sich nicht wieder leeren
+    const before: ContainerPatch = {}
+    for (const k of Object.keys(ch) as ContainerKey[]) if (p[k] !== null) (before as Record<string, unknown>)[k] = p[k]
+    save.mutate({ patch: ch, before })
+  }
+
+  // Aus der Fehlerbox: Feld vorbelegen. Der Vorschlag braucht den freien RAM; erst rechnen, wenn der Systemstatus da ist
+  const sysReady = !sys.isLoading
+  useEffect(() => {
+    if (!request || (request.suggest && !sysReady)) return
+    let value: string
+    let text: string
+    if (request.suggest && request.field === 'memoryLimitMb') {
+      const s = suggestMemoryLimit({ currentMb: p.memoryLimitMb, serverFreeMb: freeMb, containerUsedMb: health.data?.container?.running ? mem?.now : 0 })
+      value = String(s.value)
+      text = suggestionText(s, fmtMb(p.memoryLimitMb), room)
+    } else if (request.suggest && request.field === 'cpuLimit') {
+      // Kernzahl des Servers ist nicht bekannt: höchstens 16 (Grenze der API)
+      const s = suggestCpuLimit({ current: p.cpuLimit, serverCores: null })
+      value = String(s.value)
+      text = suggestionText(s, `${fmtCpu(p.cpuLimit)} CPU`, null)
+    } else if (request.value !== undefined && request.value !== null) {
+      value = String(request.value)
+      text = request.field === 'port' ? `Aus dem Log: die App lauscht auf ${request.value} (bisher ${p.port ?? 'kein Port'}).` : `Bisher ${String(p[request.field] ?? '–')}.`
+    } else {
+      value = draftOf(p)[request.field]
+      text = ''
+    }
+    setDraft((d) => ({ ...(editing ? d : draftOf(p)), [request.field]: value }))
+    form.reset()
+    setFrom(text ? { field: request.field, text } : null)
+    setEditing(true)
+    setFocus({ field: request.field, scroll: true })
+    onShown?.()
+  }, [request, sysReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fokus erst, wenn das Formular gerendert ist; markiert, damit Tippen den Vorschlag ersetzt
+  useEffect(() => {
+    if (!focus || !editing) return
+    const el = document.getElementById(`ct-${focus.field}`) as HTMLInputElement | null
+    if (!el) return
+    if (focus.scroll) {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      el.closest('.field')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' })
+    }
+    el.focus({ preventScroll: focus.scroll })
+    el.select()
+    setFocus(null)
+  }, [focus, editing])
+
+  // Spitze nur, wenn sie über dem jetzigen Wert liegt (sonst ist «jetzt» die Spitze)
+  const usage = (u: { now: number; peak: number } | null, f: (v: number) => string) => !u ? null
+    : f(u.peak) === f(u.now) ? `jetzt ${f(u.now)}, zugleich die Spitze der letzten Stunde` : `jetzt ${f(u.now)}, Spitze ${f(u.peak)} in der letzten Stunde`
+  const usageMem = usage(mem, fmtMb)
+  const usageCpu = usage(cpu, fmtCpu)
+  const noUsage = health.data?.container?.running === false || !p.activeDeployment || p.desiredState !== 'running'
+    ? 'keine Messung, der Container läuft nicht' : 'noch keine Messung'
+  const hint = (k: ContainerKey, base: string) => (from?.field === k ? <><strong className="set-strong">{from.text}</strong> {base}</> : base)
+  const input = (k: ContainerKey, inputMode?: 'numeric' | 'decimal') => (
+    <input
+      {...form.field(k, `ct-${k}-hint`)}
+      value={draft[k]}
+      inputMode={inputMode}
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+    />
+  )
+
+  return (
+    <section className="set-card" id="set-container" aria-labelledby={titleId}>
+      <div className="set-head">
+        <h2 id={titleId} tabIndex={-1}>Container</h2>
+        {!editing && <div className="set-head-actions"><button ref={editRef} type="button" className="button-small" onClick={start}>Bearbeiten</button></div>}
+      </div>
+      {!editing && (
+        <>
+          <SetRow label="Port im Container">
+            {p.port === null ? <span className="muted">nicht gesetzt</span> : <><strong className="set-strong num">{p.port}</strong> <span className="muted">· dorthin gehen die Anfragen</span></>}
+          </SetRow>
+          <SetRow label="Healthcheck-Pfad">
+            <code>{p.healthcheckPath}</code> <span className="muted">· muss mit 2xx oder 3xx antworten</span>
+          </SetRow>
+          <SetRow label="CPU-Grenze">
+            <strong className="set-strong num">{fmtCpu(p.cpuLimit)} CPU</strong> <span className="muted">· {usageCpu ?? noUsage}</span>
+          </SetRow>
+          <SetRow label="RAM-Grenze">
+            <strong className="set-strong num">{fmtMb(p.memoryLimitMb)}</strong> <span className="muted">· {usageMem ?? noUsage}</span>
+          </SetRow>
+        </>
+      )}
+      {editing && (
+        <form className="set-row-block" noValidate ref={form.formRef} onSubmit={(ev) => { ev.preventDefault(); submit() }}>
+          <div className="ct-fields">
+            <Field id="ct-port" label="Port im Container" error={form.errors.port} hint={hint('port', 'Auf diesem Port lauscht die App, z.B. 80 oder 3000.')}>
+              {input('port', 'numeric')}
+            </Field>
+            <Field id="ct-healthcheckPath" label="Healthcheck-Pfad" error={form.errors.healthcheckPath} hint={hint('healthcheckPath', 'Muss mit 2xx oder 3xx antworten, z.B. / oder /health.')}>
+              {input('healthcheckPath')}
+            </Field>
+            <Field id="ct-cpuLimit" label="CPU-Grenze (Kerne)" error={form.errors.cpuLimit} hint={hint('cpuLimit', `0.1 bis 16. Verbrauch: ${usageCpu ?? noUsage}.`)}>
+              {input('cpuLimit', 'decimal')}
+            </Field>
+            <Field id="ct-memoryLimitMb" label="RAM-Grenze (MB)" error={form.errors.memoryLimitMb}
+              hint={hint('memoryLimitMb', `64 bis 32768. Verbrauch: ${usageMem ?? noUsage}.${room ? ` Frei auf dem Server: ${room}.` : ''}`)}>
+              {input('memoryLimitMb', 'numeric')}
+            </Field>
+          </div>
+          <div className="form-actions">
+            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Speichern</button>
+            <button type="button" onClick={cancel}>Abbrechen</button>
+            <span className="hint">Wirkt beim nächsten Deploy.</span>
+          </div>
+        </form>
+      )}
+      {!editing && pending && (
+        <div className="set-row set-row-toggle">
+          <div className="set-row-value set-row-wide"><span className="set-strong">✓ {pending}</span> <span className="muted">· wirkt beim nächsten Deploy</span></div>
+          <div className="set-row-action">
+            <button type="button" className="button-small button-primary" onClick={onDeploy} disabled={deploying} aria-busy={deploying || undefined}>Neu deployen</button>
+          </div>
+        </div>
       )}
     </section>
   )
@@ -331,18 +607,19 @@ function Expiry({ p }: { p: ProjectDto }) {
 function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDeleted: () => void; requested?: boolean; onShown?: () => void }) {
   const titleId = useId()
   const [open, setOpen] = useState(false)
-  const [confirm, setConfirm] = useState('')
   const [purge, setPurge] = useState(false)
-  const [confirmError, setConfirmError] = useState<string | null>(null)
   const ref = useRef<HTMLElement>(null)
-  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht', noRetry: true } })
+  const trigger = useRef<HTMLButtonElement>(null)
+  // Fehler zeigt der Dialog selbst (quiet), dort bleibt er offen
+  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht', noRetry: true, quiet: true } })
+  const show = () => { setPurge(false); remove.reset(); setOpen(true) }
+  // «Löschen …» aus dem Kopfmenü: zur Gefahrenzone und gleich der Dialog
   useEffect(() => {
     if (!requested) return
-    setOpen(true)
+    show()
     requestAnimationFrame(() => {
       const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       ref.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' })
-      document.getElementById('f-delete-confirm')?.focus({ preventScroll: true })
       onShown?.()
     })
   }, [requested]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -353,51 +630,29 @@ function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDel
       {/* «Verschieben …» (in eine andere Umgebung) erscheint hier, sobald es Umgebungen gibt (Meilenstein 9) */}
       <SetRow
         label="Löschen"
-        action={!open ? <button type="button" className="button-small button-danger" onClick={() => { setOpen(true); requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus()) }}>Projekt löschen …</button> : undefined}
+        action={<button ref={trigger} type="button" className="button-small button-danger" onClick={show}>Projekt löschen …</button>}
       >
         <span className="muted">Container, Dateien, Adressen und Verlauf werden entfernt</span>
       </SetRow>
-      {open && (
-        <form
-          className="set-row-block set-delete"
-          noValidate
-          onSubmit={(ev) => {
-            ev.preventDefault()
-            if (confirm.trim() !== p.slug) {
-              setConfirmError(confirm.trim() ? `Das ist nicht «${p.slug}». Tippe den Kurznamen genau so ein, um das Löschen zu bestätigen.` : `Tippe «${p.slug}» ein, um das Löschen zu bestätigen.`)
-              requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus())
-              return
-            }
-            setConfirmError(null)
-            remove.mutate()
-          }}
-        >
-          <p className="set-delete-lede">Lässt sich nicht rückgängig machen. Öffentliche Namen, DNS-Einträge und die Tunnel-Regel gehen mit.</p>
-          <Field id="f-delete-confirm" label="Kurzname zur Bestätigung" error={confirmError ?? undefined}>
-            <input
-              id="f-delete-confirm"
-              aria-invalid={confirmError ? true : undefined}
-              aria-describedby={confirmError ? 'f-delete-confirm-error' : undefined}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onBlur={() => { if (confirmError && confirm.trim() === p.slug) setConfirmError(null) }}
-              placeholder={p.slug}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          {p.runtimeKind !== 'static' && (
-            <label className="choice">
-              <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
-              <span>Auch die Daten-Volumes löschen <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small></span>
-            </label>
-          )}
-          <div className="confirm-inline">
-            <button type="button" onClick={() => { setOpen(false); setConfirm(''); setConfirmError(null) }}>Abbrechen</button>
-            <button type="submit" className="button-danger-solid" disabled={remove.isPending} aria-busy={remove.isPending || undefined}>Endgültig löschen</button>
-          </div>
-        </form>
-      )}
+      <ConfirmDialog
+        open={open}
+        title={<>«{p.name}» löschen?</>}
+        confirmLabel="Endgültig löschen"
+        busy={remove.isPending}
+        error={remove.isError ? (remove.error as Error).message : null}
+        typeToConfirm={{ value: p.slug, label: 'Kurzname zur Bestätigung' }}
+        returnFocusTo={trigger}
+        onCancel={() => setOpen(false)}
+        onConfirm={() => remove.mutate()}
+      >
+        <p>Lässt sich nicht rückgängig machen. Öffentliche Namen, DNS-Einträge und die Tunnel-Regel gehen mit.</p>
+        {p.runtimeKind !== 'static' && (
+          <label className="choice">
+            <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
+            <span>Auch die Daten-Volumes löschen <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small></span>
+          </label>
+        )}
+      </ConfirmDialog>
     </section>
   )
 }

@@ -76,7 +76,8 @@ export function ProfileMenu({ me }: { me: MeDto }) {
         <div className="menu-sep" />
         <div role="group" aria-label="Darstellung">
           <div className="menu-group-label" aria-hidden="true">Darstellung</div>
-          {themePrefs.map((t) => (
+          {/* «Windows 95» erst nach der Freischaltung (Easter Egg) */}
+          {themePrefs.filter((t) => t !== 'win95' || me.win95Unlocked || theme === 'win95').map((t) => (
             <button key={t} role="menuitemradio" aria-checked={theme === t} onClick={() => void pickTheme(t)}>
               {THEME_LABEL[t]}
               {theme === t && (

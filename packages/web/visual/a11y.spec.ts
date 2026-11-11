@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { contextOptions, installRoutes, openShot, shots } from '../design-shots/shoot.js'
 import { VISUAL_PORT } from './playwright.config.js'
-import { A11Y_SCENES } from './scenes.js'
+import { A11Y_SCENES, WIN95_SCENES } from './scenes.js'
 
 /**
  * Barrierefreiheit mit axe-core: alle Hauptseiten und Zustände in Hell und
@@ -14,9 +14,14 @@ import { A11Y_SCENES } from './scenes.js'
 // Dazu die Best-Practice-Regeln (Überschriftenfolge, Landmarks, ein h1); «incomplete» wird protokolliert
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 
-for (const theme of ['hell', 'dunkel'] as const) {
-  const t = theme === 'hell' ? 'light' : 'dark'
-  for (const name of A11Y_SCENES) {
+const RUNS = [
+  { theme: 'hell', t: 'light', scenes: A11Y_SCENES },
+  { theme: 'dunkel', t: 'dark', scenes: A11Y_SCENES },
+  // Verstecktes Theme «Windows 95»: dieselben Regeln
+  { theme: 'win95', t: 'win95', scenes: WIN95_SCENES },
+] as const
+for (const { theme, t, scenes } of RUNS) {
+  for (const name of scenes) {
     test(`axe · ${name} · ${theme}`, async ({ browser }) => {
       const s = shots.find((x) => x.name === name)
       if (!s) throw new Error(`Szene ${name} fehlt in design-shots/shoot.ts`)

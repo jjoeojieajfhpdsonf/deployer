@@ -2,7 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import type { AddressRowInput, ContainerField, DeploymentDto, EnvEntryDto, FailureAction, FailureExplanation, ProjectDto, ResourceSample } from '@airlock/shared'
-import { browserCanProbe, deployFixPrompt, envTexts, explainFailure, logTail, missingEnvVar, sourceSchema, splitAddresses, updateProjectSchema } from '@airlock/shared'
+import { browserCanProbe, deployFixPrompt, envTexts, explainFailure, logTail, missingEnvVar, sourceSchema, splitAddresses } from '@airlock/shared'
+import type { ContainerPatch, ContainerRequest } from './ProjectSettings.js'
 import { copyText } from '../lib/clipboard.js'
 import { FALLBACK_MS, poll } from '../lib/live.js'
 import { Field } from './Field.js'
@@ -10,14 +11,14 @@ import { IconSpark } from './Actor.js'
 import { api, probeUrl } from '../api.js'
 import { relativeTime, shortVersion, since } from '../lib/format.js'
 import { fmtDayTime, fmtTime, msOf } from '../lib/dates.js'
-import { bundle, isReadOnly } from '../lib/activity.js'
+import { bundle, isNotifyEvent, isReadOnly } from '../lib/activity.js'
 import { ActivityList } from './ActivityList.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
 import { KeyFacts } from './KeyFacts.js'
 import { deployFailedState } from '../lib/projects.js'
-import { IconBad, IconOk, IconPending } from './Icons.js'
+import { IconBad, IconCheck, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 import { useEnvPath } from '../lib/env.js'
 
@@ -25,7 +26,6 @@ type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
-const IconCheck = () => <svg {...svg}><path d="m3.5 8.5 3 3 6-7" /></svg>
 
 /** Läuft der Container der aktiven Fassung wirklich? (für Kopf und Übersicht) */
 export function useProjectHealth(p: ProjectDto) {
@@ -39,7 +39,7 @@ export function useProjectHealth(p: ProjectDto) {
 }
 
 export function ProjectOverview({
-  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy, onAddEnv,
+  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy, onAddEnv, onContainerField, containerSaved,
 }: {
   p: ProjectDto
   env: EnvEntryDto[]
@@ -51,7 +51,12 @@ export function ProjectOverview({
   keepBusy?: boolean
   /** Fehlerbox «Hinzufügen»: zu den Einstellungen, Variable vorbelegt */
   onAddEnv: (name: string) => void
+  /** Fehlerbox «Port ändern», «Grenze erhöhen» …: zu Einstellungen › Container, Feld vorbelegt */
+  onContainerField: (r: ContainerRequest) => void
+  /** Seit dem letzten Deploy unter Einstellungen › Container gespeichert */
+  containerSaved: ContainerPatch
 }) {
+  const fix: FixProps = { onAddEnv, onContainerField, containerSaved }
   // Einzige Quelle: der Zustand vom Server (p.state). Die Gesundheitsabfrage liefert nur
   // Einzelheiten (Exit-Code, Messwerte), entscheidet aber nichts.
   const st = p.state.key
@@ -64,10 +69,10 @@ export function ProjectOverview({
   return (
     <div className="overview">
       {deployFailed && p.lastDeployment && (
-        <DeployFailure p={p} env={env} dep={p.lastDeployment} stillRunning={st === 'failed_old_running'} onTab={onTab} onDeploy={onDeploy} deploying={deploying} onAddEnv={onAddEnv} />
+        <DeployFailure p={p} env={env} dep={p.lastDeployment} stillRunning={st === 'failed_old_running'} onTab={onTab} onDeploy={onDeploy} deploying={deploying} fix={fix} />
       )}
       {containerDown && (
-        <ContainerDown p={p} env={env} onAddEnv={onAddEnv} exitCode={h?.container?.exitCode ?? null} missing={Boolean(h?.container?.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
+        <ContainerDown p={p} env={env} fix={fix} exitCode={h?.container?.exitCode ?? null} missing={Boolean(h?.container?.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
       )}
 
       <div className="overview-grid">
@@ -101,9 +106,16 @@ export function ProjectOverview({
 
 const LINES_FROM = { container: 'der Container-Ausgabe', build: 'des Build-Logs', deploy: 'des Deploy-Logs' } as const
 
-function DeployFailure({ p, env, dep, stillRunning, onTab, onDeploy, deploying, onAddEnv }: {
-  p: ProjectDto; env: EnvEntryDto[]; dep: DeploymentDto; stillRunning: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+/** Wohin die Aktionen der Fehlerbox führen (Einstellungen › Umgebung bzw. › Container) */
+type FixProps = {
   onAddEnv: (name: string) => void
+  onContainerField: (r: ContainerRequest) => void
+  containerSaved: ContainerPatch
+}
+
+function DeployFailure({ p, env, dep, stillRunning, onTab, onDeploy, deploying, fix }: {
+  p: ProjectDto; env: EnvEntryDto[]; dep: DeploymentDto; stillRunning: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+  fix: FixProps
 }) {
   // UI-Qualität 2: Erklärung vom Server, beim Scheitern festgehalten (dieselbe wie im MCP-Ergebnis).
   // Nur ältere Deployments ohne gespeicherte Erklärung brauchen das Log, um sie hier zu bilden.
@@ -140,7 +152,7 @@ function DeployFailure({ p, env, dep, stillRunning, onTab, onDeploy, deploying, 
           : d.isError ? <PartialNote onRetry={() => void d.refetch()}>Das Deploy-Log ist gerade nicht abrufbar ({errorReason(d.error)})</PartialNote>
           : <Loading label="Log wird geladen"><SkLog n={6} /></Loading>}
       </div>
-      <FailureActions p={p} env={env} f={f} onDeploy={onDeploy} deploying={deploying} onAddEnv={onAddEnv} />
+      <FailureActions p={p} env={env} f={f} onDeploy={onDeploy} deploying={deploying} fix={fix} />
     </section>
   )
 }
@@ -155,9 +167,9 @@ function LogLines({ lines, label, empty }: { lines: string[]; label: string; emp
   )
 }
 
-function ContainerDown({ p, env, exitCode, missing, onTab, onDeploy, deploying, onAddEnv }: {
+function ContainerDown({ p, env, exitCode, missing, onTab, onDeploy, deploying, fix }: {
   p: ProjectDto; env: EnvEntryDto[]; exitCode: number | null; missing: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
-  onAddEnv: (name: string) => void
+  fix: FixProps
 }) {
   const logs = useQuery({ queryKey: ['logs-tail', p.id], queryFn: () => api.getLogs(p.id, 15), enabled: !missing, retry: false })
   const lines = logTail(logs.data?.logs ?? '', 15)
@@ -196,61 +208,68 @@ function ContainerDown({ p, env, exitCode, missing, onTab, onDeploy, deploying, 
         f={action ? { kind: 'exited', title, cause, action, lines, linesFrom: 'container', exitCode } : null}
         onDeploy={onDeploy}
         deploying={deploying}
-        onAddEnv={onAddEnv}
+        fix={fix}
       />
     </section>
   )
 }
 
-const FIELD_TEXT: Record<ContainerField, { label: string; done: (v: string | number) => string }> = {
-  port: { label: 'Port im Container', done: (v) => `Port ist jetzt ${v}.` },
-  healthcheckPath: { label: 'Pfad für den Healthcheck', done: (v) => `Healthcheck-Pfad ist jetzt ${v}.` },
-  memoryLimitMb: { label: 'RAM-Grenze in MB', done: (v) => `RAM-Grenze ist jetzt ${Number(v).toLocaleString('de-CH')} MB.` },
+const FIELD_DONE: Record<ContainerField, (v: string | number) => string> = {
+  port: (v) => `Port ist jetzt ${v}.`,
+  healthcheckPath: (v) => `Healthcheck-Pfad ist jetzt ${v}.`,
+  memoryLimitMb: (v) => `RAM-Grenze ist jetzt ${Number(v).toLocaleString('de-CH')} MB.`,
 }
 
 /**
  * Knöpfe der Fehlerbox: die vorgeschlagene Aktion zuerst, dann «Erneut
  * deployen». Einstellungen, die die Aktion ändert, wirken beim nächsten Deploy.
+ * Antwort 8: Port, Healthcheck-Pfad und RAM-Grenze ändert man im Abschnitt
+ * Container der Einstellungen (Feld vorbelegt und fokussiert); nur das Image
+ * bleibt ein Feld in der Box.
  */
-function FailureActions({ p, env, f, onDeploy, deploying, onAddEnv }: {
-  p: ProjectDto; env: EnvEntryDto[]; f: FailureExplanation | null; onDeploy: () => void; deploying: boolean; onAddEnv: (name: string) => void
+function FailureActions({ p, env, f, onDeploy, deploying, fix }: {
+  p: ProjectDto; env: EnvEntryDto[]; f: FailureExplanation | null; onDeploy: () => void; deploying: boolean; fix: FixProps
 }) {
   const qc = useQueryClient()
-  const [open, setOpen] = useState<'field' | 'claude' | 'image' | null>(null)
+  const [open, setOpen] = useState<'claude' | 'image' | null>(null)
   const [done, setDone] = useState('')
   const a = f?.action ?? null
   const save = useMutation({
-    meta: { errorTitle: 'Nicht geändert' },
-    mutationFn: (patch: Record<string, unknown>) => api.updateProject(p.id, patch),
-    onSuccess: (_r, patch) => {
-      const [k, v] = Object.entries(patch)[0]!
-      setDone(k === 'source' ? `Image ist jetzt ${(v as { image: string }).image}.` : FIELD_TEXT[k as ContainerField].done(v as string | number))
+    meta: { errorTitle: 'Image nicht geändert' },
+    mutationFn: (image: string) => api.updateProject(p.id, { source: { ...(p.source as object), image } }),
+    onSuccess: (_r, image) => {
+      setDone(`Image ist jetzt ${image}.`)
       setOpen(null)
       void qc.invalidateQueries({ queryKey: ['project', p.id] })
     },
   })
   const isImage = p.sourceType === 'image'
-  // Ursache schon behoben (Variable inzwischen gesetzt, Port schon geändert)? Dann bleibt die
-  // Erklärung des alten Deploys stehen, und «Erneut deployen» ist der nächste Schritt.
+  // Ursache schon behoben (Variable inzwischen gesetzt, Port schon geändert, Grenze unter
+  // Einstellungen erhöht)? Dann bleibt die Erklärung des alten Deploys stehen, und «Erneut
+  // deployen» ist der nächste Schritt.
+  const saved = a?.kind === 'set_field' ? fix.containerSaved[a.field] : undefined
   const applied = a?.kind === 'add_env' && !a.exists && env.some((e) => e.key === a.name)
     ? `${a.name} ist jetzt gesetzt.`
+    : a?.kind === 'set_field' && saved !== undefined
+    ? FIELD_DONE[a.field](saved)
     : a?.kind === 'set_field' && a.value !== null && p[a.field] === a.value
-    ? FIELD_TEXT[a.field].done(a.value)
+    ? FIELD_DONE[a.field](a.value)
     : done || null
   const ownAction = !applied && a && a.kind !== 'redeploy' && !(a.kind === 'change_source' && !isImage)
-  const toggle = (k: 'field' | 'claude' | 'image') => { setDone(''); setOpen((o) => (o === k ? null : k)) }
+  const toggle = (k: 'claude' | 'image') => { setDone(''); setOpen((o) => (o === k ? null : k)) }
   const panelId = useId()
   // aria-controls nur, solange das Feld existiert
-  const controls = (k: 'field' | 'claude' | 'image') => ({ 'aria-expanded': open === k, 'aria-controls': open === k ? panelId : undefined })
+  const controls = (k: 'claude' | 'image') => ({ 'aria-expanded': open === k, 'aria-controls': open === k ? panelId : undefined })
   return (
     <>
       <div className="failure-actions">
-        {ownAction && a?.kind === 'add_env' && <button type="button" className="button-primary" onClick={() => onAddEnv(a.name)}>{a.label}</button>}
-        {ownAction && a?.kind === 'set_field' && a.value !== null && (
-          <button type="button" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined} onClick={() => save.mutate({ [a.field]: a.value })}>{a.label}</button>
-        )}
-        {ownAction && a?.kind === 'set_field' && a.value === null && (
-          <button type="button" className="button-primary" {...controls('field')} onClick={() => toggle('field')}>{a.label}</button>
+        {ownAction && a?.kind === 'add_env' && <button type="button" className="button-primary" onClick={() => fix.onAddEnv(a.name)}>{a.label}</button>}
+        {ownAction && a?.kind === 'set_field' && (
+          // Port aus dem Log vorbelegt; RAM mit dem Vorschlag (Verdopplung, gedeckelt durch den Server)
+          <button type="button" className="button-primary"
+            onClick={() => fix.onContainerField({ field: a.field, value: a.value, suggest: a.field === 'memoryLimitMb' && a.value === null })}>
+            {a.label}
+          </button>
         )}
         {ownAction && a?.kind === 'change_source' && (
           <button type="button" className="button-primary" {...controls('image')} onClick={() => toggle('image')}>{a.label}</button>
@@ -263,12 +282,9 @@ function FailureActions({ p, env, f, onDeploy, deploying, onAddEnv }: {
         <button type="button" className={ownAction ? undefined : 'button-primary'} onClick={onDeploy} disabled={deploying} aria-busy={deploying || undefined}>Erneut deployen</button>
         <span className="fix-note" role="status">{applied && <>{applied} Wirksam beim nächsten Deploy.</>}</span>
       </div>
-      {open === 'field' && a?.kind === 'set_field' && (
-        <FieldFix id={panelId} field={a.field} current={p[a.field]} busy={save.isPending} onSave={(v) => save.mutate({ [a.field]: v })} onCancel={() => setOpen(null)} />
-      )}
       {open === 'image' && (
-        <FieldFix id={panelId} field="image" current={(p.source as { image?: string } | null)?.image ?? ''} busy={save.isPending}
-          onSave={(v) => save.mutate({ source: { ...(p.source as object), image: v } })} onCancel={() => setOpen(null)} />
+        <ImageFix id={panelId} current={(p.source as { image?: string } | null)?.image ?? ''} busy={save.isPending}
+          onSave={(v) => save.mutate(v)} onCancel={() => setOpen(null)} />
       )}
       {open === 'claude' && f && (
         <ClaudePrompt id={panelId} prompt={deployFixPrompt({ projectName: p.name, slug: p.slug, sourceType: p.sourceType, explanation: f })} />
@@ -277,40 +293,27 @@ function FailureActions({ p, env, f, onDeploy, deploying, onAddEnv }: {
   )
 }
 
-/** Eine Einstellung direkt in der Fehlerbox ändern (geprüft wie in der API) */
-function FieldFix({ id, field, current, busy, onSave, onCancel }: {
-  id: string; field: ContainerField | 'image'; current: string | number | null; busy: boolean; onSave: (v: string | number) => void; onCancel: () => void
+/** Image direkt in der Fehlerbox ändern (geprüft wie in der API) */
+function ImageFix({ id, current, busy, onSave, onCancel }: {
+  id: string; current: string; busy: boolean; onSave: (v: string) => void; onCancel: () => void
 }) {
-  const numeric = field === 'port' || field === 'memoryLimitMb'
-  // Zahlen: leer mit dem aktuellen Wert als Hinweis (kein Vorschlag); Texte zum Bearbeiten vorbelegt
-  const [value, setValue] = useState(numeric || current === null ? '' : String(current))
+  // Zum Bearbeiten vorbelegt: meist ist nur der Tag falsch
+  const [value, setValue] = useState(current)
   const [error, setError] = useState<string | undefined>()
   const inputId = `${id}-input`
   const cancelRef = useRef<HTMLButtonElement>(null)
-  const label = field === 'image' ? 'Image (Name und Tag)' : FIELD_TEXT[field].label
-  const now = current === null || current === '' ? null
-    : field === 'memoryLimitMb' ? `${Number(current).toLocaleString('de-CH')} MB` : String(current)
-  const hint = numeric && now ? `Aktuell ${now}. Wirksam beim nächsten Deploy.` : 'Wirksam beim nächsten Deploy.'
-  const check = (): string | number | null => {
-    if (field === 'image') {
-      const r = sourceSchema.safeParse({ type: 'image', image: value.trim() })
-      if (!r.success) { setError(r.error.issues[0]?.message ?? 'Ungültiges Image'); return null }
-      return value.trim()
-    }
-    const v = numeric ? Number(value) : value.trim()
-    const r = updateProjectSchema.safeParse({ [field]: v })
-    if (!r.success || (numeric && value.trim() === '')) { setError(r.success ? 'Bitte eine Zahl eingeben' : r.error.issues[0]?.message ?? 'Ungültiger Wert'); return null }
-    return v
+  const check = (): string | null => {
+    const r = sourceSchema.safeParse({ type: 'image', image: value.trim() })
+    if (!r.success) { setError(r.error.issues[0]?.message ?? 'Ungültiges Image'); return null }
+    return value.trim()
   }
   return (
     <form id={id} className="failure-fix" noValidate onSubmit={(e) => { e.preventDefault(); const v = check(); if (v !== null) onSave(v) }}>
-      <Field id={inputId} label={label} error={error} hint={hint}>
+      <Field id={inputId} label="Image (Name und Tag)" error={error} hint="Wirksam beim nächsten Deploy.">
         <input
           id={inputId}
           // eslint-disable-next-line jsx-a11y/no-autofocus -- geöffnet auf Klick, Eingabe ist der nächste Schritt
           autoFocus
-          inputMode={numeric ? 'numeric' : undefined}
-          placeholder={numeric && now ? now.replace(/ MB$/, '') : undefined}
           value={value}
           spellCheck={false}
           aria-invalid={error ? true : undefined}
@@ -491,7 +494,7 @@ const ACTIVITY_SHOWN = 5
 function Activity({ projectId }: { projectId: string }) {
   const ep = useEnvPath()
   const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: poll })
-  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
+  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e) && !isNotifyEvent(e))), [a.data])
   const shown = items.slice(0, ACTIVITY_SHOWN)
   const more = items.length - shown.length
   return (
