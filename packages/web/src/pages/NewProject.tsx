@@ -227,7 +227,7 @@ export function NewProject() {
             <p className="hint">Ohne Formular: Claude legt das Projekt über den MCP-Server von Airlock an und deployt es. Einmal einrichten:</p>
             <ChatSteps />
             <div className="form-actions">
-              <Link className="button button-primary" to="/tokens">Token anlegen</Link>
+              <Link className="button button-primary" to={ep('/einstellungen/tokens?neu=1')}>Token anlegen</Link>
             </div>
           </section>
         ) : (<>

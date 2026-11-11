@@ -13,8 +13,9 @@ import { useEnv, useEnvPath } from '../lib/env.js'
 import { copyText } from '../lib/clipboard.js'
 import { Domains } from './Domains.js'
 import { ScrollToHash } from './System.js'
+import { Tokens } from './Tokens.js'
 
-export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards'
+export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards' | 'tokens'
 
 /**
  * M9: Einstellungen der Umgebung (SPEC «Umgebungen»). Allgemein (Name,
@@ -30,12 +31,17 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
     { key: 'allgemein', to: ep('/einstellungen'), label: 'Allgemein' },
     { key: 'cloudflare', to: ep('/einstellungen/cloudflare'), label: 'Cloudflare & HTTPS' },
     { key: 'standards', to: ep('/einstellungen/standards'), label: 'Standards' },
+    // Antwort 9: Tokens gehören zur Umgebung (seit M9)
+    { key: 'tokens', to: ep('/einstellungen/tokens'), label: 'Tokens' },
   ]
   const current = tabs.find((t) => t.key === section)!
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'allgemein' ? [{ label: 'Einstellungen' }] : [{ label: 'Einstellungen', to: ep('/einstellungen') }, { label: current.label }]}
+        crumbs={section === 'allgemein' ? [{ label: 'Einstellungen' }]
+          // Antwort 9: «Airlock › <Umgebung> › Tokens»
+          : section === 'tokens' ? [{ label: env.name, to: ep('/einstellungen') }, { label: 'Tokens' }]
+          : [{ label: 'Einstellungen', to: ep('/einstellungen') }, { label: current.label }]}
         title="Einstellungen"
         name={section === 'allgemein' ? 'Einstellungen' : current.label}
       />
@@ -68,6 +74,7 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
           <PausePageSettings />
         </>
       )}
+      {section === 'tokens' && <Tokens />}
     </section>
   )
 }

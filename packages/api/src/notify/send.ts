@@ -119,8 +119,18 @@ async function sendEmail(s: NonNullable<Stored['email']>, title: string, body: s
   await transport.sendMail({ from: s.from, to: s.to, subject: title, text: body })
 }
 
-export async function notify(event: NotifyEvent, data: Record<string, unknown>, _projectId?: string): Promise<{ push: boolean; email: boolean }> {
+export async function notify(event: NotifyEvent, data: Record<string, unknown>, projectId?: string): Promise<{ push: boolean; email: boolean }> {
   const sent = { push: false, email: false }
+  // Antwort 11: jedes benachrichtigungswürdige Ereignis steht im Audit-Log («notify.<art>») – auch ohne
+  // eingerichteten Kanal. Daraus liest die Glocke; die Wochenübersicht ist kein Ereignis.
+  if (event !== 'weekly_summary') {
+    const m = renderMessage(event, data)
+    await audit({
+      actor: 'system', action: `notify.${event}`,
+      targetType: projectId ? 'project' : 'system', targetId: projectId ?? 'notify',
+      params: { title: m.title, body: m.body.slice(0, 400) }, result: 'ok',
+    })
+  }
   try {
     const s = await load()
     const matrix = mergeMatrix(s.matrix)

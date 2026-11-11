@@ -5,9 +5,9 @@ import type { AuditEventDto, ProjectDto } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
 import { useMenu } from './useMenu.js'
 import { useProjects } from '../lib/projects.js'
-import { auditTone, describeAudit, actorLabel } from '../lib/format.js'
+import { auditTone, actorLabel } from '../lib/format.js'
+import { describeEvent } from '../lib/activity.js'
 import { fmtDateTime, fmtTime, msOf, nowIso, sameDay, fmtDayMonth } from '../lib/dates.js'
-import { isReadOnly } from '../lib/activity.js'
 import { poll } from '../lib/live.js'
 import { notifyError } from '../lib/feedback.js'
 
@@ -20,10 +20,15 @@ import { notifyError } from '../lib/feedback.js'
  */
 const MAX = 8
 
+/**
+ * Antwort 11: nur Ereignisse, für die es Benachrichtigungen gibt (Deploy
+ * gescheitert, neuer kritischer/hoher Befund, öffentlich, externes Ziel
+ * verloren, Zertifikat/Tunnel/Infrastruktur, Ablauf, Gateway-Warnung). Der
+ * Server schreibt sie als «notify.<art>» ins Audit-Log – auch ohne Kanal.
+ * Die Wochenübersicht ist kein Ereignis.
+ */
 export function isBellEvent(e: AuditEventDto): boolean {
-  if (isReadOnly(e)) return false
-  if (e.action === 'ui.prefs' || e.action.startsWith('auth.')) return false
-  return e.result === 'error' || !e.actor.startsWith('ui:')
+  return e.action.startsWith('notify.') && e.action !== 'notify.weekly_summary'
 }
 
 export function Bell({ me }: { me: MeDto }) {
@@ -59,10 +64,8 @@ export function Bell({ me }: { me: MeDto }) {
 
   const label = unread > 0 ? `Ereignisse, ${unread} ungelesen` : 'Ereignisse, keine ungelesenen'
   // Gescheitert in Worten, wenn der Titel es nicht schon sagt
-  const text = (e: AuditEventDto) => {
-    const t = describeAudit(e, byId)
-    return e.result === 'error' && !/fehlgeschlagen|gescheitert/i.test(t) ? `${t} – fehlgeschlagen` : t
-  }
+  // Titel wie in Push und E-Mail (enthält den Projektnamen schon)
+  const text = (e: AuditEventDto) => describeEvent(e).title
   const linkFor = (e: AuditEventDto) => (e.targetType === 'project' && e.targetId && byId.has(e.targetId) ? `/projekte/${e.targetId}` : '/audit')
 
   return (

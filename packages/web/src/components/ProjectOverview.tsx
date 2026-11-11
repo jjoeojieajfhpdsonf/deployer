@@ -10,7 +10,7 @@ import { IconSpark } from './Actor.js'
 import { api, probeUrl } from '../api.js'
 import { relativeTime, shortVersion, since } from '../lib/format.js'
 import { fmtDayTime, fmtTime, msOf } from '../lib/dates.js'
-import { bundle, isReadOnly } from '../lib/activity.js'
+import { bundle, isNotifyEvent, isReadOnly } from '../lib/activity.js'
 import { ActivityList } from './ActivityList.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
@@ -490,7 +490,7 @@ const ACTIVITY_SHOWN = 5
 function Activity({ projectId }: { projectId: string }) {
   const ep = useEnvPath()
   const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: poll })
-  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
+  const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e) && !isNotifyEvent(e))), [a.data])
   const shown = items.slice(0, ACTIVITY_SHOWN)
   const more = items.length - shown.length
   return (

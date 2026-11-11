@@ -678,6 +678,11 @@ export function audit(targetId?: string): AuditEventDto[] {
     [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
     [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
     [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
+    // Antwort 11: Benachrichtigungen als Ereignisse (Glocke)
+    [13 * MIN + 29_000, 'system', 'notify.deploy_failed', 'p-wetter', 'ok', null, { title: 'Deploy fehlgeschlagen: Wetterstation', body: 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)\nDie vorherige Fassung läuft weiter.' }],
+    [50 * MIN, 'system', 'notify.gateway_warning', 'notify', 'ok', null, { title: 'Anfragen über das Docker-Gateway', body: 'In den letzten 30 Minuten kamen 9 von 14 fremden Anfragen auf Airlock von 172.20.0.1.' }],
+    [3 * HOUR - 1_000, 'system', 'notify.finding_critical', 'p-kontoauszug', 'ok', null, { title: '1 neuer kritischer Befund: Kontoauszug-Reader', body: '• Veraltete Bibliothek mit bekannter Lücke (package-lock.json)' }],
+    [6 * HOUR, 'system', 'notify.expiry', H, 'ok', null, { title: 'hallo-welt läuft am 18.11.2026 ab', body: 'Ohne Änderung wird das Chat-Projekt am 18.11.2026 gestoppt.' }],
     [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
     [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
     [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],
@@ -810,6 +815,7 @@ export const notifications: NotifySettingsDto = {
     infra_problem: { push: true, email: false },
     expiry: { push: false, email: false },
     weekly_summary: { push: false, email: false },
+    gateway_warning: { push: false, email: false },
   },
 }
 

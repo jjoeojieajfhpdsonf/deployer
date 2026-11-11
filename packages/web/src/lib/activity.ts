@@ -228,6 +228,11 @@ export function describeEvent(e: AuditEventDto): EventInfo {
     // Der Auslöser «Claude (<Token>)» sagt schon, dass es über MCP kam
     return { title: MCP_TOOL[tool] ?? fallbackTitle(tool), sub: e.result === 'error' && e.error ? [firstLine(e.error)] : [], category: e.result === 'error' ? 'error' : 'claude', chip: null }
   }
+  if (action.startsWith('notify.')) {
+    // Titel kommt fertig vom Server (derselbe wie in Push und E-Mail)
+    const kind = action.slice(7)
+    return { title: typeof p.title === 'string' ? p.title : fallbackTitle(kind), sub: [], category: NOTIFY_CATEGORY[kind] ?? 'config', chip: null }
+  }
   const d = EVENTS[action]
   const base = d ? d(p, e) : { title: fallbackTitle(action), category: 'config' as Category, sub: [] }
   const info: EventInfo = { title: base.title, sub: (base.sub ?? []).filter((x): x is string => Boolean(x)), category: base.category, chip: base.chip ?? null }
@@ -300,6 +305,14 @@ function sameScan(c: Cluster, e: AuditEventDto): boolean {
 
 /** Nur gelesen (get_project, read_files …): in der Aktivität eines Projekts ohne Aussage */
 export const isReadOnly = (e: AuditEventDto) => /^mcp\.(get_|list_|read_files)/.test(e.action) && e.result !== 'error'
+
+/** Antwort 11: Benachrichtigung zu einem Ereignis (für die Glocke); in Aktivitäten stünde es doppelt */
+export const isNotifyEvent = (e: AuditEventDto) => e.action.startsWith('notify.')
+
+const NOTIFY_CATEGORY: Record<string, Category> = {
+  deploy_failed: 'error', finding_critical: 'danger', finding_high: 'danger', project_public: 'public',
+  external_verification_lost: 'scan', infra_problem: 'error', expiry: 'paused', gateway_warning: 'access',
+}
 
 /** Wie weit ein MCP-Aufruf von seinem Ereignis entfernt sein darf (mit wait läuft der Deploy mit) */
 const TWIN = 10 * MIN

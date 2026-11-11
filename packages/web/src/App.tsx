@@ -19,7 +19,6 @@ import { NewProject } from './pages/NewProject.js'
 import { ProjectDetail } from './pages/ProjectDetail.js'
 import { Audit } from './pages/Audit.js'
 import { System } from './pages/System.js'
-import { Tokens } from './pages/Tokens.js'
 import { ExternalTargets } from './pages/ExternalTargets.js'
 import { SecurityOverview } from './pages/SecurityOverview.js'
 import { Domains } from './pages/Domains.js'
@@ -179,7 +178,9 @@ function EnvRoutes() {
       <Route path="domains" element={<Navigate to={ep('/einstellungen/cloudflare#domains')} replace />} />
       <Route path="extern" element={<Navigate to={ep('/security/extern')} replace />} />
       {/* Nicht in der Seitenleiste: erreichbar über Konto und Befehlspalette */}
-      <Route path="tokens" element={<Tokens />} />
+      {/* Antwort 9: Tokens als Reiter der Einstellungen; die alte Adresse leitet weiter (mit ?neu=1) */}
+      <Route path="tokens" element={<ToSettingsTab tab="tokens" />} />
+      <Route path="einstellungen/tokens" element={<EnvironmentSettings section="tokens" />} />
       <Route path="audit" element={<Audit />} />
       <Route path="einstellungen" element={<EnvironmentSettings section="allgemein" />} />
       <Route path="einstellungen/cloudflare" element={<EnvironmentSettings section="cloudflare" />} />
@@ -188,6 +189,13 @@ function EnvRoutes() {
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
+}
+
+/** Alte Adresse eines Bereichs, der jetzt ein Reiter der Einstellungen ist (Suche und Sprungmarke bleiben). */
+function ToSettingsTab({ tab }: { tab: string }) {
+  const ep = useEnvPath()
+  const location = useLocation()
+  return <Navigate to={`${ep(`/einstellungen/${tab}`)}${location.search}${location.hash}`} replace />
 }
 
 /** Weiterleitung in die gültige Umgebung (alte Adressen, Startseite). */

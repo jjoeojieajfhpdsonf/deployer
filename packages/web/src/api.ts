@@ -35,7 +35,7 @@ export interface ExternalTargetDto {
   txt: { name: string; value: string }
 }
 
-export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary'
+export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'gateway_warning'
 
 export interface NotifySettingsDto {
   ntfy: { url: string; topic: string; hasToken: boolean } | null

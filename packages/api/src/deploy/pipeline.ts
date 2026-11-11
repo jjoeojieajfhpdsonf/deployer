@@ -319,7 +319,7 @@ async function run(
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
     await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: told })
     // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
-    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) })
+    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) }, projectId)
   } finally {
     await dropWorkDir(deploymentId)
   }

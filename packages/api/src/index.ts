@@ -10,6 +10,7 @@ import { startCleanupJob } from './jobs/cleanup.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
+import { startGatewayJob } from './jobs/gateway.js'
 import { startMonitorJob } from './jobs/monitor.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
 import { loadExpirySetting } from './domain/expiry-settings.js'
@@ -85,6 +86,8 @@ async function main(): Promise<void> {
   void ensureManagedTunnelOnBoot()
   startCloudflaredWatch()
   startCertJob()
+  // Antwort 11: Gateway-Warnung als Ereignis (Glocke, Benachrichtigung)
+  startGatewayJob()
 
   startCleanupJob()
   startExpiryJob()

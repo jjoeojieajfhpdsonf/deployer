@@ -6,7 +6,6 @@ import { relativeTime } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtDate } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'
-import { PageHead } from '../components/PageHead.js'
 import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
@@ -99,19 +98,14 @@ export function Tokens() {
   const [anyCopied, setAnyCopied] = useState(false)
   useUnsaved(Boolean(fresh) && !anyCopied, `Das neue Token «${fresh?.name ?? ''}»`, 'once')
 
+  // Antwort 9: Reiter «Tokens» in den Einstellungen der Umgebung (Titel und Brotkrumen von dort)
   return (
-    <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'Konto', to: '/konto' }, { label: 'Tokens' }]} title="Tokens">
-        <p className="lede">
-          Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
-          MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
-          mit Anmeldung – nicht mit einem Token.
-        </p>
-        <p className="lede">
-          Ein Token gilt nur für die Umgebung <strong>{env?.name}</strong>: Es sieht und ändert nur ihre Projekte,
-          Domains und externen Ziele. Für eine andere Umgebung dort ein eigenes Token anlegen.
-        </p>
-      </PageHead>
+    <div className="tokens-panel">
+      <p className="hint tokens-lede">
+        Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
+        MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an – nur in der Umgebung <strong>{env?.name}</strong>:
+        ihre Projekte, Domains und externen Ziele. Tokens verwalten geht nur hier, mit Anmeldung.
+      </p>
 
       <form onSubmit={submit} className="inline-form" noValidate ref={form.formRef}>
         <div className="inline-form-field">
@@ -195,7 +189,7 @@ export function Tokens() {
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }
 

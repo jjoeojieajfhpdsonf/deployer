@@ -32,7 +32,7 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
         actor: 'system', action: 'project.expiry_warning', targetType: 'project', targetId: p.id,
         params: { slug: p.slug, expiresAt: expiresAt(p, chatExpiryDays())?.toISOString() }, result: 'ok',
       })
-      await notify('expiry', { project: p.name, date: expiresAt(p, chatExpiryDays())?.toLocaleDateString('de-CH') ?? '' })
+      await notify('expiry', { project: p.name, date: expiresAt(p, chatExpiryDays())?.toLocaleDateString('de-CH') ?? '' }, p.id)
       warned.push(p.slug)
     } else if (decision === 'stop') {
       await stopProject(serverJob('ablauf'), p.id, 'system')
@@ -40,7 +40,7 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
         actor: 'system', action: 'project.expired', targetType: 'project', targetId: p.id,
         params: { slug: p.slug, days: chatExpiryDays() }, result: 'ok',
       })
-      await notify('expiry', { project: p.name, stopped: true, days: chatExpiryDays() })
+      await notify('expiry', { project: p.name, stopped: true, days: chatExpiryDays() }, p.id)
       stopped.push(p.slug)
     }
   }
