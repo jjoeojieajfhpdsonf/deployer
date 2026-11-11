@@ -89,12 +89,12 @@ export function useActivities(): RunningActivity[] {
   // Backup: kein eigener Takt auf jeder Seite. Bekannt ist ein Lauf nur, wenn die
   // Backup-Seite ihn geladen oder gestartet hat; dann nachsehen, bis er fertig ist.
   const qc = useQueryClient()
-  const backupKnownRunning = qc.getQueryData<BackupStatusDto>(['backup'])?.running === true
+  const busy = (d: BackupStatusDto | undefined) => d?.running === true || d?.restore?.status === 'running'
   const backup = useQuery({
     queryKey: ['backup'],
     queryFn: api.backup,
-    enabled: backupKnownRunning,
-    refetchInterval: (q) => (q.state.data?.running ? 3_000 : false),
+    enabled: busy(qc.getQueryData<BackupStatusDto>(['backup'])),
+    refetchInterval: (q) => (busy(q.state.data) ? 3_000 : false),
   })
 
   const out: RunningActivity[] = []
@@ -126,6 +126,18 @@ export function useActivities(): RunningActivity[] {
       progress: null,
       to: '/server/backup',
       startedAt: run?.startedAt ?? null,
+    })
+  }
+  const restore = backup.data?.restore
+  if (restore?.status === 'running') {
+    out.push({
+      key: `restore-${restore.id}`,
+      kind: 'backup',
+      title: `Wiederherstellen · ${restore.project.name}`,
+      detail: `Aus Stand ${restore.snapshot.shortId}`,
+      progress: null,
+      to: '/server/backup',
+      startedAt: restore.startedAt,
     })
   }
   if (tunnel > 0) {

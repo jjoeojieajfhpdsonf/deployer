@@ -15,7 +15,7 @@
  */
 
 /** Feste Vorgänge; der Ausführer kennt keine anderen (kein beliebiger Befehl) */
-export type JobOp = 'restic' | 'pg-dump' | 'staging-prepare' | 'staging-clean'
+export type JobOp = 'restic' | 'pg-dump' | 'staging-prepare' | 'staging-clean' | 'restore-project' | 'restore-clean'
 
 export interface JobSpec {
   op: JobOp

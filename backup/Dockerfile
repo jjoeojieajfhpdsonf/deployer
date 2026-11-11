@@ -19,6 +19,9 @@ RUN restic version
 # Ausführer: POSIX-sh, nur BusyBox aus dem Image
 COPY runner.sh /usr/local/bin/airlock-backup-runner
 RUN chmod 0755 /usr/local/bin/airlock-backup-runner && sh -n /usr/local/bin/airlock-backup-runner
+# Komplett-Restore von Hand (docs/RESTORE.md): «docker compose run … backup airlock-restore latest»
+COPY restore-all.sh /usr/local/bin/airlock-restore
+RUN chmod 0755 /usr/local/bin/airlock-restore && sh -n /usr/local/bin/airlock-restore
 # Kein Datenbank-Server hier: Einstieg des Postgres-Images abschalten
 ENTRYPOINT []
 CMD ["/usr/local/bin/airlock-backup-runner"]

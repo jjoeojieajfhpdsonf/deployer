@@ -89,11 +89,11 @@ export function contextFor(s: ResolvedBackupSettings): Ctx & { target: ResolvedT
  * Befehl selbst ab (sonst liefe restic weiter und hielte die Sperre im
  * Repository).
  */
-export function inBackup(op: JobOp, args: string[], ctx: Ctx | null, timeoutMs: number): Promise<JobResult> {
-  return runJob(config.BACKUP_JOBS_DIR, { op, args, env: ctx?.env ?? {}, timeoutMs })
+export function inBackup(op: JobOp, args: string[], ctx: Ctx | null, timeoutMs: number, o: { maxLines?: number } = {}): Promise<JobResult> {
+  return runJob(config.BACKUP_JOBS_DIR, { op, args, env: ctx?.env ?? {}, timeoutMs }, o)
 }
 
-export const restic = (args: string[], ctx: Ctx, timeoutMs: number) => inBackup('restic', args, ctx, timeoutMs)
+export const restic = (args: string[], ctx: Ctx, timeoutMs: number, o: { maxLines?: number } = {}) => inBackup('restic', args, ctx, timeoutMs, o)
 
 export function failText(what: string, r: JobResult, secrets: string[]): string {
   if (r.timedOut) return `${what}: Zeitlimit überschritten`

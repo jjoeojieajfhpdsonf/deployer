@@ -186,6 +186,12 @@ const EVENTS: Record<string, Describe> = {
   // Etappe 4: Schlüssel der Secrets (nur Art und Prüfsumme, nie der Schlüssel)
   'backup.key_export': (p) => ({ title: p.method === 'paper' ? 'Schlüssel der Secrets angezeigt (Papier)' : 'Schlüssel der Secrets exportiert (Datei)', category: 'danger', sub: [str(p.fingerprint)] }),
   'backup.key_saved': (p) => ({ title: `Schlüssel als gesichert vermerkt (${p.method === 'paper' ? 'Papier' : 'Datei'})`, category: 'config' }),
+  // Etappe 5: Projekt aus einem Stand zurückgeholt (am Projekt, also auch in dessen Aktivität)
+  'backup.restore': (p, e) => ({
+    title: e.result === 'error' ? 'Wiederherstellen aus Backup' : 'Aus Backup wiederhergestellt',
+    category: e.result === 'error' ? 'error' : 'danger',
+    sub: [p.snapshot ? `Stand ${str(p.snapshot)}` : null, Array.isArray(p.restored) && p.restored.length ? (p.restored as string[]).join(', ') : null],
+  }),
   'backup.key_verify': (p) => ({ title: p.matches ? 'Schlüssel-Datei geprüft: passt' : 'Schlüssel-Datei geprüft: anderer Schlüssel', category: p.matches ? 'config' : 'error' }),
 }
 

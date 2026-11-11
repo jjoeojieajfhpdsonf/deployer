@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import {
   backupSettingsInputSchema, backupKeyFileInputSchema, backupKeyPaperInputSchema, backupKeyConfirmSchema, backupKeyVerifySchema,
+  backupRestorePreviewSchema, backupRestoreInputSchema,
 } from '@airlock/shared'
+import { previewRestore, startRestore } from '../../backup/restore.js'
 import { confirmKeySaved, exportKeyFile, exportKeyPaper, verifyKeyFile } from '../../backup/key-service.js'
 import { actorFor } from '../auth.js'
 import { getBackupSettings, putBackupSettings } from '../../backup/settings.js'
@@ -56,6 +58,21 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
   })
   /** «Getrennt abgelegt» – setzt den Merker «Schlüssel gesichert am …» */
   app.post('/system/backup/key/confirm', async (request) => ({ key: await confirmKeySaved(backupKeyConfirmSchema.parse(request.body ?? {}).method, actorFor(request)) }))
+  /*
+   * Etappe 5: ein Projekt aus einem Stand zurückholen. Vorschau (was der Stand
+   * vom Projekt enthält, welche Container angehalten werden) und Start; der
+   * Start verlangt den eingetippten Slug (zerstörerisch). Kein MCP, kein Token.
+   */
+  app.get('/system/backup/restore/preview', async (request) => {
+    const q = backupRestorePreviewSchema.parse(request.query ?? {})
+    return previewRestore(q.snapshot, q.project)
+  })
+  app.post('/system/backup/restore', async (request, reply) => {
+    const { restore } = await startRestore(backupRestoreInputSchema.parse(request.body ?? {}), actorFor(request))
+    reply.code(202)
+    return { restore }
+  })
+
   /** Exportierte Datei prüfen: passt sie zum Schlüssel dieses Servers? (gibt den Schlüssel nie zurück) */
   app.post('/system/backup/key/verify', async (request) => verifyKeyFile(backupKeyVerifySchema.parse(request.body ?? {}), actorFor(request)))
 }

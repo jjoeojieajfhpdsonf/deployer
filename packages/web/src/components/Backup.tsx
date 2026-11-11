@@ -15,6 +15,7 @@ import { fmtDateTimeShort } from '../lib/dates.js'
 import { FALLBACK_MS } from '../lib/live.js'
 import { IconAlert } from './Icons.js'
 import { KeySection, KeyWarning } from './BackupKey.js'
+import { RestoreButton, RestoreModal, RestoreState } from './BackupRestore.js'
 
 /**
  * Meilenstein Backup, Etappe 3: Server › Backup. Stand (letztes erfolgreiches
@@ -30,7 +31,7 @@ export function useBackupStatus() {
   return useQuery({
     queryKey: ['backup'],
     queryFn: api.backup,
-    refetchInterval: (q) => (q.state.data?.running ? BACKUP_RUNNING_POLL_MS : FALLBACK_MS),
+    refetchInterval: (q) => (q.state.data?.running || q.state.data?.restore?.status === 'running' ? BACKUP_RUNNING_POLL_MS : FALLBACK_MS),
   })
 }
 
@@ -78,9 +79,10 @@ export function BackupSection() {
     <div className="backup">
       <BackupWarnings s={s} />
       <KeyWarning k={s.key} />
+      <RestoreState r={s.restore} />
       <BackupOverview s={s} />
       <BackupRuns runs={s.runs} />
-      {s.settings.configured && <BackupSnapshots />}
+      {s.settings.configured && <BackupSnapshots s={s} />}
       <KeySection k={s.key} />
       <BackupSettingsForm s={s} />
     </div>
@@ -133,6 +135,7 @@ function BackupOverview({ s }: { s: BackupStatusDto }) {
     meta: { errorTitle: 'Verbindung nicht getestet' },
   })
   const running = s.running || last?.status === 'running'
+  const restoring = s.restore?.status === 'running'
   return (
     <section aria-labelledby="backup-stand-h">
       <h2 id="backup-stand-h">Stand</h2>
@@ -155,7 +158,7 @@ function BackupOverview({ s }: { s: BackupStatusDto }) {
           type="button"
           className="button-primary"
           onClick={() => run.mutate()}
-          disabled={!s.settings.configured || running || run.isPending}
+          disabled={!s.settings.configured || running || restoring || run.isPending}
           aria-busy={run.isPending || running || undefined}
         >
           {running ? 'Sicherung läuft' : 'Jetzt sichern'}
@@ -213,7 +216,9 @@ export function snapshotContent(s: BackupSnapshotDto): string {
   return [version ? `Version ${version}` : null, envs.length ? `Umgebungen ${envs.join(', ')}` : null].filter(Boolean).join(' · ') || 'Datenbank und Dateien'
 }
 
-function BackupSnapshots() {
+function BackupSnapshots({ s }: { s: BackupStatusDto }) {
+  const busy = s.running || s.restore?.status === 'running'
+  const [picked, setPicked] = useState<BackupSnapshotDto | null>(null)
   // Fragt das Ziel live ab (restic snapshots): nur auf dieser Seite, nicht im Takt
   const q = useQuery({ queryKey: ['backup', 'snapshots'], queryFn: api.backupSnapshots, staleTime: 60_000 })
   return (
@@ -225,7 +230,7 @@ function BackupSnapshots() {
         ) : (
           <div className="table-scroll">
             <table className="table backup-table">
-              <thead><tr><th>Zeitpunkt</th><th>Stand</th><th>Grösse</th><th>Inhalt</th></tr></thead>
+              <thead><tr><th>Zeitpunkt</th><th>Stand</th><th>Grösse</th><th>Inhalt</th><th><span className="sr-only">Aktionen</span></th></tr></thead>
               <tbody>
                 {q.data.snapshots.map((sn) => (
                   <tr key={sn.id}>
@@ -233,6 +238,7 @@ function BackupSnapshots() {
                     <td><code>{sn.shortId}</code></td>
                     <td>{fmtBytes(sn.bytesTotal)}</td>
                     <td>{snapshotContent(sn)}</td>
+                    <td className="row-actions">{!busy && s.projects.length > 0 && <RestoreButton snapshot={sn} onPick={setPicked} />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -244,6 +250,7 @@ function BackupSnapshots() {
       ) : (
         <Loading label="Stände werden gelesen"><SkRows n={3} /></Loading>
       )}
+      <RestoreModal snapshot={picked} projects={s.projects} onClose={() => setPicked(null)} />
     </section>
   )
 }
@@ -363,6 +370,8 @@ function BackupSettingsForm({ s }: { s: BackupStatusDto }) {
 
   const e = v.errors
   const set = (patch: Partial<Form>) => setForm({ ...form, ...patch })
+  // Nur Compose-Projekte haben eigene Volumes
+  const composeProjects = s.projects.filter((p) => p.sourceType === 'compose')
   const old = s.settings.target
   return (
     <section aria-labelledby="backup-einstellungen-h">
@@ -455,14 +464,14 @@ function BackupSettingsForm({ s }: { s: BackupStatusDto }) {
             Live geht ohne Unterbruch, kann aber bei einer Datenbank im Projekt einen inkonsistenten Stand ergeben.
             «Kurz stoppen» hält die Container während der Kopie an.
           </p>
-          {s.projects.length === 0 ? (
+          {composeProjects.length === 0 ? (
             <p className="hint">Kein Compose-Projekt – nur Compose-Projekte haben eigene Volumes.</p>
           ) : (
             <div className="table-scroll">
               <table className="table">
                 <thead><tr><th>Projekt</th><th>Umgebung</th><th>Volumes</th></tr></thead>
                 <tbody>
-                  {s.projects.map((p) => (
+                  {composeProjects.map((p) => (
                     <tr key={p.slug}>
                       <td>{p.name} <span className="muted">· {p.slug}</span></td>
                       <td>{p.environment}</td>

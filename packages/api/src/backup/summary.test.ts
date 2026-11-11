@@ -10,8 +10,9 @@ const status = (patch: Partial<BackupStatusDto> = {}): BackupStatusDto => ({
     hasPassword: true, time: '03:30', timeZone: 'Europe/Zurich', retention: { daily: 7, weekly: 4, monthly: 6 },
     projects: { foto: 'stop' }, repositoryCheckedAt: null, lastCheckAt: null,
   },
-  projects: [{ slug: 'foto', name: 'Foto', environment: 'Privat' }],
+  projects: [{ slug: 'foto', name: 'Foto', environment: 'Privat', sourceType: 'compose' }],
   key: { fingerprint: 'a1b2 c3d4 e5f6 0718', savedAt: null, method: null },
+  restore: null,
   running: false,
   lastRun: {
     id: 'r1', trigger: 'schedule', actor: 'system', status: 'ok', startedAt: '2026-11-11T02:30:00.000Z', finishedAt: '2026-11-11T02:31:30.000Z',

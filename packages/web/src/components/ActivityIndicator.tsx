@@ -123,6 +123,11 @@ function useFinishedToasts(list: RunningActivity[]) {
         } else if (d?.status === 'active') {
           notifyOk(`Deploy fertig · ${p.name}`, { id: key, description: 'Der neue Stand ist live.', action: { label: 'Öffnen', onClick: () => navigate(`/projekte/${p.id}`) } })
         }
+      } else if (a.kind === 'backup' && key.startsWith('restore-')) {
+        const r = qc.getQueryData<BackupStatusDto>(['backup'])?.restore
+        const action = { label: 'Ansehen', onClick: () => navigate('/server/backup') }
+        if (r?.status === 'failed') notifyError(`Wiederherstellen gescheitert · ${r.project.name}`, new Error(r.error ?? 'Der Restore ist gescheitert.'), { id: key, action })
+        else if (r?.status === 'ok') notifyOk(`Wiederhergestellt · ${r.project.name}`, { id: key, description: `Aus Stand ${r.snapshot.shortId}: ${r.restored.join(', ')}`, action })
       } else if (a.kind === 'backup') {
         const last = qc.getQueryData<BackupStatusDto>(['backup'])?.lastRun
         const action = { label: 'Ansehen', onClick: () => navigate('/server/backup') }

@@ -8,7 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
-  BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto,
+  BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
 } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
@@ -986,9 +986,26 @@ const backupSettings: BackupSettingsDto = {
 }
 
 const backupProjects = [
-  { slug: 'fotoalbum', name: 'Fotoalbum', environment: 'example.ch' },
-  { slug: 'kontoauszug-reader', name: 'Kontoauszug-Reader', environment: 'example.ch' },
+  { slug: 'fotoalbum', name: 'Fotoalbum', environment: 'example.ch', sourceType: 'compose' },
+  { slug: 'hallo-welt', name: 'hallo-welt', environment: 'example.ch', sourceType: 'files' },
+  { slug: 'kontoauszug-reader', name: 'Kontoauszug-Reader', environment: 'example.ch', sourceType: 'compose' },
+  { slug: 'vereinsseite', name: 'Vereinsseite', environment: 'Verein', sourceType: 'files' },
 ]
+
+/** Etappe 5: Vorschau eines Restores (Fotoalbum aus dem neuesten Stand) */
+export function backupRestorePreview(snapshot: string, project: string): BackupRestorePreviewDto {
+  const sn = backupSnapshots.find((s) => s.id === snapshot) ?? backupSnapshots[0]!
+  const p = backupProjects.find((x) => x.slug === project) ?? backupProjects[0]!
+  return {
+    snapshot: { id: sn.id, shortId: sn.shortId, time: sn.time },
+    project: { id: `p-${p.slug}`, slug: p.slug, name: p.name },
+    parts: p.sourceType === 'compose'
+      ? [{ kind: 'volume', name: 'db', files: 1_284, bytes: 412_000_000 }, { kind: 'volume', name: 'fotos', files: 18_032, bytes: 1_610_000_000 }]
+      : [{ kind: 'site', name: p.slug, files: 14, bytes: 220_000 }, { kind: 'repo', name: p.slug, files: 41, bytes: 96_000 }],
+    truncated: false,
+    runningContainers: p.sourceType === 'compose' ? 2 : 0,
+  }
+}
 
 /* Etappe 4: Beispielschlüssel (SHA-256 eines festen Texts, kein echter Schlüssel) mit QR-Code */
 const KEY_FP = '48b9 3c72 cbcd 952a'
@@ -1017,7 +1034,7 @@ export function backupStatus(v: BackupVariant): BackupStatusDto {
   if (v === 'leer') {
     return {
       settings: { ...backupSettings, configured: false, target: null, hasPassword: false, projects: {}, repositoryCheckedAt: null, lastCheckAt: null },
-      projects: backupProjects, key: { fingerprint: KEY_FP, savedAt: null, method: null },
+      projects: backupProjects, key: { fingerprint: KEY_FP, savedAt: null, method: null }, restore: null,
       running: false, lastRun: null, lastSuccessAt: null, stale: false, nextRunAt: null, runs: [],
     }
   }
@@ -1038,6 +1055,7 @@ export function backupStatus(v: BackupVariant): BackupStatusDto {
     settings: backupSettings,
     projects: backupProjects,
     key: { fingerprint: KEY_FP, savedAt: ago(12 * DAY), method: 'file' },
+    restore: null,
     running: false,
     lastRun: runs[0]!,
     lastSuccessAt: lastOk.finishedAt,

@@ -344,6 +344,17 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
+  // Etappe 5: Projekt aus einem Stand zurückholen – Vorschau und Bestätigung (Slug eintippen)
+  {
+    group: 'backup', name: 'backup-wiederherstellen', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Projekt aus Stand 3f9c2a7b wiederherstellen' }).click()
+      await pg.getByRole('dialog').getByLabel('Projekt', { exact: true }).selectOption('fotoalbum')
+      await pg.getByRole('dialog').getByRole('table').waitFor()
+      await pg.getByRole('dialog').getByLabel(/Zur Bestätigung/).fill('fotoalbum')
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -800,6 +811,9 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
             if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })
             if (url.pathname === '/api/v1/system/backup/key/paper') return json(route, fx.backupKeyPaper)
+            if (url.pathname === '/api/v1/system/backup/restore/preview') {
+              return json(route, fx.backupRestorePreview(url.searchParams.get('snapshot') ?? '', url.searchParams.get('project') ?? ''))
+            }
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)

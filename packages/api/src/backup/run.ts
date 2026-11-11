@@ -16,6 +16,7 @@ import {
 import { checkDue, isStale, nextSlot } from './rules.js'
 import { abandonJobs } from './dispatch.js'
 import { keyStatus } from './key-service.js'
+import { lastRestore, restoreRunning } from './restore.js'
 import { resolveSettings, getBackupSettings, loadState, patchState, noteRepositoryReached, lastCheckFor, type ResolvedBackupSettings } from './settings.js'
 import {
   T_PROBE, StepError, assertBackupContainer, contextFor, describeTarget, ensureRepository, failText, inBackup, lastBackupSuccess, listRuns, restic, runDto,
@@ -48,7 +49,8 @@ const T_CHECK = 6 * HOUR
 /** Kleines Image für die Volume-Kopie (wie beim Übergang aus der deployer-Zeit) */
 const VOLUME_COPY_IMAGE = 'alpine:3.20'
 /** Schlüssel der Sperre (pg_advisory_lock): nie zwei Läufe gleichzeitig, auch nicht aus zwei Prozessen */
-const LOCK_ID = 'airlock:backup'
+export const BACKUP_LOCK_ID = 'airlock:backup'
+const LOCK_ID = BACKUP_LOCK_ID
 
 let running: string | null = null
 
@@ -218,6 +220,8 @@ async function execute(runId: string, s: ResolvedBackupSettings): Promise<Outcom
  */
 export async function startBackup(trigger: 'schedule' | 'manual', actor: string): Promise<{ run: BackupRunDto; done: Promise<BackupRunDto> }> {
   if (running) throw conflict('Es läuft schon eine Sicherung')
+  // Etappe 5: während ein Projekt zurückgeholt wird, nicht sichern (gleiche Sperre in Postgres)
+  if (restoreRunning()) throw conflict('Es läuft gerade eine Wiederherstellung – danach erneut versuchen')
   const s = await resolveSettings()
   if (!s.configured) throw badRequest('Die Sicherung ist noch nicht eingerichtet: Ziel und Repository-Passwort fehlen')
   running = 'starting'
@@ -230,7 +234,7 @@ export async function startBackup(trigger: 'schedule' | 'manual', actor: string)
   }
   if (!lock) {
     running = null
-    throw conflict('Es läuft schon eine Sicherung')
+    throw conflict('Es läuft schon eine Sicherung oder eine Wiederherstellung')
   }
   const [row] = await db.insert(schema.backupRuns).values({ trigger, actor }).returning()
   running = row!.id
@@ -285,19 +289,20 @@ export async function abandonUnfinishedBackups(): Promise<number> {
 
 /* --- Status ------------------------------------------------------------------------- */
 
-/** Compose-Projekte aller Umgebungen: nur sie haben eigene Volumes (Einstellung live/stop/skip) */
-async function composeProjects(): Promise<BackupProjectDto[]> {
-  const rows = await db.select({ slug: schema.projects.slug, name: schema.projects.name, environmentId: schema.projects.environmentId })
-    .from(schema.projects).where(eq(schema.projects.sourceType, 'compose')).orderBy(schema.projects.slug)
-  return rows.map((r) => ({ slug: r.slug, name: r.name, environment: environmentById(r.environmentId)?.name ?? '' }))
+/** Projekte aller Umgebungen: Compose-Projekte für live/stop/skip (nur sie haben Volumes), alle für den Restore */
+async function allProjects(): Promise<BackupProjectDto[]> {
+  const rows = await db.select({ slug: schema.projects.slug, name: schema.projects.name, environmentId: schema.projects.environmentId, sourceType: schema.projects.sourceType })
+    .from(schema.projects).orderBy(schema.projects.slug)
+  return rows.map((r) => ({ slug: r.slug, name: r.name, environment: environmentById(r.environmentId)?.name ?? '', sourceType: r.sourceType }))
 }
 
 export async function backupStatus(now = new Date()): Promise<BackupStatusDto> {
-  const [settings, runs, success, s, projects, key] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings(), composeProjects(), keyStatus()])
+  const [settings, runs, success, s, projects, key] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings(), allProjects(), keyStatus()])
   return {
     settings,
     projects,
     key,
+    restore: lastRestore(),
     running: backupRunning(),
     lastRun: runs[0] ?? null,
     lastSuccessAt: success ? success.toISOString() : null,

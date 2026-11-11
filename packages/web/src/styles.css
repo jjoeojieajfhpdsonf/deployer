@@ -1978,6 +1978,11 @@ form.failure-fix .form-actions { margin: 0; }
 .backup-form .backup-time { width: 120px; }
 .backup-retention { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--sp-4); }
 .dialog.dialog-wide { width: min(760px, calc(100vw - 32px)); }
+.restore-parts { margin-top: var(--sp-4); }
+.restore-parts th, .restore-parts td { padding: 10px 14px; }
+.restore-parts code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.restore-warning { margin: var(--sp-4) 0 var(--sp-2); }
+.backup code { font-family: var(--mono); font-weight: 400; }
 .key-paper-grid { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: var(--sp-5); align-items: start; margin-top: var(--sp-5); }
 .key-qr { display: block; width: 168px; height: 168px; border-radius: var(--r-sm); }
 .key-paper-facts { grid-template-columns: 96px minmax(0, 1fr); }

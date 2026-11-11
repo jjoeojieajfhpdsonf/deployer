@@ -20,7 +20,9 @@
 #   <id>.result  Ergebnis, per rename: «exit <n>», «timedout 0|1», «cancelled 0|1»
 #
 # Nur feste Vorgänge, kein beliebiger Befehl: restic (Unterbefehle aus einer
-# Erlaubnisliste), pg_dump in die feste Datei, Staging leeren/anlegen.
+# Erlaubnisliste), pg_dump in die feste Datei, Staging leeren/anlegen, die
+# Teile eines Projekts aus einem Stand nach /staging/restore holen
+# (restore-project <stand> <slug>) und wieder wegräumen (restore-clean).
 # POSIX-sh (BusyBox im Alpine-Image), keine weiteren Abhängigkeiten.
 set -u
 
@@ -122,7 +124,8 @@ run_job() {
     restic)
       what="restic ${1:-}"
       case "${1:-}" in
-        backup | check | forget | init | snapshots) ;;
+        # ls: nur lesen (Vorschau eines Restores); restore gibt es nur als fester Vorgang unten
+        backup | check | forget | init | snapshots | ls) ;;
         # «cat masterkey» gäbe den Schlüssel im Klartext aus: nur «cat config»
         cat) [ "${2:-}" = config ] && [ $# -eq 2 ] || reject "$id" 'restic cat nur mit config' ;;
         *) reject "$id" "restic ${1:-} ist nicht erlaubt" ;;
@@ -148,6 +151,23 @@ run_job() {
     staging-clean)
       [ $# -eq 0 ] || reject "$id" 'staging-clean nimmt keine Argumente'
       set -- sh -c "rm -rf $STAGING/db $STAGING/volumes"
+      ;;
+    restore-project)
+      # Etappe 5: die Teile EINES Projekts aus einem Stand nach /staging/restore
+      # (Volumes, statische Seite, lokales Repository). Ziel und Pfade stehen
+      # hier fest; Airlock gibt nur Stand und Slug an. Zurückkopieren macht
+      # Airlock danach selbst (Wegwerf-Container bzw. Archiv).
+      [ $# -eq 2 ] || reject "$id" 'restore-project braucht Stand und Projekt'
+      case "$1" in '' | *[!0-9a-f]*) reject "$id" 'Stand: nur Hex (Kennung aus restic snapshots)' ;; esac
+      [ "${#1}" -ge 8 ] && [ "${#1}" -le 64 ] || reject "$id" 'Stand: 8 bis 64 Zeichen'
+      case "$2" in '' | -* | *- | *[!a-z0-9-]*) reject "$id" 'Projekt: nur a-z, 0-9 und -' ;; esac
+      [ "${#2}" -le 40 ] || reject "$id" 'Projekt: höchstens 40 Zeichen'
+      what="restore-project $1 $2"
+      set -- sh -c 'rm -rf "$0/restore" && mkdir -p "$0/restore" && exec restic restore "$1" --target "$0/restore" --include "/staging/volumes/$2" --include "/source/sites/$2" --include "/source/data/repos/$2"' "$STAGING" "$1" "$2"
+      ;;
+    restore-clean)
+      [ $# -eq 0 ] || reject "$id" 'restore-clean nimmt keine Argumente'
+      set -- sh -c "rm -rf $STAGING/restore"
       ;;
     *) reject "$id" "unbekannter Vorgang «$op»" ;;
   esac

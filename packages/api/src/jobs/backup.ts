@@ -5,6 +5,7 @@ import { isDue, shouldNotifyStale } from '../backup/rules.js'
 import { resolveSettings, loadState, patchState } from '../backup/settings.js'
 import { lastBackupSuccess } from '../backup/service.js'
 import { startBackup, backupRunning, staleContext } from '../backup/run.js'
+import { restoreRunning } from '../backup/restore.js'
 
 /**
  * Meilenstein Backup, Etappe 2: nächtlicher Lauf (Standard 03:30 Ortszeit,
@@ -22,7 +23,8 @@ export async function runBackupJob(now = new Date()): Promise<{ started: boolean
   const st = await loadState()
   let started = false
 
-  if (!backupRunning() && isDue({
+  // Während einer Wiederherstellung warten (nicht als erledigt vermerken): der Lauf kommt danach
+  if (!backupRunning() && !restoreRunning() && isDue({
     now, enabled: s.enabled, configured: s.configured, time: s.time, timeZone: s.timeZone,
     lastScheduledAt: st.lastScheduledAt ? new Date(st.lastScheduledAt) : null, configuredAt: s.activeSince,
   })) {

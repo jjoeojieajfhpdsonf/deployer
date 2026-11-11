@@ -120,19 +120,23 @@ export interface BackupSnapshotDto {
   bytesTotal: number | null
 }
 
-/** Projekt mit eigenen Volumes (Compose) für die Einstellung live/stop/skip – aus allen Umgebungen */
+/** Projekt aus allen Umgebungen: Compose-Projekte für live/stop/skip, alle für den Restore */
 export interface BackupProjectDto {
   slug: string
   name: string
   environment: string
+  /** compose, files, static, … – nur Compose-Projekte haben eigene Volumes */
+  sourceType: string
 }
 
 export interface BackupStatusDto {
   settings: BackupSettingsDto
-  /** Compose-Projekte aller Umgebungen (nur sie haben Volumes) */
+  /** Projekte aller Umgebungen (Volumes: nur sourceType compose) */
   projects: BackupProjectDto[]
   /** Etappe 4: ist der Schlüssel der Secrets getrennt gesichert? */
   key: BackupKeyStatusDto
+  /** Etappe 5: laufender oder letzter Restore eines Projekts (seit dem Start von Airlock) */
+  restore: BackupRestoreDto | null
   running: boolean
   lastRun: BackupRunDto | null
   lastSuccessAt: string | null
@@ -196,6 +200,51 @@ export interface BackupKeyPaperDto {
 export interface BackupKeyVerifyDto {
   matches: boolean
   fingerprint: string
+}
+
+/* --- Etappe 5: ein Projekt aus einem Stand zurückholen ---------------------------------- */
+
+const snapshotRef = z.string().trim().regex(/^[0-9a-f]{8,64}$/, 'Kennung eines Stands: 8 bis 64 Hex-Zeichen')
+const projectRef = z.string().trim().min(1, 'Wähle ein Projekt').max(64, 'Höchstens 64 Zeichen')
+
+export const backupRestorePreviewSchema = z.object({ snapshot: snapshotRef, project: projectRef })
+export const backupRestoreInputSchema = z.object({
+  snapshot: snapshotRef,
+  project: projectRef,
+  /** Der Slug des Projekts, im Dialog eingetippt (zerstörerisch) */
+  confirm: z.string().max(64, 'Höchstens 64 Zeichen'),
+})
+
+export interface BackupRestorePartDto {
+  kind: 'volume' | 'site' | 'repo'
+  /** Volume-Name bzw. Slug */
+  name: string
+  files: number
+  bytes: number
+}
+
+export interface BackupRestorePreviewDto {
+  snapshot: { id: string; shortId: string; time: string }
+  project: { id: string; slug: string; name: string }
+  parts: BackupRestorePartDto[]
+  /** Liste von restic war länger als gelesen: Zahlen sind Untergrenzen */
+  truncated: boolean
+  /** Laufende Container des Projekts, die für den Restore angehalten werden */
+  runningContainers: number
+}
+
+export interface BackupRestoreDto {
+  id: string
+  status: 'running' | 'ok' | 'failed'
+  actor: string
+  project: { id: string; slug: string; name: string }
+  snapshot: { id: string; shortId: string; time: string }
+  startedAt: string
+  finishedAt: string | null
+  error: string | null
+  /** z.B. «Volume data», «Statische Seite», «Repository» */
+  restored: string[]
+  warnings: string[]
 }
 
 export interface BackupTestResultDto {
