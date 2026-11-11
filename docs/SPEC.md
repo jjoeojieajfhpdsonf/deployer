@@ -419,6 +419,137 @@ Per MCP lässt sich nicht verschieben, weil ein Token nur eine Umgebung sieht.
 | 13 | Mehrere Zonen pro Umgebung? | a) genau eine · b) Hauptzone plus weitere | **b.** Weitere Zonen desselben Tokens nur für öffentliche Namen; die interne Basis liegt immer in der Hauptzone. |
 | 14 | Weiterleitung alter Adressen nach dem Verschieben? | a) keine · b) intern 30 Tage · c) intern und öffentlich | **b.** Öffentlich würde ein DNS-Eintrag in der alten Zone stehen bleiben, der zu keiner Umgebung mehr passt. |
 
+## Mehrere Benutzer
+
+Stand: Konzept vom 11. November 2026, **noch nicht umgesetzt**. Baut auf «Umgebungen» auf: Eine Umgebung ist die Einheit, für die jemand eingeladen wird. Bis zur Umsetzung gilt weiter der Satz oben («Airlock bleibt ein Werkzeug für eine Person»).
+
+### Zwei Ausbaustufen
+
+| | (A) Leser einladen | (B) Andere deployen in eigenen Umgebungen |
+| --- | --- | --- |
+| Wofür | Jemand schaut mit: Status, Logs, Scans, Audit einer Umgebung (z. B. Vorstand des Vereins) | Jemand betreibt selbst Projekte in einer Umgebung, die ihm zugeteilt ist, auf dem eigenen Server |
+| Nötig | Benutzer, Einladung, Anmeldung mit Pflicht-2FA bzw. Passkey, Sitzungen pro Benutzer, Rolle «Leser» pro Umgebung, Prüfung jeder Anfrage gegen Rolle und Umgebung, Audit mit `actor_id`, Benutzerverwaltung für den Besitzer, Netzzugang für Gäste (Tailscale-Freigabe) | Alles aus A, dazu die Rollen «Entwickler» und «Admin», Tokens pro Benutzer, **Abschottung fremden Codes** (Netze, nftables), **Kontingente** pro Umgebung, Benachrichtigungen pro Benutzer, Rechteprüfung in allen MCP-Tools |
+| Weglassen | Schreibende Rollen, Tokens für Gäste (Leser brauchen kein MCP), Abschottung (es läuft kein fremder Code), Kontingente, eigene Benachrichtigungen | Rollen über mehrere Server, SSO/OIDC, Selbstregistrierung, Abrechnung, Docker-in-Docker, eigene Domains ohne Cloudflare |
+| Aufwand (grob) | 4–5 Etappen, etwa 1–1,5 Wochen | zusätzlich 6–8 Etappen, etwa 2–3 Wochen; der grösste Teil ist die Abschottung samt Tests |
+| Risiko | gering: niemand ausser dem Besitzer ändert etwas | hoch: fremder Code auf dem eigenen Server; ohne Abschottung **nicht** freigeben |
+
+Empfehlung: zuerst A, B nur mit fertiger und getesteter Abschottung (Entscheidung 1).
+
+### Rollen und Rechte
+
+- **Besitzer** – serverweit, genau einer oder wenige. Alles, auch Server-Teil, Umgebungen anlegen/löschen, Benutzer verwalten. Die heutige Anmeldung wird zum ersten Besitzer.
+- **Admin** – pro Umgebung. Verwaltet die Umgebung, ihre Mitglieder und Standards; nichts am Server.
+- **Entwickler** – pro Umgebung. Projekte anlegen, deployen, Secrets setzen; öffentlich schalten nur über die Öffentlich-Anfrage mit Freigabe durch einen Admin.
+- **Leser** – pro Umgebung. Nur lesen; keine Secret-Werte, keine Tokens.
+
+| Bereich | Besitzer | Admin | Entwickler | Leser |
+| --- | --- | --- | --- | --- |
+| Projekte sehen | ✓ alle | ✓ Umgebung | ✓ Umgebung | ✓ Umgebung |
+| Projekt anlegen, löschen, verschieben | ✓ | ✓ (verschieben nur zwischen eigenen Admin-Umgebungen) | anlegen ✓, löschen nur eigene | – |
+| Deploy, Rollback, Start/Stopp | ✓ | ✓ | ✓ | – |
+| Logs und Zugriffe lesen | ✓ | ✓ | ✓ | ✓ |
+| Secrets lesen (Werte) | ✓ | ✓ | – (nur Namen; setzen ja, wieder lesen nein) | – |
+| Secrets setzen | ✓ | ✓ | ✓ | – |
+| Öffentlich schalten, pausieren, offline nehmen | ✓ | ✓ | Anfrage stellen; Freigabe durch Admin | – |
+| Header setzen, Befunde akzeptieren | ✓ | ✓ | Header ✓, akzeptieren – | – |
+| Domains, Cloudflare & HTTPS der Umgebung | ✓ | ✓ lesen und Zonen zuordnen; Token nur Besitzer | lesen | lesen |
+| Tokens (MCP/API) | ✓ alle | eigene + Widerruf in der Umgebung | eigene | – |
+| Audit-Log | ✓ alle | ✓ Umgebung | ✓ Umgebung | ✓ Umgebung |
+| Benachrichtigungen | Kanäle serverweit | eigene Abos für die Umgebung | eigene Abos | eigene Abos (nur lesende Ereignisse) |
+| Server (Übersicht, Tunnel, GitHub, Updates) | ✓ | – | – | – |
+| Benutzer und Mitgliedschaften | ✓ alle | Mitglieder der Umgebung (bis Admin) | – | – |
+
+Regeln: Eine Rolle gilt pro Umgebung (Mitgliedschaft); wer in keiner Umgebung Mitglied ist, sieht nach der Anmeldung nur «Keine Umgebung freigegeben». Wie bei Umgebungen gilt «nicht gefunden statt verboten»: fremde Projekte verraten sich nicht. Ein Leser bekommt einen klaren 403 nur für Aktionen auf Objekten, die er sieht.
+
+### Anmeldung
+
+- **Einladung:** Besitzer oder Admin lädt per E-Mail-Adresse ein (Umgebung, Rolle). Airlock zeigt einen Einladungslink (einmalig, 7 Tage gültig, als Hash gespeichert); Versand per SMTP, wenn eingerichtet, sonst zum Kopieren. Der Link führt zu «Passwort festlegen» und direkt weiter zur Pflicht-2FA – ohne zweiten Faktor ist das Konto nicht nutzbar.
+- **Zweiter Faktor:** TOTP (App) als Pflicht-Minimum, Passkeys (WebAuthn) als bevorzugter Weg; ein Passkey ersetzt Passwort plus TOTP. Zehn Wiederherstellungscodes beim Einrichten. Passkeys brauchen einen festen Hostnamen (RP-ID): die Adresse der Oberfläche (`airlock.int.<basis>`); nip.io-Adressen bleiben ohne Passkey.
+- **Option Tailscale-Identität:** Airlock fragt beim Aufruf über den lokalen Socket von `tailscaled` (`tailscale whois <ip>` bzw. LocalAPI `/localapi/v0/whois`), wem die anfragende Tailnet-Adresse gehört, und meldet den passenden Benutzer ohne Passwort an (einmalig verknüpfen: «Diese Tailscale-Identität ist <name>»).
+  - Vorteile: keine Passwörter, Gerät und Person sind schon durch Tailscale bestätigt (inkl. dessen 2FA/SSO), Sperren in Tailscale wirkt sofort.
+  - Nachteile: geht nur, wenn Caddy die echte Tailnet-Adresse sieht – bei Maskierung über das Docker-Gateway (siehe Gateway-Warnung) ist `whois` unmöglich und muss abgelehnt werden; der Container braucht Zugriff auf den Socket (nur lesend, nur `whois`); geteilte Geräte (ein Tailnet-Gerät, mehrere Menschen) unterscheidet es nicht.
+  - **Im LAN ohne Tailscale:** keine Identität ableitbar → normale Anmeldung (Passwort + 2FA oder Passkey). Nie still zurückfallen auf «angemeldet», nie aus einer LAN-IP auf eine Person schliessen.
+- **Sitzungen pro Benutzer:** Tabelle statt eines einzigen Cookies; Liste «Angemeldete Geräte» (Browser, Ort grob nach Netz LAN/Tailnet, zuletzt aktiv) mit «Abmelden» je Gerät und «Überall abmelden». Passwort- oder 2FA-Wechsel beendet alle anderen Sitzungen.
+- **Sperren:** Besitzer bzw. Admin (für Mitglieder der eigenen Umgebung) sperrt einen Benutzer: alle Sitzungen und Tokens sofort ungültig, Login abgewiesen, Audit-Eintrag. Entsperren stellt Tokens **nicht** wieder her.
+
+### Netzzugang für Gäste
+
+Gäste kommen wie heute nur über LAN oder Tailnet; Airlock wird nicht öffentlich. Für Personen ausserhalb des eigenen Tailnets: **Tailscale-Gerätefreigabe** (Share) des Servers an die Tailscale-Identität des Gastes, mit ACL nur auf Port 443.
+
+Entwurf für `docs/INSTALL.md` (wird bei der Umsetzung übernommen und gegen die aktuelle Tailscale-Doku geprüft):
+
+1. In der Tailscale-Admin-Konsole den Server mit einem Tag versehen, z. B. `tag:airlock`.
+2. ACL-Regel, die geteilten Nutzern nur HTTPS erlaubt:
+   ```json
+   { "grants": [ { "src": ["autogroup:shared"], "dst": ["tag:airlock"], "ip": ["tcp:443"] } ] }
+   ```
+   (Mit der älteren `acls`-Syntax: `"action": "accept", "src": ["autogroup:shared"], "dst": ["tag:airlock:443"]`.)
+3. Server → «Share…» → E-Mail des Gastes. Der Gast nimmt die Einladung in seinem eigenen Tailnet an.
+4. Der Gast öffnet `https://airlock.int.<basis>`; der Name löst über den öffentlichen Tailnet-Eintrag auf die Tailscale-IP auf. Der IP-Filter von Caddy (`100.64.0.0/10`) lässt ihn durch, die Anmeldung von Airlock (Einladung, 2FA) entscheidet über den Rest.
+5. Entzug: Freigabe in Tailscale entfernen **und** Benutzer in Airlock sperren.
+
+Projekte des Gastes sind über dieselbe Freigabe erreichbar, sobald ihre interne Adresse auf dieselbe IP zeigt; Port 443 reicht.
+
+### Abschottung für fremden Code
+
+Gilt für Umgebungen mit Mitgliedern ausser dem Besitzer (Pflicht in Stufe B) und als Schalter «Abgeschottet» für eigene Umgebungen bzw. einzelne Chat-Projekte.
+
+**Ziel:** Container einer abgeschotteten Umgebung erreichen das Internet, aber nicht: das LAN (RFC1918, `169.254.0.0/16`, `100.64.0.0/10`, IPv6 ULA/Link-local) ausser dem eigenen Projekt-Netz, den Server selbst (Host-IPs, Docker-Socket-Proxy, PostgreSQL, Caddy-Admin), andere Umgebungen.
+
+**Umsetzung:**
+
+- **Netze:** Pro Projekt bleibt das eigene Bridge-Netz (`airlock-p-<slug>`), neu mit festem Subnetz aus einem Pool pro Umgebung (`10.<n>.0.0/16` je Umgebung, `/24` je Projekt), damit Regeln pro Umgebung eine Adresse haben. Caddy hängt wie heute an jedem Projekt-Netz; seine Admin-API liegt nur auf dem Unix-Socket, erreichbar ist also nur 80/443. PostgreSQL, Socket-Proxy und Scanner hängen an keinem Projekt-Netz.
+- **nftables** in der Kette `DOCKER-USER` (bzw. eigener Tabelle `inet airlock` mit Priorität vor Docker), verwaltet von Airlock beim Start und bei jeder Netzänderung:
+  1. `ct state established,related accept` (Antworten auf Caddy-Anfragen).
+  2. Quelle = Subnetz einer abgeschotteten Umgebung, Ziel = eigenes Projekt-Subnetz → accept.
+  3. Quelle = abgeschottet, Ziel ∈ {RFC1918, `100.64.0.0/10`, `169.254.0.0/16`, `fc00::/7`, `fe80::/10`} → drop (mit Zähler, Log begrenzt).
+  4. Rest → weiter an Docker (Internet über NAT).
+  - **Host:** Verkehr zum Host selbst läuft über `INPUT`, nicht `FORWARD`: eigene Regel `iifname "br-*" ip saddr <abgeschottete Subnetze> drop`, ausgenommen DNS zum eingebetteten Resolver (liegt im Container-Namespace, braucht keine Ausnahme).
+- **Container-Härtung** (abgeschottet zusätzlich): `no-new-privileges`, alle Capabilities weg ausser den nötigen, Read-only-Root wo möglich, kein `privileged`, keine Host-Mounts, keine Host-Ports – heute teils schon so; Compose-Projekte werden beim Prüfen der compose.yaml strenger abgelehnt.
+- **Testen lassen:** Skript `pnpm e2e:isolation` gegen einen Wegwerf-Stack: startet je Umgebung einen Testcontainer und prüft per `curl`/`nc` mit Zeitlimit – Internet erreichbar; LAN-Gateway, Host-IP, PostgreSQL, Socket-Proxy, Container der anderen Umgebung **nicht**; Caddy nur 80/443. Dieselben Prüfungen als Knopf «Abschottung prüfen» unter Server (Ergebnis mit Zeitstempel im Audit).
+
+**Kontingente pro Umgebung** (vom Besitzer gesetzt, Anzeige in den Einstellungen der Umgebung mit Verbrauch):
+
+| Grösse | Durchsetzung |
+| --- | --- |
+| CPU (Summe der Grenzen) | beim Anlegen/Ändern/Deploy: Summe der `cpu_limit` ≤ Kontingent, sonst 409 mit Zahl |
+| RAM (Summe der Grenzen) | wie CPU über `memory_limit_mb` |
+| Speicher (Volumes, Repos, Images, Seiten) | gemessen (`docker system df -v`, Verzeichnisgrössen) alle 15 Minuten; über dem Kontingent: kein neuer Deploy, Hinweis, Benachrichtigung an Admin |
+| Anzahl Projekte | beim Anlegen |
+| Build-Zeit | Zeitlimit pro Build (Abbruch) und Summe pro Tag; über der Summe nur noch Rollback |
+
+### Datenmodell
+
+| Objekt | Felder |
+| --- | --- |
+| User | `id`, `email` (eindeutig), `name`, `password_hash` (argon2id, wie heute), `totp_secret_enc`, `totp_enabled_at`, `recovery_codes_hash[]`, `tailscale_login` (optional, eindeutig), `is_owner`, `locked_at`, `created_at`, `last_login_at` |
+| Passkey | `id`, `user_id`, `credential_id`, `public_key`, `sign_count`, `name`, `created_at`, `last_used_at` |
+| Membership | `user_id`, `environment_id`, `role` (`admin`, `developer`, `reader`); eindeutig je Paar |
+| Invitation | `id`, `email`, `environment_id`, `role`, `token_hash`, `expires_at`, `created_by`, `accepted_at` |
+| Session | `id`, `user_id`, `created_at`, `last_seen_at`, `ip`, `user_agent`, `via` (`password`, `passkey`, `tailscale`), `revoked_at` |
+| EnvironmentQuota | `environment_id`, `cpu`, `memory_mb`, `storage_mb`, `projects`, `build_minutes_day`, `isolated` |
+
+Geändert: `audit_events.actor_id` (FK auf User, leer für System/Jobs; der Text `actor` bleibt für die Anzeige und alte Einträge). `api_tokens.user_id` (Pflicht): ein Token gehört einem Benutzer **und** einer Umgebung und kann nie mehr als dessen Rolle dort; ein Leser-Token sieht nur lesende MCP-Tools. Sperre, Austritt oder Rollenwechsel nach unten machen die Tokens sofort ungültig bzw. schränken sie ein. `ui_prefs` wandern pro Benutzer.
+
+**Migration der heutigen Installation:** ein User aus dem heutigen Login (E-Mail aus der ACME-/Access-E-Mail der Standard-Umgebung vorschlagen, beim ersten Login bestätigen), `is_owner = true`; Passwort-Hash übernehmen, 2FA beim nächsten Login einrichten (Pflicht erst, wenn ein zweiter Benutzer existiert). Alle Tokens bekommen `user_id` des Besitzers; Audit-Einträge mit `ui:<name>` bekommen dessen `actor_id`. Die laufende Sitzung bleibt gültig. Nach aussen ändert sich nichts.
+
+### Offene Entscheidungen
+
+| # | Frage | Optionen | Empfehlung |
+| --- | --- | --- | --- |
+| 1 | Stufe B ohne Abschottung freigeben? | a) nie · b) mit Warnung | **a.** Fremder Code mit Zugriff aufs LAN ist das grösste Risiko des ganzen Ausbaus. |
+| 2 | Zweiter Faktor | a) TOTP Pflicht, Passkey optional · b) nur Passkeys · c) optional | **a.** Läuft überall; Passkeys als bequemer Weg, wo der Hostname fest ist. |
+| 3 | Tailscale-Identität als Anmeldung | a) aus · b) zusätzlich, pro Benutzer verknüpft · c) einzige Anmeldung | **b.** Bequem im Tailnet, LAN bleibt mit Passwort + 2FA; nie Pflicht, weil Gateway-Maskierung es verhindern kann. |
+| 4 | Wer darf öffentlich schalten? | a) Admin · b) auch Entwickler · c) nur Besitzer | **a**, Entwickler über die Öffentlich-Anfrage mit Freigabe. |
+| 5 | Secret-Werte für Entwickler lesbar? | a) nein · b) ja | **a.** Setzen ja, wieder lesen nein; Werte im Container sieht er ohnehin über seinen Code. |
+| 6 | Einladung ohne SMTP | a) Link zum Kopieren · b) nur mit SMTP | **a.** |
+| 7 | Rollen pro Umgebung oder pro Projekt? | a) Umgebung · b) Projekt | **a.** Projekt-Rollen vervielfachen die Prüfungen; wer etwas trennen will, legt eine Umgebung an. |
+| 8 | Netzzugang für Gäste | a) Tailscale-Freigabe mit ACL 443 · b) Airlock öffentlich über Tunnel + Access | **a.** Die Oberfläche bleibt aus dem Internet unerreichbar (Grundsatz). |
+| 9 | Kontingente: hart oder weich? | a) hart (409) · b) weich (Warnung) | **a** für CPU/RAM/Projekte, **b** mit Deploy-Sperre für Speicher (lässt sich nicht im Voraus prüfen). |
+| 10 | Benachrichtigungen pro Benutzer | a) eigene Abos pro Umgebung · b) nur Besitzer | **a** in Stufe B, in Stufe A **b**. |
+| 11 | Abschottung auch für eigene Chat-Projekte | a) Schalter pro Projekt · b) pro Umgebung · c) immer | **a** plus Standard pro Umgebung; Chat-Code ist auch fremder Code. |
+| 12 | Sitzungsdauer | a) wie heute · b) kürzer für Nicht-Besitzer | **b**: 12 h ohne Aktivität für Mitglieder, Besitzer wie heute. |
+
 ## MCP-Schnittstelle
 
 Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.deinedomain.ch/mcp` (`deployer.int.deinedomain.ch` leitet weiter). Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
