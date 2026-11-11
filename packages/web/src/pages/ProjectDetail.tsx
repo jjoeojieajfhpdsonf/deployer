@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'reac
 import { useEnvPath } from '../lib/env.js'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
-import { confirmLeave, hasUnsaved } from '../lib/unsaved.js'
+import { confirmLeave, hasUnsaved, leaveWithoutAsking } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
@@ -273,7 +273,8 @@ export function ProjectDetail() {
         <ProjectSettings
           p={p}
           env={env}
-          onDeleted={() => navigate(ep('/projekte'))}
+          // Projekt gelöscht: offene Eingaben haben kein Ziel mehr, keine Rückfrage
+          onDeleted={() => { leaveWithoutAsking(); navigate(ep('/projekte')) }}
           deleteRequested={deleteRequested}
           onDeleteShown={() => setDeleteRequested(false)}
           envRequest={envRequest}

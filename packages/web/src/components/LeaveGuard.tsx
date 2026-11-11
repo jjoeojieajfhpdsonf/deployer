@@ -1,15 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { confirmLeave, hasUnsaved, usePendingLeave } from '../lib/unsaved.js'
+import { useBlocker } from 'react-router-dom'
+import { confirmLeave, hasUnsaved, shouldAskBeforeLeaving, usePendingLeave } from '../lib/unsaved.js'
 
 /**
  * UI-Qualität 8: Rückfrage beim Verlassen mit ungespeicherten Änderungen
- * (lib/unsaved.ts). In der Shell eingebunden: fängt Klicks auf Links der
- * Oberfläche ab und zeigt die Rückfrage; Neu laden und Schliessen fragt der
- * Browser selbst (beforeunload).
+ * (lib/unsaved.ts). In der Shell eingebunden: hält jeden Wechsel im Router
+ * an (Links, Zurück/Vor im Browser, Umgebungswechsel) und zeigt die
+ * Rückfrage; Neu laden und Schliessen fragt der Browser selbst (beforeunload).
  */
 export function LeaveGuard() {
-  const navigate = useNavigate()
   const ask = usePendingLeave()
   const ref = useRef<HTMLDialogElement>(null)
   const stay = useRef<HTMLButtonElement>(null)
@@ -26,26 +25,22 @@ export function LeaveGuard() {
     return () => window.removeEventListener('beforeunload', onUnload)
   }, [])
 
-  // Links in der Oberfläche (react-router <Link> sind <a href>): vor dem Wechsel fragen
+  // Jeder Wechsel im Router (Link, Zurück/Vor, navigate()): der Blocker hält ihn an, die
+  // Rückfrage entscheidet. Dieselbe Rückfrage wie confirmLeave(): «Verwerfen und weiter» leert die
+  // Liste und lässt den Wechsel weiterlaufen; Zurück/Vor stellt der Router bis dahin zurück.
+  const blocker = useBlocker(shouldAskBeforeLeaving)
+  // Ein angehaltener Wechsel → genau eine Rückfrage (auch wenn der Effekt erneut läuft)
+  const asking = useRef(false)
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!hasUnsaved() || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
-      if (!a || a.target === '_blank' || a.hasAttribute('download')) return
-      const url = new URL(a.href, location.href)
-      if (url.origin !== location.origin) return
-      // Sprung auf derselben Seite (#abschnitt) verlässt nichts
-      if (url.pathname === location.pathname && url.search === location.search) return
-      // Nur preventDefault (kein stopPropagation): <Link> navigiert dann nicht, eigene onClick
-      // (z.B. Menü schliessen) laufen aber weiter
-      e.preventDefault()
-      back.current = a
-      void confirmLeave().then((ok) => { if (ok) navigate(`${url.pathname}${url.search}${url.hash}`) })
-    }
-    // Capture: vor dem Klick-Handler von <Link>
-    document.addEventListener('click', onClick, true)
-    return () => document.removeEventListener('click', onClick, true)
-  }, [navigate])
+    if (blocker.state !== 'blocked' || asking.current) return
+    const held = blocker
+    asking.current = true
+    void confirmLeave().then((ok) => {
+      asking.current = false
+      if (ok) held.proceed()
+      else held.reset()
+    })
+  }, [blocker])
 
   useEffect(() => {
     const d = ref.current
@@ -74,8 +69,10 @@ export function LeaveGuard() {
       aria-labelledby="leave-h"
       aria-describedby="leave-d"
       onCancel={(e) => { e.preventDefault(); ask?.resolve(false) }}
-      // Schliesst der Browser den Dialog trotzdem (zweites Esc ohne Nutzeraktion), heisst das «Bleiben»
-      onClose={() => ask?.resolve(false)}
+      // Schliesst der Browser den Dialog trotzdem (zweites Esc ohne Nutzeraktion), heisst das «Bleiben».
+      // Das close-Ereignis kommt verzögert: ist der Dialog schon wieder offen (nächste Rückfrage, z.B.
+      // zweimal schnell Zurück), gehört es zur vorigen Runde und beantwortet die neue nicht.
+      onClose={(e) => { if (!e.currentTarget.open) ask?.resolve(false) }}
     >
       <div className="dialog-body">
         <h2 id="leave-h">{onlyOnce ? 'Weiter ohne zu kopieren?' : 'Änderungen verwerfen?'}</h2>

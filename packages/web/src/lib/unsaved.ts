@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useSyncExternalStore } from 'react'
-import { useNavigate, type NavigateOptions, type To } from 'react-router-dom'
+import { NavigationType, useNavigate, type BlockerFunction, type NavigateOptions, type To } from 'react-router-dom'
 
 /**
  * UI-Qualität 8: Warnung beim Verlassen mit ungespeicherten Änderungen.
@@ -7,9 +7,13 @@ import { useNavigate, type NavigateOptions, type To } from 'react-router-dom'
  * Formulare melden sich mit useUnsaved(dirty, was) an. Solange eines
  * ungespeichert ist:
  * - Neu laden / Tab schliessen: die Rückfrage des Browsers (beforeunload)
- * - Klick auf einen Link in der Oberfläche, Reiterwechsel, Tastenkürzel,
- *   Befehlspalette: eigene Rückfrage (LeaveGuard in der Shell; confirmLeave()
- *   bzw. useGuardedNavigate() für eigene Wechsel)
+ * - Jeder Wechsel im Router – Klick auf einen Link, Zurück/Vor im Browser,
+ *   Umgebungswechsel: eigene Rückfrage (LeaveGuard in der Shell, useBlocker
+ *   mit shouldAskBeforeLeaving)
+ * - Reiterwechsel, Tastenkürzel, Befehlspalette, Abmelden: fragen vorher
+ *   selbst (confirmLeave() bzw. useGuardedNavigate()), weil sie das Ergebnis
+ *   brauchen. Ein «Verwerfen und weiter» leert die Liste – der Wechsel danach
+ *   läuft am Blocker vorbei, ohne zweite Rückfrage.
  *
  * Art «once»: nichts Eingegebenes, sondern etwas, das nur einmal zu sehen ist
  * (neues Token). Die Rückfrage sagt das dann so.
@@ -69,6 +73,28 @@ export function confirmLeave(): Promise<boolean> {
     }
     askListeners.forEach((f) => f())
   })
+}
+
+/* --- Blocker: welche Wechsel im Router fragen --------------------------------------- */
+
+let passNext = false
+
+/**
+ * Der nächste Wechsel fragt nicht – für Wechsel, die die Oberfläche nach einer
+ * abgeschlossenen Aktion selbst auslöst (Projekt gelöscht oder verschoben):
+ * dort gibt es nichts mehr zu bearbeiten. Direkt vor navigate() aufrufen.
+ */
+export function leaveWithoutAsking(): void { passNext = true }
+
+/**
+ * Für useBlocker im LeaveGuard: true = erst fragen. Bleibt die Seite dieselbe
+ * (nur Sprungmarke, gleiche Adresse oder Aufräumen der Suche mit replace, z.B.
+ * ?neu=1 entfernen), verlässt der Wechsel nichts.
+ */
+export const shouldAskBeforeLeaving: BlockerFunction = ({ currentLocation: from, nextLocation: to, historyAction }) => {
+  if (passNext) { passNext = false; return false }
+  if (from.pathname === to.pathname && (from.search === to.search || historyAction === NavigationType.Replace)) return false
+  return hasUnsaved()
 }
 
 export function usePendingLeave(): Ask | null {

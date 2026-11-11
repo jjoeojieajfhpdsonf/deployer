@@ -184,6 +184,59 @@ test('Cloudflare: «Token ersetzen» aus der Zusammenfassung fokussiert das Feld
   await page.context().close()
 })
 
+/* --- Antwort 12: ungespeicherte Änderungen, auch beim Zurück-Knopf des Browsers ------- */
+
+test('Zurück im Browser mit ungespeicherten Änderungen: Rückfrage, Esc bleibt, «Verwerfen und weiter» geht zurück', async ({ browser }) => {
+  const page = await open(browser, 'domains')
+  await page.locator('td.cell-main').getByRole('link', { name: 'Haushaltsbuch' }).click()
+  await expect(page).toHaveURL(/\/projekte\/[^/?]+\?tab=einstellungen$/)
+  await page.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+  const name = page.locator('#set-umgebung .env-row').last().locator('input').first()
+  await name.fill('API_KEY')
+  const dialog = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+  const stay = dialog.getByRole('button', { name: 'Weiter bearbeiten' })
+  await page.goBack()
+  await expect(dialog).toBeVisible()
+  await expect(stay).toBeFocused()
+  // Esc = bleiben: Adresse und Eingabe unverändert, Fokus zurück im Feld
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\?tab=einstellungen$/)
+  await expect(name).toHaveValue('API_KEY')
+  await expect(name).toBeFocused()
+  // Noch einmal zurück, diesmal verwerfen: die Seite davor, keine zweite Rückfrage
+  await page.goBack()
+  await expect(dialog).toBeVisible()
+  // Bleibt offen: das verspätete close-Ereignis der ersten Runde beantwortet die zweite nicht
+  await page.waitForTimeout(100)
+  await expect(dialog).toBeVisible()
+  // Erst wenn der Fokus auf der sicheren Wahl steht (nächster Frame), weiter mit Tab
+  await expect(stay).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Verwerfen und weiter' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/einstellungen\/cloudflare#domains$/)
+  await page.waitForTimeout(300)
+  await expect(dialog).toBeHidden()
+  await page.context().close()
+})
+
+test('Reiterwechsel mit ungespeicherten Änderungen: genau eine Rückfrage', async ({ browser }) => {
+  const page = await open(browser, 'projekt-einstellungen')
+  await page.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+  await page.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+  const dialog = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+  await page.getByRole('tab', { name: /^Übersicht/ }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Verwerfen und weiter' }).click()
+  await expect(page.getByRole('tab', { name: /^Übersicht/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page).not.toHaveURL(/tab=/)
+  // Der Wechsel nach der Rückfrage läuft am Blocker vorbei (kein zweiter Dialog)
+  await page.waitForTimeout(300)
+  await expect(dialog).toBeHidden()
+  await page.context().close()
+})
+
 test('Kürzel «g s» führt zu Security', async ({ browser }) => {
   const page = await open(browser, 'projekte')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
