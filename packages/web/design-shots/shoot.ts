@@ -325,6 +325,25 @@ const shots: Shot[] = [
   { group: 'backup', name: 'system-backup', path: '/server/backup' },
   { group: 'backup', name: 'system-backup-leer', path: '/server/backup', backup: 'leer' },
   { group: 'backup', name: 'system-backup-veraltet', path: '/server/backup', backup: 'veraltet', full: false },
+  // Etappe 4: secrets.key getrennt sichern – Datei mit Passphrase, Papier mit QR
+  {
+    group: 'backup', name: 'backup-schluessel-datei', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Als Datei exportieren' }).click()
+      await pg.getByRole('dialog', { name: 'Schlüssel als Datei exportieren' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'backup', name: 'backup-schluessel-papier', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Papier-Anleitung' }).click()
+      await pg.getByLabel('Anmelde-Passwort').fill('beispiel')
+      await pg.getByRole('button', { name: 'Anzeigen' }).click()
+      await pg.getByRole('heading', { name: /^Schlüssel der Secrets · / }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -780,6 +799,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             // Meilenstein Backup: Server › Backup
             if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
             if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })
+            if (url.pathname === '/api/v1/system/backup/key/paper') return json(route, fx.backupKeyPaper)
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)

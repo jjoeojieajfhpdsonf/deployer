@@ -16,7 +16,7 @@ export const VISUAL_SCENES = [
   // System
   'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
   // Meilenstein Backup: Server › Backup
-  'system-backup', 'system-backup-leer', 'system-backup-veraltet',
+  'system-backup', 'system-backup-leer', 'system-backup-veraltet', 'backup-schluessel-datei', 'backup-schluessel-papier',
   // Zustände (Etappe 1) und Rückmeldung (Etappe 2)
   'nicht-gefunden', 'fehlerseite', 'api-offline', 'laden-projekte', 'leer-projekte',
   'zustand-laden-projektseite', 'zustand-laden-audit', 'zustand-fehler-projekte', 'zustand-fehler-karte',

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { backupSettingsInputSchema } from '@airlock/shared'
+import {
+  backupSettingsInputSchema, backupKeyFileInputSchema, backupKeyPaperInputSchema, backupKeyConfirmSchema, backupKeyVerifySchema,
+} from '@airlock/shared'
+import { confirmKeySaved, exportKeyFile, exportKeyPaper, verifyKeyFile } from '../../backup/key-service.js'
 import { actorFor } from '../auth.js'
 import { getBackupSettings, putBackupSettings } from '../../backup/settings.js'
 import { listRuns, listSnapshots, testConnection } from '../../backup/service.js'
@@ -36,4 +39,23 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
 
   /** Stände im Repository (fragt das Ziel live ab) */
   app.get('/system/backup/snapshots', async () => ({ snapshots: await listSnapshots() }))
+
+  /*
+   * Etappe 4: secrets.key getrennt sichern. Beide Exporte verlangen das
+   * Anmelde-Passwort noch einmal (frische Anmeldung) und werden nie
+   * zwischengespeichert (no-store). Die Antworten enthalten den Schlüssel nur
+   * verschlüsselt (Datei) bzw. für die Druckansicht (Papier).
+   */
+  app.post('/system/backup/key/file', async (request, reply) => {
+    reply.header('cache-control', 'no-store')
+    return exportKeyFile(backupKeyFileInputSchema.parse(request.body ?? {}), request.ip, actorFor(request))
+  })
+  app.post('/system/backup/key/paper', async (request, reply) => {
+    reply.header('cache-control', 'no-store')
+    return exportKeyPaper(backupKeyPaperInputSchema.parse(request.body ?? {}), request.ip, actorFor(request))
+  })
+  /** «Getrennt abgelegt» – setzt den Merker «Schlüssel gesichert am …» */
+  app.post('/system/backup/key/confirm', async (request) => ({ key: await confirmKeySaved(backupKeyConfirmSchema.parse(request.body ?? {}).method, actorFor(request)) }))
+  /** Exportierte Datei prüfen: passt sie zum Schlüssel dieses Servers? (gibt den Schlüssel nie zurück) */
+  app.post('/system/backup/key/verify', async (request) => verifyKeyFile(backupKeyVerifySchema.parse(request.body ?? {}), actorFor(request)))
 }

@@ -10,6 +10,7 @@ import type {
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
+  BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
 } from '@airlock/shared'
 
 export type {
@@ -299,6 +300,11 @@ export const api = {
   testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),
   runBackup: () => call<{ run: BackupRunDto }>('/system/backup/run', { method: 'POST' }),
   backupSnapshots: () => call<{ snapshots: BackupSnapshotDto[] }>('/system/backup/snapshots'),
+  /* Etappe 4: secrets.key getrennt sichern (Exporte nur mit dem Anmelde-Passwort) */
+  exportBackupKeyFile: (input: { password: string; passphrase: string }) => call<BackupKeyFileDto>('/system/backup/key/file', { method: 'POST', body: body(input) }),
+  exportBackupKeyPaper: (input: { password: string }) => call<BackupKeyPaperDto>('/system/backup/key/paper', { method: 'POST', body: body(input) }),
+  confirmBackupKey: (method: BackupKeyMethod) => call<{ key: BackupKeyStatusDto }>('/system/backup/key/confirm', { method: 'POST', body: body({ method }) }),
+  verifyBackupKey: (input: { file: string; passphrase: string }) => call<BackupKeyVerifyDto>('/system/backup/key/verify', { method: 'POST', body: body(input) }),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),

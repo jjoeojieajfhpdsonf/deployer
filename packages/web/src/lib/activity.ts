@@ -183,6 +183,10 @@ const EVENTS: Record<string, Describe> = {
   }),
   // «fehlt» im Titel: describeEvent hängt dann kein «– fehlgeschlagen» an
   'backup.stale': () => ({ title: 'Erfolgreiches Backup fehlt seit über 48 Stunden', category: 'error' }),
+  // Etappe 4: Schlüssel der Secrets (nur Art und Prüfsumme, nie der Schlüssel)
+  'backup.key_export': (p) => ({ title: p.method === 'paper' ? 'Schlüssel der Secrets angezeigt (Papier)' : 'Schlüssel der Secrets exportiert (Datei)', category: 'danger', sub: [str(p.fingerprint)] }),
+  'backup.key_saved': (p) => ({ title: `Schlüssel als gesichert vermerkt (${p.method === 'paper' ? 'Papier' : 'Datei'})`, category: 'config' }),
+  'backup.key_verify': (p) => ({ title: p.matches ? 'Schlüssel-Datei geprüft: passt' : 'Schlüssel-Datei geprüft: anderer Schlüssel', category: p.matches ? 'config' : 'error' }),
 }
 
 /** MCP-Werkzeuge, falls ihr Aufruf allein steht */

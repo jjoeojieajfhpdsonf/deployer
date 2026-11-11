@@ -1977,6 +1977,21 @@ form.failure-fix .form-actions { margin: 0; }
 .backup-kind { display: flex; flex-wrap: wrap; gap: 0 var(--sp-5); }
 .backup-form .backup-time { width: 120px; }
 .backup-retention { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--sp-4); }
+.dialog.dialog-wide { width: min(760px, calc(100vw - 32px)); }
+.key-paper-grid { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: var(--sp-5); align-items: start; margin-top: var(--sp-5); }
+.key-qr { display: block; width: 168px; height: 168px; border-radius: var(--r-sm); }
+.key-paper-facts { grid-template-columns: 96px minmax(0, 1fr); }
+.key-paper-code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-14); overflow-wrap: anywhere; }
+.key-paper .dialog-steps code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); overflow-wrap: anywhere; }
+/* Papier-Anleitung drucken: nur das Blatt, ohne Oberfläche und Dialograhmen. Papier ist
+   immer weiss – auch im dunklen Modus Schwarz auf Weiss, sonst ist es nicht lesbar */
+@media print {
+  body:has(.key-paper) * { visibility: hidden; }
+  body:has(.key-paper) .key-paper, body:has(.key-paper) .key-paper * { visibility: visible; }
+  body:has(.key-paper) .key-paper { position: fixed; inset: 0; padding: 24px; background: #fff; color: #000; }
+  body:has(.key-paper) .dialog { box-shadow: none; }
+  body:has(.key-paper) .dialog::backdrop { background: #fff; }
+}
 
 /* Ablauf eines Chat-Projekts: neutral, ab 7 Tagen vorher Warnfarbe */
 .kf-expiry { margin-top: var(--sp-5); padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }

@@ -11,6 +11,7 @@ const status = (patch: Partial<BackupStatusDto> = {}): BackupStatusDto => ({
     projects: { foto: 'stop' }, repositoryCheckedAt: null, lastCheckAt: null,
   },
   projects: [{ slug: 'foto', name: 'Foto', environment: 'Privat' }],
+  key: { fingerprint: 'a1b2 c3d4 e5f6 0718', savedAt: null, method: null },
   running: false,
   lastRun: {
     id: 'r1', trigger: 'schedule', actor: 'system', status: 'ok', startedAt: '2026-11-11T02:30:00.000Z', finishedAt: '2026-11-11T02:31:30.000Z',
@@ -34,7 +35,7 @@ test('get_backup_status: letzter Lauf, Alter, Art des Ziels', () => {
 
 test('get_backup_status: kein Endpoint, kein Bucket, keine Projekte, keine Zugangsdaten', () => {
   const text = JSON.stringify(mcpBackupStatus(status()))
-  for (const leak of ['s3.example.com', 'geheim-bucket', 'server1', 'foto', 'hasAccessKey', 'snapshot']) assert.ok(!text.includes(leak), leak)
+  for (const leak of ['s3.example.com', 'geheim-bucket', 'server1', 'foto', 'hasAccessKey', 'snapshot', 'a1b2', 'fingerprint']) assert.ok(!text.includes(leak), leak)
 })
 
 test('get_backup_status: nicht eingerichtet', () => {

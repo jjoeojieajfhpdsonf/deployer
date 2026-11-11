@@ -14,6 +14,7 @@ import { duration, relativeTime, inTime } from '../lib/format.js'
 import { fmtDateTimeShort } from '../lib/dates.js'
 import { FALLBACK_MS } from '../lib/live.js'
 import { IconAlert } from './Icons.js'
+import { KeySection, KeyWarning } from './BackupKey.js'
 
 /**
  * Meilenstein Backup, Etappe 3: Server › Backup. Stand (letztes erfolgreiches
@@ -76,9 +77,11 @@ export function BackupSection() {
   return (
     <div className="backup">
       <BackupWarnings s={s} />
+      <KeyWarning k={s.key} />
       <BackupOverview s={s} />
       <BackupRuns runs={s.runs} />
       {s.settings.configured && <BackupSnapshots />}
+      <KeySection k={s.key} />
       <BackupSettingsForm s={s} />
     </div>
   )

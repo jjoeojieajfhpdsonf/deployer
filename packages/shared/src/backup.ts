@@ -131,6 +131,8 @@ export interface BackupStatusDto {
   settings: BackupSettingsDto
   /** Compose-Projekte aller Umgebungen (nur sie haben Volumes) */
   projects: BackupProjectDto[]
+  /** Etappe 4: ist der Schlüssel der Secrets getrennt gesichert? */
+  key: BackupKeyStatusDto
   running: boolean
   lastRun: BackupRunDto | null
   lastSuccessAt: string | null
@@ -139,6 +141,61 @@ export interface BackupStatusDto {
   /** Nächster geplanter Lauf (ISO), null wenn aus */
   nextRunAt: string | null
   runs: BackupRunDto[]
+}
+
+/* --- Etappe 4: Schlüssel der Secrets getrennt sichern ---------------------------------- */
+
+export const backupKeyMethods = ['file', 'paper'] as const
+export type BackupKeyMethod = (typeof backupKeyMethods)[number]
+export const BACKUP_PASSPHRASE_MIN = 12
+
+/** Frische Anmeldung: das Anmelde-Passwort noch einmal, bei jedem Export */
+const reauthPassword = z.string().min(1, 'Gib dein Anmelde-Passwort ein').max(1024, 'Höchstens 1024 Zeichen')
+
+export const backupKeyFileInputSchema = z.object({
+  password: reauthPassword,
+  passphrase: z.string().min(BACKUP_PASSPHRASE_MIN, `Mindestens ${BACKUP_PASSPHRASE_MIN} Zeichen`).max(1024, 'Höchstens 1024 Zeichen'),
+})
+export const backupKeyPaperInputSchema = z.object({ password: reauthPassword })
+export const backupKeyConfirmSchema = z.object({ method: z.enum(backupKeyMethods) })
+/** Exportierte Datei prüfen: Base64 der .age-Datei (wenige hundert Bytes) und die Passphrase */
+export const backupKeyVerifySchema = z.object({
+  file: z.string().min(1, 'Wähle die exportierte Datei').max(100_000, 'Das ist keine Schlüssel-Datei von Airlock (zu gross)'),
+  passphrase: z.string().min(1, 'Gib die Passphrase der Datei ein').max(1024, 'Höchstens 1024 Zeichen'),
+})
+
+export interface BackupKeyStatusDto {
+  /** Prüfsumme des aktuellen Schlüssels (SHA-256, 16 Hex-Zeichen) – nicht der Schlüssel */
+  fingerprint: string
+  /** Merker «Schlüssel gesichert am …»; null = nie oder für einen anderen Schlüssel */
+  savedAt: string | null
+  method: BackupKeyMethod | null
+}
+
+export interface BackupKeyFileDto {
+  filename: string
+  /** Die age-Datei als Base64 (mit der Passphrase verschlüsselt) */
+  file: string
+  fingerprint: string
+}
+
+export interface BackupKeyPaperDto {
+  /** Der Schlüssel als Base64 – nur nach frischer Anmeldung, nur für die Druckansicht */
+  key: string
+  /** Derselbe Schlüssel als Hex in Vierergruppen (zum Abtippen) */
+  hex: string[]
+  fingerprint: string
+  /** Ganze SHA-256 zum Vergleich mit «sha256sum secrets.key» */
+  sha256: string
+  /** QR-Code des Base64-Texts: je Zeile ein String aus «1» (dunkel) und «0» */
+  qr: string[]
+  server: string
+  createdAt: string
+}
+
+export interface BackupKeyVerifyDto {
+  matches: boolean
+  fingerprint: string
 }
 
 export interface BackupTestResultDto {

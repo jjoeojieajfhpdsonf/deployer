@@ -15,6 +15,7 @@ import {
 } from './restic.js'
 import { checkDue, isStale, nextSlot } from './rules.js'
 import { abandonJobs } from './dispatch.js'
+import { keyStatus } from './key-service.js'
 import { resolveSettings, getBackupSettings, loadState, patchState, noteRepositoryReached, lastCheckFor, type ResolvedBackupSettings } from './settings.js'
 import {
   T_PROBE, StepError, assertBackupContainer, contextFor, describeTarget, ensureRepository, failText, inBackup, lastBackupSuccess, listRuns, restic, runDto,
@@ -292,10 +293,11 @@ async function composeProjects(): Promise<BackupProjectDto[]> {
 }
 
 export async function backupStatus(now = new Date()): Promise<BackupStatusDto> {
-  const [settings, runs, success, s, projects] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings(), composeProjects()])
+  const [settings, runs, success, s, projects, key] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings(), composeProjects(), keyStatus()])
   return {
     settings,
     projects,
+    key,
     running: backupRunning(),
     lastRun: runs[0] ?? null,
     lastSuccessAt: success ? success.toISOString() : null,
