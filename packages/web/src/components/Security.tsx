@@ -8,7 +8,7 @@ import { relativeTime, duration } from '../lib/format.js'
 import { poll } from '../lib/live.js'
 import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
-import { IconBad, IconPending, IconSkipped } from './Icons.js'
+import { IconBad, IconPending, IconSkipped, IconWarn } from './Icons.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 
@@ -41,7 +41,8 @@ const IconFailed = IconBad
 const IconWaiting = IconPending
 const IconRunning = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" opacity=".35" /><path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2" /></svg>
 const IconTimeout = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8V8l2.2 1.6" /></svg>
-export const IconWarn = () => <svg {...svg}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>
+// Antwort 4: alle Zeichen nur in Icons.tsx; hier weitergereicht für die bisherigen Importe
+export { IconWarn }
 
 /** Note und Score auf einer Linie: «A  90 / 100» */
 export function GradeBadge({ grade, score }: { grade: string | null; score: number | null }) {

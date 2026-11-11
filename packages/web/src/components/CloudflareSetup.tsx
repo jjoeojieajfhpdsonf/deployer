@@ -4,7 +4,7 @@ import { cfDomainsSchema, cfTokenSchema } from '@airlock/shared'
 import { api, ApiError, type CfStatusDto, type CfTokenCheckDto } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
-import { IconBad, IconExternal, IconOk, IconPending, IconSkipped } from './Icons.js'
+import { IconBad, IconExternal, IconOk, IconPending, IconSkipped, IconUp } from './Icons.js'
 import { ErrorState, Loading, SkCard } from './States.js'
 import { MUTATION_TUNNEL } from '../lib/activities.js'
 import { relativeTime } from '../lib/format.js'
@@ -19,7 +19,6 @@ import { dateOf, fmtDate, fmtTime, msOf } from '../lib/dates.js'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconOptional = IconSkipped
-const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 
 /* M9: Die Bausteine nutzt auch der Assistent «Umgebung anlegen» (pages/NewEnvironment.tsx). */
 /** skipped: bewusst ausgelassen (Tunnel) – neutral, kein Haken, kein Fehler (UI-Qualität 6) */

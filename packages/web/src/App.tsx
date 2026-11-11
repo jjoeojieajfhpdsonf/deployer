@@ -35,6 +35,7 @@ import { Setup } from './pages/Setup.js'
 import { useSetup } from './lib/setup.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { EnvSwitcher } from './components/EnvSwitcher.js'
+import { Logo } from './components/Logo.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { ShellLive } from './components/DocumentTitle.js'
 import { IconProjects, IconShield, IconList, IconServer, IconSliders } from './components/Icons.js'
@@ -270,7 +271,8 @@ function Rail() {
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
         </button>
-        <Link to={env ? ep('/projekte') : '/'} className="brand-name">Airlock</Link>
+        {/* Antwort 6: Bildmarke (Doppeltor) vor dem Namen; Einklappen bleibt der Knopf daneben */}
+        <Link to={env ? ep('/projekte') : '/'} className="brand-name"><Logo size={20} className="brand-logo" />Airlock</Link>
         <span className="env-sep" aria-hidden="true">/</span>
         <EnvSwitcher />
       </div>

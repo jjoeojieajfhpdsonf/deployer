@@ -285,11 +285,13 @@ html { scrollbar-color: var(--line-strong) var(--bg); caret-color: var(--ink); }
   background: var(--bg);
 }
 
-.brand { display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-2); color: var(--ink); text-decoration: none; }
-.brand-name { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); color: var(--ink); text-decoration: none; }
+.brand { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); color: var(--ink); text-decoration: none; }
+.brand-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); color: var(--ink); text-decoration: none; }
+.brand-logo { flex: none; }
 .brand-mark {
   display: grid;
   place-items: center;
+  flex: none;
   width: 28px;
   height: 28px;
   border-radius: var(--r-sm);

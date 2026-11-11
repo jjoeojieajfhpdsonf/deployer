@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api.js'
+import { IconKey as IconKeyBase } from './Icons.js'
 
 /**
  * Wer etwas ausgelöst hat – gleich in Deployments und Aktivität:
@@ -36,11 +37,10 @@ const svg = { width: 12, height: 12, viewBox: '0 0 16 16', 'aria-hidden': true }
 export const IconSpark = () => (
   <svg {...svg} fill="currentColor"><path d="M8 1.2c.4 3.3 1.5 4.4 4.8 4.8v.1C9.5 6.5 8.4 7.6 8 10.9h-.1C7.6 7.6 6.5 6.5 3.2 6.1V6C6.5 5.6 7.6 4.5 7.9 1.2Z" transform="translate(0 2)" /></svg>
 )
-const IconKey = () => (
-  <svg {...svg} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="5.5" cy="10.5" r="3" /><path d="m7.6 8.4 5.9-5.9M11.5 4.5l1.6 1.6" /></svg>
-)
+// Schlüssel aus Icons.tsx (ein Bart, Antwort 4), hier 12 px
+const IconKey = () => <IconKeyBase size={12} />
 const IconAuto = () => (
-  <svg {...svg} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.6" /><path d="M13 2.5v2.8h-2.8" /></svg>
+  <svg {...svg} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.6" /><path d="M13 2.5v2.8h-2.8" /></svg>
 )
 
 export function Actor({ actor }: { actor: string | null | undefined }) {

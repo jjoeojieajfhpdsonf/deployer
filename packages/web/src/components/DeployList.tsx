@@ -9,7 +9,7 @@ import { fmtDateTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkLog } from './States.js'
 import { deployState, groupDeployments, groupSummary, type DeployItem } from '../lib/deployments.js'
 import { Actor } from './Actor.js'
-import { IconChevron } from './Icons.js'
+import { IconCheck, IconChevron, IconUp } from './Icons.js'
 
 /**
  * Deployments als Liste (Übersicht: Karte mit fünf Einträgen; Reiter: alle,
@@ -18,10 +18,9 @@ import { IconChevron } from './Icons.js'
  * Code-Stand ändert.
  */
 
-const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
-const IconCheck = () => <svg {...svg}><path d="m3.8 8.4 2.8 2.8 5.6-6" /></svg>
+// Strich 1,6 wie alle Zeichen (Antwort 4); Haken und Pfeil kommen aus Icons.tsx
+const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconX = () => <svg {...svg}><path d="m4.8 4.8 6.4 6.4M11.2 4.8l-6.4 6.4" /></svg>
-const IconUp = () => <svg {...svg}><path d="M8 13V3.5M4.2 7.2 8 3.4l3.8 3.8" /></svg>
 const IconRedo = () => <svg {...svg}><path d="M12.6 8.6A4.7 4.7 0 1 1 11 4.4" /><path d="M12.4 2.4v2.9H9.5" /></svg>
 const IconUndo = () => <svg {...svg}><path d="M3.4 8.6A4.7 4.7 0 1 0 5 4.4" /><path d="M3.6 2.4v2.9h2.9" /></svg>
 const IconWait = () => <svg {...svg}><circle cx="8" cy="8" r="5" strokeDasharray="2.4 2.2" /></svg>
