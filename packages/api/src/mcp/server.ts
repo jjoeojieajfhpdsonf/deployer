@@ -20,6 +20,7 @@ import { readLog } from '../deploy/journal.js'
 import * as docker from '../drivers/docker.js'
 import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
+import { sinceSeconds } from '../lib/dates.js'
 import { slugify } from '@airlock/shared'
 import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
@@ -27,7 +28,7 @@ import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
 import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/pause-page.js'
-import { pausePageSchema, formatBackAt, PAUSE_HTML_MAX, type PauseOptions } from '@airlock/shared'
+import { pausePageSchema, formatBackAt, backAtProblem, PAUSE_HTML_MAX, type PauseOptions } from '@airlock/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
 import { inEnvironment } from '../lib/scope.js'
@@ -208,7 +209,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const row = await activeDeployment(p.id)
     const container = row?.containerId ?? row?.artifact?.webContainer
     if (!container) return ok({ logs: '', note: 'Kein laufender Container (statische Seite oder noch nicht deployt)' })
-    const since = a.since ? Math.floor(new Date(a.since).getTime() / 1000) : undefined
+    let since: number | undefined
+    try {
+      since = sinceSeconds(a.since)
+    } catch {
+      return fail('since: Ungültiges Datum (ISO 8601, z. B. 2026-11-10T19:00:00Z)')
+    }
     return ok({ logs: await docker.getLogs(container, { tail: a.lines, ...(since ? { since } : {}) }) })
   })
 
@@ -533,6 +539,9 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const p = await findProject(scope, a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
+    // Vor der Rückfrage prüfen: gültig, Zukunft, höchstens ein Jahr voraus
+    const backProblem = backAtProblem(a.back_at)
+    if (backProblem) return fail(`back_at: ${backProblem} (ISO 8601 mit Zone, zwischen jetzt und in einem Jahr)`)
     const template = await pausePageTemplate()
     const custom = a.title !== undefined || a.message !== undefined || a.html !== undefined
     const parsed = custom

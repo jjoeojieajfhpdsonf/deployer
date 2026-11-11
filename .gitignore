@@ -20,5 +20,11 @@ data/
 # Lokale Werkzeug-Einstellungen.
 *.local.json
 
+# Gutachten von Impeccable (critique/audit): Arbeitsnotizen, nur lokal.
+.impeccable/
+
+# Arbeitskopien paralleler Sessions (git worktree)
+.claude/worktrees/
+
 # M4/M5: Cloudflare- und Tunnel-Token (Compose-Secrets), nie einchecken
 secrets/

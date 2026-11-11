@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { headerKeys, headerRuleInputSchema } from '@airlock/shared'
-import { listHeaderRules, setHeaderRule, removeHeaderRule, recordCspReports } from '../../security/header-service.js'
+import { listHeaderRules, setHeaderRule, removeHeaderRule, resetHeaderRule, recordCspReports } from '../../security/header-service.js'
 import { recheckHeaders } from '../../security/scan.js'
 import { findProject } from '../../domain/projects.js'
 import { actorFor } from '../auth.js'
@@ -44,6 +44,12 @@ export async function fixRoutes(app: FastifyInstance): Promise<void> {
   app.delete<{ Params: { id: string; header: string } }>('/projects/:id/header-rules/:header', async (request) => {
     const header = headerParam.parse(request.params.header)
     return removeHeaderRule(request.scope, request.params.id, header, actorFor(request))
+  })
+
+  /** Rückweg in einem Klick: CSP scharf -> Report-Only, sonst Regel entfernen */
+  app.post<{ Params: { id: string; header: string } }>('/projects/:id/header-rules/:header/reset', async (request) => {
+    const header = headerParam.parse(request.params.header)
+    return resetHeaderRule(request.scope, request.params.id, header, actorFor(request))
   })
 
   /** Nachscan nur der Stufe «headers», etwa nachdem die App selbst Header setzt */

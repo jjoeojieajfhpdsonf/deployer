@@ -53,10 +53,65 @@ export const pausePageSchema = z.object({
 })
 export type PausePage = z.infer<typeof pausePageSchema>
 
+/* --- «Voraussichtlich zurück»: nie werfen, immer prüfen ------------------------------ */
+
+/** Wie weit «Voraussichtlich zurück» höchstens in der Zukunft liegen darf. */
+export const PAUSE_BACK_MAX_MS = 366 * 24 * 60 * 60_000
+
+/** Gültiges Datum? (new Date('333333-…') ist Invalid Date; toISOString würfe.) */
+export const validDate = (d: Date) => Number.isFinite(d.getTime())
+
+/**
+ * Fehlertext für einen Zeitpunkt oder null, wenn er passt: lesbar, in der
+ * Zukunft, höchstens ein Jahr voraus. Gleiche Regel in Oberfläche und API.
+ */
+export function backAtProblem(iso: string | null | undefined, now = Date.now()): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (!validDate(d)) return 'Ungültiges Datum'
+  if (d.getTime() <= now) return 'Liegt in der Vergangenheit'
+  if (d.getTime() > now + PAUSE_BACK_MAX_MS) return 'Höchstens ein Jahr im Voraus'
+  return null
+}
+
+/**
+ * Wert eines datetime-local-Felds («2026-11-11T08:00», ohne Zone) → ISO in
+ * UTC. Wirft nie: Unlesbares, ein Jahr mit mehr als vier Stellen oder
+ * ausserhalb von aktuellem Jahr bis +2 ergibt «Ungültiges Datum».
+ */
+export function parseLocalDateTime(v: string, now = new Date()): { iso: string | null; error: string | null } {
+  if (!v) return { iso: null, error: null }
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(v.trim())
+  if (!m) return { iso: null, error: 'Ungültiges Datum' }
+  const [y, mo, da, h, mi] = m.slice(1).map(Number) as [number, number, number, number, number]
+  const year = now.getFullYear()
+  if (y < year || y > year + 2) return { iso: null, error: 'Ungültiges Datum' }
+  const d = new Date(y, mo - 1, da, h, mi)
+  // 31.02. o. ä. rollt in den nächsten Monat – dann war die Eingabe ungültig
+  if (!validDate(d) || d.getMonth() !== mo - 1 || d.getDate() !== da || d.getHours() !== h || d.getMinutes() !== mi) {
+    return { iso: null, error: 'Ungültiges Datum' }
+  }
+  return { iso: d.toISOString(), error: null }
+}
+
+/** ISO → Wert für datetime-local (lokale Zeit); Ungültiges ergibt ''. */
+export function toLocalDateTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (!validDate(d)) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /** Beim Pausieren: Überschreibung (null = wie Vorlage) und «Voraussichtlich zurück». */
 export const pauseOptionsSchema = z.object({
   page: pausePageSchema.nullable().optional(),
-  backAt: z.string().datetime({ offset: true, message: 'Datum und Uhrzeit nicht lesbar' }).nullable().optional(),
+  backAt: z.string().datetime({ offset: true, message: 'Ungültiges Datum' })
+    .superRefine((v, ctx) => {
+      const p = backAtProblem(v)
+      if (p) ctx.addIssue({ code: 'custom', message: p })
+    })
+    .nullable().optional(),
 })
 export type PauseOptions = z.infer<typeof pauseOptionsSchema>
 
@@ -141,7 +196,15 @@ const T = {
 
 /** «Di., 11. Nov. 2026, 08:00» in der Zeitzone des Servers bzw. Browsers. */
 export function formatBackAt(iso: string, lang: PauseLang, timeZone?: string): string {
-  return new Date(iso).toLocaleString(T[lang].locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', ...(timeZone ? { timeZone } : {}) })
+  const d = new Date(iso)
+  if (!validDate(d)) return ''
+  const opts = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' } as const
+  try {
+    return d.toLocaleString(T[lang]?.locale ?? 'de-CH', { ...opts, ...(timeZone ? { timeZone } : {}) })
+  } catch {
+    // Unbekannte Zeitzone (RangeError): ohne Zone statt Absturz
+    return d.toLocaleString(T[lang]?.locale ?? 'de-CH', opts)
+  }
 }
 
 const COLORS = {
@@ -157,8 +220,9 @@ const COLORS = {
 export const PAUSE_TOKENS = ['{{back_at}}', '{{back_at_iso}}', '{{title}}'] as const
 
 export function fillPauseTokens(html: string, page: PausePage, o: { backAt?: string | null; timeZone?: string } = {}): string {
-  const back = o.backAt ? formatBackAt(o.backAt, page.lang ?? 'de', o.timeZone) : ''
-  const iso = o.backAt ? new Date(o.backAt).toISOString() : ''
+  const ok = Boolean(o.backAt && validDate(new Date(o.backAt)))
+  const back = ok ? formatBackAt(o.backAt!, page.lang ?? 'de', o.timeZone) : ''
+  const iso = ok ? new Date(o.backAt!).toISOString() : ''
   return html
     .replace(/\{\{\s*back_at\s*\}\}/g, escapeHtml(back))
     .replace(/\{\{\s*back_at_iso\s*\}\}/g, escapeHtml(iso))
@@ -196,7 +260,8 @@ export function renderPauseForm(page: PausePage, o: { backAt?: string | null; th
     ? `:root{color-scheme:${o.theme};${COLORS[o.theme]}}`
     : `:root{color-scheme:light dark;${COLORS.light}}\n@media (prefers-color-scheme:dark){:root{${COLORS.dark}}}`
   const extra: string[] = []
-  if (o.backAt) extra.push(`<p class="meta">${escapeHtml(t.back)}: <time datetime="${escapeHtml(new Date(o.backAt).toISOString())}">${escapeHtml(formatBackAt(o.backAt, lang, o.timeZone))}</time></p>`)
+  // Ungültiges Datum (z. B. Jahr 333333) wird weggelassen statt zu werfen
+  if (o.backAt && validDate(new Date(o.backAt))) extra.push(`<p class="meta">${escapeHtml(t.back)}: <time datetime="${escapeHtml(new Date(o.backAt).toISOString())}">${escapeHtml(formatBackAt(o.backAt, lang, o.timeZone))}</time></p>`)
   if (page.linkText && page.linkUrl) {
     const href = safeHref(page.linkUrl)
     if (href) extra.push(`<p class="meta"><a href="${escapeHtml(href)}" rel="noopener noreferrer">${escapeHtml(page.linkText)}</a></p>`)
@@ -242,7 +307,7 @@ export function pauseHeaders(backAt?: string | null, now = Date.now(), o: { cont
     'Content-Security-Policy': [PAUSE_CSP],
     [PAUSE_STATE_HEADER]: [PAUSE_STATE_VALUE],
   }
-  if (backAt && new Date(backAt).getTime() > now) h['Retry-After'] = [new Date(backAt).toUTCString()]
+  if (backAt && validDate(new Date(backAt)) && new Date(backAt).getTime() > now) h['Retry-After'] = [new Date(backAt).toUTCString()]
   return h
 }
 

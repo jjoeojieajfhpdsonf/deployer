@@ -13,6 +13,7 @@ import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
 import { systemRoutes } from './routes/system.js'
+import { clientErrorRoutes } from './routes/client-errors.js'
 import { uploadRoutes } from './routes/uploads.js'
 import { tokenRoutes } from './routes/tokens.js'
 import { securityRoutes } from './routes/security.js'
@@ -143,6 +144,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(deploymentRoutes)
       await api.register(systemRoutes)
       await api.register(uploadRoutes)
+      await api.register(clientErrorRoutes)
       // M9: Umgebungen
       await api.register(environmentRoutes)
     },

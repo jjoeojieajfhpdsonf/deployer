@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Route, Routes, Navigate, Link, useLocation, useParams } from 'react-router-dom'
+import { ErrorBoundary } from './components/ErrorBoundary.js'
 import { api } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -27,6 +28,7 @@ import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, Ico
 
 export function App() {
   const qc = useQueryClient()
+  const location = useLocation()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
 
   // Darstellung: die Wahl vom Server gewinnt über die lokale Kopie (anderes Gerät, neuer Browser)
@@ -65,6 +67,8 @@ export function App() {
               <Crumbs />
               <ProfileMenu me={me.data} />
             </div>
+            {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
+            <ErrorBoundary scope="page" resetKey={location.pathname}>
             <Routes>
               {/* M9: alles unter einer Umgebung */}
               <Route path="/u/:env/*" element={<EnvRoutes />} />
@@ -90,6 +94,7 @@ export function App() {
               <Route path="/system/github" element={<Navigate to="/server/github" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </ErrorBoundary>
           </main>
         </div>
       </CrumbsProvider>

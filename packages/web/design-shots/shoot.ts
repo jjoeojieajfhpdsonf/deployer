@@ -90,8 +90,12 @@ type Shot = {
   full?: boolean
   /** Leere Daten (keine Projekte, kein Audit) */
   empty?: boolean
+  /** Kaputte Projektliste (Projekt ohne Felder): zeigt die Fehlerseite der Error Boundary */
+  broken?: boolean
   /** M8: GitHub App angelegt und installiert */
   githubConnected?: boolean
+  /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
+  cspReverted?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -122,11 +126,28 @@ const shots: Shot[] = [
     group: 'security', name: 'projekt-security-laeuft-ausgabe', path: `/projekte/${fx.runningScanProjectId}?tab=security`, full: false,
     prepare: async (pg) => { await pg.locator('.live-scan .stage-tail summary').first().click(); await pg.waitForTimeout(200) },
   },
+  // CSP-Fix: Analyse und gesperrtes Scharfschalten; Zustand nach automatischem Zurücksetzen
+  {
+    group: 'csp', name: 'security-csp-gesperrt', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('.csp-analysis').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -140))
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security`, full: false, cspReverted: true,
+    prepare: async (pg) => {
+      await pg.locator('#header-caddy-title').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
   // M8: Header über Caddy – Rückfrage vor HSTS
   {
     group: 'fix', name: 'security-hsts-rueckfrage', path: `/projekte/${S}?tab=security`, full: false,
     prepare: async (pg) => {
-      const b = pg.getByRole('button', { name: 'HSTS setzen …' })
+      const b = pg.getByRole('button', { name: 'HSTS setzen', exact: true })
       await b.scrollIntoViewIfNeeded()
       await b.click()
       await pg.waitForTimeout(250)
@@ -189,7 +210,22 @@ const shots: Shot[] = [
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
     group: 'zustaende', name: 'bestaetigung-stoppen', path: `/projekte/${P}`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: /^Stoppen/ }).first().click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => {
+      // Stoppen liegt im «⋯»-Menü des Kopfs; die Rückfrage steht im Menü
+      await pg.getByRole('button', { name: 'Weitere Aktionen' }).click()
+      await pg.getByRole('menuitem', { name: /^Stoppen/ }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  // Projektkopf: Öffnen (sekundär), Neu deployen (primär), «⋯» mit allem Weiteren
+  { group: 'projektkopf', name: 'projektkopf', path: `/projekte/${P}`, full: false },
+  {
+    group: 'projektkopf', name: 'projektkopf-menue-laufend', path: `/projekte/${L}`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Weitere Aktionen' }).click(); await pg.waitForTimeout(300) },
+  },
+  {
+    group: 'projektkopf', name: 'projektkopf-menue-gestoppt', path: '/projekte/p-notizen', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Weitere Aktionen' }).click(); await pg.waitForTimeout(300) },
   },
   {
     group: 'zustaende', name: 'menue-zeile-bestaetigung', path: '/projekte', full: false,
@@ -220,7 +256,7 @@ const shots: Shot[] = [
     // Live: Seite schon vorab einstellen (ohne «Voraussichtlich zurück»)
     group: 'pauseseite', name: 'pauseseite-dialog-live', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog input[id$="-title"]').fill('Wartung am Haushaltsbuch')
       await pg.locator('.pause-dialog textarea').fill('Wir spielen ein **Update** ein.\n\nFragen? Schreib an [hallo@example.ch](mailto:hallo@example.ch).')
       await pg.waitForTimeout(300)
@@ -230,16 +266,36 @@ const shots: Shot[] = [
     // Offline nehmen → Pausieren: Zusammenfassung der Seite statt Formular in der Karte
     group: 'pauseseite', name: 'pauseseite-pausieren', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click()
       await pg.locator('.pause-summary').scrollIntoViewIfNeeded()
       await pg.waitForTimeout(200)
     },
   },
   {
     // Pausiert mit eigenem Code: Dialog mit «Voraussichtlich zurück»
+    // Absturz von früher: Jahr 333333 im Datumsfeld – jetzt Feldmeldung statt schwarzer Seite
+    group: 'fehler', name: 'pauseseite-datum-ungueltig', path: `/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      const f = pg.locator('.pause-dialog input[type="datetime-local"]')
+      // Ganz links (Tag) beginnen, dann Tag, Monat und ein sechsstelliges Jahr wie im Absturz
+      await f.click({ position: { x: 14, y: 20 } })
+      await pg.keyboard.type('0303333333')
+      await pg.waitForTimeout(300)
+      const state = await f.evaluate((el: HTMLInputElement) => ({ value: el.value, bad: el.validity.badInput }))
+      const msg = await pg.locator('.pause-dialog .field-error').allTextContents()
+      const crashed = await pg.locator('.crash').count()
+      console.log(`  Datumsfeld: value=${JSON.stringify(state.value)} badInput=${state.bad} Meldung=${JSON.stringify(msg)} Fehlerseite=${crashed}`)
+      if (crashed) throw new Error('Fehlerseite statt Feldmeldung')
+    },
+  },
+  // Error Boundary: kaputte Daten legen nur die Seite still, mit «Neu laden» und Details
+  { group: 'fehler', name: 'fehlerseite', path: '/projekte', full: false, broken: true },
+  {
     group: 'pauseseite', name: 'pauseseite-dialog-pausiert', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.waitForTimeout(300)
     },
   },
@@ -247,7 +303,7 @@ const shots: Shot[] = [
     // Eigener Code, Vorschau dunkel (Media-Queries für die Vorschau umgeschrieben)
     group: 'pauseseite', name: 'pauseseite-code-dunkel', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog').getByRole('button', { name: 'Dunkel' }).click()
       await pg.waitForTimeout(300)
     },
@@ -256,7 +312,7 @@ const shots: Shot[] = [
     // Formular im Dialog: Felder im Raster
     group: 'pauseseite', name: 'pauseseite-dialog-formular', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Anpassen …' }).first().click()
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
       await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
       await pg.waitForTimeout(300)
     },
@@ -270,18 +326,18 @@ const shots: Shot[] = [
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(150)
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(250)
     },
   },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-fortschritt', path: `/projekte/${P}?tab=einstellungen`, full: false, hang: [`POST /api/v1/projects/${P}/public`],
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.waitForTimeout(150)
-      await pg.getByRole('button', { name: 'Veröffentlichen …' }).click()
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
       await pg.getByRole('button', { name: 'Ja, veröffentlichen' }).click()
       await pg.waitForTimeout(900)
     },
@@ -289,17 +345,17 @@ const shots: Shot[] = [
   { group: 'anfrage', name: 'anfrage-wartet', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false },
   {
     group: 'anfrage', name: 'anfrage-wartet-bestaetigen', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Nach dem Scan öffentlich schalten …' }).click(); await pg.waitForTimeout(200) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Nach dem Scan öffentlich schalten', exact: true }).click(); await pg.waitForTimeout(200) },
   },
   { group: 'anfrage', name: 'anfrage-gesperrt', path: `/projekte/${fx.requestBlockedProjectId}?tab=einstellungen`, full: false },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-offline-wahl', path: `/projekte/${L}?tab=einstellungen`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen …' }).click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click(); await pg.waitForTimeout(250) },
   },
   {
     group: 'veroeffentlichung', name: 'veroeffentlichung-toast', path: `/projekte/${L}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.getByRole('button', { name: 'Offline nehmen …' }).click()
+      await pg.getByRole('button', { name: 'Offline nehmen', exact: true }).click()
       await pg.getByRole('button', { name: 'Ja, pausieren' }).click()
       await pg.waitForTimeout(700)
     },
@@ -313,7 +369,6 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
-  /* Prototyp Umgebungen (SPEC «Umgebungen»): nur DOM-Einblendung, siehe umgebungen.ts */
   /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
   { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
   { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
@@ -375,9 +430,12 @@ try {
             if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.broken && url.pathname === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
+            if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
               const b = r.body as { project: object }

@@ -361,7 +361,7 @@ function CloudflaredVersion({ s, onChanged }: { s: CfStatusDto; onChanged: (s: C
           : t.latestVersion && t.version ? <span className="cf-meta-inline">aktuell</span> : null}
       </span>
       {t.updateAvailable && !confirm && (
-        <button type="button" className="button-small" onClick={() => setConfirm(true)}>Auf {t.latestVersion} aktualisieren …</button>
+        <button type="button" className="button-small" onClick={() => setConfirm(true)}>Auf {t.latestVersion} aktualisieren</button>
       )}
       {t.updateAvailable && confirm && (
         <span className="confirm-inline" role="group" aria-label="Update bestätigen">
@@ -484,7 +484,7 @@ function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (
           <p className="cf-manage-label">Token ersetzen</p>
           <p className="cf-meta">Für ein neues Token mit anderen Rechten oder nach Ablauf. Tunnel und Zertifikat bleiben.</p>
         </div>
-        <button type="button" onClick={onReplaceToken}>Token ersetzen …</button>
+        <button type="button" onClick={onReplaceToken}>Token ersetzen</button>
       </div>
       <div className="cf-manage-row">
         <div>
@@ -500,7 +500,7 @@ function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (
             <button type="button" className="button-danger-solid" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} autoFocus>{disconnect.isPending ? 'Trennt…' : 'Ja, trennen'}</button>
           </span>
         ) : (
-          <button type="button" className="button-danger" onClick={() => setConfirm(true)} disabled={s.publicProjects > 0}>Trennen …</button>
+          <button type="button" className="button-danger" onClick={() => setConfirm(true)} disabled={s.publicProjects > 0}>Trennen</button>
         )}
       </div>
       {disconnect.isError && <p role="alert" className="error">{(disconnect.error as Error).message}</p>}

@@ -270,6 +270,9 @@ export const headerRules = pgTable('header_rules', {
   reportKey: text('report_key').unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // CSP-Fix: Report-Only-Beginn und Funktionsprüfung
+  reportOnlySince: timestamp('report_only_since', { withTimezone: true }),
+  checkResult: jsonb('check_result').$type<import('@airlock/shared').CspCheckDto>(),
 }, (t) => [uniqueIndex('header_rules_project_id_header_key').on(t.projectId, t.header)])
 
 export const cspViolations = pgTable('csp_violations', {

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { fixPrompt, type FixHintDto, type FixRequestDto, type FixWay, type ImageHintDto } from '@airlock/shared'
+import { fixPrompt, headerFixFor, type FixHintDto, type FixRequestDto, type FixWay, type ImageHintDto } from '@airlock/shared'
 import { db, schema } from '../db/index.js'
 import type { FixChanges } from '../db/schema.js'
 import { config } from '../config.js'
@@ -122,7 +122,11 @@ export async function getFixContext(scope: Scope, idOrSlug: string, findingId: s
   const base: FixContext = {
     project: { slug: p.slug, name: p.name, source: p.sourceType },
     finding: { id: f.id, tool: f.tool, severity: f.severity, title: f.title, location: f.location, description: f.description, fix: f.fix, status: f.status },
-    way, explanation: wayExplanation(way), files: [], withheld: [], repo_paths: [], masked: { secret_lines: 0, env_values: 0 }, commit: null, image: null,
+    way,
+    explanation: headerFixFor(f) === 'content-security-policy' && way !== 'header'
+      ? `Content-Security-Policy: Inline-Code (<script>, <style>, style="…", onclick=…) in eigene Dateien auslagern, damit die CSP ohne 'unsafe-inline' auskommt. Die CSP selbst setzt danach Caddy (set_security_header, zuerst Report-Only). ${wayExplanation(way)}`
+      : wayExplanation(way),
+    files: [], withheld: [], repo_paths: [], masked: { secret_lines: 0, env_values: 0 }, commit: null, image: null,
     next: '',
   }
   if (way === 'header') return { ...base, next: `set_security_header mit project "${p.slug}" aufrufen; keine Codeänderung nötig.` }

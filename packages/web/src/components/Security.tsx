@@ -380,7 +380,7 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
         // M8: Der Weg zum Beheben rendert die Knopfzeile selbst (mit «Akzeptieren»
         // am Ende) und sein Panel darunter – so stimmt die Tab-Reihenfolge, und
         // das Panel bleibt offen, während das Akzeptieren-Formular offen ist.
-        const acceptButton = onAccepted && !open ? <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren …</button> : null
+        const acceptButton = onAccepted && !open ? <button className="button-small" onClick={() => setOpen(true)}>Akzeptieren</button> : null
         if (action) return action(acceptButton)
         return acceptButton ? <div className="finding-actions">{acceptButton}</div> : null
       })()}
@@ -460,7 +460,7 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
         </button>
         {!confirmActive ? (
           <button className="button-warn" onClick={() => setConfirmActive(true)} disabled={running}>
-            <IconWarn /> Aktiver Scan …
+            <IconWarn /> Aktiver Scan
           </button>
         ) : (
           <span className="confirm-inline" role="group" aria-label="Aktiven Scan bestätigen">

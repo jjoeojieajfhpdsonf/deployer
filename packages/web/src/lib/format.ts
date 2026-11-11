@@ -3,7 +3,10 @@ import type { AuditEventDto, ProjectDto } from '@airlock/shared'
 /** «vor 18 Min.», «vor 2 Std.», «gestern», «vor 3 Tagen» */
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '–'
-  const diff = Date.now() - new Date(iso).getTime()
+  const t = new Date(iso).getTime()
+  // Ungültiges Datum: Strich statt «Invalid Date» oder NaN
+  if (!Number.isFinite(t)) return '–'
+  const diff = Date.now() - t
   const min = Math.floor(diff / 60_000)
   if (min < 1) return 'gerade eben'
   if (min < 60) return `vor ${min} Min.`

@@ -678,7 +678,15 @@ export interface SystemStatusDto {
    * Docker-Gateway an (Tailscale als Subnet-Router, docs/INSTALL.md).
    * null: Log nicht lesbar.
    */
-  clientIps: { total: number; fromGateway: number; gatewayIps: string[]; gatewayOnly: boolean; blocked: number; since: string } | null
+  /**
+   * Absender der Anfragen auf Airlock (30 Minuten, Zugriffs-Log): nur fremde
+   * Anfragen; eigene Prüfungen («airlock-probe») stehen in ownProbes.
+   */
+  clientIps: {
+    total: number; fromGateway: number; gatewayIps: string[]; gatewayOnly: boolean; blocked: number; since: string
+    ownProbes: number
+    groups: { source: 'tailnet' | 'server'; count: number; blocked: number; hosts: string[]; paths: string[]; userAgents: string[]; last: string }[]
+  } | null
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }

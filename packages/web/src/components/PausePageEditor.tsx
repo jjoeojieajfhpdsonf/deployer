@@ -1,5 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { pausePageSchema, renderPausePage, renderPauseForm, forcePreviewScheme, PAUSE_HTML_MAX, type PausePage } from '@airlock/shared'
+import {
+  pausePageSchema, renderPausePage, renderPauseForm, forcePreviewScheme, parseLocalDateTime, toLocalDateTime, backAtProblem,
+  PAUSE_HTML_MAX, PAUSE_BACK_MAX_MS, type PausePage,
+} from '@airlock/shared'
 import { Field } from './Field.js'
 
 /**
@@ -75,7 +78,7 @@ export function PausePageEditor({ value, onChange, errors = {}, backAt, idPrefix
             </Field>
             <div className="pause-code-actions">
               {!regen ? (
-                <button type="button" className="button-small" onClick={() => setRegen(true)}>Aus Formular übernehmen …</button>
+                <button type="button" className="button-small" onClick={() => setRegen(true)}>Aus Formular übernehmen</button>
               ) : (
                 <span className="confirm-inline" role="group" aria-label="HTML aus dem Formular übernehmen">
                   <span className="confirm-note">Ersetzt das HTML durch die Seite aus Titel, Text und Link.</span>
@@ -173,6 +176,7 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
   const prefix = useId().replace(/:/g, '')
   const [page, setPage] = useState<PausePage>(initial ?? template)
   const [back, setBack] = useState(toLocalInput(initialBackAt))
+  const [backBad, setBackBad] = useState(false)
   const [errors, setErrors] = useState<PausePageErrors>({})
 
   // Beim Öffnen vom aktuellen Stand ausgehen
@@ -182,6 +186,7 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
     if (open && !d.open) {
       setPage(initial ?? template)
       setBack(toLocalInput(initialBackAt))
+      setBackBad(false)
       setErrors({})
       d.showModal()
     }
@@ -190,8 +195,13 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
   }, [open])
 
   const custom = !samePage(page, template)
-  const backIso = withBackAt ? fromLocalInput(back) : null
-  const backErr = backIso && new Date(backIso).getTime() <= Date.now() ? 'Liegt in der Vergangenheit' : undefined
+  // Nie werfen: Unlesbares (Jahr 333333, halbe Eingabe) wird zur Feldmeldung
+  const parsed = withBackAt ? parseLocalDateTime(back) : { iso: null, error: null }
+  const backIso = parsed.iso
+  const backErr = withBackAt ? (backBad ? 'Ungültiges Datum' : parsed.error ?? backAtProblem(backIso) ?? undefined) : undefined
+  const now = new Date()
+  const minBack = toLocalDateTime(now.toISOString())
+  const maxBack = toLocalDateTime(new Date(now.getTime() + PAUSE_BACK_MAX_MS).toISOString())
 
   const submit = () => {
     const errs = custom ? pausePageErrors(page) : {}
@@ -218,7 +228,9 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
             errors={errors} backAt={backErr ? null : backIso} idPrefix={prefix}
             aside={withBackAt ? (
               <Field id={`${prefix}-back`} label="Voraussichtlich zurück" optional error={backErr}>
-                <input id={`${prefix}-back`} type="datetime-local" value={back} onChange={(e) => setBack(e.target.value)}
+                <input id={`${prefix}-back`} type="datetime-local" value={back} min={minBack} max={maxBack}
+                  // badInput: Browser verwirft eine halbe oder unmögliche Eingabe still (value '') – trotzdem melden
+                  onChange={(e) => { setBack(e.target.value); setBackBad(e.target.validity.badInput) }}
                   {...(backErr ? { 'aria-invalid': true, 'aria-describedby': `${prefix}-back-error` } : {})} />
               </Field>
             ) : undefined} />
@@ -238,10 +250,6 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
 }
 
 /** datetime-local (ohne Zone) ⇄ ISO (UTC) */
-export const toLocalInput = (iso: string | null | undefined) => {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-export const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : null)
+// Wirft nie (Regeln in @airlock/shared): ungültige Eingaben ergeben '' bzw. einen Fehlertext
+export const toLocalInput = toLocalDateTime
+export const fromLocalInput = (v: string) => parseLocalDateTime(v).iso

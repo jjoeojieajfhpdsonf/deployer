@@ -14,6 +14,7 @@
  */
 
 import type { AddressCheckDto } from '@airlock/shared'
+import { probeUa } from './probe-ua.js'
 
 /** Text der Sperrseite in caddy-config.ts (403 bei fremder Absenderadresse). */
 const BLOCKED_PREFIX = 'Kein Zugriff von '
@@ -59,7 +60,8 @@ export async function probeViaCaddy(caddyAddr: string, url: string, timeoutMs = 
   try {
     const res = await request(`http://${caddyAddr}/`, {
       method: 'GET',
-      headers: { host },
+      // Direkt im Docker-Netz an Caddy, nie über die Host-Ports; Kennung für die Absender-Auswertung
+      headers: { host, 'user-agent': probeUa('adresse') },
       headersTimeout: timeoutMs,
       bodyTimeout: timeoutMs,
     })

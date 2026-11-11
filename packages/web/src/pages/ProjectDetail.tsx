@@ -14,6 +14,8 @@ import { Publication, PublicPillFor } from '../components/Publication.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
+import { RowMenu } from '../components/RowMenu.js'
+import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { putEnvSchema } from '@airlock/shared'
@@ -35,8 +37,18 @@ export function ProjectDetail() {
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
   const [watching, setWatching] = useState<string | null>(null)
-  const [confirmStop, setConfirmStop] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  // «Löschen …» aus dem Menü: zur bestehenden Rückfrage (Kurzname eintippen) in den Einstellungen
+  const goToDelete = () => {
+    setTab('einstellungen')
+    const focus = (tries: number) => {
+      const zone = document.querySelector<HTMLElement>('.danger-zone')
+      if (!zone) { if (tries > 0) requestAnimationFrame(() => focus(tries - 1)); return }
+      zone.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      zone.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+    }
+    requestAnimationFrame(() => focus(30))
+  }
 
   const q = useQuery({
     queryKey: ['project', id],
@@ -45,16 +57,18 @@ export function ProjectDetail() {
   })
 
   const act = useMutation({
-    mutationFn: async (what: 'deploy' | 'start' | 'stop' | 'recreate') => {
+    mutationFn: async (what: HeadAction | 'recreate') => {
       if (what === 'deploy') return api.deploy(id)
       if (what === 'recreate') return api.recreate(id)
+      if (what === 'restart') return api.restart(id)
       if (what === 'start') return api.start(id)
       return api.stop(id)
     },
     onSuccess: (res, what) => {
       const dep = (res as { deployment?: { id: string } } | undefined)?.deployment
-      setConfirmStop(false)
-      setNotice(what === 'stop' ? 'Gestoppt. Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.' : what === 'start' && !dep ? 'Gestartet.' : null)
+      setNotice(what === 'stop' ? 'Gestoppt. Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.'
+        : what === 'restart' && !dep ? 'Neu gestartet.'
+        : what === 'start' && !dep ? 'Gestartet.' : null)
       if (dep) {
         setWatching(dep.id)
         setTab('uebersicht')
@@ -97,24 +111,12 @@ export function ProjectDetail() {
         title={<><h1>{p.name}</h1><StatusBadge status={rt.status} /><PublicPillFor p={p} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
         actions={
           <>
-            {url && rt.status === 'running' && <a className="button button-ghost" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
-            {p.desiredState === 'running' ? (
-              confirmStop ? (
-                <span className="confirm-inline" role="group" aria-label="Stoppen bestätigen">
-                  <span className="confirm-note"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}danach offline.</span>
-                  <button onClick={() => setConfirmStop(false)}>Abbrechen</button>
-                  {/* Während der Bestätigung ist «Ja, stoppen» der eine gefüllte Knopf */}
-                  <button className="button-danger-solid" onClick={() => act.mutate('stop')} disabled={act.isPending} autoFocus>Ja, stoppen</button>
-                </span>
-              ) : (
-                <button onClick={() => setConfirmStop(true)} disabled={act.isPending}>Stoppen …</button>
-              )
-            ) : (
-              <button onClick={() => act.mutate('start')} disabled={act.isPending}>Starten</button>
-            )}
-            <button className={confirmStop ? undefined : 'button-primary'} onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
+            {/* Sichtbar nur das Häufige; alles Weitere im «⋯»-Menü (Rückfragen dort, wie in der Projektkarte) */}
+            {url && rt.status === 'running' && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
+            <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
               Neu deployen
             </button>
+            <ProjectHeadMenu p={p} busy={act.isPending} onAct={(w) => act.mutate(w)} onDelete={goToDelete} />
           </>
         }
       >
@@ -225,6 +227,43 @@ export function ProjectDetail() {
       )}
       </div>
     </section>
+  )
+}
+
+/* --- Kopf: «⋯»-Menü ------------------------------------------------------- */
+
+type HeadAction = 'deploy' | 'start' | 'stop' | 'restart'
+
+/**
+ * «Weitere Aktionen» im Projektkopf: dieselbe Komponente und Animation wie
+ * das «…»-Menü der Projektkarte (RowMenu), dieselben Einträge für Offline
+ * und Stoppen (ProjectMenuItems). «Löschen …» führt zur Rückfrage mit
+ * Kurzname in den Einstellungen.
+ */
+function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: boolean; onAct: (w: HeadAction) => void; onDelete: () => void }) {
+  const [confirm, setConfirm] = useState<MenuConfirm>(null)
+  // Statische Seiten haben keinen Container: nichts neu zu starten
+  const restartable = p.desiredState === 'running' && p.runtimeKind !== 'static' && Boolean(p.activeDeployment)
+  return (
+    <RowMenu label="Weitere Aktionen">
+      {(close) => (
+        <>
+          {restartable && (confirm === 'restart' ? (
+            <>
+              <div className="menu-confirm"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}kurz offline, dann dieselbe Fassung wieder.</div>
+              <button role="menuitem" className="menu-danger-solid" disabled={busy} onClick={() => { close(); setConfirm(null); onAct('restart') }}>Ja, neu starten</button>
+              <button role="menuitem" onClick={() => setConfirm(null)}>Abbrechen</button>
+            </>
+          ) : (
+            <button role="menuitem" disabled={busy} onClick={() => setConfirm('restart')}>Neu starten …</button>
+          ))}
+          <StopStartMenuItems p={p} close={close} busy={busy} confirm={confirm} setConfirm={setConfirm} onStop={() => onAct('stop')} onStart={() => onAct('start')} />
+          <OfflineMenuItems p={p} close={close} confirm={confirm} setConfirm={setConfirm} />
+          <div className="menu-sep" />
+          <button role="menuitem" className="menu-danger" onClick={() => { close(); setConfirm(null); onDelete() }}>Löschen …</button>
+        </>
+      )}
+    </RowMenu>
   )
 }
 

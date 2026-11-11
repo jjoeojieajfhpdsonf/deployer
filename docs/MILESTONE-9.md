@@ -196,4 +196,15 @@ pnpm --filter @airlock/api exec tsx scripts/m9-acceptance-e2e.ts
 
 Zusammen mit den Prüfskripten der Etappen: Migration gegen die Datenbank im heutigen Zustand 25/25, Durchsetzung (86 REST-Pfade mit Objekt, MCP) 21/21, echtes Caddy mit zwei Basen 13/13, Cloudflare mit zwei Konten 20/20.
 
+### Merge von main (11.11.2026)
+
+`main` war seit dem Abzweig 10 Commits weiter (CSP-Fix mit Migration 0014, Error Boundary, Projektkopf mit «Neu starten», Gateway-Warnung). Konflikte in 8 Dateien, gelöst so:
+
+- **Neu starten** (`restartProject`) und **Header zurücksetzen** (`resetHeaderRule`) bekommen den Scope wie alle anderen Projekt-Aktionen; die CSP-Funktionsprüfung im Hintergrund läuft mit der schon geprüften Projekt-ID (`findProjectForServerJob`).
+- **CSP-Prüfung:** `projectHosts` nahm die nip.io-Aliase immer aus der Standard-Umgebung – jetzt aus der Umgebung des Projekts.
+- **Error Boundary** umschliesst die neuen Routen (`/u/:env/…`, Server, Umgebungen) wie vorher die alten.
+- **Migrationen:** 0014 (CSP-Prüfungen, aus main) vor 0015 (Umgebungen) – die Nummer war dafür freigehalten.
+
+**Geprüft nach dem Merge:** Typecheck, 654 Unit-Tests, Build; Migration 25/25, Scope 21/21 (jetzt **89** REST-Pfade mit Objekt, die neuen eingeschlossen), Cloudflare 20/20, Abnahme 32/32, echtes Caddy mit zwei Basen 13/13, `caddy-headers-e2e` bestanden. Screenshots hell und dunkel der berührten Ansichten (Umgebungen, Projektkopf, CSP, Fehlerseite, Server) in `docs/design-cal/m9-merge/` (44 Bilder).
+
 **Nicht geprüft (bleibt für den ersten Einsatz):** echter Zertifikatsbezug bei Let's Encrypt für die zweite Basis, echte cloudflared-Container und Cloudflare selbst, die Oberfläche gegen den laufenden Stack. Empfehlung für den ersten Einsatz: zweite Umgebung mit einer echten Zone anlegen, TLS-Probelauf (Staging) abwarten, dann ein Projekt per MCP mit einem Token der neuen Umgebung anlegen und öffentlich schalten.

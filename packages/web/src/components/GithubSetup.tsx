@@ -142,7 +142,7 @@ export function GithubSetup() {
               </p>
               <div className="form-actions">
                 <button type="submit" className="button-primary" disabled={start.isPending}>
-                  {start.isPending ? 'Wird vorbereitet …' : 'Weiter zu GitHub …'}
+                  {start.isPending ? 'Wird vorbereitet …' : 'Weiter zu GitHub'}
                   <span className="visually-hidden"> (wechselt zu GitHub und legt die App an)</span>
                 </button>
               </div>
@@ -189,7 +189,7 @@ export function GithubSetup() {
           <h2>Verbindung trennen</h2>
           <p>Löscht Schlüssel und Secrets der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
           {!confirmDisconnect ? (
-            <button ref={disconnectRef} type="button" className="button-danger" onClick={() => setConfirmDisconnect(true)}>Verbindung trennen …</button>
+            <button ref={disconnectRef} type="button" className="button-danger" onClick={() => setConfirmDisconnect(true)}>Verbindung trennen</button>
           ) : (
             <span className="confirm-inline" role="group" aria-label="Verbindung trennen bestätigen">
               <span className="confirm-note"><IconWarn />Offene Pull Requests bleiben bei GitHub, Airlock verfolgt sie nicht mehr.</span>

@@ -545,6 +545,13 @@ export async function recheckHeaders(projectId: string, actor: string): Promise<
   )
   const existing = await db.select().from(schema.findings).where(and(eq(schema.findings.scanRunId, last.id), eq(schema.findings.tool, 'header-check')))
   const plan = planHeaderRecheck(existing, found, accepted)
+  // CSP-Fix: «Content-Security-Policy fehlt» gilt erst als behoben, wenn die
+  // Funktionsprüfung im Browser die scharfe CSP bestanden hat
+  const csp = (await db.select().from(schema.headerRules).where(and(eq(schema.headerRules.projectId, projectId), eq(schema.headerRules.header, 'content-security-policy'))))[0]
+  if (csp?.mode === 'enforce' && csp.checkResult?.state !== 'ok') {
+    const cspIds = new Set(existing.filter((e) => e.title.startsWith('Content-Security-Policy fehlt')).map((e) => e.id))
+    plan.fix = plan.fix.filter((id) => !cspIds.has(id))
+  }
 
   await db.transaction(async (tx) => {
     if (plan.fix.length) await tx.update(schema.findings).set({ status: 'fixed' }).where(inArray(schema.findings.id, plan.fix))

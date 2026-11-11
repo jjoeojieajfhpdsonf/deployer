@@ -296,7 +296,7 @@ Heute kennt Airlock genau eine Konfiguration: eine Basisdomain mit einem Wildcar
 | Login, Passwort, Sessions, Darstellung | | ✓ (eine Person) |
 | Benachrichtigungskanäle (ntfy, SMTP) | stummschaltbar | ✓ Meldungen nennen die Umgebung |
 | GitHub App, GitLab | | ✓ |
-| Adresse der Oberfläche und MCP-Endpunkt | | ✓ `deployer.int.jherren.com`, `/mcp` |
+| Adresse der Oberfläche und MCP-Endpunkt | | ✓ `airlock.int.jherren.com`, `/mcp`; `deployer.int.jherren.com` leitet weiter |
 | Slugs | | ✓ serverweit eindeutig (Entscheidung 3) |
 
 ### Datenmodell
@@ -333,7 +333,7 @@ Deployment, Route, Secret, ScanRun, Finding, FixRequest, SecurityEvent, PublicRe
 - **Tailnet:** Airlock setzt in jeder Hauptzone den Eintrag `*.int.<hauptzone>` (A, nicht proxied) auf die Tailscale-IP und zieht ihn bei einem IP-Wechsel in allen Umgebungen nach.
 - **LAN:** Der lokale DNS braucht pro Basis eine Umschreibung (`*.int.beispiel.ch` → Server). Die Einstellungen der Umgebung zeigen die Zeile zum Kopieren und prüfen, ob sie greift.
 - Der IP-Filter von Caddy (nur LAN und `100.64.0.0/10`) gilt unverändert für alle internen Basen.
-- **Oberfläche und MCP** bleiben unter `deployer.int.<basis der Standard-Umgebung>`; das Label `deployer` ist in allen Basen reserviert (Entscheidung 9).
+- **Oberfläche und MCP** liegen unter `airlock.int.<basis der Standard-Umgebung>`. Die frühere Adresse `deployer.int.<basis>` leitet mit 308 dorthin weiter (Pfad und Query bleiben), damit Lesezeichen und bestehende MCP-Konfigurationen weiter funktionieren; die Weiterleitung gilt wie die Oberfläche nur aus LAN und Tailnet. Die Labels `airlock` und `deployer` sind in allen Basen reserviert (Entscheidung 9).
 - nip.io-Adressen (`<slug>.<ip>.nip.io`) bleiben ohne Umgebung; das geht, weil Slugs serverweit eindeutig sind.
 
 ### Öffentlich und Cloudflare
@@ -412,7 +412,7 @@ Per MCP lässt sich nicht verschieben, weil ein Token nur eine Umgebung sieht.
 | 6 | Wo erscheinen Server-Ereignisse im Audit? | a) in jeder Umgebung · b) nur unter Server | **a**, als «Server» markiert und filterbar. Fehlgeschlagene Anmeldungen bleiben wie heute immer sichtbar. |
 | 7 | Benachrichtigungskanäle geteilt oder pro Umgebung? | a) geteilt · b) pro Umgebung | **a.** Die Meldung nennt die Umgebung im Titel; pro Umgebung stummschaltbar. Eigene Kanäle erst, wenn eine Umgebung jemand anderem gehört (nicht im Umfang). |
 | 8 | Cloudflare-Token pro Umgebung Pflicht oder teilbar? | a) Pflicht · b) teilbar | **b.** Eigenes Token nur, wenn die Zone in einem anderen Konto liegt oder die Rechte bewusst getrennt sein sollen. |
-| 9 | Oberfläche nur unter der Standard-Umgebung oder unter jeder Basis? | a) nur Standard · b) jede Basis | **a.** Ein Hostname, ein Session-Cookie, keine zusätzlichen Zertifikatsnamen; `deployer` ist in allen Basen reserviert. |
+| 9 | Oberfläche nur unter der Standard-Umgebung oder unter jeder Basis? | a) nur Standard · b) jede Basis | **a.** Ein Hostname (`airlock.int.<basis>`, `deployer.int.<basis>` leitet weiter), ein Session-Cookie, keine zusätzlichen Zertifikatsnamen; `airlock` und `deployer` sind in allen Basen reserviert. |
 | 10 | MCP: Token pro Umgebung oder ein Token mit Parameter `environment`? | a) pro Umgebung · b) Parameter | **a.** Mit b könnte ein Agent im falschen Bereich deployen, und jede Tool-Beschreibung würde länger. |
 | 11 | Externe Ziele pro Umgebung oder geteilt? | a) pro Umgebung · b) geteilt | **a.** Der Besitznachweis hängt an einer Domain, die meist zu einer Umgebung gehört. |
 | 12 | GitHub App geteilt oder pro Umgebung? | a) geteilt · b) pro Umgebung | **a.** Eine App mit Installation pro Organisation reicht; pro Umgebung erst, wenn getrennte Konten nötig werden. |
@@ -421,7 +421,7 @@ Per MCP lässt sich nicht verschieben, weil ein Token nur eine Umgebung sieht.
 
 ## MCP-Schnittstelle
 
-Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://deployer.int.deinedomain.ch/mcp`. Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
+Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.deinedomain.ch/mcp` (`deployer.int.deinedomain.ch` leitet weiter). Er ist nur aus LAN und Tailnet erreichbar und verlangt ein Bearer-Token pro Client, das sich in der UI erstellen und widerrufen lässt.
 
 | Tool | Parameter | Bestätigung nötig |
 | --- | --- | --- |
@@ -489,7 +489,7 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 
 Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starten und DNS ändern kann. Deshalb gelten diese Regeln:
 
-- **Nie öffentlich.** UI, API und MCP laufen nur unter `deployer.int.deinedomain.ch`, erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
+- **Nie öffentlich.** UI, API und MCP laufen nur unter `airlock.int.deinedomain.ch` (früher `deployer.int.deinedomain.ch`, leitet mit 308 weiter), erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
 - **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
 - **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.

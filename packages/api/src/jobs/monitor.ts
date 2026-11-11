@@ -5,6 +5,7 @@ import * as docker from '../drivers/docker.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { log } from '../lib/log.js'
+import { probeUa } from '../lib/probe-ua.js'
 import type { ProjectHealthDto, ResourceSample } from '@airlock/shared'
 
 /**
@@ -82,7 +83,7 @@ async function probe(t: Target): Promise<Probe | null> {
     const url = `http://${t.host}:${t.port}${t.path}`
     const result = await withProjectNetwork(t.network, async () => {
       try {
-        const res = await request(url, { method: 'GET', headersTimeout: 5_000, bodyTimeout: 5_000 })
+        const res = await request(url, { method: 'GET', headers: { 'user-agent': probeUa('monitor') }, headersTimeout: 5_000, bodyTimeout: 5_000 })
         await res.body.dump()
         const ok = res.statusCode >= 200 && res.statusCode < 400
         return { ok, status: res.statusCode, error: ok ? null : `HTTP ${res.statusCode}` }
