@@ -90,8 +90,9 @@ test('Reiter der Projektseite: Pfeiltasten wechseln und fokussieren', async ({ b
   const page = await open(browser, 'projekt-uebersicht')
   await page.getByRole('tab', { name: /^Übersicht/ }).focus()
   await page.keyboard.press('ArrowRight')
-  await expect(page.getByRole('tab', { name: /^Security/ })).toBeFocused()
-  await expect(page.getByRole('tab', { name: /^Security/ })).toHaveAttribute('aria-selected', 'true')
+  // Reihenfolge: Übersicht · Aufbau · Deployments · Logs · Security · Einstellungen
+  await expect(page.getByRole('tab', { name: /^Aufbau/ })).toBeFocused()
+  await expect(page.getByRole('tab', { name: /^Aufbau/ })).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('End')
   await expect(page.getByRole('tab', { name: /Einstellungen/ })).toBeFocused()
   await page.context().close()

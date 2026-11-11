@@ -63,7 +63,12 @@ function StatePill({ s }: { s: PublicStatusDto }) {
  * Alles ist sofort wirksam; der Fortschritt steht in der Karte, ein Toast
  * bietet «Rückgängig».
  */
-export function Publication({ p }: { p: ProjectDto }) {
+export function Publication({ p, request, onShown }: {
+  p: ProjectDto
+  /** «Veröffentlichen →» aus dem Reiter «Aufbau»: zur Karte und den Ablauf öffnen (Name, Access) */
+  request?: boolean
+  onShown?: () => void
+}) {
   const q = useQuery({ queryKey: ['public', p.id], queryFn: () => api.publicStatus(p.id), refetchInterval: poll })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const actions = usePublicActions(p)
@@ -74,6 +79,18 @@ export function Publication({ p }: { p: ProjectDto }) {
   const zones = domains.data?.domains.map((d) => d.name) ?? []
   const defaultZone = (env?.zone && zones.includes(env.zone) ? env.zone : null) ?? domains.data?.domains.find((d) => d.isDefault)?.name ?? zones[0] ?? null
   const z = { zones, defaultZone, loaded: domains.isSuccess }
+  const [openRequest, setOpenRequest] = useState(false)
+  const loaded = Boolean(s)
+  useEffect(() => {
+    if (!request || !s) return
+    const card = document.getElementById('set-veroeffentlichung')
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    card?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    // Privat und möglich: gleich den Ablauf öffnen (Namensfeld fokussiert); sonst zur Karte mit ihrer Erklärung
+    if (s.state === 'private' && s.publishable.ok) setOpenRequest(true)
+    else card?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+    onShown?.()
+  }, [request, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="set-card publication" id="set-veroeffentlichung" aria-labelledby={titleId}>
@@ -85,7 +102,7 @@ export function Publication({ p }: { p: ProjectDto }) {
 
       {s && (
         <>
-          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
+          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} z={z} titleId={titleId} openRequest={openRequest} onOpened={() => setOpenRequest(false)} />}
           {s.state === 'live' && <LiveState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
           {s.state === 'paused' && <PausedState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
 
@@ -220,7 +237,11 @@ function usePublicNameDraft(initial: () => PublicName, z: Zones) {
 const nameError = (err: Actions['error']) =>
   err && (err.status === 400 || err.status === 409) && !['not_publishable', 'public_disabled'].includes(err.code) && !/läuft schon/.test(err.message) ? err.message : null
 
-function PrivateState({ p, s, actions, z, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string }) {
+function PrivateState({ p, s, actions, z, titleId, openRequest, onOpened }: {
+  p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string
+  /** «Veröffentlichen →» aus dem Reiter «Aufbau»: Ablauf gleich öffnen */
+  openRequest?: boolean; onOpened?: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [name, setName] = usePublicNameDraft(() => ({ label: p.slug, zone: '', apex: false }), z)
@@ -237,6 +258,12 @@ function PrivateState({ p, s, actions, z, titleId }: { p: ProjectDto; s: PublicS
     if (!result.host || result.blocking) { focusName(); return }
     setConfirming(true)
   }
+  // «Veröffentlichen →» im Reiter «Aufbau»: wie ein Klick auf «Veröffentlichen» (Namensfeld offen und fokussiert)
+  useEffect(() => {
+    if (!openRequest) return
+    if (!open) start()
+    onOpened?.()
+  }, [openRequest]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Was die Prüfung beim Tippen nicht sah (etwa inzwischen belegt), steht nach dem Versuch am Namensfeld.
   const err = actions.error
