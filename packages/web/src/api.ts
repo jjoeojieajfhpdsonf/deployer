@@ -55,6 +55,8 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
+  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet */
+  win95Unlocked?: boolean
   /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
   setup?: SetupPrefs | null
   /** Glocke: bis wann gelesen (UI-Qualität 8) */

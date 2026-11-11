@@ -6,7 +6,7 @@
  */
 export const VISUAL_SCENES = [
   // Shell und Anmeldung
-  'login', 'shell-profilmenue',
+  'login', 'shell-profilmenue', 'win95-freigeschaltet',
   // Projekte
   'projekte', 'projekt-uebersicht', 'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
@@ -33,4 +33,11 @@ export const VISUAL_SCENES = [
  * Barrierefreiheit (axe-core): die Hauptseiten und die Zustände mit eigenem
  * Markup. Ladezustände ohne Inhalt sind ausgenommen (nur Skeletons).
  */
+/**
+ * Verstecktes Theme «Windows 95»: dieselben Szenen zusätzlich in diesem Theme
+ * (Bilder *-win95.png), visuell und mit axe. Die wichtigsten Seiten genügen –
+ * das Theme ändert nur Tokens und den Zusatz-Block in styles.css.
+ */
+export const WIN95_SCENES = ['login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine'] as const satisfies readonly (typeof VISUAL_SCENES)[number][]
+
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

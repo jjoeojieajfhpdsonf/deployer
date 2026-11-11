@@ -63,3 +63,42 @@ describe('Darstellung (Hell/Dunkel/System)', () => {
     assert.equal(uiPrefsSchema.safeParse({}).success, false)
   })
 })
+
+describe('Windows 95 (verstecktes Theme)', () => {
+  test('Freischaltung und Theme werden gespeichert und gelesen', () => {
+    const unlocked = mergeUiPrefs({ theme: 'dark' }, { win95Unlocked: true })
+    assert.deepEqual(unlocked, { theme: 'dark', win95Unlocked: true })
+    const chosen = mergeUiPrefs(unlocked, { theme: 'win95' })
+    assert.deepEqual(chosen, { theme: 'win95', win95Unlocked: true })
+    assert.deepEqual(parseUiPrefs(JSON.stringify(chosen)), { theme: 'win95', win95Unlocked: true })
+  })
+
+  test('ohne Freischaltung lehnt der Server «win95» ab', () => {
+    assert.throws(() => mergeUiPrefs({ theme: 'light' }, { theme: 'win95' }), /nicht freigeschaltet/)
+    // Freischalten und wählen in einem Schritt geht
+    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { theme: 'win95', win95Unlocked: true }), { theme: 'win95', win95Unlocked: true })
+  })
+
+  test('gespeichertes «win95» ohne Freischaltung fällt beim Lesen auf den Standard', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"win95"}'), DEFAULT_UI_PREFS)
+    assert.deepEqual(parseUiPrefs('{"theme":"win95","win95Unlocked":"ja"}'), DEFAULT_UI_PREFS)
+  })
+
+  test('die Freischaltung bleibt; «false» nimmt sie nicht zurück', () => {
+    assert.deepEqual(mergeUiPrefs({ theme: 'win95', win95Unlocked: true }, { win95Unlocked: false }), { theme: 'win95', win95Unlocked: true })
+    // Noch nicht freigeschaltet: «false» landet nicht im Stand
+    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { win95Unlocked: false }), { theme: 'light' })
+  })
+
+  test('andere Wechsel lassen die Freischaltung stehen', () => {
+    assert.deepEqual(mergeUiPrefs({ theme: 'win95', win95Unlocked: true }, { theme: 'light' }), { theme: 'light', win95Unlocked: true })
+    assert.deepEqual(mergeUiPrefs({ theme: 'light', win95Unlocked: true }, { bellSeenAt: '2026-11-10T22:00:00.000Z' }), { theme: 'light', win95Unlocked: true, bellSeenAt: '2026-11-10T22:00:00.000Z' })
+  })
+
+  test('Schema kennt «win95», die Meldung nennt alle vier', () => {
+    assert.equal(uiPrefsSchema.safeParse({ theme: 'win95' }).success, true)
+    const r = uiPrefsSchema.safeParse({ theme: 'amiga' })
+    assert.equal(r.success, false)
+    assert.match(r.error!.issues[0]!.message, /Windows 95/)
+  })
+})

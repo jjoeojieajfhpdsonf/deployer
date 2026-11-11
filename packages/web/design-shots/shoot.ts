@@ -27,10 +27,13 @@ const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
-function api(path: string, method: string, loggedIn: boolean, theme: 'light' | 'dark', count?: number): { status?: number; body: unknown } {
+/** Darstellung einer Aufnahme; «win95» ist das versteckte Theme (dann auch freigeschaltet) */
+export type ShotTheme = 'light' | 'dark' | 'win95'
+
+function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
   const full = u.pathname.replace(/^\/api\/v1/, '')
-  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, win95Unlocked: theme === 'win95' } : { loggedIn: false, theme: null } }
   let m: RegExpMatchArray | null
   // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
   if (full === '/environments') return { body: { environments: fx.environments } }
@@ -139,6 +142,16 @@ const Z = fx.pausedProjectId
 const H = 'p-hallo'
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
+  {
+    // Easter Egg: Konami-Code getippt → Meldung «Windows 95 freigeschaltet», vierte Option im Profilmenü
+    group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { win95Unlocked: false },
+    prepare: async (pg) => {
+      for (const k of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) await pg.keyboard.press(k)
+      await pg.getByText('Windows 95 freigeschaltet').waitFor()
+      await pg.locator('.profile-trigger').click()
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
   { group: 'projekte', name: 'projekte', path: '/projekte' },
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
@@ -717,15 +730,15 @@ export { shots }
 export type { Shot }
 
 /** Optionen des Browser-Kontexts für eine Aufnahme (Desktop, 1440 px) */
-export const contextOptions = (t: 'light' | 'dark') => ({
-  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t,
+export const contextOptions = (t: ShotTheme) => ({
+  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t === 'dark' ? 'dark' as const : 'light' as const,
 })
 
 /**
  * Theme setzen und die API aus den Fixtures beantworten (page.route auf dem
  * Kontext). Gemeinsam für shoot.ts und die visuellen Tests (visual/).
  */
-export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | 'dark', port = PORT): Promise<void> {
+export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
       // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
@@ -750,7 +763,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, ...s.me })
+            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, win95Unlocked: t === 'win95', ...s.me })
             if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
@@ -809,7 +822,10 @@ export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> 
 
 // Als Skript gestartet (nicht importiert): Screenshots in einen Ordner schreiben
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
+// --themes hell,dunkel,win95 (Standard: hell,dunkel); --viewport: nur das Fenster (1440×900), nie die ganze Seite
+const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' }, themes: { type: 'string' }, viewport: { type: 'boolean' } } })
+const THEME_OF = { hell: 'light', dunkel: 'dark', win95: 'win95' } as const
+const themes = (args.themes ?? 'hell,dunkel').split(',').map((s) => s.trim()).filter((s): s is keyof typeof THEME_OF => s in THEME_OF)
 const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
 mkdirSync(outDir, { recursive: true })
 const only = args.only?.split(',').map((s) => s.trim()).filter(Boolean)
@@ -821,8 +837,8 @@ await server.listen()
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
 let n = 0
 try {
-  for (const theme of ['hell', 'dunkel'] as const) {
-    const t = theme === 'hell' ? 'light' : 'dark'
+  for (const theme of themes) {
+    const t = THEME_OF[theme]
     for (const s of selected) {
       const ctx = await browser.newContext(contextOptions(t))
       await installRoutes(ctx, s, t)
@@ -835,7 +851,7 @@ try {
         const pad = 24
         await page.screenshot({ path: file, fullPage: true, clip: { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + 2 * pad, height: box.height + 2 * pad } })
       } else {
-        await page.screenshot({ path: file, fullPage: s.full !== false })
+        await page.screenshot({ path: file, fullPage: !args.viewport && s.full !== false })
       }
       n++
       console.log(`✓ ${file.replace(repo + '/', '')}`)

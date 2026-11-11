@@ -12,6 +12,7 @@ import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
 import { ActivityIndicator } from './components/ActivityIndicator.js'
 import { Shortcuts } from './components/Shortcuts.js'
+import { KonamiUnlock, Taskbar, useVersionClicks } from './components/Win95.js'
 import { api, type MeDto } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -118,6 +119,8 @@ export function App() {
         <ErrorBoundary scope="part"><SetupRedirect /></ErrorBoundary>
         {/* ⌘K, «/», «g p/s/a», «?» */}
         <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>
+        {/* Verstecktes Theme «Windows 95»: Konami-Code schaltet frei; Taskleiste nur in diesem Theme */}
+        <ErrorBoundary scope="part"><KonamiUnlock /><Taskbar /></ErrorBoundary>
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
         <ErrorBoundary scope="page" resetKey={location.pathname}>
         <Routes>
@@ -222,6 +225,7 @@ function Rail() {
   const ep = useEnvPath()
   const projects = useProjects()
   const system = useSystem()
+  const versionClick = useVersionClicks()
   const list = projects.data?.projects ?? []
   // Zähler «Security»: offene kritische und hohe Befunde über alle Projekte der Umgebung
   const all = sumCounts(list.map((p) => p.security?.open))
@@ -297,7 +301,8 @@ function Rail() {
         {/* Zwei Zeilen mit Absicht: «Server … · Version …» passt bei 192 px nicht in eine Zeile,
             und ein Punkt am Zeilenende hinge in der Luft */}
         <span>Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />}</span>
-        <span className="nowrap">Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
+        {/* Easter Egg: 7 schnelle Klicks schalten «Windows 95» frei (Tastatur: Konami-Code, KonamiUnlock) */}
+        <span className="nowrap rail-version" onClick={versionClick}>Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
       </div>
     </aside>
   )
