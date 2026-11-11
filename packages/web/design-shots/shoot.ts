@@ -33,7 +33,7 @@ export type ShotTheme = 'light' | 'dark' | 'win95'
 function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
   const full = u.pathname.replace(/^\/api\/v1/, '')
-  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, win95Unlocked: theme === 'win95' } : { loggedIn: false, theme: null } }
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, unlocks: theme === 'win95' ? ['win95'] : [] } : { loggedIn: false, theme: null } }
   let m: RegExpMatchArray | null
   // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
   if (full === '/environments') return { body: { environments: fx.environments } }
@@ -199,7 +199,7 @@ const shots: Shot[] = [
   },
   {
     // Easter Egg: Konami-Code getippt → Meldung «Windows 95 freigeschaltet», vierte Option im Profilmenü
-    group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { win95Unlocked: false },
+    group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { unlocks: [] },
     prepare: async (pg) => {
       // Tasten als keydown-Ereignisse: derselbe Lauscher, aber ohne das (sanfte, ungleich weite)
       // Scrollen der echten Pfeiltasten – sonst verrutscht das Bild von Lauf zu Lauf
@@ -1051,7 +1051,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, win95Unlocked: t === 'win95', ...s.me })
+            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, unlocks: t === 'win95' ? ['win95'] : [], ...s.me })
             if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })

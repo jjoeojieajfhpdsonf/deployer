@@ -1,7 +1,7 @@
 import { markSessionExpired } from './lib/session.js'
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs,
+  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs, UnlockId,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
   SiteAccessEntryDto,
@@ -70,8 +70,8 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
-  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet */
-  win95Unlocked?: boolean
+  /** Freischaltungen (Easter Eggs), z. B. 'win95' für «Windows 95» in der Darstellung */
+  unlocks?: UnlockId[]
   /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
   setup?: SetupPrefs | null
   /** Glocke: bis wann gelesen (UI-Qualität 8) */
@@ -168,6 +168,8 @@ export const api = {
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
   /** Nur geänderte Teile (Darstellung, Einrichtung, Umgebung); der Server führt zusammen */
   setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
+  /** Freischaltung (Easter Egg) hinzufügen; idempotent */
+  unlock: (id: UnlockId) => call<UiPrefs>('/auth/unlocks', { method: 'POST', body: body({ id }) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>(e('/projects')),

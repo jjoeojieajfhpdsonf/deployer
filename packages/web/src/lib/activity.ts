@@ -56,6 +56,8 @@ function took(ms: number | null): string | null {
 }
 
 const WAY: Record<string, string> = { lan: 'LAN', tailnet: 'Tailnet', public: 'Öffentlich' }
+/** Freischaltungen (Easter Eggs) im Klartext */
+const UNLOCK_LABEL: Record<string, string> = { win95: 'Windows 95' }
 
 export function gradeChip(grade: unknown, score: unknown): Chip | null {
   const g = str(grade)
@@ -149,6 +151,9 @@ const EVENTS: Record<string, Describe> = {
   'token.create': (p) => ({ title: 'Token angelegt', category: 'access', sub: [str(p.name) ? `«${p.name}»` : null] }),
   'token.revoke': (p) => ({ title: 'Token widerrufen', category: 'access', sub: [str(p.name) ? `«${p.name}»` : null] }),
   'ui.prefs': () => ({ title: 'Darstellung geändert', category: 'config' }),
+  'ui.unlocked': (p) => ({ title: 'Freigeschaltet', category: 'config', sub: [UNLOCK_LABEL[String(p.id)] ?? str(p.id)] }),
+  // Einträge vor der Liste «unlocks» (Etappe 2)
+  'ui.win95_unlocked': () => ({ title: 'Freigeschaltet', category: 'config', sub: ['Windows 95'] }),
   'notifications.update': () => ({ title: 'Benachrichtigungen geändert', category: 'config' }),
   'notifications.test': () => ({ title: 'Test-Benachrichtigung gesendet', category: 'config' }),
   'settings.pause_page': (p) => ({ title: 'Vorlage der Pause-Seite geändert', category: 'config', sub: [p.reset ? 'auf Standard zurückgesetzt' : str(p.title) ? `«${p.title}»` : null] }),

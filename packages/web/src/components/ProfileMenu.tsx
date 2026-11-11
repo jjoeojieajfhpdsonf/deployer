@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { themePrefs, type ThemePref } from '@airlock/shared'
+import { themePrefs, themeUnlocked, type ThemePref } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
 import { applyTheme, readLocalTheme, THEME_LABEL } from '../lib/theme.js'
 import { useMenu } from './useMenu.js'
@@ -77,7 +77,7 @@ export function ProfileMenu({ me }: { me: MeDto }) {
         <div role="group" aria-label="Darstellung">
           <div className="menu-group-label" aria-hidden="true">Darstellung</div>
           {/* «Windows 95» erst nach der Freischaltung (Easter Egg) */}
-          {themePrefs.filter((t) => t !== 'win95' || me.win95Unlocked || theme === 'win95').map((t) => (
+          {themePrefs.filter((t) => themeUnlocked(t, me.unlocks) || theme === t).map((t) => (
             <button key={t} role="menuitemradio" aria-checked={theme === t} onClick={() => void pickTheme(t)}>
               {THEME_LABEL[t]}
               {theme === t && (
