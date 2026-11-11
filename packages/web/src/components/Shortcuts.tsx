@@ -46,9 +46,10 @@ export function Shortcuts() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Palette: ⌘K (Mac) bzw. Ctrl+K, auch aus Feldern heraus
+      // Palette: ⌘K (Mac) bzw. Ctrl+K – nicht in Eingabefeldern (Antwort 5: dort bleibt das Kürzel des
+      // Browsers bzw. des Felds, z. B. Ctrl+K «bis Zeilenende löschen»)
       const mod = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && !typing(e.target)) {
         e.preventDefault()
         // Gedrückt halten schaltet nicht ständig auf und zu
         if (!e.repeat) setPalette((o) => !o)
@@ -116,6 +117,11 @@ function ShortcutHelp({ open, onClose }: { open: boolean; onClose: () => void })
             </div>
           ))}
         </dl>
+        {/* Antwort 5: offen sagen, was überschrieben wird */}
+        <p className="hint shortcut-note">
+          <kbd>⌘</kbd><kbd>K</kbd> bzw. <kbd>Ctrl</kbd><kbd>K</kbd> und <kbd>/</kbd> ersetzen auf dieser Seite die gleichnamigen Kürzel des Browsers (Adressleisten- bzw. Schnellsuche) –
+          nur solange Airlock den Fokus hat und nicht in Eingabefeldern.
+        </p>
         <div className="dialog-actions"><button type="button" onClick={onClose} autoFocus>Schliessen</button></div>
       </div>
     </dialog>

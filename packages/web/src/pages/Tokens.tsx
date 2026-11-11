@@ -27,6 +27,8 @@ export function Tokens() {
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // Antwort 14: Befehl je Shell (macOS-Standard zsh)
+  const [shell, setShell] = useState<'zsh' | 'bash'>('zsh')
 
   const mcpUrl = `${window.location.origin}/mcp`
 
@@ -68,8 +70,15 @@ export function Tokens() {
   }
 
   // UI-Qualität 8: fertige Einrichtung je Client zum Kopieren (vorher fehlte das Leerzeichen vor der URL)
+  // Antwort 14: für alle Ordner (--scope user) und ohne Token im Befehl – es wird verdeckt eingelesen,
+  // damit es nicht in der Shell-History landet; danach wieder gelöscht
+  const read = shell === 'zsh' ? 'read -rs "AIRLOCK_TOKEN?Token: "' : 'read -rsp "Token: " AIRLOCK_TOKEN'
   const cli = fresh
-    ? `claude mcp add --transport http airlock ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
+    ? [
+        read,
+        `claude mcp add --transport http --scope user airlock ${mcpUrl} --header "Authorization: Bearer $AIRLOCK_TOKEN"`,
+        'unset AIRLOCK_TOKEN',
+      ].join('\n')
     : ''
   // Claude Desktop spricht entfernte MCP-Server über mcp-remote an (Eintrag in claude_desktop_config.json).
   // Kopfzeile über eine Umgebungsvariable und ohne Leerzeichen im Argument: so empfiehlt es mcp-remote,
@@ -130,8 +139,14 @@ export function Tokens() {
           </div>
           {client === 'code' ? (
             <>
-              <p className="hint">Im Terminal ausführen:</p>
-              <pre className="code-block" tabIndex={0} role="group" aria-label="Befehl für Claude Code">{cli}</pre>
+              <div className="token-shell">
+                <p className="hint">Im Terminal ausführen. Der Befehl fragt nach dem Token (oben kopieren, die Eingabe bleibt unsichtbar) – so landet es nicht in der Shell-History. Gilt danach in allen Ordnern.</p>
+                <div className="segmented segmented-small" role="group" aria-label="Shell">
+                  <button type="button" aria-pressed={shell === 'zsh'} onClick={() => setShell('zsh')}>zsh</button>
+                  <button type="button" aria-pressed={shell === 'bash'} onClick={() => setShell('bash')}>bash</button>
+                </div>
+              </div>
+              <pre className="code-block" tabIndex={0} role="group" aria-label={`Befehl für Claude Code (${shell})`}>{cli}</pre>
               <div className="form-actions">
                 <button type="button" className="button-primary" onClick={() => copy('cli', cli)}>Befehl kopieren</button>
               </div>

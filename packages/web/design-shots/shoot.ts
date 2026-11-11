@@ -283,6 +283,26 @@ const shots: Shot[] = [
     },
   },
   {
+    // Antwort 16: nach der Anmeldung «Erneut ausführen» für die gescheiterte Aktion (nichts automatisch)
+    group: 'sitzung', name: 'sitzung-erneut-ausfuehren', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      const row = pg.locator('#set-umgebung .env-row').last().locator('input')
+      await row.nth(0).fill('API_KEY')
+      await row.nth(1).fill('geheim')
+      const unauthorized = (r: import('@playwright/test').Route) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' })
+      await pg.route('**/api/v1/**', unauthorized)
+      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
+      const dialog = pg.getByRole('dialog', { name: 'Sitzung abgelaufen' })
+      await dialog.getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.unroute('**/api/v1/**', unauthorized)
+      await dialog.getByLabel('Passwort').fill('test-passwort')
+      await dialog.getByRole('button', { name: 'Anmelden' }).click()
+      await pg.locator('[data-sonner-toast]').filter({ hasText: 'Erneut ausführen' }).first().waitFor()
+      await pg.waitForTimeout(500)
+    },
+  },
+  {
     group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
@@ -298,6 +318,17 @@ const shots: Shot[] = [
       await pg.getByLabel('Name des Tokens').fill('Claude Desktop')
       await pg.getByRole('button', { name: 'Token anlegen' }).click()
       await pg.getByRole('button', { name: 'Claude Desktop' }).click()
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    // Antwort 14: Befehl für Claude Code mit --scope user, Token verdeckt eingelesen (bash gewählt)
+    group: 'sitzung', name: 'tokens-neu-claude-code', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name des Tokens').fill('Claude Code Mac')
+      await pg.getByRole('button', { name: 'Token anlegen' }).click()
+      await pg.getByRole('button', { name: 'bash', exact: true }).click()
+      await pg.locator('.token-shell').scrollIntoViewIfNeeded()
       await pg.waitForTimeout(200)
     },
   },
