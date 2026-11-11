@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import type { EnvEntryDto, ProjectDto, ProjectHealthDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { relativeTime, shortVersion } from '../lib/format.js'
+import { ageMs, fmtDate, msOf } from '../lib/dates.js'
 import { actorKind, actorText, IconSpark } from './Actor.js'
 import { IconGit, IconBox, IconUpload } from './Icons.js'
+import { ErrorState, Loading, SkLines } from './States.js'
 import { IconWarn } from './Security.js'
 
 /**
@@ -87,7 +89,8 @@ function Usage({ p, h }: { p: ProjectDto; h: ProjectHealthDto | null }) {
 /** Ablauf eines Chat-Projekts: neutral, ab 7 Tagen vorher in Warnfarbe; nach «Behalten» unbegrenzt. */
 export function ExpiryNotice({ p, onToggleKeep, busy }: { p: ProjectDto; onToggleKeep: () => void; busy?: boolean }) {
   if (p.sourceType !== 'files') return null
-  if (p.keep || !p.expiresAt) {
+  // Ungültiges Ablaufdatum wie kein Ablauf behandeln, statt «Abgelaufen» zu behaupten
+  if (p.keep || msOf(p.expiresAt) === null) {
     return (
       <div className="kf-expiry kf-expiry-keep" role="status">
         <div className="kf-expiry-head">
@@ -99,9 +102,9 @@ export function ExpiryNotice({ p, onToggleKeep, busy }: { p: ProjectDto; onToggl
     )
   }
   const total = p.expiryDays ?? 30
-  const left = Math.ceil((Date.parse(p.expiresAt) - Date.now()) / DAY)
+  const left = Math.ceil(-(ageMs(p.expiresAt) ?? 0) / DAY)
   const warn = left <= EXPIRY_WARN_DAYS
-  const date = new Date(p.expiresAt).toLocaleDateString('de-CH')
+  const date = fmtDate(p.expiresAt)
   const elapsed = Math.min(1, Math.max(0, 1 - left / total))
   const title = left <= 0 ? 'Abgelaufen' : left === 1 ? 'Läuft noch 1 Tag' : `Läuft noch ${left} Tage`
   return (
@@ -131,7 +134,8 @@ function FilesDialog({ projectId, open, onClose }: { projectId: string; open: bo
       <div className="dialog-body">
         <h2 id="files-h">Dateien</h2>
         <p className="dialog-lede">Stand {files.data?.commit ? <code className="dl-version">{files.data.commit.slice(0, 7)}</code> : '–'} im Repo des Chat-Projekts. Ändern geht über Claude (update_files).</p>
-        {files.isLoading ? <p className="muted">Wird geladen…</p> : (
+        {!files.data && files.isError ? <ErrorState compact what="Die Dateiliste" error={files.error} retrying={files.isFetching} onRetry={() => void files.refetch()} />
+          : !files.data ? <Loading label="Dateien werden geladen"><SkLines n={5} /></Loading> : (
           <ul className="kf-files">
             {list.map((f) => <li key={f.path}><code>{f.path}</code><span className="num">{fmtBytes(f.size)}</span></li>)}
           </ul>

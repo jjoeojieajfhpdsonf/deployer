@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'
 import type { AuditEventDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
@@ -58,12 +59,12 @@ export function Audit() {
   return (
     <section className="page">
       <PageHead
-        crumbs={[{ label: 'audit' }]}
+        crumbs={[{ label: 'Audit' }]}
         title="Audit"
         actions={
           <div className="search">
             <IconSearch />
-            <input type="search" aria-label="Audit-Log durchsuchen" placeholder="Projekt, Aktion oder Akteur" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <input data-page-search aria-keyshortcuts="/" type="search" aria-label="Audit-Log durchsuchen (Taste /)" placeholder="Projekt, Aktion oder Akteur" value={filter} onChange={(e) => setFilter(e.target.value)} />
           </div>
         }
       />
@@ -98,12 +99,22 @@ export function Audit() {
         </p>
       )}
 
-      {events.isLoading ? (
-        <p className="state state-loading">Audit-Log wird geladen…</p>
-      ) : events.isError ? (
-        <p className="state state-error" role="alert">Audit-Log nicht lesbar.</p>
+      {!events.data && events.isError ? (
+        <ErrorState what="Das Audit-Log" error={events.error} retrying={events.isFetching} onRetry={() => void events.refetch()} />
+      ) : !events.data ? (
+        <Loading label="Audit-Log wird geladen"><SkRows n={8} /></Loading>
       ) : list.length === 0 ? (
-        <p className="state state-empty">{q ? <>Nichts passt zu «{filter}».</> : kind === 'fehler' ? 'Keine Fehler in diesem Zeitraum.' : 'Keine Einträge.'}</p>
+        q ? (
+          <EmptyState title={`Nichts passt zu «${filter}»`} action={<button type="button" onClick={() => setFilter('')}>Suche leeren</button>}>
+            Gesucht wird in Titel, Projekt, Akteur und Rohdaten der geladenen Einträge.
+          </EmptyState>
+        ) : kind !== 'alle' ? (
+          <EmptyState title={kind === 'fehler' ? 'Keine Fehler in diesem Zeitraum' : 'Keine Deploys in diesem Zeitraum'} action={<button type="button" onClick={() => setKind('alle')}>Alle Einträge zeigen</button>} />
+        ) : (
+          <EmptyState title="Noch keine Einträge" action={<Link className="button" to="/projekte/neu">Projekt anlegen</Link>}>
+            Hier landet jede Änderung: Deploys, Scans, Einstellungen und Anmeldungen.
+          </EmptyState>
+        )
       ) : (
         <div className="panel panel-pad audit-panel">
           <ActivityList items={list} projects={projectFilter ? undefined : byId} details />
@@ -112,7 +123,7 @@ export function Audit() {
       {all.length >= limit && (
         <div className="load-more">
           <span>{limit} neueste Einträge geladen</span>
-          <button onClick={() => setLimit((l) => l + 200)} disabled={events.isFetching}>{events.isFetching ? 'Lädt…' : 'Ältere laden'}</button>
+          <button onClick={() => setLimit((l) => l + 200)} disabled={events.isFetching} aria-busy={events.isFetching || undefined}>Ältere laden</button>
         </div>
       )}
     </section>

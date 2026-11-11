@@ -53,6 +53,7 @@ export function toDeploymentDto(r: Row): DeploymentDto {
     reason: r.reason ?? undefined,
     actor: r.actor ?? null,
     message: r.message ?? null,
+    failure: r.failure ?? null,
   }
 }
 

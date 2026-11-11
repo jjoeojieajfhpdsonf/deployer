@@ -20,9 +20,10 @@ import { score, grade, fingerprint, dedupe, bySeverity, publishable, type Findin
 import { trivyImage, trivySource, headerCheck, headerCheckViaCaddy, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { probeTargetFor } from '../domain/routes.js'
-import type { HeaderRecheckDto } from '@airlock/shared'
+import { countOpenFindings, type HeaderRecheckDto } from '@airlock/shared'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
+import { publish } from '../lib/events.js'
 
 /**
  * Scan-Ablauf (M6). Scans laufen nacheinander in einer Warteschlange;
@@ -186,7 +187,10 @@ async function runScan(runId: string): Promise<void> {
   const run = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.id, runId)).limit(1))[0]
   if (!run) return
   const startedAt = new Date()
+  // UI-Qualität 3: Oberfläche lädt bei jedem Zwischenstand nach (SSE statt Polling)
+  const ping = (phase: 'start' | 'stage' | 'end' = 'stage') => publish({ type: 'scan', phase, projectId: run.projectId, targetId: run.externalTargetId })
   await db.update(schema.scanRuns).set({ status: 'running', startedAt }).where(eq(schema.scanRuns.id, runId))
+  ping('start')
   log.info('Scan gestartet', { scan: runId, project: run.projectId, external: run.externalTargetId, level: run.level, trigger: run.trigger, actor: run.actor })
   // Der Plan aus enqueue*; jede Stufe aktualisiert ihren Eintrag
   const stages: ScanStages = { ...run.stages }
@@ -201,7 +205,7 @@ async function runScan(runId: string): Promise<void> {
     if (!force && Date.now() - lastSave < 1_500) return saving
     lastSave = Date.now()
     const snapshot = structuredClone(stages)
-    saving = saving.then(() => db.update(schema.scanRuns).set({ stages: snapshot }).where(eq(schema.scanRuns.id, runId))).catch(() => {})
+    saving = saving.then(() => db.update(schema.scanRuns).set({ stages: snapshot }).where(eq(schema.scanRuns.id, runId))).then(() => ping('stage')).catch(() => {})
     return saving
   }
 
@@ -265,6 +269,7 @@ async function runScan(runId: string): Promise<void> {
       await finalize(run, findings, stages)
       if (run.projectId) for (const fn of doneListeners) fn(run.projectId)
     }
+    ping('end')
     log.info('Scan beendet', { scan: runId, status: by ? 'abgebrochen' : 'fertig', dauerMs: Date.now() - startedAt.getTime(), befunde: all.length })
   } catch (err) {
     await saving
@@ -273,6 +278,7 @@ async function runScan(runId: string): Promise<void> {
       .update(schema.scanRuns)
       .set({ status: 'failed', error: (err as Error).message.slice(0, 500), finishedAt: new Date(), stages })
       .where(eq(schema.scanRuns.id, runId))
+    ping('end')
     log.warn('Scan gescheitert', { scan: runId, dauerMs: Date.now() - startedAt.getTime(), err: String(err) })
   } finally {
     // Auf jedem Weg aufräumen: die Kopie des Quellcodes (kann Secrets
@@ -620,8 +626,8 @@ export async function scanReport(runId: string): Promise<ScanReport> {
   if (!run) throw notFound('Scan')
   const f = (await db.select().from(schema.findings).where(eq(schema.findings.scanRunId, runId))).sort(bySeverity)
   const open = f.filter((x) => x.status === 'open')
-  const counts = { critical: 0, high: 0, medium: 0, low: 0 } as Record<Severity, number>
-  for (const x of open) counts[x.severity]++
+  // Eine Funktion für «offen» (shared), dieselbe wie in der Projektübersicht und der Oberfläche
+  const counts: Record<Severity, number> = countOpenFindings(f)
   const owner = run.projectId ? eq(schema.scanRuns.projectId, run.projectId) : run.externalTargetId ? eq(schema.scanRuns.externalTargetId, run.externalTargetId) : null
   const previous = owner
     ? (await db.select({ score: schema.scanRuns.score }).from(schema.scanRuns)

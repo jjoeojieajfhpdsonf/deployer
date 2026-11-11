@@ -1,0 +1,9 @@
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:47:02.050Z] Healthcheck nach 60 Versuchen nicht bestanden (connect ECONNREFUSED 172.20.0.6:5000)
+[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:
+ * Serving Flask app 'rezepte'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment.
+ * Running on http://127.0.0.1:5000
+Press CTRL+C to quit
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

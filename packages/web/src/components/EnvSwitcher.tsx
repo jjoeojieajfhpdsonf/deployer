@@ -31,7 +31,8 @@ export function EnvSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        aria-label={`Umgebung ${env.name}${env.zone && env.zone !== env.name ? ` (${env.zone})` : ''} – wechseln`}
+        // Sichtbares Kürzel vorne im Namen (WCAG 2.5.3 Label in Name, wie bei «Vorgänge»)
+        aria-label={`${env.short}: Umgebung ${env.name}${env.zone && env.zone !== env.name ? ` (${env.zone})` : ''} – wechseln`}
         title={`Umgebung: ${env.name}`}
         onClick={toggle}
       >

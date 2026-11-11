@@ -5,16 +5,19 @@ import { db, schema } from '../db/index.js'
 import { serverJob, type Scope, type ListScope, type EnvScope } from '../lib/scope.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type NamePreviewDto, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { containerSnapshot } from '../jobs/monitor.js'
 import { isOwnImage } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
 import { expiresAt } from '../jobs/expiry-rule.js'
 import { chatExpiryDays } from './expiry-settings.js'
-import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
+import { routeDtosFor, setRoutes, reconcileCaddy, urlsFor } from './routes.js'
+import { primaryHostIn, aliasHostsIn } from './environments.js'
 import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
+import { withFailure } from '../deploy/explain.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
 
@@ -24,6 +27,11 @@ type Row = typeof schema.projects.$inferSelect
 
 export async function toDto(r: Row): Promise<ProjectDto> {
   const active = await activeDeployment(r.id)
+  const routes = await routeDtosFor(r.id, r.slug)
+  const activeDto = active ? toDeploymentDto(active) : null
+  const lastRaw = await lastDeploymentDto(r.id)
+  // UI-Qualität 2: gescheiterter letzter Deploy mit dem Titel der Fehlererklärung (Pille, Banner)
+  const last = lastRaw ? (await withFailure(r, [lastRaw]))[0]! : null
   return {
     id: r.id,
     name: r.name,
@@ -39,8 +47,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     memoryLimitMb: r.memoryLimitMb,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    routes: await routeDtosFor(r.id, r.slug),
-    activeDeployment: active ? toDeploymentDto(active) : null,
+    routes,
+    activeDeployment: activeDto,
     runsAsRoot: null,
     // M3
     runtimeKind: effectiveKind(r.sourceType, active?.artifact),
@@ -49,9 +57,11 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     expiresAt: expiresAt(r, chatExpiryDays())?.toISOString() ?? null,
     expiryDays: r.sourceType === 'files' ? chatExpiryDays() : null,
     security: await securitySummary(r.id),
-    lastDeployment: await lastDeploymentDto(r.id),
+    lastDeployment: last,
     // Stand vom letzten Blick auf Docker (Abgleich, Deploy); kein Docker-Aufruf je DTO
     legacyContainers: docker.legacySnapshot().slugs.has(r.slug),
+    // Einzige Quelle für den Zustand (UI-Qualität 1); Container aus der Monitor-Runde
+    state: projectState({ status: r.status, desiredState: r.desiredState, activeDeployment: activeDto, lastDeployment: last, routes, container: containerSnapshot(r.id) }),
   }
 }
 
@@ -76,14 +86,13 @@ async function securitySummary(projectId: string): Promise<ProjectDto['security'
   const done = latest.status === 'done'
     ? latest
     : (await db.select().from(schema.scanRuns).where(and(eq(schema.scanRuns.projectId, projectId), eq(schema.scanRuns.status, 'done'))).orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
-  const open = { critical: 0, high: 0, medium: 0, low: 0 }
-  if (done) {
-    const f = await db
-      .select({ severity: schema.findings.severity })
+  // Dieselbe Zählung wie der Scan-Bericht (countOpenFindings, shared)
+  const open = done
+    ? countOpenFindings(await db
+      .select({ severity: schema.findings.severity, status: schema.findings.status })
       .from(schema.findings)
-      .where(and(eq(schema.findings.scanRunId, done.id), eq(schema.findings.status, 'open')))
-    for (const x of f) open[x.severity]++
-  }
+      .where(eq(schema.findings.scanRunId, done.id)))
+    : { critical: 0, high: 0, medium: 0, low: 0 }
   return {
     scanId: latest.id,
     status: latest.status,
@@ -149,17 +158,43 @@ export async function findProjectForServerJob(idOrSlug: string): Promise<Row> {
 
 /* --- Schreiben ------------------------------------------------------------ */
 
-async function freeSlug(wanted: string): Promise<string> {
+async function freeSlug(wanted: string, envId: string): Promise<string> {
   const taken = new Set([
     ...RESERVED_SLUGS,
     ...(await db.select({ slug: schema.projects.slug }).from(schema.projects)).map((r) => r.slug),
   ])
-  if (!taken.has(wanted)) return wanted
+  // UI-Qualität 5: auch belegte Adressen zählen (über MCP kann ein Projekt eine fremde Subdomain tragen);
+  // sonst scheiterte setRoutes nach dem Anlegen mit 409 und liesse ein halbes Projekt zurück
+  const hosts = new Set((await db.select({ hostname: schema.routes.hostname }).from(schema.routes)).map((r) => r.hostname))
+  const free = (s: string) => !taken.has(s) && !hosts.has(primaryHostIn(envId, s))
+  if (free(wanted)) return wanted
   for (let i = 2; i < 100; i++) {
     const candidate = `${wanted.slice(0, 37)}-${i}`
-    if (!taken.has(candidate)) return candidate
+    if (free(candidate)) return candidate
   }
   throw conflict(`Kein freier Slug für "${wanted}" gefunden`)
+}
+
+/**
+ * UI-Qualität 5: Vorschau für «Neues Projekt» – welcher Kurzname und welche
+ * Adresse entstehen, und ist der gewünschte Kurzname schon belegt (dann gibt
+ * es «-2» usw., wie beim Anlegen). Ändert nichts.
+ * M9: Adresse in der Umgebung des Scopes. Slugs sind serverweit eindeutig;
+ * ein Projekt einer anderen Umgebung wird nicht mit Namen genannt (nur
+ * «Adresse belegt»), wie «nicht gefunden statt verboten».
+ */
+export async function previewName(scope: EnvScope, name: string): Promise<NamePreviewDto> {
+  // slugify fällt bei Namen ohne Buchstaben auf «projekt» zurück – genau wie beim Anlegen
+  const wanted = slugify(name)
+  const row = (await db.select({ id: schema.projects.id, name: schema.projects.name, env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.slug, wanted)).limit(1))[0]
+  const owner = row && row.env === scope.envId ? { id: row.id, name: row.name } : null
+  const reserved = (RESERVED_SLUGS as readonly string[]).includes(wanted)
+  // Dieselbe Funktion wie createProject: Vorschau und Anlegen wählen denselben Kurznamen
+  const slug = await freeSlug(wanted, scope.envId).catch(() => '')
+  const host = slug ? primaryHostIn(scope.envId, slug) : null
+  // Weder Kurzname (dieser Umgebung) noch reserviert, aber trotzdem ausgewichen: die Adresse ist schon belegt
+  const hostTaken = !owner && !reserved && slug !== '' && slug !== wanted
+  return { wanted, slug, takenBy: owner, reserved, hostTaken, host, urls: host ? urlsFor(host, aliasHostsIn(scope.envId, slug), scope.envId) : [] }
 }
 
 /**
@@ -168,7 +203,7 @@ async function freeSlug(wanted: string): Promise<string> {
  * «schon vergeben» – das verrät nur den Namen, keinen Inhalt.
  */
 export async function createProject(scope: EnvScope, input: CreateProjectInput, actor: string): Promise<Row> {
-  const slug = input.slug ? input.slug : await freeSlug(slugify(input.name))
+  const slug = input.slug ? input.slug : await freeSlug(slugify(input.name), scope.envId)
   if (input.slug) {
     const existing = await db.select().from(schema.projects).where(eq(schema.projects.slug, slug)).limit(1)
     if (existing.length) throw conflict(`Der Slug "${slug}" ist schon vergeben`)
@@ -191,6 +226,11 @@ export async function createProject(scope: EnvScope, input: CreateProjectInput, 
       environmentId: scope.envId,
     })
     .returning()
+    .catch((err: unknown) => {
+      // Gleichzeitig angelegt (z.B. von Claude), Kurzname inzwischen vergeben: verständlich statt «Interner Fehler»
+      if ((err as { code?: string }).code === '23505') throw conflict(`Der Kurzname «${slug}» wurde gerade vergeben – bitte noch einmal anlegen`)
+      throw err
+    })
 
   const project = inserted[0]!
   if (input.env.length) await replaceEnv(project.id, input.env)

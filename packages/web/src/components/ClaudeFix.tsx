@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FIX_STATUS_LABEL, headerFixFor } from '@airlock/shared'
 import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
+import { ErrorState, Loading, SkLines } from './States.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { IconWarn } from './Security.js'
 import { IconSpark } from './Actor.js'
 
@@ -73,8 +75,8 @@ export function ClaudeFixAction({
       </div>
       {offered && open && (
         <div id={panelId} className="claude-fix">
-          {hint.isLoading && <p className="state-loading hint">Wird geladen…</p>}
-          {hint.isError && <p role="alert" className="error">{hint.error instanceof ApiError ? hint.error.message : 'Nicht geladen'}</p>}
+          {!hint.data && !hint.isError && <Loading label="Hinweis wird geladen"><SkLines n={3} /></Loading>}
+          {!hint.data && hint.isError && <ErrorState compact what="Der Hinweis" error={hint.error} retrying={hint.isFetching} onRetry={() => void hint.refetch()} />}
           {h && (
             <>
               <p className="hint">{h.explanation}</p>
@@ -179,8 +181,8 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
             <span className="confirm-inline" role="group" aria-label="Vorschlag übernehmen">
               <span className="confirm-note"><IconWarn />Neue Version im Projekt, Deploy und Nachscan.</span>
               <button type="button" className="button-small" onClick={applyC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-primary" disabled={busy} onClick={() => apply.mutate()}>
-                {apply.isPending ? 'Wird übernommen …' : 'Ja, übernehmen und deployen'}
+              <button type="button" className="button-small button-primary" disabled={busy} aria-busy={apply.isPending || undefined} onClick={() => apply.mutate()}>
+                Ja, übernehmen und deployen
               </button>
             </span>
           )}
@@ -188,8 +190,8 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
             <span className="confirm-inline" role="group" aria-label="Vorschlag verwerfen">
               <span className="confirm-note"><IconWarn />Verworfene Vorschläge lassen sich nicht wieder öffnen.</span>
               <button type="button" className="button-small" onClick={rejectC.close} autoFocus>Abbrechen</button>
-              <button type="button" className="button-small button-danger-solid" disabled={busy} onClick={() => reject.mutate()}>
-                {reject.isPending ? 'Wird verworfen …' : 'Ja, verwerfen'}
+              <button type="button" className="button-small button-danger-solid" disabled={busy} aria-busy={reject.isPending || undefined} onClick={() => reject.mutate()}>
+                Ja, verwerfen
               </button>
             </span>
           )}
@@ -205,8 +207,8 @@ export function FixRequestsSection({ projectId, onDone, watch }: { projectId: st
   const q = useQuery({
     queryKey: fixesKey(projectId),
     queryFn: () => api.fixRequests(projectId),
-    // Wartet ein Vorschlag auf Deploy und Nachscan oder wurde eben ein Auftrag kopiert: oft nachsehen
-    refetchInterval: (query) => (watch || query.state.data?.fixes.some((f) => f.status === 'applied' || f.status === 'merged') ? 5000 : 30_000),
+    // Neue Vorschläge (Audit), Deploy und Nachscan kommen über den Ereignisstrom (UI-Qualität 3)
+    refetchInterval: poll,
   })
   const fixes = q.data?.fixes ?? []
   if (!fixes.length) return null

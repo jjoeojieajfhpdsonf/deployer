@@ -14,7 +14,8 @@ export const clientErrorSchema = z.object({
   stack: z.string().max(2000).default(''),
   componentStack: z.string().max(1500).default(''),
   path: z.string().max(200).regex(/^\/[^?#]*$/, 'Nur der Pfad, ohne Query').default('/'),
-  scope: z.enum(['app', 'page']).default('page'),
+  // part: Zusatz in der Shell (Befehlspalette, Aktivitätsanzeige), fällt still weg
+  scope: z.enum(['app', 'page', 'part']).default('page'),
 })
 
 const WINDOW_MS = 60_000

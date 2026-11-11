@@ -1,18 +1,42 @@
 import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
+import { ExternalTargets } from './ExternalTargets.js'
+import { sumCounts, type ProjectDto } from '@airlock/shared'
+import { api } from '../api.js'
 import { useEnvPath } from '../lib/env.js'
-import type { ProjectDto } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'
 import { relativeTime } from '../lib/format.js'
+import { EmptyState, ErrorState, Loading, SkRows, SkStats } from '../components/States.js'
 
 /**
  * Security über alle Projekte: Note, offene Befunde nach Schwere, letzter
  * Scan. Sortiert nach Dringlichkeit – oben, was zuerst angeschaut werden soll.
  */
-export function SecurityOverview() {
+export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte' | 'extern' }) {
+  const ep = useEnvPath()
+  // UI-Qualität 6: Externe Ziele als Reiter unter Security (/extern leitet hierher)
+  const tabs = (
+    <nav className="tabs" aria-label="Bereiche von Security">
+      <NavLink to={ep('/security')} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'projekte' ? 'page' : undefined}>Projekte</NavLink>
+      <NavLink to={ep('/security/extern')} className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'extern' ? 'page' : undefined}>Externe Ziele</NavLink>
+    </nav>
+  )
+  if (section === 'extern') {
+    return (
+      // Gleiche Breite wie der Reiter «Projekte» (kein Springen beim Wechsel)
+      <section className="page">
+        <PageHead crumbs={[{ label: 'Security', to: ep('/security') }, { label: 'Externe Ziele' }]} title="Security" name="Externe Ziele" />
+        {tabs}
+        <ExternalTargets />
+      </section>
+    )
+  }
+  return <ProjectsSecurity tabs={tabs} />
+}
+
+function ProjectsSecurity({ tabs }: { tabs: React.ReactNode }) {
   const ep = useEnvPath()
   const qc = useQueryClient()
   const projects = useProjects()
@@ -23,7 +47,8 @@ export function SecurityOverview() {
     return -((o?.critical ?? 0) * 1e6 + (o?.high ?? 0) * 1e4 + (o?.medium ?? 0) * 100 + (o?.low ?? 0)) + (p.security.score ?? 0) / 1000
   }
   const sorted = useMemo(() => [...list].sort((a, b) => rank(a) - rank(b)), [list])
-  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => list.reduce((n, p) => n + (p.security?.open[k] ?? 0), 0)
+  const all = sumCounts(list.map((p) => p.security?.open))
+  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => all[k]
   const scanned = list.filter((p) => p.security?.grade).length
 
   const scan = useMutation({
@@ -33,10 +58,13 @@ export function SecurityOverview() {
 
   return (
     <section className="page">
-      <PageHead crumbs={[{ label: 'security' }]} title="Security">
+      <PageHead crumbs={[{ label: 'Security' }]} title="Security">
         <p className="lede">Nach jedem Deploy prüfen Trivy, ein Header-Check, OWASP ZAP und Nuclei das Projekt. Öffentlich schalten geht nur ohne offenen kritischen Befund.</p>
       </PageHead>
+      {tabs}
 
+      {/* Ohne Daten keine Nullen zeigen: erst Skeleton */}
+      {projects.data ? (
       <div className="stats">
         <div className="stat">
           <div className="label">Kritisch</div>
@@ -45,7 +73,7 @@ export function SecurityOverview() {
         </div>
         <div className="stat">
           <div className="label">Hoch</div>
-          <div className={`stat-value${sum('high') ? ' tone-warn' : ''}`}>{sum('high')}</div>
+          <div className={`stat-value${sum('high') ? ' tone-bad tone-high' : ''}`}>{sum('high')}</div>
           <div className="stat-sub">zeitnah beheben</div>
         </div>
         <div className="stat">
@@ -59,16 +87,20 @@ export function SecurityOverview() {
           <div className="stat-sub">Rescan wöchentlich</div>
         </div>
       </div>
+      ) : !projects.isError && <Loading label="Kennzahlen werden geladen"><SkStats /></Loading>}
 
       <div className="section">
         <div className="section-head">
           <h2>Projekte nach Dringlichkeit</h2>
-          <Link to={ep('/extern')} className="muted">Externe Ziele</Link>
         </div>
-        {projects.isLoading ? (
-          <p className="state state-loading">Wird geladen…</p>
+        {!projects.data && projects.isError ? (
+          <ErrorState what="Die Projektliste" error={projects.error} retrying={projects.isFetching} onRetry={() => void projects.refetch()} />
+        ) : !projects.data ? (
+          <Loading label="Projekte werden geladen"><SkRows n={5} /></Loading>
         ) : list.length === 0 ? (
-          <div className="state state-empty"><p>Noch kein Projekt – also auch nichts zu prüfen.</p></div>
+          <EmptyState title="Noch kein Projekt" action={<Link className="button" to="/projekte/neu">Projekt anlegen</Link>}>
+            Also auch nichts zu prüfen. Jedes neue Projekt wird nach dem ersten Deploy gescannt.
+          </EmptyState>
         ) : (
           <div className="table-scroll">
             <table className="table">
@@ -109,7 +141,6 @@ export function SecurityOverview() {
             </table>
           </div>
         )}
-        {scan.isError && <p role="alert" className="error">{scan.error instanceof ApiError ? scan.error.message : 'Scan nicht gestartet'}</p>}
       </div>
     </section>
   )

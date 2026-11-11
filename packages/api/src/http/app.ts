@@ -12,6 +12,7 @@ import { environmentRoutes } from './routes/environments.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
+import { eventRoutes } from './routes/events.js'
 import { systemRoutes } from './routes/system.js'
 import { clientErrorRoutes } from './routes/client-errors.js'
 import { uploadRoutes } from './routes/uploads.js'
@@ -22,7 +23,8 @@ import { githubRoutes } from './routes/github.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 import { redactSecrets, redactDeep } from '../lib/redact.js'
-import { requestLogLevel } from '../lib/request-log.js'
+import { requestLogLevel, isStreamRoute } from '../lib/request-log.js'
+import { closeAllStreams } from '../lib/events.js'
 
 /**
  * Leerer Body mit Content-Type application/json gilt als {} statt als Fehler
@@ -73,9 +75,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.addHook('onResponse', async (request, reply) => {
     const ms = reply.elapsedTime
-    const level = requestLogLevel(request.method, reply.statusCode, ms)
+    // Nach writeHead kennt Node den Content-Type nicht mehr: am Routenmuster entscheiden
+    const level = requestLogLevel(request.method, reply.statusCode, ms, isStreamRoute(request.routeOptions.url))
     request.log[level]({ method: request.method, url: request.url.split('?')[0], status: reply.statusCode, ms: Math.round(ms) }, 'Anfrage')
   })
+
+  // UI-Qualität 3: offene SSE-Ströme beim Herunterfahren schliessen, sonst wartet app.close() ewig
+  app.addHook('preClose', async () => closeAllStreams())
 
   acceptEmptyJson(app)
 
@@ -142,6 +148,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(githubRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
+      await api.register(eventRoutes)
       await api.register(systemRoutes)
       await api.register(uploadRoutes)
       await api.register(clientErrorRoutes)

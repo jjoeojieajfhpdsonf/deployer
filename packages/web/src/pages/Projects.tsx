@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import type { ProjectDto, SystemStatusDto } from '@airlock/shared'
+import { publicStateOf, sumCounts, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
-import { api, ApiError } from '../api.js'
+import { usePublicActions } from '../lib/public.js'
+import { api } from '../api.js'
+import { poll } from '../lib/live.js'
+import { ChatSteps } from '../components/ChatSteps.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
@@ -11,8 +14,11 @@ import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../compo
 import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
 import { useEnvPath } from '../lib/env.js'
-import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
+import { useProjects, attention, deployFailedState, isPublic, isRunningOk, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
+import { ageMs, fmtDateTime } from '../lib/dates.js'
+import { notifyOk } from '../lib/feedback.js'
+import { EmptyState, ErrorState, Loading, SkProjectCards, SkRows, SkStats } from '../components/States.js'
 
 
 type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
@@ -25,30 +31,11 @@ export function Projects() {
   const system = useSystem()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('alle')
-  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'info' } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // «/» springt in die Suche (wie in vielen Werkzeugen), ausser beim Tippen.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) && !t.isContentEditable) {
-        e.preventDefault()
-        searchRef.current?.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [])
-
-  // Rückmeldung nach einer Aktion verschwindet nach ein paar Sekunden
-  useEffect(() => {
-    if (!notice) return
-    const t = setTimeout(() => setNotice(null), 6000)
-    return () => clearTimeout(t)
-  }, [notice])
-
+  // Ergebnis als Toast (ein Muster für die ganze App); Stoppen lässt sich rückgängig machen
   const act = useMutation({
+    meta: { errorTitle: 'Aktion nicht ausgeführt' },
     mutationFn: async ({ id, what }: { id: string; what: 'deploy' | 'stop' | 'start' }) => {
       if (what === 'deploy') return api.deploy(id)
       if (what === 'stop') return api.stop(id)
@@ -57,10 +44,9 @@ export function Projects() {
     onSuccess: (_r, v) => {
       const p = list.find((x) => x.id === v.id)
       const name = p?.name ?? 'Projekt'
-      setNotice(v.what === 'deploy'
-        ? { text: `Deploy für «${name}» gestartet – der Fortschritt steht in der Zeile.`, tone: 'info' }
-        : v.what === 'stop' ? { text: `«${name}» gestoppt. Starten geht im Menü «…».`, tone: 'ok' }
-        : { text: `«${name}» wird gestartet.`, tone: 'info' })
+      if (v.what === 'deploy') notifyOk(`Deploy für «${name}» gestartet`, { id: `act-${v.id}`, description: 'Der Fortschritt steht oben bei «Vorgänge» und in der Karte.' })
+      else if (v.what === 'stop') notifyOk(`«${name}» ist gestoppt`, { id: `act-${v.id}`, description: 'Die Adresse antwortet nicht mehr.', undo: () => act.mutate({ id: v.id, what: 'start' }) })
+      else notifyOk(`«${name}» wird gestartet`, { id: `act-${v.id}` })
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
@@ -68,7 +54,7 @@ export function Projects() {
   const list = projects.data?.projects ?? []
   const counts = useMemo(() => ({
     alle: list.length,
-    laufen: list.filter((p) => p.status === 'running').length,
+    laufen: list.filter(isRunningOk).length,
     aufmerksamkeit: list.filter((p) => attention(p)).length,
   }), [list])
   // Bei wenigen Projekten sagt der Filter nichts, was das Raster nicht schon zeigt
@@ -78,7 +64,7 @@ export function Projects() {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
     return list
-      .filter((p) => view === 'alle' || (view === 'laufen' ? p.status === 'running' : attention(p)))
+      .filter((p) => view === 'alle' || (view === 'laufen' ? isRunningOk(p) : attention(p)))
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.routes.some((r) => r.hostname.includes(q)))
       // Dringendes zuerst, dann nach Name
       .sort((a, b) => urgency(b) - urgency(a) || a.name.localeCompare(b.name, 'de-CH'))
@@ -91,28 +77,28 @@ export function Projects() {
   const showNew = view === 'alle' && !query.trim() && free > 0
   const [chatGuide, setChatGuide] = useState(false)
 
-  const failed = list.filter((p) => p.lastDeployment?.status === 'failed')
+  const failed = list.filter(deployFailedState)
 
   return (
     <section className="page">
       <PageHead
-        crumbs={[{ label: 'projekte' }]}
+        crumbs={[{ label: 'Projekte' }]}
         title="Projekte"
         actions={
           <>
             <div className="search">
               <IconSearch />
-              <input ref={searchRef} type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input ref={searchRef} data-page-search aria-keyshortcuts="/" type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <Link className="button button-primary" to={ep('/projekte/neu')}><IconPlus /> Neues Projekt</Link>
           </>
         }
       />
 
-      {projects.isLoading ? (
-        <p className="state state-loading">Projekte werden geladen…</p>
-      ) : projects.isError ? (
-        <p className="state state-error" role="alert">Projekte konnten nicht geladen werden.</p>
+      {!projects.data && projects.isError ? (
+        <ErrorState what="Die Projektliste" error={projects.error} retrying={projects.isFetching} onRetry={() => void projects.refetch()} />
+      ) : !projects.data ? (
+        <Loading label="Projekte werden geladen"><SkStats /><SkProjectCards /></Loading>
       ) : list.length === 0 ? (
         <>
           <Stats list={list} system={system.data} />
@@ -140,12 +126,6 @@ export function Projects() {
           ))}
           {failed.length > 3 && (
             <p className="hint">und {failed.length - 3} weitere fehlgeschlagene Deploys – Filter «Brauchen Aufmerksamkeit».</p>
-          )}
-          {notice && <p role="status" className={`notice notice-${notice.tone}`}>{notice.text}</p>}
-          {act.isError && (
-            <p role="alert" className="error">
-              {act.error instanceof ApiError && act.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (act.error as Error).message}
-            </p>
           )}
 
           <div className="section">
@@ -194,10 +174,13 @@ export function Projects() {
 /* --- Kennzahlen ----------------------------------------------------------------- */
 
 function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto | undefined }) {
-  const running = list.filter((p) => runtimeStatus(p).status === 'running').length
-  const deploying = list.filter((p) => p.status === 'deploying').length
-  const failedCount = list.filter((p) => runtimeStatus(p).status === 'failed' || p.lastDeployment?.status === 'failed').length
-  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => list.reduce((n, p) => n + (p.security?.open[k] ?? 0), 0)
+  // Zählung aus p.state (gleiche Quelle wie Pillen und Karten)
+  // «laufen» ohne die mit gescheitertem Deploy (die stehen als «Deploy-Fehler» daneben, nicht doppelt) – wie der Filter
+  const running = list.filter(isRunningOk).length
+  const deploying = list.filter((p) => p.state.key === 'deploying').length
+  const failedCount = list.filter((p) => p.state.key === 'failed_old_running' || p.state.key === 'down').length
+  const all = sumCounts(list.map((p) => p.security?.open))
+  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => all[k]
   const crit = sum('critical')
   const high = sum('high')
   const rest = sum('medium') + sum('low')
@@ -230,7 +213,7 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
         {crit > 0 ? (
           <div className="stat-value tone-bad">{crit} kritisch</div>
         ) : high > 0 ? (
-          <div className="stat-value tone-warn">{high} hoch</div>
+          <div className="stat-value tone-bad tone-high">{high} hoch</div>
         ) : (
           <div className="stat-value">{rest > 0 ? rest : '0'}</div>
         )}
@@ -337,18 +320,13 @@ function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (open && !d.open) d.showModal()
     if (!open && d.open) d.close()
   }, [open])
-  const mcpUrl = `${window.location.origin}/mcp`
   return (
     // Klick auf den abgedunkelten Rand schliesst (das Ziel ist dann das <dialog> selbst)
     <dialog ref={ref} className="dialog" aria-labelledby="chat-guide-h" onClose={onClose} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="dialog-body">
         <h2 id="chat-guide-h">Per Chat deployen</h2>
         <p className="dialog-lede">Claude legt Projekte über den MCP-Server von Airlock an, ohne Repo und ohne Formular. Einmal einrichten:</p>
-        <ol className="dialog-steps">
-          <li>Auf der Seite <Link to={ep('/tokens')}>Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop». Das Token gilt nur für diese Umgebung.</li>
-          <li>In Claude den MCP-Server <code>{mcpUrl}</code> mit diesem Token eintragen. Für Claude Code steht dort der fertige Befehl.</li>
-          <li>Im Chat sagen, was auf den Server soll, z.B. «Stell diese Seite als hallo-welt online». Das Projekt erscheint danach hier.</li>
-        </ol>
+        <ChatSteps />
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>Schliessen</button>
           <Link className="button button-primary" to={ep('/tokens')}>Zu den Tokens</Link>
@@ -368,7 +346,7 @@ function FailedBanner({ p, onLog, onRetry, busy }: { p: ProjectDto; onLog: () =>
       <span className="alert-icon"><IconAlert /></span>
       <div className="alert-body">
         <strong>{p.name}: {d.trigger === 'rollback' ? 'Rollback' : 'Deploy'} fehlgeschlagen</strong>
-        <span>{sentence(firstLine(d.errorMessage ?? 'Ohne Fehlermeldung'))} {still}</span>
+        <span>{sentence(d.failure?.title ?? firstLine(d.errorMessage ?? 'Ohne Fehlermeldung'))} {still}</span>
       </div>
       <div className="alert-actions">
         <button onClick={onLog}>Log ansehen</button>
@@ -407,7 +385,7 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
   const ep = useEnvPath()
   const [confirm, setConfirm] = useState<MenuConfirm>(null)
   return (
-    <RowMenu label={`Aktionen für ${p.name}`}>
+    <RowMenu label={`Aktionen für ${p.name}`} onClose={() => setConfirm(null)}>
       {(close) => (
         <>
           {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}
@@ -444,16 +422,16 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
   const d = p.lastDeployment
   const version = shortVersion(d?.version ?? p.activeDeployment?.version)
   const src = sourceLine(p)
-  const rt = runtimeStatus(p)
+  const bad = p.state.key === 'failed_old_running' || p.state.key === 'down'
   return (
-    <li className={`pcard${rt.deployFailed || rt.status === 'failed' ? ' pcard-bad' : ''}`}>
+    <li className={`pcard${bad ? ' pcard-bad' : ''}`}>
       <div className="pcard-head">
         <div className="pcard-title">
           {/* Der Name ist der Link; ::after macht die ganze Karte klickbar */}
           <h3><Link className="pcard-link" to={ep(`/projekte/${p.id}`)}>{p.name}</Link></h3>
           {host ? <span className="pcard-host" title={host}>{host}</span> : <span className="pcard-host">keine Adresse</span>}
         </div>
-        <StatusBadge status={rt.status} />
+        <StatusBadge state={p.state} />
       </div>
 
       <div className="pcard-state">
@@ -495,7 +473,8 @@ function sourceLine(p: ProjectDto): { text: string; title?: string } {
   const kind = KIND_LABEL[p.sourceType] ?? p.sourceType
   const s = p.source as { image?: string; repoUrl?: string; uploadId?: string } | null
   if (p.sourceType === 'files') {
-    const days = p.expiresAt ? Math.max(0, Math.ceil((new Date(p.expiresAt).getTime() - Date.now()) / 86_400_000)) : null
+    const left = ageMs(p.expiresAt)
+    const days = left !== null ? Math.max(0, Math.ceil(-left / 86_400_000)) : null
     const runtime = p.runtimeKind !== 'static' ? KIND_LABEL[p.runtimeKind] : null
     const life = p.keep ? 'behalten' : days !== null ? `Ablauf in ${days} ${days === 1 ? 'Tag' : 'Tagen'}` : null
     return { text: [kind, runtime, life].filter(Boolean).join(' · ') }
@@ -524,18 +503,16 @@ function StatusSub({ p }: { p: ProjectDto }) {
       </>
     )
   }
-  if (runtimeStatus(p).deployFailed) {
+  // Unterzeile aus derselben Quelle wie die Pille (p.state); «läuft» braucht keine
+  if (p.state.key === 'failed_old_running') {
     return (
       <div className="cell-sub">
-        <span className="deploy-failed">✕ Deploy fehlgeschlagen</span>
-        {p.activeDeployment ? ` · ${shortVersion(p.activeDeployment.version)} läuft` : ' · nichts aktiv'}
+        {p.state.detail ? <span className="deploy-failed">{p.state.detail}</span> : null}
+        {p.activeDeployment ? `${p.state.detail ? ' · ' : ''}${shortVersion(p.activeDeployment.version)} läuft` : null}
       </div>
     )
   }
-  // Läuft es, sagen Badge und Zeile «Letzter Deploy» schon alles (Ablauf bei Chat-Projekten: Zeile «Quelle»)
-  if (p.status === 'running') return null
-  if (p.status === 'stopped') return <div className="cell-sub">gestoppt</div>
-  return <div className="cell-sub">noch nicht deployt</div>
+  return p.state.detail ? <div className="cell-sub">{p.state.detail}</div> : null
 }
 
 function SecurityCell({ p }: { p: ProjectDto }) {
@@ -544,11 +521,12 @@ function SecurityCell({ p }: { p: ProjectDto }) {
     const note = s?.status === 'running' || s?.status === 'queued' ? 'scannt' : p.status === 'deploying' ? 'nach Deploy' : s?.status === 'failed' ? 'Scan fehlgeschlagen' : 'kein Scan'
     return <div className="grade-cell"><span className="grade grade-none" aria-hidden="true">–</span>{note}</div>
   }
-  const serious = s.open.critical > 0 ? `${s.open.critical} kritisch` : s.open.high > 0 ? `${s.open.high} hoch` : null
+  // Schwerster offener Befund in der Form seiner Stufe (UI-Qualität 7)
+  const serious = s.open.critical > 0 ? { sev: 'critical', text: `${s.open.critical} kritisch` } : s.open.high > 0 ? { sev: 'high', text: `${s.open.high} hoch` } : null
   return (
     <div className="grade-cell" title={`Note ${s.grade}, Score ${s.score} von 100`}>
       <span className={`grade grade-${s.grade}`}>{s.grade}</span>
-      {serious ? <span>{s.score} · {serious}</span> : <span>{s.score} / 100</span>}
+      {serious ? <span>{s.score} · <span className={`sev sev-compact sev-${serious.sev}`}>{serious.text}</span></span> : <span>{s.score} / 100</span>}
       {(s.status === 'running' || s.status === 'queued') && <span className="muted">· scannt</span>}
     </div>
   )
@@ -558,7 +536,7 @@ function SecurityCell({ p }: { p: ProjectDto }) {
 
 function Activity({ projects }: { projects: ProjectDto[] }) {
   const ep = useEnvPath()
-  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: 10_000 })
+  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: poll })
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login').slice(0, 6)
 
@@ -568,13 +546,17 @@ function Activity({ projects }: { projects: ProjectDto[] }) {
         <h2 id="activity-h">Letzte Aktivität</h2>
         <Link to={ep('/audit')} className="muted">Alles im Audit-Log</Link>
       </div>
-      {events.length === 0 ? (
-        <p className="muted">{audit.isLoading ? 'Wird geladen…' : 'Noch nichts passiert.'}</p>
+      {!audit.data && audit.isError ? (
+        <ErrorState compact what="Die Aktivität" error={audit.error} retrying={audit.isFetching} onRetry={() => void audit.refetch()} />
+      ) : !audit.data ? (
+        <Loading label="Aktivität wird geladen"><SkRows n={4} card={false} /></Loading>
+      ) : events.length === 0 ? (
+        <EmptyState compact title="Noch nichts passiert." action={<Link to="/projekte/neu" className="button button-small">Projekt anlegen</Link>}>Hier erscheinen Deploys, Scans und Änderungen.</EmptyState>
       ) : (
         <ul className="activity">
           {events.map((e) => (
             <li key={e.id}>
-              <time dateTime={e.at} title={new Date(e.at).toLocaleString('de-CH')}>{clockOrDay(e.at)}</time>
+              <time dateTime={e.at} title={fmtDateTime(e.at)}>{clockOrDay(e.at)}</time>
               <span className={`dot dot-${auditTone(e)}`} aria-hidden="true" />
               <span className="what">{describeAudit(e, byId)}{e.result === 'error' && e.error ? <span className="muted"> – {shorten(e.error, 90)}</span> : null}</span>
               <span className="who">{actorLabel(e.actor)}</span>

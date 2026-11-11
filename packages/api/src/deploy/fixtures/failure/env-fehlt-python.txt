@@ -1,0 +1,15 @@
+[2026-11-10T12:46:01.102Z] --- starting ---
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:46:02.031Z] Healthcheck gegen http://dep_notizen_b2:8000/
+[2026-11-10T12:47:02.050Z] Healthcheck nach 59 Versuchen nicht bestanden (getaddrinfo ENOTFOUND dep_notizen_b2)
+[2026-11-10T12:47:02.090Z] Container beendet: Exit-Code 1
+[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:
+Traceback (most recent call last):
+  File "/app/manage.py", line 8, in <module>
+    from notizen import settings
+  File "/app/notizen/settings.py", line 23, in <module>
+    SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
+                 ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'DJANGO_SECRET_KEY'
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

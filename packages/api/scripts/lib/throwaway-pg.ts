@@ -62,7 +62,7 @@ export async function startThrowawayPostgres(name: string): Promise<Throwaway> {
   const dir = mkdtempSync(join(tmpdir(), `${name}-`))
   Object.assign(process.env, {
     DATABASE_URL: url,
-    ADMIN_PASSWORD: 'test-passwort',
+    ADMIN_PASSWORD: 'test-passwort', // allowlist-secret: Wegwerf-Datenbank im Test, kein echtes Passwort
     NODE_ENV: 'test',
     DATA_DIR: join(dir, 'data'),
     SITES_DIR: join(dir, 'sites'),

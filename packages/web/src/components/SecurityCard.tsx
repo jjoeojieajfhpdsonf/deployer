@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CspAnalysisDto, FindingDto, ProjectDto, ScanReportDto, ScanStageDto } from '@airlock/shared'
-import { headerFixFor } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { countOpenFindings, headerFixFor, openTotal, scanStageLabel } from '@airlock/shared'
+import { api } from '../api.js'
 import { relativeTime, inTime } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { ErrorState, Loading, Sk } from './States.js'
 import { isPublic } from '../lib/projects.js'
 import { SEVERITY_LABEL } from './Security.js'
 import { HeaderFixAction, useHeaderRules } from './HeaderFix.js'
@@ -20,9 +22,7 @@ const SEVS: Sev[] = ['critical', 'high', 'medium', 'low']
 const VERDICT: Record<string, string> = { A: 'Gut geschützt', B: 'Solide', C: 'Verbesserungsbedarf', D: 'Handlungsbedarf' }
 
 /** Kurze Namen der Stufen für die Fusszeile */
-const STAGE_SHORT: Record<string, string> = {
-  headers: 'Header', 'zap-baseline': 'ZAP', 'zap-full': 'ZAP aktiv', nuclei: 'Nuclei', 'trivy-source': 'Quellcode', 'trivy-image': 'Image', testssl: 'TLS',
-}
+// Stufennamen einheitlich aus shared (SCAN_STAGE_LABEL), wie im Reiter Security und im MCP
 const STAGE_ORDER = ['headers', 'zap-baseline', 'zap-full', 'nuclei', 'trivy-source', 'trivy-image', 'testssl']
 
 /** Grund einer übersprungenen Stufe, kurz: «statisch», «kein Quellcode» */
@@ -67,7 +67,7 @@ function summaryLine(counts: Record<Sev, number>, open: number, p: ProjectDto): 
   return `${counts.high === 1 ? 'Ein hoher Befund' : `${counts.high} hohe Befunde`} offen · vor «Öffentlich» beheben`
 }
 
-function Ring({ grade, score }: { grade: string; score: number }) {
+export function Ring({ grade, score }: { grade: string; score: number }) {
   const r = 34
   const c = 2 * Math.PI * r
   const pct = Math.max(0, Math.min(100, score)) / 100
@@ -95,7 +95,8 @@ function SeverityLine({ counts }: { counts: Record<Sev, number> }) {
   const present = SEVS.filter((s) => counts[s] > 0)
   const zero = SEVS.filter((s) => counts[s] === 0)
   return (
-    <p className="sc-sevs" aria-label="Offene Befunde nach Schwere">
+    // Gruppe mit Namen (ein <p> kann keinen Namen tragen)
+    <p className="sc-sevs" role="group" aria-label="Offene Befunde nach Schwere">
       {present.map((s) => (
         <span key={s} className={`sc-sev sc-sev-${s}`}><span className="sc-sev-mark" aria-hidden="true" />{counts[s]} {SEVERITY_LABEL[s]}</span>
       ))}
@@ -114,7 +115,7 @@ function StageFoot({ stages }: { stages: Record<string, ScanStageDto> }) {
     <ul className="sc-stages" aria-label="Stufen des Scans">
       {keys.map((k) => {
         const s = stages[k]!
-        const name = STAGE_SHORT[k.split(' ')[0]!] ?? k
+        const name = scanStageLabel(k)
         const failed = s.failed || s.state === 'failed' || s.state === 'timeout'
         if (s.ran && !failed) return <li key={k} className="sc-stage sc-stage-ok"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>{name}</li>
         if (failed) return <li key={k} className="sc-stage sc-stage-bad" title={s.note}>✕ {name} <span>(fehlgeschlagen)</span></li>
@@ -140,7 +141,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
   })
   const open = (report?.findings ?? []).filter((f) => f.status === 'open')
   const top = [...open].sort((a, b) => SEVS.indexOf(a.severity) - SEVS.indexOf(b.severity)).slice(0, 2)
-  const total = open.length
+  const total = openTotal(countOpenFindings(report?.findings ?? []))
 
   const head = (
     <div className="ov-head">
@@ -149,6 +150,9 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
     </div>
   )
 
+  if (p.security && !report && r.isError) {
+    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<ErrorState compact what="Der Scan-Bericht" error={r.error} retrying={r.isFetching} onRetry={() => void r.refetch()} /></section>
+  }
   if (!p.security || (!report && !r.isLoading)) {
     return (
       <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">
@@ -158,7 +162,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
     )
   }
   if (!report) {
-    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<p className="muted ov-empty">Wird geladen…</p></section>
+    return <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">{head}<Loading label="Scan-Bericht wird geladen"><div className="sk-row"><Sk w={84} h={84} r="round" /><div className="sk-col"><Sk w="50%" h={18} /><Sk w="80%" /><Sk w="64%" /></div></div></Loading></section>
   }
 
   const s = report.scan
@@ -219,11 +223,10 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
       <div className="sc-foot">
         <StageFoot stages={s.stages} />
         <p className="sc-when">
-          {scanning ? <span>Scan läuft …</span> : <span>Scan <time dateTime={s.finishedAt ?? s.startedAt} title={new Date(s.finishedAt ?? s.startedAt).toLocaleString('de-CH')}>{relativeTime(s.finishedAt ?? s.startedAt)}</time></span>}
-          {!scanning && <> · <button type="button" className="link-button" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? 'Startet …' : 'Neu scannen'}</button></>}
+          {scanning ? <span>Scan läuft …</span> : <span>Scan <time dateTime={s.finishedAt ?? s.startedAt} title={fmtDateTime(s.finishedAt ?? s.startedAt)}>{relativeTime(s.finishedAt ?? s.startedAt)}</time></span>}
+          {!scanning && <> · <button type="button" className="link-button" onClick={() => start.mutate()} disabled={start.isPending} aria-busy={start.isPending || undefined}>Neu scannen</button></>}
         </p>
       </div>
-      {start.isError && <p role="alert" className="error-inline">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>}
     </section>
   )
 }

@@ -5,6 +5,7 @@ import * as docker from '../drivers/docker.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { log } from '../lib/log.js'
+import { publish } from '../lib/events.js'
 import { probeUa } from '../lib/probe-ua.js'
 import type { ProjectHealthDto, ResourceSample } from '@airlock/shared'
 
@@ -103,6 +104,31 @@ async function probe(t: Target): Promise<Probe | null> {
   }
 }
 
+/**
+ * Letzter bekannter Containerzustand je Projekt (aus der Monitor-Runde und
+ * jedem projectHealth-Aufruf). toDto liest ihn für den Projektzustand, ohne
+ * je DTO Docker zu fragen. Fehlt ein Eintrag: unbekannt (null).
+ */
+const containerStates = new Map<string, { running: boolean; missing?: boolean; exitCode: number | null }>()
+export function containerSnapshot(projectId: string): { running: boolean; missing?: boolean; exitCode: number | null } | null {
+  return containerStates.get(projectId) ?? null
+}
+
+/** Nach Start, Stopp, Neustart oder Deploy: alten Zustand verwerfen (bis zur nächsten Runde unbekannt) */
+export function forgetContainer(projectId: string): void {
+  containerStates.delete(projectId)
+}
+
+async function noteContainer(t: Target): Promise<void> {
+  if (!t.containerId || t.kind === 'static') { containerStates.delete(t.projectId); return }
+  const state = await docker.inspectContainer(t.containerId).catch(() => null)
+  const next = state ? { running: state.running, exitCode: state.exitCode } : { running: false, missing: true, exitCode: null }
+  const prev = containerStates.get(t.projectId)
+  containerStates.set(t.projectId, next)
+  // UI-Qualität 3: Zustandswechsel (z. B. Container beendet) ohne Polling in der Oberfläche
+  if (!prev || prev.running !== next.running || prev.exitCode !== next.exitCode) publish({ type: 'project', projectId: t.projectId })
+}
+
 async function runningProjectIds(): Promise<string[]> {
   const rows = await db.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.desiredState, 'running'))
   return rows.map((r) => r.id)
@@ -116,12 +142,14 @@ async function tick(): Promise<void> {
   for (const id of await runningProjectIds()) {
     const t = await targetFor(id).catch(() => null)
     if (!t) continue
+    await noteContainer(t).catch(() => null)
     await sample(t)
     if (doProbe) await probe(t).catch(() => null)
   }
   // Gelöschte oder gestoppte Projekte vergessen
   const keep = new Set(await runningProjectIds())
   for (const id of samples.keys()) if (!keep.has(id)) samples.delete(id)
+  for (const id of containerStates.keys()) if (!keep.has(id)) containerStates.delete(id)
 }
 
 export function startMonitorJob(): void {
@@ -143,6 +171,8 @@ export async function projectHealth(projectId: string, opts: { fresh?: boolean }
   if (!samples.get(projectId)?.length) await sample(t)
 
   const state = t.containerId ? await docker.inspectContainer(t.containerId).catch(() => null) : null
+  // Gleich mitmerken: die Projektliste zeigt so denselben Zustand wie die Übersicht
+  if (t.containerId && t.kind !== 'static') containerStates.set(projectId, state ? { running: state.running, exitCode: state.exitCode } : { running: false, missing: true, exitCode: null })
   return {
     kind: t.kind,
     container: state

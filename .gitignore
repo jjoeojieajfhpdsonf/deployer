@@ -26,5 +26,9 @@ data/
 # Arbeitskopien paralleler Sessions (git worktree)
 .claude/worktrees/
 
+# Visuelle Tests: Ergebnisse, Diff-Bilder und Bericht (Referenzbilder werden eingecheckt)
+packages/web/visual/ergebnis/
+packages/web/visual/bericht/
+
 # M4/M5: Cloudflare- und Tunnel-Token (Compose-Secrets), nie einchecken
 secrets/

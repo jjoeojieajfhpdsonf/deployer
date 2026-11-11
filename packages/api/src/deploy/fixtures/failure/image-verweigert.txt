@@ -1,0 +1,3 @@
+[2026-11-10T12:46:01.102Z] --- pulling ---
+[2026-11-10T12:46:01.240Z] Image example/privat:latest holen
+[2026-11-10T12:46:02.811Z] FEHLGESCHLAGEN: (HTTP code 404) unexpected - pull access denied for example/privat, repository does not exist or may require 'docker login': denied: requested access to the resource is denied

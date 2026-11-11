@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets } from '@airlock/shared'
-import { listProjects, findProject, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
-import { listDeployments, getDeployment, activeDeployment } from '../domain/deployments.js'
+import { listProjects, findProject, findProjectForServerJob, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
+import { listDeployments, getDeployment, activeDeployment, toDeploymentDto } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
 import {
@@ -17,6 +17,8 @@ import {
 import { audit } from '../domain/audit.js'
 import { startDeploy, startRollback } from '../deploy/pipeline.js'
 import { readLog } from '../deploy/journal.js'
+import { explainDeployment } from '../deploy/explain.js'
+import { failureNextStep } from '@airlock/shared'
 import * as docker from '../drivers/docker.js'
 import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
@@ -67,6 +69,10 @@ function summarize(p: ProjectDto) {
     project: p.slug,
     name: p.name,
     status: p.status,
+    // Derselbe Zustand wie in der Oberfläche (UI-Qualität 1), mit Satz
+    state: p.state.key,
+    state_label: p.state.label,
+    state_detail: p.state.detail,
     source: p.sourceType,
     url: p.routes[0]?.urls[0] ?? null,
     urls: p.routes.flatMap((r) => r.urls),
@@ -84,11 +90,16 @@ async function waitFor(dep: DeploymentDto, timeoutMs = 10 * 60_000) {
     d = { ...d, status: row.status, errorMessage: row.errorMessage, version: row.version }
   }
   const tail = readLog(dep.id).trim().split('\n').slice(-20).join('\n')
+  // UI-Qualität 2: dieselbe Erklärung wie die Fehlerbox der Oberfläche
+  const why = d.status === 'failed'
+    ? await findProjectForServerJob(dep.projectId).then(async (p) => explainDeployment(p, toDeploymentDto(await getDeployment(dep.id)))).catch(() => null)
+    : null
   return {
     deployment: dep.id,
     status: d.status,
     version: d.version,
     error: d.errorMessage,
+    ...(why ? { explanation: { kind: why.kind, title: why.title, cause: why.cause, next_step: failureNextStep(why), lines: why.lines } } : {}),
     ...(d.status === 'failed' ? { log_tail: tail } : {}),
     ...(['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? { note: 'Läuft noch; get_project zeigt den Stand' } : {}),
   }

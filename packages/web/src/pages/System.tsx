@@ -1,13 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
+import { FALLBACK_MS } from '../lib/live.js'
+import { Domains } from './Domains.js'
 import { copyText } from '../lib/clipboard.js'
+import { fmtTime } from '../lib/dates.js'
+import { ErrorState, Loading, SkCard } from '../components/States.js'
+import { SetupSummary } from './Setup.js'
 import { NotificationSettings } from '../components/Notifications.js'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
 import { GithubSetup } from '../components/GithubSetup.js'
-import { useEnvPath } from '../lib/env.js'
 import { ExpirySettings } from '../components/ExpirySettings.js'
+import { useEnvPath } from '../lib/env.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -34,7 +39,8 @@ const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
  * Reiter-Steuerung der App.
  */
 export function System({ section = 'uebersicht' }: { section?: SystemSection }) {
-  const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: 15_000 })
+  // Messwerte einmal pro Minute (wie die Seitenleiste); Änderungen kommen über den Ereignisstrom
+  const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: FALLBACK_MS })
   const [reach, setReach] = useState<Record<string, boolean | null>>({})
   const [copied, setCopied] = useState(false)
 
@@ -60,9 +66,15 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
     }
   }, [ways])
 
-  if (status.isLoading) return <p className="state state-loading">Status wird geladen…</p>
-  if (status.isError || !status.data) {
-    return <p className="state state-error" role="alert">Status nicht abrufbar.</p>
+  if (!status.data) {
+    return (
+      <section className="page page-medium">
+        <PageHead crumbs={[{ label: 'System' }]} title="System" />
+        {status.isError
+          ? <ErrorState what="Der Systemstatus" error={status.error} retrying={status.isFetching} onRetry={() => void status.refetch()} />
+          : <Loading label="Systemstatus wird geladen"><SkCard lines={4} /><SkCard lines={5} className="sk-gap-lg" /></Loading>}
+      </section>
+    )
   }
   const s = status.data
 
@@ -70,9 +82,11 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'uebersicht' ? [{ label: 'server' }] : [{ label: 'server', to: '/server' }, { label: current.label.toLowerCase() }]}
+        crumbs={section === 'uebersicht' ? [{ label: 'Server' }] : [{ label: 'Server', to: '/server' }, { label: current.label }]}
         title="Server"
+        name={section === 'uebersicht' ? 'Server' : current.label}
       />
+      <ScrollToHash ready={Boolean(s)} />
 
       <nav className="tabs" aria-label="Bereiche des Servers">
         {SECTIONS.map((x) => (
@@ -87,9 +101,32 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 
       {section === 'github' && <GithubSetup />}
 
+      {section === 'uebersicht' && <SetupSummary />}
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
     </section>
   )
+}
+
+/** Sprung zu #abschnitt (z.B. /domains → Einstellungen › Cloudflare & HTTPS #domains), sobald die Seite steht */
+export function ScrollToHash({ ready }: { ready: boolean }) {
+  const { hash } = useLocation()
+  // Erst springen, wenn alles darüber geladen ist (Cloudflare, Domains) – sonst schöbe es den Abschnitt weg
+  const loading = useIsFetching()
+  const done = useRef<string | null>(null)
+  useEffect(() => {
+    if (!ready || !hash || loading > 0 || done.current === hash) return
+    const t = setTimeout(() => {
+      const el = document.getElementById(hash.slice(1))
+      if (!el) return
+      done.current = hash
+      el.scrollIntoView({ block: 'start' })
+      const h = el.querySelector<HTMLElement>('h2')
+      h?.setAttribute('tabindex', '-1')
+      h?.focus({ preventScroll: true })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [ready, hash, loading])
+  return null
 }
 
 type ClientIps = NonNullable<SystemStatusDto['clientIps']>
@@ -120,7 +157,7 @@ function GatewayWarning({ ci }: { ci: ClientIps }) {
         <div key={g.source} className="gateway-group">
           <p className="gateway-group-head">
             <strong>{SOURCE_TEXT[g.source].title}</strong> · {g.count} {g.count === 1 ? 'Anfrage' : 'Anfragen'}
-            {g.blocked > 0 ? `, ${g.blocked} gesperrt` : ''} · zuletzt {new Date(g.last).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
+            {g.blocked > 0 ? `, ${g.blocked} gesperrt` : ''} · zuletzt {fmtTime(g.last)}
           </p>
           <dl className="gateway-facts">
             <dt>Hosts</dt><dd>{g.hosts.map((h, i) => <span key={h}>{i > 0 ? ', ' : ''}<code>{h}</code></span>)}</dd>
@@ -246,18 +283,17 @@ function NetworkSection({ s }: { s: SystemStatusDto }) {
           <span className="check-name">Prüfung</span>
           <span className="check-detail">
             {n.mode === 'detected'
-              ? <>vom Server gelesen {n.checkedAt ? new Date(n.checkedAt).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) : ''}, stündlich erneut – Adressen und Caddy-Filter ziehen bei einer Änderung selbst nach</>
+              ? <>vom Server gelesen {fmtTime(n.checkedAt, false, '')}, stündlich erneut – Adressen und Caddy-Filter ziehen bei einer Änderung selbst nach</>
               : <>Docker Desktop: keine Erkennung, Werte aus <code>.env</code> (SERVER_LAN_IP, LAN_CIDR)</>}
           </span>
         </li>
       </ul>
       {n.mode === 'detected' && (
         <div className="form-actions">
-          <button type="button" onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending ? 'Prüft…' : 'Jetzt prüfen'}</button>
+          <button type="button" onClick={() => check.mutate()} disabled={check.isPending} aria-busy={check.isPending || undefined}>Jetzt prüfen</button>
           {check.data && <span className="hint" role="status">{check.data.changed ? 'Geändert – Adressen und Filter nachgezogen.' : 'Unverändert.'}</span>}
         </div>
       )}
-      {check.isError && <p role="alert" className="error">{(check.error as Error).message}</p>}
     </>
   )
 }

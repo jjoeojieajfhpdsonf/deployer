@@ -1,0 +1,23 @@
+[2026-11-10T12:46:01.102Z] --- pulling ---
+[2026-11-10T12:46:01.240Z] Step 4/6 : RUN npm ci
+[2026-11-10T12:46:18.500Z] added 212 packages in 17s
+[2026-11-10T12:46:20.811Z] --- starting ---
+[2026-11-10T12:46:21.020Z] --- healthchecking ---
+[2026-11-10T12:46:21.031Z] Healthcheck gegen http://dep_notizen_a1:3000/
+[2026-11-10T12:47:21.050Z] Healthcheck nach 58 Versuchen nicht bestanden (getaddrinfo ENOTFOUND dep_notizen_a1)
+[2026-11-10T12:47:21.090Z] Container beendet: Exit-Code 1
+[2026-11-10T12:47:21.130Z] Letzte Container-Ausgabe:
+> notizen@2.0.0 start
+> node server.js
+
+WARN: NODE_ENV is not set, defaulting to development
+Server started at 12:30:45
+Connected to Redis server at redis:6379
+Error: Missing required environment variable: SESSION_SECRET
+    at loadConfig (/app/config.js:9:11)
+npm error Lifecycle script `start` failed with error:
+npm error code 1
+npm error path /app
+npm error command failed
+npm error command sh -c node server.js
+[2026-11-10T12:47:21.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

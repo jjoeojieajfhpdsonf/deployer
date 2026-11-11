@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import type { ProjectDto } from '@airlock/shared'
 import { byDay, type ActivityItem, type Category } from '../lib/activity.js'
+import { fmtDateTime, fmtTime } from '../lib/dates.js'
 import { Actor, IconSpark } from './Actor.js'
 import { useEnvPath } from '../lib/env.js'
 
@@ -32,7 +33,7 @@ const CATEGORY_WORD: Record<Category, string> = {
   config: 'Einstellung', access: 'Zugang', claude: 'Claude', danger: 'Löschen', error: 'Fehler',
 }
 
-const clock = (iso: string) => new Date(iso).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+const clock = (iso: string) => fmtTime(iso)
 
 export function ActivityList({
   items, projects, details = false, emptyText = 'Noch nichts passiert.',
@@ -51,7 +52,8 @@ export function ActivityList({
     <div className="act">
       {byDay(items).map((g) => (
         <section key={g.day} className="act-day" aria-label={g.day}>
-          <h3 className="act-day-label">{g.day}</h3>
+          {/* Im Audit-Log (ohne Kartenüberschrift) Ebene 2, in der Karte der Projektseite Ebene 3 */}
+          <h3 className="act-day-label" aria-level={details ? 2 : 3}>{g.day}</h3>
           <ol className="act-list">
             {g.items.map((it) => {
               const Icon = ICON[it.info.category]
@@ -64,7 +66,8 @@ export function ActivityList({
                     <p className="act-title">{it.info.title}</p>
                     <p className="act-meta">
                       {project && <Link className="act-project" to={ep(`/projekte/${project.id}`)}>{project.name}</Link>}
-                      {it.events.some((e) => e.server) && <span className="badge badge-neutral" title="Server-Ereignis: gilt für alle Umgebungen">Server</span>}
+                      {/* M9: Server-Ereignisse gelten für alle Umgebungen */}
+                      {it.events[0]?.server && <span className="act-sub" title="Server-Ereignis: gilt für alle Umgebungen">Server</span>}
                       <Actor actor={it.actor} />
                       {it.info.sub.map((s, i) => <span key={i} className="act-sub">{s}</span>)}
                       {it.info.chip && <span className={`act-chip act-chip-${it.info.chip.tone}`}>{it.info.chip.text}</span>}
@@ -78,7 +81,7 @@ export function ActivityList({
                           <dl className="act-details">
                             {it.events.map((e) => (
                               <div key={e.id}>
-                                <dt><code>{e.action}</code> · {new Date(e.at).toLocaleString('de-CH')} · {e.result === 'ok' ? 'ok' : 'Fehler'}</dt>
+                                <dt><code>{e.action}</code> · {fmtDateTime(e.at)} · {e.result === 'ok' ? 'ok' : 'Fehler'}</dt>
                                 <dd><code>{e.error ?? JSON.stringify(e.paramsMasked ?? {})}</code></dd>
                               </div>
                             ))}
@@ -87,7 +90,7 @@ export function ActivityList({
                       </>
                     )}
                   </div>
-                  <time className="act-time num" dateTime={it.at} title={new Date(it.at).toLocaleString('de-CH')}>{clock(it.at)}</time>
+                  <time className="act-time num" dateTime={it.at} title={fmtDateTime(it.at)}>{clock(it.at)}</time>
                 </li>
               )
             })}

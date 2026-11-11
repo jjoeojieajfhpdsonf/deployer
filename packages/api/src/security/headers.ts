@@ -114,5 +114,6 @@ export const ZAP_COVERED_BY_HEADERS = new Set([
   '10054', // Cookie ohne SameSite
   '10036', // Server-Version
   '10037', // X-Powered-By
+  '10040', // Gemischte Inhalte (HTTP auf HTTPS-Seite) – prüft der Header-Check auch
   '10116', // "ZAP is Out of Date" – betrifft den Scanner, nicht das Ziel
 ])

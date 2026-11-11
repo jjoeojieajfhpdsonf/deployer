@@ -2,10 +2,14 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DeploymentDto } from '@airlock/shared'
 import { deployReasonTitle } from '@airlock/shared'
-import { api, ApiError } from '../api.js'
+import { api } from '../api.js'
+import { poll } from '../lib/live.js'
 import { relativeTime, shortVersion, deployDuration } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { ErrorState, Loading, SkLog } from './States.js'
 import { deployState, groupDeployments, groupSummary, type DeployItem } from '../lib/deployments.js'
 import { Actor } from './Actor.js'
+import { IconChevron } from './Icons.js'
 
 /**
  * Deployments als Liste (Übersicht: Karte mit fünf Einträgen; Reiter: alle,
@@ -21,7 +25,6 @@ const IconUp = () => <svg {...svg}><path d="M8 13V3.5M4.2 7.2 8 3.4l3.8 3.8" /><
 const IconRedo = () => <svg {...svg}><path d="M12.6 8.6A4.7 4.7 0 1 1 11 4.4" /><path d="M12.4 2.4v2.9H9.5" /></svg>
 const IconUndo = () => <svg {...svg}><path d="M3.4 8.6A4.7 4.7 0 1 0 5 4.4" /><path d="M3.6 2.4v2.9h2.9" /></svg>
 const IconWait = () => <svg {...svg}><circle cx="8" cy="8" r="5" strokeDasharray="2.4 2.2" /></svg>
-const IconChevron = () => <svg {...svg} width={14} height={14}><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
 
 const STATUS_WORD: Record<string, string> = {
   pending: 'wartet', pulling: 'holt Quelle', starting: 'startet', healthchecking: 'Healthcheck',
@@ -39,7 +42,7 @@ function markFor(d: DeploymentDto) {
 }
 
 export function useDeployments(projectId: string) {
-  return useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: 10_000 })
+  return useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: poll })
 }
 
 export function DeployList({
@@ -58,6 +61,7 @@ export function DeployList({
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
   const [openLog, setOpenLog] = useState<string | null>(null)
   const rollback = useMutation({
+    meta: { errorTitle: 'Rollback nicht gestartet' },
     mutationFn: (id: string) => api.rollback(projectId, id),
     onSuccess: (r) => {
       setConfirming(null)
@@ -91,10 +95,11 @@ export function DeployList({
             {d.version ? <code className="dl-version" title={d.version}>{shortVersion(d.version)}</code> : <span>ohne Fassung</span>}
             {showMessage && <span className="dl-msg">«{d.message}»</span>}
             {d.actor !== undefined && <Actor actor={d.actor} />}
-            <time dateTime={d.startedAt} title={new Date(d.startedAt).toLocaleString('de-CH')}>{relativeTime(d.startedAt)}</time>
+            <time dateTime={d.startedAt} title={fmtDateTime(d.startedAt)}>{relativeTime(d.startedAt)}</time>
             {dur && <span className="num">{dur}</span>}
           </div>
-          {s === 'failed' && d.errorMessage && <p className="dl-error">{d.errorMessage.split('\n')[0]}</p>}
+          {/* UI-Qualität 2: Titel der Erklärung wie in der Fehlerbox; ohne Erklärung die rohe Meldung */}
+          {s === 'failed' && (d.failure || d.errorMessage) && <p className="dl-error">{d.failure?.title ?? d.errorMessage!.split('\n')[0]}</p>}
           {withLog && openLog === d.id && <DeployLog id={d.id} />}
         </div>
         <div className="dl-aside">
@@ -106,7 +111,7 @@ export function DeployList({
           {canRoll && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
           {confirming === d.id && (
             <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
-              <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} autoFocus>{rollback.isPending ? 'Startet…' : 'Ja, diese Fassung'}</button>
+              <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} aria-busy={rollback.isPending || undefined} autoFocus>Ja, diese Fassung</button>
               <button type="button" className="button-small" onClick={() => setConfirming(null)}>Abbrechen</button>
             </span>
           )}
@@ -123,7 +128,7 @@ export function DeployList({
     return (
       <li key={`g-${key}`} className="dl-group" data-open={open || undefined}>
         <button type="button" className="dl-group-toggle" aria-expanded={open} onClick={toggle}>
-          <IconChevron />
+          <IconChevron size={14} />
           <span>{it.rows.length} weitere Deployments mit Stand <code className="dl-version">{shortVersion(it.version)}</code> <span className="dl-group-why">({groupSummary(it.rows)})</span></span>
         </button>
         <div className="dl-group-body">
@@ -139,12 +144,13 @@ export function DeployList({
         {items.map((it) => it.type === 'row' ? row(it.d, it.sameAsActive) : group(it))}
       </ol>
       {anySame && <p className="dl-note">Zurückrollen erscheint nur bei Versionen mit anderem Code-Stand.</p>}
-      {rollback.isError && <p role="alert" className="error-inline">{rollback.error instanceof ApiError && rollback.error.status === 409 ? 'Für dieses Projekt läuft bereits ein Deploy.' : (rollback.error as Error).message}</p>}
     </>
   )
 }
 
 function DeployLog({ id }: { id: string }) {
   const d = useQuery({ queryKey: ['deployment', id], queryFn: () => api.getDeployment(id) })
-  return <pre className="log dl-log" aria-label="Deployment-Log">{d.isLoading ? 'Log wird geladen…' : d.data?.log || 'Kein Log vorhanden.'}</pre>
+  if (!d.data && d.isError) return <ErrorState compact what="Das Deployment-Log" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
+  if (!d.data) return <Loading label="Log wird geladen"><SkLog n={6} /></Loading>
+  return <pre className="log dl-log" aria-label="Deployment-Log">{d.data.log || 'Für dieses Deployment wurde kein Log gespeichert.'}</pre>
 }

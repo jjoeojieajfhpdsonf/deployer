@@ -1,0 +1,7 @@
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:47:02.050Z] Healthcheck nach 41 Versuchen nicht bestanden (getaddrinfo ENOTFOUND dep_haushalt_e5)
+[2026-11-10T12:47:02.090Z] Container beendet: Exit-Code 137 (Speichergrenze überschritten, OOMKilled)
+[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:
+Lade Kategorien …
+Baue Suchindex auf (48 213 Einträge)
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

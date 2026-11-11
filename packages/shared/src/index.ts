@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { PausePage } from './pause-page.js'
+import type { FailureExplanation } from './failure.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -23,7 +24,8 @@ export const UI_HOST_LABEL = 'deployer'
  * (sonst hätte ein Projekt sie überdeckt – Fehler aus M1), "airlock" ihre
  * künftige Adresse, "ext-scan" das Netz für Scans externer Ziele (M6).
  */
-export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan'] as const
+// 'name-preview': GET /projects/name-preview würde sonst ein Projekt dieses Namens verdecken
+export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan', 'name-preview'] as const
 
 export const slugSchema = z
   .string()
@@ -117,13 +119,22 @@ export const gitRefSchema = z
   .regex(/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/, 'Nur Buchstaben, Ziffern und . _ / -, nicht mit - beginnend, z.B. main oder v1.2.0')
   .refine((v) => !v.includes('..'), 'Zwei Punkte hintereinander sind nicht erlaubt, z.B. v1.2.0 statt v1..2')
 
-/** Pfad innerhalb eines Repos; ob er drin bleibt, prüft der Server am aufgelösten Pfad. */
-export const repoPathSchema = z
+/**
+ * Pfad innerhalb eines Repos; ob er drin bleibt, prüft der Server am aufgelösten Pfad.
+ * UI-Qualität 5: die Beispiele der Meldungen passen zum Feld (wie Platzhalter und Hinweis).
+ */
+const repoPath = (what: string, example: string) => z
   .string()
   .trim()
-  .min(1, 'Gib einen Pfad im Repo an, z.B. Dockerfile oder app/compose.yaml')
+  .min(1, `Gib ${what} an, z.B. ${example}`)
   .max(512, 'Höchstens 512 Zeichen')
-  .refine((v) => !v.includes('\0') && !v.startsWith('/') && !v.includes('\\'), 'Gib den Pfad relativ zum Repo an, ohne / am Anfang, z.B. docker/Dockerfile')
+  .refine((v) => !v.includes('\0') && !v.startsWith('/') && !v.includes('\\'), `Gib den Pfad relativ zum Repo an, ohne / am Anfang, z.B. ${example}`)
+
+export const repoPathSchema = repoPath('einen Pfad im Repo', 'docker/Dockerfile')
+const dockerfilePathSchema = repoPath('den Pfad des Dockerfiles', 'Dockerfile oder docker/Dockerfile')
+const contextPathSchema = repoPath('den Ordner, aus dem gebaut wird', '. (die Wurzel) oder app')
+const composePathSchema = repoPath('den Pfad der compose.yaml', 'compose.yaml oder app/compose.yaml')
+const outputDirSchema = repoPath('den Ausgabeordner', 'dist')
 
 export const staticSourceSchema = z.object({
   type: z.literal('static'),
@@ -133,15 +144,15 @@ export const staticSourceSchema = z.object({
   repoUrl: repoUrlSchema.optional(),
   ref: gitRefSchema.optional(),
   buildCommand: z.string().trim().min(1, 'Gib einen Befehl an, z.B. npm run build – oder lass das Feld leer').max(500, 'Höchstens 500 Zeichen').optional(),
-  outputDir: repoPathSchema.optional(),
+  outputDir: outputDirSchema.optional(),
 })
 
 export const dockerfileSourceSchema = z.object({
   type: z.literal('dockerfile'),
   repoUrl: repoUrlSchema,
   ref: gitRefSchema.optional(),
-  dockerfile: repoPathSchema.default('Dockerfile'),
-  context: repoPathSchema.default('.'),
+  dockerfile: dockerfilePathSchema.default('Dockerfile'),
+  context: contextPathSchema.default('.'),
 })
 
 export const COMPOSE_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/
@@ -151,7 +162,7 @@ export const composeSourceSchema = z.object({
   /** Entweder ein Repo ... */
   repoUrl: repoUrlSchema.optional(),
   ref: gitRefSchema.optional(),
-  composePath: repoPathSchema.default('compose.yaml'),
+  composePath: composePathSchema.default('compose.yaml'),
   /** ... oder eine hochgeladene compose.yaml. */
   uploadId: z.string().uuid().optional(),
   /** Dienst, der den Web-Verkehr bekommt. */
@@ -172,7 +183,7 @@ export const filesSourceSchema = z.object({
   webService: z.string().regex(COMPOSE_SERVICE_RE, 'Ungültiger Dienstname').optional(),
   /** Bei statischer Seite mit Build: Befehl (Standard "npm run build") und Ausgabe. */
   buildCommand: z.string().min(1).max(500).optional(),
-  outputDir: repoPathSchema.optional(),
+  outputDir: outputDirSchema.optional(),
 })
 
 export const fileInputSchema = z.object({
@@ -309,6 +320,23 @@ export const createProjectSchema = z
     }
   })
 export type CreateProjectInput = z.infer<typeof createProjectSchema>
+
+/** UI-Qualität 5: Vorschau von Kurzname und Adresse beim Anlegen */
+export interface NamePreviewDto {
+  /** Kurzname aus dem Namen */
+  wanted: string
+  /** Kurzname, den das Projekt bekäme (bei Kollision «-2» usw.); leer, wenn keiner frei ist */
+  slug: string
+  /** Projekt, das den gewünschten Kurznamen schon trägt */
+  takenBy: { id: string; name: string } | null
+  /** Für Airlock selbst reserviert */
+  reserved: boolean
+  /** Die Adresse des gewünschten Kurznamens trägt schon ein anderes Projekt (eigene Subdomain) */
+  hostTaken?: boolean
+  /** Interne Adresse (Tailnet/LAN) */
+  host: string | null
+  urls: string[]
+}
 
 export const updateProjectSchema = z.object({
   name: projectNameSchema.optional(),
@@ -514,6 +542,8 @@ export interface DeploymentDto {
   sourceRef: string | null
   status: DeploymentStatus
   errorMessage: string | null
+  /** UI-Qualität 2: Erklärung eines gescheiterten Deploys, beim Scheitern festgehalten (Fehlerbox, Pille, Listen) */
+  failure?: FailureExplanation | null
   startedAt: string
   finishedAt: string | null
   isActive: boolean
@@ -612,6 +642,119 @@ export interface ProjectDto {
    * deployer-Zeit (alte Labels und Namen). «Neu erstellen» ersetzt sie.
    */
   legacyContainers: boolean
+  /**
+   * UI-Qualität 1: Zustand fertig berechnet (einzige Quelle für Pille,
+   * Unterzeile, Fehlerbox und Deployments-Liste). Siehe projectState().
+   */
+  state: ProjectStateDto
+}
+
+/* --- Stufen des Scans: ein Name überall (Oberfläche, Fortschritt, MCP) ---------------- */
+
+export const SCAN_STAGE_LABEL: Record<string, string> = {
+  'trivy-image': 'Abhängigkeiten & Image (Trivy)',
+  'trivy-source': 'Eigener Code',
+  headers: 'Security-Header',
+  'zap-baseline': 'Webseite passiv (ZAP)',
+  'zap-full': 'Webseite aktiv (ZAP)',
+  nuclei: 'Offene Dateien & Panels (Nuclei)',
+  testssl: 'TLS',
+}
+/** Name einer Stufe; «trivy-image nginx:1» → Name der Grundstufe */
+export const scanStageLabel = (key: string): string => SCAN_STAGE_LABEL[key.split(' ')[0]!] ?? key
+
+/* --- Befunde zählen: eine Funktion für «offen» --------------------------------------- */
+
+export type SeverityCounts = Record<'critical' | 'high' | 'medium' | 'low', number>
+
+/**
+ * Offene Befunde nach Schwere – «offen» heisst: weder akzeptiert noch behoben.
+ * Grundlage für jede Zahl in der Oberfläche (Kopf, Zähler-Pillen,
+ * Reiter-Badge, Seitenleiste, Projektkarte) und für die Kurzform am Projekt.
+ */
+export function countOpenFindings(findings: readonly { status: string; severity: string }[]): SeverityCounts {
+  const c: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+  for (const f of findings) if (f.status === 'open' && f.severity in c) c[f.severity as keyof SeverityCounts]++
+  return c
+}
+/** Alle offenen Befunde */
+export const openTotal = (c: SeverityCounts | null | undefined): number => (c ? c.critical + c.high + c.medium + c.low : 0)
+/** Offene kritische und hohe Befunde (Badge der Seitenleiste) */
+export const openUrgent = (c: SeverityCounts | null | undefined): number => (c ? c.critical + c.high : 0)
+/** Summe über mehrere Projekte */
+export function sumCounts(list: readonly (SeverityCounts | null | undefined)[]): SeverityCounts {
+  const c: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+  for (const x of list) if (x) for (const k of Object.keys(c) as (keyof SeverityCounts)[]) c[k] += x[k]
+  return c
+}
+
+/* --- Projektzustand: eine Quelle ------------------------------------------------- */
+
+export const projectStateKeys = ['deploying', 'stopped', 'paused', 'failed_old_running', 'running', 'down'] as const
+export type ProjectStateKey = (typeof projectStateKeys)[number]
+
+export interface ProjectStateDto {
+  key: ProjectStateKey
+  /** Wort für die Pille */
+  label: string
+  /** Ton der Pille (immer mit Wort, nie nur Farbe) */
+  tone: 'ok' | 'warn' | 'bad' | 'info' | 'neutral'
+  /** Unterzeile in einem Satz; null, wenn die Pille alles sagt */
+  detail: string | null
+}
+
+const STATE_TEXT: Record<ProjectStateKey, { label: string; tone: ProjectStateDto['tone'] }> = {
+  running: { label: 'läuft', tone: 'ok' },
+  failed_old_running: { label: 'neue Version gescheitert, alte läuft weiter', tone: 'warn' },
+  stopped: { label: 'gestoppt', tone: 'neutral' },
+  paused: { label: 'pausiert', tone: 'warn' },
+  deploying: { label: 'deployt gerade', tone: 'info' },
+  down: { label: 'nichts läuft', tone: 'bad' },
+}
+
+/** Läuft gerade ein Deploy (Schritt vor «aktiv»)? */
+const DEPLOY_RUNNING = new Set(['pending', 'pulling', 'starting', 'healthchecking'])
+
+/**
+ * Der Zustand eines Projekts, in dieser Reihenfolge entschieden:
+ *   deployt gerade → gestoppt (gewollt) → nichts läuft (Container weg/beendet
+ *   oder keine aktive Fassung) → pausiert (öffentlich pausiert, intern läuft
+ *   es) → neue Version gescheitert, alte läuft weiter → läuft.
+ * container: letzter bekannter Zustand vom Server (Monitor); null = unbekannt
+ * oder ohne Container (statische Seite).
+ */
+export function projectState(p: {
+  status: ProjectStatus
+  desiredState: DesiredState
+  activeDeployment: { id: string } | null
+  lastDeployment: { id: string; status: DeploymentStatus; errorMessage?: string | null; failure?: { title: string } | null } | null
+  routes: { target: string; pausedAt?: string | null }[]
+  container?: { running: boolean; missing?: boolean; exitCode?: number | null } | null
+}): ProjectStateDto {
+  const make = (key: ProjectStateKey, detail: string | null, tone?: ProjectStateDto['tone']): ProjectStateDto => ({ key, ...STATE_TEXT[key], ...(tone ? { tone } : {}), detail })
+  const last = p.lastDeployment
+  if (p.status === 'deploying' || (last && DEPLOY_RUNNING.has(last.status))) return make('deploying', null)
+  // Ohne aktive Fassung zuerst: Ein neues Projekt steht bis zum ersten erfolgreichen Deploy auf
+  // «stopped»; ein gescheiterter erster Deploy darf nicht als «gestoppt» erscheinen.
+  if (!p.activeDeployment) {
+    return last?.status === 'failed'
+      ? make('down', 'Der erste Deploy ist gescheitert; es gibt noch keine laufende Fassung.')
+      // Noch nie deployt: kein Fehler, also neutral
+      : make('down', 'Noch nicht deployt.', 'neutral')
+  }
+  if (p.desiredState === 'stopped') return make('stopped', 'Gestoppt – die Adressen antworten nicht, bis du es wieder startest.')
+  if (p.container && !p.container.running) {
+    return make('down', p.container.missing
+      ? 'Der Container der aktiven Fassung fehlt.'
+      : `Der Container hat sich beendet${p.container.exitCode != null ? ` (Exit-Code ${p.container.exitCode})` : ''}.`)
+  }
+  const failedNewer = last?.status === 'failed' && last.id !== p.activeDeployment.id
+  if (p.routes.some((r) => r.target === 'public' && r.pausedAt)) {
+    return make('paused', failedNewer ? 'Öffentlich pausiert; intern läuft die alte Fassung, der letzte Deploy ist gescheitert.' : 'Öffentlich pausiert; intern läuft es weiter.')
+  }
+  // Grund wie in der Fehlerbox (Titel der Erklärung), sonst die rohe Meldung
+  if (failedNewer) return make('failed_old_running', last?.failure?.title ?? last?.errorMessage ?? null)
+  return make('running', null)
 }
 
 export interface FindingDto {
@@ -1006,12 +1149,28 @@ export const addExternalTargetSchema = z.object({ hostname: externalHostnameSche
 /** system: folgt prefers-color-scheme des Geräts */
 export const themePrefs = ['light', 'dark', 'system'] as const
 export type ThemePref = (typeof themePrefs)[number]
+/** Schritte des Einrichtungs-Assistenten (erster Start), in dieser Reihenfolge */
+export const setupSteps = ['passwort', 'cloudflare', 'adressen', 'zertifikat', 'projekt'] as const
+export type SetupStep = (typeof setupSteps)[number]
+export const setupPrefsSchema = z.object({
+  /** «Später»: der Assistent erscheint nicht mehr von selbst (unter System fortsetzbar) */
+  dismissed: z.boolean(),
+  /** Bewusst übersprungene Schritte (gelten nicht als «fehlt») */
+  skipped: z.array(z.enum(setupSteps)).max(setupSteps.length),
+})
+export type SetupPrefs = z.infer<typeof setupPrefsSchema>
 export const uiPrefsSchema = z.object({
   theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }),
+  setup: setupPrefsSchema.optional(),
+  /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
+  bellSeenAt: z.string().datetime().optional(),
   /** M9: zuletzt gewählte Umgebung (Slug); alte Adressen ohne /u/… führen dorthin */
   lastEnvironment: z.string().max(64).optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
+/** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */
+export const uiPrefsPatchSchema = uiPrefsSchema.partial()
+export type UiPrefsPatch = z.infer<typeof uiPrefsPatchSchema>
 
 export const PASSWORD_MIN = 12
 
@@ -1146,3 +1305,9 @@ export * from './fix.js'
 
 /* Pause-Seite für pausierte öffentliche Projekte (Renderer für Server und Vorschau) */
 export * from './pause-page.js'
+
+/* UI-Qualität 2: Fehler erklären – eine Erklärung für Oberfläche und MCP */
+export * from './failure.js'
+
+/* UI-Qualität 4: Logzeilen mit Zeit, Dienst und Stufe */
+export * from './logs.js'

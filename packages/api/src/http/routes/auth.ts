@@ -6,6 +6,7 @@ import { config } from '../../config.js'
 import { isoOrNull } from '../../lib/dates.js'
 import { audit } from '../../domain/audit.js'
 import { AppError } from '../../lib/errors.js'
+import { publish } from '../../lib/events.js'
 import { getUiPrefs, setUiPrefs } from '../../domain/ui-prefs.js'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
@@ -22,8 +23,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true }
   })
 
-  app.post('/auth/logout', async (_request, reply) => {
+  app.post('/auth/logout', async (request, reply) => {
     clearSessionCookie(reply)
+    // UI-Qualität 3: Ereignisströme *dieser* Sitzung schliessen (andere Geräte bleiben angemeldet)
+    publish({ type: 'session_ended', issued: sessionStart(request) })
     return { ok: true }
   })
 
@@ -31,6 +34,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!isLoggedIn(request)) return { loggedIn: false }
     const pw = await passwordInfo()
     const start = sessionStart(request)
+    const prefs = await getUiPrefs()
     return {
       loggedIn: true,
       name: config.ADMIN_NAME || 'Admin',
@@ -38,8 +42,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       viaHttps: viaHttps(request),
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
-      theme: (await getUiPrefs()).theme,
-      lastEnvironment: (await getUiPrefs()).lastEnvironment ?? null,
+      theme: prefs.theme,
+      setup: prefs.setup ?? null,
+      bellSeenAt: prefs.bellSeenAt ?? null,
+      lastEnvironment: prefs.lastEnvironment ?? null,
     }
   })
 

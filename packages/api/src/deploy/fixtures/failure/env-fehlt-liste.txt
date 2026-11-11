@@ -1,0 +1,10 @@
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:47:02.050Z] Healthcheck nach 59 Versuchen nicht bestanden (connect ECONNREFUSED 172.20.0.9:3000)
+[2026-11-10T12:47:02.090Z] Container beendet: Exit-Code 1
+[2026-11-10T12:47:02.130Z] Letzte Ausgabe von web:
+================================
+ Missing environment variables:
+    API_TOKEN: undefined
+ Exiting with error code 1
+================================
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

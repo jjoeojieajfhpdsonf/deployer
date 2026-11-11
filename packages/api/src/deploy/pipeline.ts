@@ -1,4 +1,5 @@
 import { eq, and, ne, desc } from 'drizzle-orm'
+import { forgetContainer } from '../jobs/monitor.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { db, schema, tryLockProject } from '../db/index.js'
@@ -13,6 +14,8 @@ import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
 import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
+import { recordFailure } from './explain.js'
+import { noteDeployProject, publish } from '../lib/events.js'
 import { waitForHealthy } from './healthcheck.js'
 import { withProjectNetwork } from './attach.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
@@ -147,6 +150,9 @@ async function startJob(project: Project, actor: string, job: Job, o: StartOptio
       })
       .returning()
     const row = inserted[0]!
+    // UI-Qualität 3: Ereignisse des Deploys tragen die Projekt-ID (gezielt nachladen)
+    noteDeployProject(row.id, project.id)
+    publish({ type: 'deploy', deploymentId: row.id, status: 'pending', projectId: project.id })
     await setDeployment(row.id, { logRef: logPathFor(row.id) })
     // Deploy und Rollback sind Aktivität (Ablauf von Chat-Projekten).
     await touchActivity(project.id)
@@ -271,6 +277,8 @@ async function run(
     }
 
     appendLine(deploymentId, `Fertig in ${Math.round((Date.now() - started) / 1000)} s`)
+    // Neuer Container: alter Zustand (z. B. «beendet») gilt nicht mehr
+    forgetContainer(projectId)
     await setStatus(projectId, 'running')
     await setDeployment(deploymentId, { status: 'active', isActive: true, finishedAt: new Date() })
     await lock.release()
@@ -289,6 +297,13 @@ async function run(
     appendLine(deploymentId, `FEHLGESCHLAGEN: ${message}`)
     await cleanupFailed(projectId, deploymentId)
     await setDeployment(deploymentId, { status: 'failed', errorMessage: message, finishedAt: new Date(), isActive: false })
+    // UI-Qualität 2: Erklärung mit dem Stand *dieses* Deploys festhalten (vor dem Ende-Ereignis)
+    const project = await findProjectForServerJob(projectId).catch(() => null)
+    const why = project
+      ? await recordFailure(project, { id: deploymentId, errorMessage: message }, (err as { code?: string }).code).catch(() => null)
+      : null
+    // Audit und Meldung: zuerst die Erklärung, dahinter die rohe Meldung
+    const told = why && why.title !== message ? `${why.title} (${message})` : message
 
     // Die vorherige Fassung läuft weiter; das Projekt ist nur dann "failed",
     // wenn es überhaupt keine aktive Fassung mehr gibt.
@@ -302,10 +317,9 @@ async function run(
     await lock.release()
     emitDone(deploymentId, false)
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
-    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: message })
+    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: told })
     // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
-    const p = await findProjectForServerJob(projectId).catch(() => null)
-    await notify('deploy_failed', { project: p?.name ?? projectId, error: message.slice(0, 300) })
+    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) })
   } finally {
     await dropWorkDir(deploymentId)
   }
@@ -420,6 +434,7 @@ async function startAndCheck(deploymentId: string, project: Project, imageRef: s
 
   const ok = await healthcheck(deploymentId, network, containerName, project)
   if (!ok) {
+    await noteExit(deploymentId, containerId)
     const tail = await docker.getLogs(containerId, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Container-Ausgabe:\n${tail}`)
     await docker.stopContainer(containerId)
@@ -427,6 +442,16 @@ async function startAndCheck(deploymentId: string, project: Project, imageRef: s
     throw new Error('Healthcheck nicht bestanden')
   }
   await markActiveExclusively(project.id, deploymentId)
+}
+
+/**
+ * Nach gescheitertem Healthcheck: Hat sich der Container beendet? Exit-Code
+ * und Speicher-Abbruch ins Log (Grundlage der Fehlererklärung, shared/failure.ts).
+ */
+async function noteExit(deploymentId: string, container: string): Promise<void> {
+  const s = await docker.inspectContainer(container).catch(() => null)
+  if (!s || s.running) return
+  appendLine(deploymentId, `Container beendet: Exit-Code ${s.exitCode ?? '?'}${s.oomKilled ? ' (Speichergrenze überschritten, OOMKilled)' : ''}`)
 }
 
 /**
@@ -559,6 +584,7 @@ async function runCompose(
 
   const ok = await healthcheck(deploymentId, network, webContainer, project)
   if (!ok) {
+    await noteExit(deploymentId, webContainer)
     const tail = await docker.getLogs(webContainer, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Ausgabe von ${cfg.webService}:\n${tail}`)
     const prevFile = previous[0]?.artifact?.composeFile

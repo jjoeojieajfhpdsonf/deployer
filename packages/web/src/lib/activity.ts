@@ -1,4 +1,8 @@
 import type { AuditEventDto } from '@airlock/shared'
+import { addDays, dateOf, fmtTime, fmtWeekday, msOf, sameDay, spanMs } from './dates.js'
+
+/** Zeitpunkt eines Ereignisses in ms; ungültig zählt als 0 (ganz alt), statt die Sortierung zu sprengen */
+const at = (e: AuditEventDto): number => msOf(e.at) ?? 0
 
 /**
  * Aktivität und Audit-Log: jedes Ereignis als deutscher Satz statt Code.
@@ -108,7 +112,8 @@ const EVENTS: Record<string, Describe> = {
   'project.public.pause': (p) => ({ title: 'Öffentlich pausiert', category: 'paused', sub: [str(p.hostname)] }),
   'project.public.resume': (p, e) => {
     const since = str(p.pausedSince)
-    const paused = since ? took(Date.parse(e.at) - Date.parse(since)) : null
+    const span = spanMs(since, e.at)
+    const paused = span !== null ? took(span) : null
     return { title: 'Wieder öffentlich', category: 'public', sub: [str(p.hostname), paused ? `${paused} pausiert` : null] }
   },
   'project.public.pause_page': (p) => ({ title: 'Pause-Seite angepasst', category: 'config', sub: [pausePageText(p)] }),
@@ -266,7 +271,7 @@ interface Cluster { kind: Kind; events: AuditEventDto[]; last: number }
 /** Darf das Ereignis in den Bündel? (älteste zuerst durchlaufen) */
 function accepts(c: Cluster, e: AuditEventDto): boolean {
   if (e.result === 'error' || c.events[0]!.targetId !== e.targetId) return false
-  const t = Date.parse(e.at)
+  const t = at(e)
   const near = (ms: number) => t - c.last <= ms
   const a = e.action
   switch (c.kind) {
@@ -302,21 +307,21 @@ const TWIN = 10 * MIN
 /** MCP-Aufruf neben einem eigenen Ereignis desselben Tokens: geht im Bündel auf */
 function isTwin(e: AuditEventDto, all: AuditEventDto[]): boolean {
   if (!e.action.startsWith('mcp.') || e.result === 'error') return false
-  const t = Date.parse(e.at)
-  return all.some((x) => x !== e && !x.action.startsWith('mcp.') && x.actor === e.actor && Math.abs(Date.parse(x.at) - t) <= TWIN)
+  const t = at(e)
+  return all.some((x) => x !== e && !x.action.startsWith('mcp.') && x.actor === e.actor && Math.abs(at(x) - t) <= TWIN)
 }
 
 /** Ereignisse (neueste zuerst) zu Einträgen bündeln; Ergebnis neueste zuerst. */
 export function bundle(events: AuditEventDto[]): ActivityItem[] {
-  const oldestFirst = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || Number(a.id) - Number(b.id))
+  const oldestFirst = [...events].sort((a, b) => at(a) - at(b) || Number(a.id) - Number(b.id))
   const clusters: Cluster[] = []
   for (const e of oldestFirst) {
     if (isTwin(e, oldestFirst)) continue
     const open = [...clusters].reverse().find((c) => accepts(c, e))
-    if (open) { open.events.push(e); open.last = Date.parse(e.at); continue }
-    clusters.push({ kind: kindOf(e), events: [e], last: Date.parse(e.at) })
+    if (open) { open.events.push(e); open.last = at(e); continue }
+    clusters.push({ kind: kindOf(e), events: [e], last: at(e) })
   }
-  const viaMcp = (e: AuditEventDto) => e.actor.startsWith('token:') && (e.action.startsWith('mcp.') || oldestFirst.some((x) => x.action.startsWith('mcp.') && x.actor === e.actor && Math.abs(Date.parse(x.at) - Date.parse(e.at)) <= TWIN))
+  const viaMcp = (e: AuditEventDto) => e.actor.startsWith('token:') && (e.action.startsWith('mcp.') || oldestFirst.some((x) => x.action.startsWith('mcp.') && x.actor === e.actor && Math.abs(at(x) - at(e)) <= TWIN))
   return clusters.map((c) => {
     const lead = c.events[0]!
     const actor = viaMcp(lead) ? `mcp:${lead.actor.slice(6)}` : lead.actor
@@ -346,7 +351,7 @@ function summarize(c: Cluster): EventInfo {
     const page = find('project.public.pause_page')
     if (page) {
       const t = pausePageText(page.paramsMasked as P) ?? 'Pause-Seite'
-      const clock = new Date(page.at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+      const clock = fmtTime(page.at)
       info.sub = [`${t} (${clock} angepasst)`]
     }
   }
@@ -389,15 +394,11 @@ function summarize(c: Cluster): EventInfo {
 
 /** «Heute», «Gestern», sonst «Montag, 9. November» */
 export function dayLabel(iso: string, now = new Date()): string {
-  const d = new Date(iso)
-  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString()
-  if (same(d, now)) return 'Heute'
-  const y = new Date(now)
-  y.setDate(now.getDate() - 1)
-  if (same(d, y)) return 'Gestern'
-  const opts: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' }
-  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric'
-  return d.toLocaleDateString('de-CH', opts)
+  const d = dateOf(iso)
+  if (!d) return 'Ohne Datum'
+  if (sameDay(d, now)) return 'Heute'
+  if (sameDay(d, addDays(now, -1))) return 'Gestern'
+  return fmtWeekday(d, d.getFullYear() !== now.getFullYear())
 }
 
 export function byDay(items: ActivityItem[]): { day: string; items: ActivityItem[] }[] {

@@ -3,17 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type ExternalTargetDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { ScanReport } from '../components/Security.js'
-import { relativeTime } from '../components/Status.js'
-import { PageHead } from '../components/PageHead.js'
+import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
+import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
 
 /**
  * Fremde Websites scannen, aber nur nach Nachweis per DNS-TXT-Eintrag
  * (SPEC M6). Ohne Nachweis lehnt der Server jeden Scan ab.
  */
 export function ExternalTargets() {
+  // UI-Qualität 6: Reiter unter Security (eigene Seite nur noch als Weiterleitung)
   const qc = useQueryClient()
   const [hostname, setHostname] = useState('')
   const list = useQuery({ queryKey: ['external-targets'], queryFn: api.externalTargets })
@@ -30,14 +32,12 @@ export function ExternalTargets() {
   })
 
   return (
-    <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele">
-        <p className="lede">
-          Eigene Websites, die nicht über Airlock laufen, lassen sich mit denselben
-          passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
-          die Domain dir gehört.
-        </p>
-      </PageHead>
+    <div className="tab-panel">
+      <p className="lede lede-tight">
+        Eigene Websites, die nicht über Airlock laufen, lassen sich mit denselben
+        passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
+        die Domain dir gehört.
+      </p>
 
       <form
         className="inline-form"
@@ -56,18 +56,20 @@ export function ExternalTargets() {
         <button className="button-primary" type="submit" disabled={add.isPending}>Ziel hinzufügen</button>
       </form>
 
-      {list.isLoading ? (
-        <p className="state state-loading">Wird geladen…</p>
-      ) : list.isError ? (
-        <p className="state state-error" role="alert">Liste nicht abrufbar.</p>
-      ) : list.data!.targets.length === 0 ? (
-        <p className="state state-empty">Noch keine externen Ziele.</p>
+      {!list.data && list.isError ? (
+        <ErrorState what="Die Liste der externen Ziele" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+      ) : !list.data ? (
+        <Loading label="Externe Ziele werden geladen"><SkRows n={3} /></Loading>
+      ) : list.data.targets.length === 0 ? (
+        <EmptyState title="Noch keine externen Ziele" action={<button type="button" onClick={() => document.getElementById(form.idFor('hostname'))?.focus()}>Ziel hinzufügen</button>}>
+          Trage oben eine eigene Domain ein. Gescannt wird erst, wenn ein TXT-Eintrag beweist, dass sie dir gehört.
+        </EmptyState>
       ) : (
         <ul className="target-list">
-          {list.data!.targets.map((t) => <Target key={t.id} t={t} />)}
+          {list.data.targets.map((t) => <Target key={t.id} t={t} />)}
         </ul>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -103,9 +105,10 @@ function Target({ t }: { t: ExternalTargetDto }) {
     queryKey: ['external-scan', t.id],
     queryFn: () => api.latestExternalScan(t.id),
     enabled: showReport,
+    // Fortschritt kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
     refetchInterval: (q) => {
       const st = q.state.data?.report?.scan.status
-      return st === 'queued' || st === 'running' ? 4000 : false
+      return st === 'queued' || st === 'running' ? poll() : false
     },
   })
 
@@ -138,7 +141,7 @@ function Target({ t }: { t: ExternalTargetDto }) {
       )}
 
       <div className="form-actions">
-        <button onClick={() => verify.mutate()} disabled={verify.isPending}>{verify.isPending ? 'Prüft …' : 'Prüfen'}</button>
+        <button onClick={() => verify.mutate()} disabled={verify.isPending} aria-busy={verify.isPending || undefined}>Prüfen</button>
         <label>
           Regelmässig scannen{' '}
           <select value={t.scanInterval} onChange={(e) => interval.mutate(e.target.value)} disabled={!t.verified}>
@@ -160,14 +163,12 @@ function Target({ t }: { t: ExternalTargetDto }) {
         )}
       </div>
       {verifyNote && <p className="hint" role="status">{verifyNote}</p>}
-      {[verify, interval, scan, del].map((m, i) =>
-        m.isError ? <p key={i} role="alert" className="error">{m.error instanceof ApiError ? m.error.message : 'Fehler'}</p> : null,
-      )}
 
       {showReport && (
-        report.isLoading ? <p className="state state-loading">Wird geladen…</p>
-        : report.data?.report ? <ScanReport report={report.data.report} onAccepted={() => void report.refetch()} />
-        : <p className="state state-empty">Noch kein Scan.</p>
+        !report.data && report.isError ? <ErrorState compact what="Der letzte Scan" error={report.error} retrying={report.isFetching} onRetry={() => void report.refetch()} />
+        : !report.data ? <Loading label="Scan wird geladen"><SkCard lines={4} /></Loading>
+        : report.data.report ? <ScanReport report={report.data.report} onAccepted={() => void report.refetch()} />
+        : <EmptyState compact title="Noch kein Scan." action={t.verified ? <button type="button" className="button-small" onClick={() => scan.mutate()}>Jetzt scannen</button> : undefined}>{t.verified ? null : 'Erst die Domain bestätigen.'}</EmptyState>
       )}
     </li>
   )

@@ -1,10 +1,14 @@
+import { markSessionExpired } from './lib/session.js'
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
+  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
-  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
   SiteAccessEntryDto,
+  LogLineDto,
+  LogLinesDto,
+  NamePreviewDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
 } from '@airlock/shared'
 
 export type {
@@ -51,6 +55,10 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
+  /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
+  setup?: SetupPrefs | null
+  /** Glocke: bis wann gelesen (UI-Qualität 8) */
+  bellSeenAt?: string | null
   /** M9: zuletzt gewählte Umgebung (Slug) */
   lastEnvironment?: string | null
 }
@@ -72,17 +80,35 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, {
-    credentials: 'same-origin',
-    // Content-Type nur bei einem JSON-Body: Ohne Body würde der Server
-    // «Body cannot be empty when content-type is set to 'application/json'» melden.
-    headers: typeof init.body === 'string' ? { 'content-type': 'application/json' } : {},
-    ...init,
-  })
+  let res: Response
+  try {
+    res = await fetch(`/api/v1${path}`, {
+      credentials: 'same-origin',
+      // Content-Type nur bei einem JSON-Body: Ohne Body würde der Server
+      // «Body cannot be empty when content-type is set to 'application/json'» melden.
+      headers: typeof init.body === 'string' ? { 'content-type': 'application/json' } : {},
+      ...init,
+    })
+  } catch (e) {
+    // Netz weg, Server aus: eigener Code, damit die Oberfläche «nicht erreichbar» zeigt (Status 0)
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError('unreachable', 'Der Airlock-Server antwortet nicht.', 0)
+  }
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  const data = text ? JSON.parse(text) : {}
+  let data: unknown = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    // Kein JSON: meist eine Fehlerseite eines Proxys (502 vom Gateway)
+    if (!res.ok) throw new ApiError(res.status >= 502 && res.status <= 504 ? 'unreachable' : 'bad_response', `HTTP ${res.status}`, res.status)
+    throw new ApiError('bad_response', 'Unerwartete Antwort vom Server.', res.status)
+  }
   if (!res.ok) {
+    // UI-Qualität 8: Sitzung abgelaufen → Anmeldedialog über der Seite. Nicht bei der Anmeldung selbst
+    // (falsches Passwort) und nicht bei /auth/me (das sagt «nicht angemeldet» als Antwort, nicht als 401);
+    // Glocke, Darstellung, Passwort und Abmelden sollen den Dialog dagegen auslösen
+    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') markSessionExpired()
     const e = (data as { error?: { code: string; message: string; details?: unknown } }).error
     throw new ApiError(e?.code ?? 'unknown', e?.message ?? `HTTP ${res.status}`, res.status, e?.details)
   }
@@ -123,12 +149,14 @@ export const api = {
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
   login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
-  /** Teilweise: fehlende Felder bleiben auf dem Server, wie sie sind */
-  setPreferences: (prefs: Partial<UiPrefs>) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
+  /** Nur geänderte Teile (Darstellung, Einrichtung, Umgebung); der Server führt zusammen */
+  setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>(e('/projects')),
   getProject: (id: string) => call<{ project: ProjectDto; env: EnvEntryDto[] }>(`/projects/${id}`),
+  /** UI-Qualität 5: Kurzname und Adresse vor dem Anlegen */
+  namePreview: (name: string) => call<{ preview: NamePreviewDto }>(`/projects/name-preview?name=${encodeURIComponent(name)}`),
   createProject: (input: unknown) =>
     call<{ project: ProjectDto; deployment: DeploymentDto | null }>(e('/projects'), { method: 'POST', body: body(input) }),
   updateProject: (id: string, patch: unknown) =>
@@ -201,7 +229,10 @@ export const api = {
 
   /* Dateien eines Chat-Projekts (M3) */
   /** Statische Seiten: Aufrufe aus Caddys Zugriffs-Log (24 Stunden) */
-  siteAccess: (id: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access`),
+  siteAccess: (id: string, range?: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access${range ? `?range=${range}` : ''}`),
+  /** UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe */
+  logLines: (id: string, range: string, service: string | null) =>
+    call<LogLinesDto>(`/projects/${id}/log-lines?range=${range}${service ? `&service=${encodeURIComponent(service)}` : ''}`),
   listFiles: (id: string) => call<{ commit: string | null; files: { path: string; size: number }[] }>(`/projects/${id}/files`),
 
   /* Security (M6) */
@@ -245,6 +276,10 @@ export const api = {
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
 
+  /* Cloudflare verbinden */
+  /** Frist der Chat-Projekte (Tage ohne Änderung bis zum Stopp) */
+  expiry: () => call<ExpirySettingDto>('/system/expiry'),
+  setExpiry: (days: number) => call<ExpirySettingDto>('/system/expiry', { method: 'PUT', body: body({ days }) }),
   /* Cloudflare verbinden (M9: je Umgebung) */
   cloudflare: () => call<CfStatusDto>(e('/cloudflare')),
   cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>(e('/cloudflare/check'), { method: 'POST', body: body({ token }) }),
@@ -256,9 +291,6 @@ export const api = {
   cloudflareTunnelUpdate: () => call<CfStatusDto>(e('/cloudflare/tunnel/update'), { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>(e('/cloudflare/tls'), { method: 'POST' }),
   cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
-  /** Frist der Chat-Projekte (Tage ohne Änderung bis zum Stopp; serverweit) */
-  expiry: () => call<ExpirySettingDto>('/system/expiry'),
-  setExpiry: (days: number) => call<ExpirySettingDto>('/system/expiry', { method: 'PUT', body: body({ days }) }),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),
@@ -296,16 +328,34 @@ export function subscribeDeployment(id: string, onEvent: (e: DeployEvent) => voi
   return () => es.close()
 }
 
-export function subscribeLogs(projectId: string, onLine: (line: string) => void): () => void {
-  const es = new EventSource(`/api/v1/projects/${projectId}/logs/stream`)
+/**
+ * UI-Qualität 4: neue Zeilen live (Zeit, Dienst, Stufe). onState meldet, ob
+ * der Strom offen ist – bricht er ab, zeigt der Reiter es an, statt still zu stehen.
+ */
+export function subscribeLogs(projectId: string, o: { service: string | null; since: string | null }, onLine: (line: LogLineDto) => void, onState?: (open: boolean) => void): () => void {
+  const q = new URLSearchParams()
+  if (o.service) q.set('service', o.service)
+  // Anschluss an den Stand: nur Zeilen danach (nichts doppelt, nichts verloren)
+  if (o.since) q.set('since', o.since)
+  return subscribeJson<LogLineDto>(`/api/v1/projects/${projectId}/logs/stream${q.size ? `?${q}` : ''}`, onLine, onState)
+}
+
+/** UI-Qualität 4: neue Zugriffe einer statischen Seite live */
+export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
+}
+
+function subscribeJson<T>(url: string, on: (v: T) => void, onState?: (open: boolean) => void): () => void {
+  const es = new EventSource(url)
+  es.onopen = () => onState?.(true)
   es.onmessage = (m) => {
     try {
-      onLine(JSON.parse(m.data) as string)
+      on(JSON.parse(m.data as string) as T)
     } catch {
       /* ignorieren */
     }
   }
-  es.onerror = () => es.close()
+  es.onerror = () => { es.close(); onState?.(false) }
   return () => es.close()
 }
 

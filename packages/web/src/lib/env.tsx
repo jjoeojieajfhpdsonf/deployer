@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from 're
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { matchPath, useLocation } from 'react-router-dom'
 import { api, setApiEnvironment, type EnvironmentDto } from '../api.js'
+import { FALLBACK_MS } from './live.js'
 
 /**
  * M9: Umgebungen in der Oberfläche (SPEC «Umgebungen», Bedienung).
@@ -28,7 +29,8 @@ interface EnvState {
 const EnvContext = createContext<EnvState>({ slug: '', env: null, envs: [], fromUrl: false, unknown: false, loading: true })
 
 export function useEnvironments() {
-  return useQuery({ queryKey: ['environments'], queryFn: api.environments, refetchInterval: 30_000, staleTime: 10_000 })
+  // Höchstens einmal pro Minute (UI-Qualität 3); der Ereignisstrom meldet Umgebungen nicht, darum auch mit Strom
+  return useQuery({ queryKey: ['environments'], queryFn: api.environments, refetchInterval: FALLBACK_MS, staleTime: 10_000 })
 }
 
 /** Abfragen, die nicht an einer Umgebung hängen und beim Wechsel bleiben dürfen */
@@ -63,6 +65,17 @@ export function EnvProvider({ lastEnvironment, children }: { lastEnvironment: st
 }
 
 export const useEnv = (): EnvState => useContext(EnvContext)
+
+/**
+ * Shell erst zeigen, wenn die Umgebung feststeht: Seitenleiste, Glocke und
+ * Vorgänge fragen sofort nach Listen der Umgebung – ohne Umgebung gingen
+ * diese Anfragen ins Leere (und ohne Sekunden-Polling bliebe das Ergebnis
+ * stehen). Bis dahin das Skelett der Shell.
+ */
+export function EnvReady({ fallback, children }: { fallback: ReactNode; children: ReactNode }) {
+  const { slug, loading } = useEnv()
+  return <>{!slug && loading ? fallback : children}</>
+}
 
 /** Pfad in der gültigen Umgebung: ep('/projekte') → /u/jherren/projekte */
 export function useEnvPath(): (p: string) => string {

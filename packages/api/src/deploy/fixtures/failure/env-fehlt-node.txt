@@ -1,0 +1,22 @@
+[2026-11-10T12:46:01.102Z] --- pulling ---
+[2026-11-10T12:46:01.240Z] Image ghcr.io/example/kontoauszug:1.4.2 holen
+[2026-11-10T12:46:04.811Z] --- starting ---
+[2026-11-10T12:46:05.020Z] --- healthchecking ---
+[2026-11-10T12:46:05.031Z] Healthcheck gegen http://dep_kontoauszug_a1:8080/health
+[2026-11-10T12:46:05.044Z] Healthcheck 1: noch nicht erreichbar (connect ECONNREFUSED 172.20.0.4:8080)
+[2026-11-10T12:47:05.050Z] Healthcheck nach 58 Versuchen nicht bestanden (getaddrinfo ENOTFOUND dep_kontoauszug_a1)
+[2026-11-10T12:47:05.090Z] Container beendet: Exit-Code 1
+[2026-11-10T12:47:05.130Z] Letzte Container-Ausgabe:
+> kontoauszug@1.4.2 start
+> node dist/server.js
+
+/app/dist/config.js:14
+    throw new Error(`Missing required environment variable: ${name}`);
+    ^
+
+Error: Missing required environment variable: DATABASE_URL
+    at required (/app/dist/config.js:14:11)
+    at Object.<anonymous> (/app/dist/config.js:20:16)
+
+Node.js v22.11.0
+[2026-11-10T12:47:05.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

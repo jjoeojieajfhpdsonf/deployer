@@ -11,6 +11,8 @@ import { Field } from '../components/Field.js'
 import { IconWarn } from '../components/Icons.js'
 import { useEnv, useEnvPath } from '../lib/env.js'
 import { copyText } from '../lib/clipboard.js'
+import { Domains } from './Domains.js'
+import { ScrollToHash } from './System.js'
 
 export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards'
 
@@ -33,9 +35,11 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'allgemein' ? [{ label: 'einstellungen' }] : [{ label: 'einstellungen', to: ep('/einstellungen') }, { label: current.label.toLowerCase() }]}
+        crumbs={section === 'allgemein' ? [{ label: 'Einstellungen' }] : [{ label: 'Einstellungen', to: ep('/einstellungen') }, { label: current.label }]}
         title="Einstellungen"
+        name={section === 'allgemein' ? 'Einstellungen' : current.label}
       />
+      <ScrollToHash ready />
       <nav className="tabs" aria-label="Bereiche der Umgebung">
         {tabs.map((t) => (
           <NavLink key={t.key} to={t.to} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={t.key === section ? 'page' : undefined}>
@@ -53,6 +57,8 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
           <EnvFacts env={env} />
           <CloudflareSetup />
           {env.baseDomain && <NameResolution env={env} />}
+          {/* UI-Qualität 6: Domains gehören hierher (früher eigene Seite /domains) */}
+          <Domains />
         </>
       )}
       {section === 'standards' && (

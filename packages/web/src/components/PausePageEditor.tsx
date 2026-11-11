@@ -4,6 +4,8 @@ import {
   pauseHtmlProblems, utf8Length, PAUSE_BACK_MAX_MS, type PausePage,
 } from '@airlock/shared'
 import { Field } from './Field.js'
+import { isoOf } from '../lib/dates.js'
+import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 import type { CodeEditorHandle } from './CodeEditor.js'
 import { formatHtml } from '../lib/format-html.js'
 
@@ -256,15 +258,20 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // UI-Qualität 8: Änderungen im Editor nicht still verwerfen (Abbrechen, Esc, Klick daneben, Neu laden)
+  const changed = open && (JSON.stringify(page) !== JSON.stringify(initial ?? template) || back !== toLocalInput(initialBackAt))
+  useUnsaved(changed, 'Pause-Seite')
+  const cancel = () => { void confirmLeave().then((ok) => { if (ok) onCancel() }) }
+
   const custom = !samePage(page, template)
   const blocked = codeProblems(page).length > 0
   // Nie werfen: Unlesbares (Jahr 333333, halbe Eingabe) wird zur Feldmeldung
   const parsed = withBackAt ? parseLocalDateTime(back) : { iso: null, error: null }
   const backIso = parsed.iso
   const backErr = withBackAt ? (backBad ? 'Ungültiges Datum' : parsed.error ?? backAtProblem(backIso) ?? undefined) : undefined
-  const now = new Date()
-  const minBack = toLocalDateTime(now.toISOString())
-  const maxBack = toLocalDateTime(new Date(now.getTime() + PAUSE_BACK_MAX_MS).toISOString())
+  const now = Date.now()
+  const minBack = toLocalDateTime(isoOf(now))
+  const maxBack = toLocalDateTime(isoOf(now + PAUSE_BACK_MAX_MS))
   const shownBack = withBackAt ? (backErr ? null : backIso) : initialBackAt
 
   const submit = () => {
@@ -278,8 +285,12 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
   }
 
   return (
-    <dialog ref={ref} className="dialog pause-dialog" aria-labelledby={`${prefix}-h`} onClose={onCancel}
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+    <dialog ref={ref} className="dialog pause-dialog" aria-labelledby={`${prefix}-h`}
+      // Schliesst der Browser den Dialog selbst (zweites Esc ohne Nutzeraktion), nicht still verwerfen:
+      // wieder öffnen und fragen
+      onClose={() => { if (!open) return; if (changed) { ref.current?.showModal(); cancel() } else onCancel() }}
+      onCancel={(e) => { if (changed) { e.preventDefault(); cancel() } }}
+      onClick={(e) => { if (e.target === e.currentTarget) cancel() }}>
       <form className="pause-dialog-form" noValidate onSubmit={(e) => { e.preventDefault(); submit() }}>
         <header className="pause-dialog-head">
           <div>
@@ -306,8 +317,8 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
             : <span className="pause-dialog-info">Antwort: 503 · noindex{shownBack ? ' · Retry-After' : ''}{note ? <span className="pause-dialog-note"> · {note}</span> : null}</span>}
           <span className="pause-dialog-buttons">
             {custom && <button type="button" onClick={() => { setPage(template); setErrors({}) }}>Auf Vorlage zurücksetzen</button>}
-            <button type="button" onClick={onCancel}>Abbrechen</button>
-            <button type="submit" className="button-primary" disabled={saving || blocked} aria-describedby={blocked ? `${prefix}-html-check` : undefined}>{saving ? 'Wird gespeichert…' : saveLabel}</button>
+            <button type="button" onClick={cancel}>Abbrechen</button>
+            <button type="submit" className="button-primary" disabled={saving || blocked} aria-busy={saving || undefined} aria-describedby={blocked ? `${prefix}-html-check` : undefined}>{saveLabel}</button>
           </span>
         </footer>
       </form>

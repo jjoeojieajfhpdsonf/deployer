@@ -34,8 +34,8 @@ try {
 
   const key = loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
   const enc = (s: string) => encrypt(s, key).toString('base64')
-  const CF_TOKEN = 'cf_test_token_abcdefghijklmnopqrstuvwxyz0123'
-  const TUNNEL_TOKEN = 'tunnel-token-geheim-1234567890'
+  const CF_TOKEN = 'cf_test_token_abcdefghijklmnopqrstuvwxyz0123' // allowlist-secret: erfundener Testwert (Cloudflare-Attrappe)
+  const TUNNEL_TOKEN = 'tunnel-token-geheim-1234567890' // allowlist-secret: erfundener Testwert
   const validTo = new Date(Date.now() + 60 * 86_400_000).toISOString()
   const legacy = {
     tokenEnc: enc(CF_TOKEN),

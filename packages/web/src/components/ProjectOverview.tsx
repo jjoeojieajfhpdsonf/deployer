@@ -1,25 +1,29 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { useEnvPath } from '../lib/env.js'
-import type { AddressRowInput, DeploymentDto, EnvEntryDto, ProjectDto, ResourceSample } from '@airlock/shared'
-import { browserCanProbe, splitAddresses } from '@airlock/shared'
+import type { AddressRowInput, ContainerField, DeploymentDto, EnvEntryDto, FailureAction, FailureExplanation, ProjectDto, ResourceSample } from '@airlock/shared'
+import { browserCanProbe, deployFixPrompt, envTexts, explainFailure, logTail, missingEnvVar, sourceSchema, splitAddresses, updateProjectSchema } from '@airlock/shared'
+import { copyText } from '../lib/clipboard.js'
+import { FALLBACK_MS, poll } from '../lib/live.js'
+import { Field } from './Field.js'
+import { IconSpark } from './Actor.js'
 import { api, probeUrl } from '../api.js'
 import { relativeTime, shortVersion, since } from '../lib/format.js'
+import { fmtDayTime, fmtTime, msOf } from '../lib/dates.js'
 import { bundle, isReadOnly } from '../lib/activity.js'
 import { ActivityList } from './ActivityList.js'
-import { explainDeployFailure, logTail } from '../lib/failure.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
 import { KeyFacts } from './KeyFacts.js'
+import { deployFailedState } from '../lib/projects.js'
+import { IconBad, IconOk, IconPending } from './Icons.js'
+import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
+import { useEnvPath } from '../lib/env.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
-const IconOk = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m5.4 8.2 1.8 1.8 3.4-3.6" /></svg>
-const IconBad = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
-const IconPending = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
 const IconCheck = () => <svg {...svg}><path d="m3.5 8.5 3 3 6-7" /></svg>
 
@@ -29,12 +33,13 @@ export function useProjectHealth(p: ProjectDto) {
     queryKey: ['health', p.id],
     queryFn: () => api.health(p.id, true),
     enabled: Boolean(p.activeDeployment) && p.desiredState === 'running',
-    refetchInterval: 30_000,
+    // Messwerte (CPU, RAM) sind keine Ereignisse: einmal pro Minute, Zustandswechsel kommen über den Strom
+    refetchInterval: FALLBACK_MS,
   })
 }
 
 export function ProjectOverview({
-  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy,
+  p, env, onTab, onDeploy, deploying, onRollback, onToggleKeep, keepBusy, onAddEnv,
 }: {
   p: ProjectDto
   env: EnvEntryDto[]
@@ -44,30 +49,37 @@ export function ProjectOverview({
   onRollback: (deploymentId: string) => void
   onToggleKeep: () => void
   keepBusy?: boolean
+  /** Fehlerbox «Hinzufügen»: zu den Einstellungen, Variable vorbelegt */
+  onAddEnv: (name: string) => void
 }) {
-  const running = p.desiredState === 'running' && Boolean(p.activeDeployment)
+  // Einzige Quelle: der Zustand vom Server (p.state). Die Gesundheitsabfrage liefert nur
+  // Einzelheiten (Exit-Code, Messwerte), entscheidet aber nichts.
+  const st = p.state.key
   const health = useProjectHealth(p)
   const h = health.data
-  const containerDown = Boolean(running && h?.container && !h.container.running)
-  const deployFailed = p.lastDeployment?.status === 'failed'
+  const live = st === 'running' || st === 'failed_old_running' || st === 'paused'
+  const deployFailed = deployFailedState(p)
+  const containerDown = st === 'down' && Boolean(p.activeDeployment)
 
   return (
     <div className="overview">
       {deployFailed && p.lastDeployment && (
-        <DeployFailure p={p} dep={p.lastDeployment} stillRunning={running && !containerDown} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
+        <DeployFailure p={p} env={env} dep={p.lastDeployment} stillRunning={st === 'failed_old_running'} onTab={onTab} onDeploy={onDeploy} deploying={deploying} onAddEnv={onAddEnv} />
       )}
-      {!deployFailed && containerDown && h?.container && (
-        <ContainerDown projectId={p.id} exitCode={h.container.exitCode} missing={Boolean(h.container.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
+      {containerDown && (
+        <ContainerDown p={p} env={env} onAddEnv={onAddEnv} exitCode={h?.container?.exitCode ?? null} missing={Boolean(h?.container?.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
       )}
 
       <div className="overview-grid">
         <div className="overview-main">
-          {running && !containerDown && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
-          {!running && !deployFailed && (
+          {live && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
+          {(st === 'stopped' || (st === 'down' && !deployFailed && !containerDown) || st === 'deploying') && (
             <section className="panel panel-pad ov-section">
               <h2 className="ov-title">Zustand</h2>
               <p className="muted ov-empty">
-                {p.status === 'stopped' ? 'Gestoppt. Die Adressen antworten erst wieder nach «Starten».' : 'Noch nichts deployt. «Neu deployen» startet die erste Fassung.'}
+                {st === 'stopped' ? 'Gestoppt. Die Adressen antworten erst wieder nach «Starten».'
+                  : st === 'deploying' ? 'Ein Deploy läuft; der Fortschritt steht oben bei «Vorgänge».'
+                  : 'Noch nichts deployt. «Neu deployen» startet die erste Fassung.'}
               </p>
             </section>
           )}
@@ -87,67 +99,250 @@ export function ProjectOverview({
 
 /* --- Fehler ---------------------------------------------------------------- */
 
-function DeployFailure({ p, dep, stillRunning, onTab, onDeploy, deploying }: {
-  p: ProjectDto; dep: DeploymentDto; stillRunning: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+const LINES_FROM = { container: 'der Container-Ausgabe', build: 'des Build-Logs', deploy: 'des Deploy-Logs' } as const
+
+function DeployFailure({ p, env, dep, stillRunning, onTab, onDeploy, deploying, onAddEnv }: {
+  p: ProjectDto; env: EnvEntryDto[]; dep: DeploymentDto; stillRunning: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+  onAddEnv: (name: string) => void
 }) {
-  const d = useQuery({ queryKey: ['deployment', dep.id], queryFn: () => api.getDeployment(dep.id) })
-  const log = d.data?.log ?? ''
-  const f = explainDeployFailure(p, dep.errorMessage, log)
-  const lines = logTail(log, 15)
+  // UI-Qualität 2: Erklärung vom Server, beim Scheitern festgehalten (dieselbe wie im MCP-Ergebnis).
+  // Nur ältere Deployments ohne gespeicherte Erklärung brauchen das Log, um sie hier zu bilden.
+  const stored = dep.failure ?? null
+  const d = useQuery({ queryKey: ['deployment', dep.id], queryFn: () => api.getDeployment(dep.id), enabled: !stored })
+  const f = stored ?? (d.data
+    ? explainFailure({
+        message: dep.errorMessage, log: d.data.log, port: p.port, healthcheckPath: p.healthcheckPath,
+        image: (p.source as { image?: string } | null)?.image ?? null, memoryLimitMb: p.memoryLimitMb,
+        envKeys: env.map((e) => e.key), sourceType: p.sourceType,
+      })
+    : null)
   return (
-    <section className="failure" role="alert" aria-labelledby="failure-title">
+    <section className="failure" aria-labelledby="failure-title">
       <div className="failure-head">
         <span className="failure-icon"><IconBad /></span>
         <div>
-          <h2 id="failure-title">{f.title}</h2>
+          {/* Bis die Erklärung da ist: «Deploy fehlgeschlagen», nicht eine vorläufige, die gleich wechselt */}
+          <h2 id="failure-title">{f?.title ?? 'Deploy fehlgeschlagen'}</h2>
           <p className="failure-meta">
             Deploy {relativeTime(dep.startedAt)}{dep.version ? <> · <code>{shortVersion(dep.version)}</code></> : null}
             {stillRunning ? ' · die vorherige Fassung läuft weiter' : ' · nichts läuft'}
           </p>
         </div>
       </div>
-      <p className="failure-cause">{f.cause}</p>
+      {f ? <p className="failure-cause">{f.cause}</p> : !d.isError && <Loading label="Erklärung wird geladen"><SkLog n={2} /></Loading>}
       <div className="failure-log">
         <div className="failure-log-head">
-          <span>Letzte {lines.length} Zeilen des Deploy-Logs</span>
+          <span>{f ? linesLabel(f.lines.length, LINES_FROM[f.linesFrom]) : 'Ende des Deploy-Logs'}</span>
           <button type="button" className="link-button" onClick={() => onTab('deployments')}>Ganzes Log</button>
         </div>
-        <pre className="log log-failure" aria-label="Letzte Zeilen des Deploy-Logs">{d.isLoading ? 'Log wird geladen…' : lines.join('\n') || 'Kein Log gespeichert.'}</pre>
+        {/* Teilweise: Ursache und Aktionen stehen auch ohne Log */}
+        {f ? <LogLines lines={f.lines} label={`Letzte Zeilen ${LINES_FROM[f.linesFrom]}`} empty="Für dieses Deployment wurde kein Log gespeichert." />
+          : d.isError ? <PartialNote onRetry={() => void d.refetch()}>Das Deploy-Log ist gerade nicht abrufbar ({errorReason(d.error)})</PartialNote>
+          : <Loading label="Log wird geladen"><SkLog n={6} /></Loading>}
       </div>
-      <div className="failure-actions">
-        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
-        <button type="button" onClick={() => onTab('einstellungen')}>{f.fix === 'env' ? 'Umgebungsvariablen ändern' : 'Einstellungen ändern'}</button>
-      </div>
+      <FailureActions p={p} env={env} f={f} onDeploy={onDeploy} deploying={deploying} onAddEnv={onAddEnv} />
     </section>
   )
 }
 
-function ContainerDown({ projectId, exitCode, missing, onTab, onDeploy, deploying }: {
-  projectId: string; exitCode: number | null; missing: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+/** «Letzte Zeile» bzw. «Letzte 5 Zeilen» */
+const linesLabel = (n: number, from: string) => (n === 1 ? `Letzte Zeile ${from}` : `Letzte ${n} Zeilen ${from}`)
+
+/** Logzeilen: scrollbar und per Tastatur erreichbar, mit Namen für Screenreader */
+function LogLines({ lines, label, empty }: { lines: string[]; label: string; empty: string }) {
+  return (
+    <pre className="log log-failure" role="region" aria-label={label} tabIndex={0}>{lines.join('\n') || empty}</pre>
+  )
+}
+
+function ContainerDown({ p, env, exitCode, missing, onTab, onDeploy, deploying, onAddEnv }: {
+  p: ProjectDto; env: EnvEntryDto[]; exitCode: number | null; missing: boolean; onTab: (t: Tab) => void; onDeploy: () => void; deploying: boolean
+  onAddEnv: (name: string) => void
 }) {
-  const logs = useQuery({ queryKey: ['logs-tail', projectId], queryFn: () => api.getLogs(projectId, 15), enabled: !missing, retry: false })
+  const logs = useQuery({ queryKey: ['logs-tail', p.id], queryFn: () => api.getLogs(p.id, 15), enabled: !missing, retry: false })
   const lines = logTail(logs.data?.logs ?? '', 15)
+  // Dieselben Muster und Worte wie beim Deploy: fehlende Variable (envTexts), Speichergrenze
+  const envName = logs.data ? missingEnvVar(lines) : null
+  const envT = envName ? envTexts(envName, env.some((e) => e.key === envName)) : null
+  const exited = exitCode !== null ? ` (Exit-Code ${exitCode})` : ''
+  const action: FailureAction | null = missing ? null
+    : envT ? envT.action
+    : exitCode === 137 ? { kind: 'set_field', field: 'memoryLimitMb', value: null, label: 'Grenze erhöhen' }
+    : null
+  const title = missing ? 'Container fehlt' : envT ? envT.title : exitCode !== null ? `Container hat sich beendet${exited}` : 'Container läuft nicht'
   const cause = missing
     ? 'Der Container der aktiven Fassung existiert nicht mehr – er wurde von Hand entfernt, oder der Neustart nach einem Server-Neustart ist gescheitert. Die Adressen antworten nicht. «Erneut deployen» baut ihn neu auf.'
+    : envT
+    ? `Der Container hat sich beendet${exited}. ${envT.cause}`
     : exitCode === 137
-    ? 'Der Container wurde beendet (Exit-Code 137) – meist, weil er mehr RAM brauchte als erlaubt. Die Grenze lässt sich unter Einstellungen erhöhen.'
-    : `Der Container hat sich beendet${exitCode !== null ? ` (Exit-Code ${exitCode})` : ''}. Die Ursache steht meist in den letzten Zeilen seiner Ausgabe.`
+    ? `Der Container wurde beendet (Exit-Code 137) – meist, weil er mehr RAM brauchte als erlaubt (Grenze ${p.memoryLimitMb.toLocaleString('de-CH')} MB).`
+    : `Der Container hat sich beendet${exited}. Die Ursache steht meist in den letzten Zeilen seiner Ausgabe.`
   return (
-    <section className="failure" role="alert" aria-labelledby="failure-title">
+    <section className="failure" aria-labelledby="failure-title">
       <div className="failure-head">
         <span className="failure-icon"><IconBad /></span>
-        <div><h2 id="failure-title">{missing ? 'Container fehlt' : 'Container läuft nicht'}</h2><p className="failure-meta">Der letzte Deploy war erfolgreich, der Container ist danach ausgefallen</p></div>
+        <div><h2 id="failure-title">{title}</h2><p className="failure-meta">Der letzte Deploy war erfolgreich, der Container ist danach ausgefallen</p></div>
       </div>
       <p className="failure-cause">{cause}</p>
       {!missing && <div className="failure-log">
-        <div className="failure-log-head"><span>Letzte {lines.length} Zeilen der Container-Ausgabe</span><button type="button" className="link-button" onClick={() => onTab('logs')}>Logs</button></div>
-        <pre className="log log-failure">{logs.isLoading ? 'Wird geladen…' : lines.join('\n') || logs.data?.hint || 'Keine Ausgabe.'}</pre>
+        <div className="failure-log-head"><span>{logs.data ? linesLabel(lines.length, 'der Container-Ausgabe') : 'Container-Ausgabe'}</span><button type="button" className="link-button" onClick={() => onTab('logs')}>Logs</button></div>
+        {!logs.data && logs.isError ? <PartialNote onRetry={() => void logs.refetch()}>Die Container-Ausgabe ist gerade nicht abrufbar ({errorReason(logs.error)})</PartialNote>
+          : !logs.data ? <Loading label="Ausgabe wird geladen"><SkLog n={6} /></Loading>
+          : <LogLines lines={lines} label="Letzte Zeilen der Container-Ausgabe" empty={logs.data.hint || 'Der Container hat nichts ausgegeben.'} />}
       </div>}
-      <div className="failure-actions">
-        <button type="button" className="button-primary" onClick={onDeploy} disabled={deploying}>{deploying ? 'Startet…' : 'Erneut deployen'}</button>
-        <button type="button" onClick={() => onTab('einstellungen')}>Einstellungen ändern</button>
-      </div>
+      <FailureActions
+        p={p}
+        env={env}
+        f={action ? { kind: 'exited', title, cause, action, lines, linesFrom: 'container', exitCode } : null}
+        onDeploy={onDeploy}
+        deploying={deploying}
+        onAddEnv={onAddEnv}
+      />
     </section>
+  )
+}
+
+const FIELD_TEXT: Record<ContainerField, { label: string; done: (v: string | number) => string }> = {
+  port: { label: 'Port im Container', done: (v) => `Port ist jetzt ${v}.` },
+  healthcheckPath: { label: 'Pfad für den Healthcheck', done: (v) => `Healthcheck-Pfad ist jetzt ${v}.` },
+  memoryLimitMb: { label: 'RAM-Grenze in MB', done: (v) => `RAM-Grenze ist jetzt ${Number(v).toLocaleString('de-CH')} MB.` },
+}
+
+/**
+ * Knöpfe der Fehlerbox: die vorgeschlagene Aktion zuerst, dann «Erneut
+ * deployen». Einstellungen, die die Aktion ändert, wirken beim nächsten Deploy.
+ */
+function FailureActions({ p, env, f, onDeploy, deploying, onAddEnv }: {
+  p: ProjectDto; env: EnvEntryDto[]; f: FailureExplanation | null; onDeploy: () => void; deploying: boolean; onAddEnv: (name: string) => void
+}) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState<'field' | 'claude' | 'image' | null>(null)
+  const [done, setDone] = useState('')
+  const a = f?.action ?? null
+  const save = useMutation({
+    meta: { errorTitle: 'Nicht geändert' },
+    mutationFn: (patch: Record<string, unknown>) => api.updateProject(p.id, patch),
+    onSuccess: (_r, patch) => {
+      const [k, v] = Object.entries(patch)[0]!
+      setDone(k === 'source' ? `Image ist jetzt ${(v as { image: string }).image}.` : FIELD_TEXT[k as ContainerField].done(v as string | number))
+      setOpen(null)
+      void qc.invalidateQueries({ queryKey: ['project', p.id] })
+    },
+  })
+  const isImage = p.sourceType === 'image'
+  // Ursache schon behoben (Variable inzwischen gesetzt, Port schon geändert)? Dann bleibt die
+  // Erklärung des alten Deploys stehen, und «Erneut deployen» ist der nächste Schritt.
+  const applied = a?.kind === 'add_env' && !a.exists && env.some((e) => e.key === a.name)
+    ? `${a.name} ist jetzt gesetzt.`
+    : a?.kind === 'set_field' && a.value !== null && p[a.field] === a.value
+    ? FIELD_TEXT[a.field].done(a.value)
+    : done || null
+  const ownAction = !applied && a && a.kind !== 'redeploy' && !(a.kind === 'change_source' && !isImage)
+  const toggle = (k: 'field' | 'claude' | 'image') => { setDone(''); setOpen((o) => (o === k ? null : k)) }
+  const panelId = useId()
+  // aria-controls nur, solange das Feld existiert
+  const controls = (k: 'field' | 'claude' | 'image') => ({ 'aria-expanded': open === k, 'aria-controls': open === k ? panelId : undefined })
+  return (
+    <>
+      <div className="failure-actions">
+        {ownAction && a?.kind === 'add_env' && <button type="button" className="button-primary" onClick={() => onAddEnv(a.name)}>{a.label}</button>}
+        {ownAction && a?.kind === 'set_field' && a.value !== null && (
+          <button type="button" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined} onClick={() => save.mutate({ [a.field]: a.value })}>{a.label}</button>
+        )}
+        {ownAction && a?.kind === 'set_field' && a.value === null && (
+          <button type="button" className="button-primary" {...controls('field')} onClick={() => toggle('field')}>{a.label}</button>
+        )}
+        {ownAction && a?.kind === 'change_source' && (
+          <button type="button" className="button-primary" {...controls('image')} onClick={() => toggle('image')}>{a.label}</button>
+        )}
+        {ownAction && a?.kind === 'claude' && (
+          <button type="button" className="button-primary" {...controls('claude')} onClick={() => toggle('claude')}>
+            <span className="claude-spark"><IconSpark /></span>{a.label}
+          </button>
+        )}
+        <button type="button" className={ownAction ? undefined : 'button-primary'} onClick={onDeploy} disabled={deploying} aria-busy={deploying || undefined}>Erneut deployen</button>
+        <span className="fix-note" role="status">{applied && <>{applied} Wirksam beim nächsten Deploy.</>}</span>
+      </div>
+      {open === 'field' && a?.kind === 'set_field' && (
+        <FieldFix id={panelId} field={a.field} current={p[a.field]} busy={save.isPending} onSave={(v) => save.mutate({ [a.field]: v })} onCancel={() => setOpen(null)} />
+      )}
+      {open === 'image' && (
+        <FieldFix id={panelId} field="image" current={(p.source as { image?: string } | null)?.image ?? ''} busy={save.isPending}
+          onSave={(v) => save.mutate({ source: { ...(p.source as object), image: v } })} onCancel={() => setOpen(null)} />
+      )}
+      {open === 'claude' && f && (
+        <ClaudePrompt id={panelId} prompt={deployFixPrompt({ projectName: p.name, slug: p.slug, sourceType: p.sourceType, explanation: f })} />
+      )}
+    </>
+  )
+}
+
+/** Eine Einstellung direkt in der Fehlerbox ändern (geprüft wie in der API) */
+function FieldFix({ id, field, current, busy, onSave, onCancel }: {
+  id: string; field: ContainerField | 'image'; current: string | number | null; busy: boolean; onSave: (v: string | number) => void; onCancel: () => void
+}) {
+  const numeric = field === 'port' || field === 'memoryLimitMb'
+  // Zahlen: leer mit dem aktuellen Wert als Hinweis (kein Vorschlag); Texte zum Bearbeiten vorbelegt
+  const [value, setValue] = useState(numeric || current === null ? '' : String(current))
+  const [error, setError] = useState<string | undefined>()
+  const inputId = `${id}-input`
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const label = field === 'image' ? 'Image (Name und Tag)' : FIELD_TEXT[field].label
+  const now = current === null || current === '' ? null
+    : field === 'memoryLimitMb' ? `${Number(current).toLocaleString('de-CH')} MB` : String(current)
+  const hint = numeric && now ? `Aktuell ${now}. Wirksam beim nächsten Deploy.` : 'Wirksam beim nächsten Deploy.'
+  const check = (): string | number | null => {
+    if (field === 'image') {
+      const r = sourceSchema.safeParse({ type: 'image', image: value.trim() })
+      if (!r.success) { setError(r.error.issues[0]?.message ?? 'Ungültiges Image'); return null }
+      return value.trim()
+    }
+    const v = numeric ? Number(value) : value.trim()
+    const r = updateProjectSchema.safeParse({ [field]: v })
+    if (!r.success || (numeric && value.trim() === '')) { setError(r.success ? 'Bitte eine Zahl eingeben' : r.error.issues[0]?.message ?? 'Ungültiger Wert'); return null }
+    return v
+  }
+  return (
+    <form id={id} className="failure-fix" noValidate onSubmit={(e) => { e.preventDefault(); const v = check(); if (v !== null) onSave(v) }}>
+      <Field id={inputId} label={label} error={error} hint={hint}>
+        <input
+          id={inputId}
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- geöffnet auf Klick, Eingabe ist der nächste Schritt
+          autoFocus
+          inputMode={numeric ? 'numeric' : undefined}
+          placeholder={numeric && now ? now.replace(/ MB$/, '') : undefined}
+          value={value}
+          spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${inputId}-error` : `${inputId}-hint`}
+          onChange={(e) => { setValue(e.target.value); setError(undefined) }}
+          // Beim Verlassen prüfen – aber nicht, wenn es zu «Abbrechen» geht
+          onBlur={(e) => { if (value.trim() !== '' && e.relatedTarget !== cancelRef.current) check() }}
+        />
+      </Field>
+      <div className="form-actions">
+        <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>Speichern</button>
+        <button type="button" ref={cancelRef} onClick={onCancel}>Abbrechen</button>
+      </div>
+    </form>
+  )
+}
+
+/** «Mit Claude lösen»: fertiger Auftrag zum Kopieren */
+function ClaudePrompt({ id, prompt }: { id: string; prompt: string }) {
+  const [copied, setCopied] = useState<'ok' | 'manual' | null>(null)
+  return (
+    <div id={id} className="claude-fix failure-fix">
+      <p className="claude-fix-label">Auftrag für Claude oder Claude Code (mit dem Airlock-MCP verbunden):</p>
+      <pre className="code-block" role="region" aria-label="Auftrag für Claude" tabIndex={0}>{prompt}</pre>
+      <div className="claude-fix-actions">
+        <button type="button" className="button-small button-primary" onClick={async () => setCopied((await copyText(prompt)) ? 'ok' : 'manual')}>Auftrag kopieren</button>
+        <span role="status" className="fix-note">
+          {copied === 'ok' && 'Kopiert. In Claude einfügen.'}
+          {copied === 'manual' && 'Kopieren ging nicht. Bitte den Text oben von Hand markieren.'}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -168,15 +363,15 @@ function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; da
         <dt>Laufzeit</dt>
         <dd>
           {isStatic ? <span>Statische Seite, Caddy liefert sie direkt aus</span>
-            : loading ? <span className="muted">wird geprüft…</span>
-            : c?.startedAt ? <><strong className="state-strong">läuft {since(c.startedAt).replace(/^seit /, 'seit ')}</strong> <span className="muted">· gestartet {new Date(c.startedAt).toLocaleString('de-CH', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></>
+            : loading ? <Sk w={180} h={13} />
+            : c?.startedAt ? <><strong className="state-strong">läuft {since(c.startedAt).replace(/^seit /, 'seit ')}</strong> <span className="muted">· gestartet {fmtDayTime(c.startedAt)}</span></>
             : <span className="muted">unbekannt</span>}
         </dd>
 
         <dt>Healthcheck</dt>
         <dd>
           {isStatic ? <span className="muted">entfällt bei statischen Seiten</span>
-            : !hc ? <span className="hc hc-pending"><IconPending /> {loading ? 'wird geprüft…' : 'noch keiner seit dem Start'}</span>
+            : !hc ? <span className="hc hc-pending"><IconPending /> {loading ? 'Prüfung läuft' : 'noch keiner seit dem Start'}</span>
             : hc.ok ? <span className="hc hc-ok"><IconOk /> gesund <span className="hc-detail">HTTP {hc.status} auf {hc.url} · {hc.ms} ms · {relativeTime(hc.at).replace('gerade eben', 'eben')}</span></span>
             : <span className="hc hc-bad"><IconBad /> antwortet nicht <span className="hc-detail">{hc.error} · {hc.url} · {relativeTime(hc.at)}</span></span>}
         </dd>
@@ -195,10 +390,12 @@ function HealthPanel({ p, loading, data }: { p: ProjectDto; loading: boolean; da
  * Verlauf der letzten Stunde gegen die Grenze: die Grenze ist die Oberkante,
  * so sieht man sofort, wie viel Luft bleibt. Ein Wert pro Minute.
  */
-function Meter({ label, unit, limit, samples, pick, fmt }: {
+export function Meter({ label, unit, limit, samples: all, pick, fmt }: {
   label: string; unit: string; limit: number; samples: ResourceSample[]; pick: (s: ResourceSample) => number; fmt: (v: number) => string
 }) {
   const [hover, setHover] = useState<number | null>(null)
+  // Messpunkte mit ungültiger Zeit fallen weg, statt die Linie zu zerreissen
+  const samples = all.filter((s) => msOf(s.at) !== null)
   const W = 300
   const H = 56
   const values = samples.map(pick)
@@ -208,9 +405,10 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
   const tone = ratio >= 0.9 ? 'bad' : ratio >= 0.7 ? 'warn' : 'ok'
   // Zeitachse: 60 Minuten, rechts ist jetzt
   const t0 = Date.now() - 60 * 60_000
-  const x = (iso: string) => Math.max(0, Math.min(W, ((new Date(iso).getTime() - t0) / (60 * 60_000)) * W))
+  const x = (t: number) => Math.max(0, Math.min(W, ((t - t0) / (60 * 60_000)) * W))
   const y = (v: number) => H - Math.min(1, v / limit) * (H - 2) - 1
-  const pts = samples.map((s) => [x(s.at), y(pick(s))] as const)
+  // Messpunkte mit ungültiger Zeit fallen weg statt die Linie zu zerreissen
+  const pts = samples.map((s) => [x(msOf(s.at)!), y(pick(s))] as const)
   const line = pts.map(([a, b], i) => `${i ? 'L' : 'M'}${a.toFixed(1)},${b.toFixed(1)}`).join(' ')
   const area = pts.length ? `${line} L${pts.at(-1)![0].toFixed(1)},${H} L${pts[0]![0].toFixed(1)},${H} Z` : ''
   const hv = hover !== null ? samples[hover] : null
@@ -248,7 +446,7 @@ function Meter({ label, unit, limit, samples, pick, fmt }: {
         {pts.length === 1 && <span className="ov-meter-dot" style={{ left: `${(pts[0]![0] / W) * 100}%`, top: `${(pts[0]![1] / H) * 100}%` }} aria-hidden="true" />}
         {hv && (
           <span className="ov-meter-tip" style={{ left: `${(pts[hover!]![0] / W) * 100}%` }}>
-            {new Date(hv.at).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {fmt(pick(hv))} {unit}
+            {fmtTime(hv.at)} · {fmt(pick(hv))} {unit}
           </span>
         )}
       </div>
@@ -274,7 +472,9 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
         <h2 className="ov-title" id="ov-deploys">Deployments</h2>
         {total > 0 && <button type="button" className="link-button" onClick={() => onTab('deployments')}>Alle {total}</button>}
       </div>
-      {list.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : rows.length === 0 ? <p className="muted ov-empty">Noch kein Deployment.</p> : (
+      {!list.data && list.isError ? <ErrorState compact plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+        : !list.data ? <Loading label="Deployments werden geladen"><SkRows n={3} card={false} /></Loading>
+        : rows.length === 0 ? <EmptyState compact title="Noch kein Deployment.">Das erste startet nach dem Anlegen von selbst.</EmptyState> : (
         <DeployList projectId={projectId} rows={rows} limit={5} onRollback={onRollback} />
       )}
     </section>
@@ -290,7 +490,7 @@ const ACTIVITY_SHOWN = 5
 
 function Activity({ projectId }: { projectId: string }) {
   const ep = useEnvPath()
-  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: 15_000 })
+  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: poll })
   const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
   const shown = items.slice(0, ACTIVITY_SHOWN)
   const more = items.length - shown.length
@@ -300,7 +500,9 @@ function Activity({ projectId }: { projectId: string }) {
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
         <Link to={ep('/audit')}>Audit-Log</Link>
       </div>
-      {a.isLoading ? <p className="muted ov-empty">Wird geladen…</p> : <ActivityList items={shown} />}
+      {!a.data && a.isError ? <ErrorState compact what="Die Aktivität" error={a.error} retrying={a.isFetching} onRetry={() => void a.refetch()} />
+        : !a.data ? <Loading label="Aktivität wird geladen"><SkRows n={3} card={false} /></Loading>
+        : <ActivityList items={shown} />}
       {more > 0 && (
         <p className="act-more">
           {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={ep(`/audit?projekt=${projectId}`)}>Alle anzeigen</Link>

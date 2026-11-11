@@ -13,17 +13,15 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
-import { chromium, type Page, type Route } from 'playwright'
+import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
 import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
 
-const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
 const repo = resolve(webRoot, '../..')
-const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
-mkdirSync(outDir, { recursive: true })
 
+/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen */
 const PORT = 5199
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -45,19 +43,26 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if (envSlug === 'labor' && p === '/projects') return { body: { projects: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/move$/)) && method === 'GET') return { body: { preview: fx.movePreview(m[1]!, u.searchParams.get('to') ?? 'verein') } }
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
+  // UI-Qualität 8: neues Token (einmal sichtbar) – Beispielwert, kein echtes Token
+  if (method === 'POST' && p === '/tokens') {
+    return { body: { token: 'apl_beispiel_7f3a9c21e04d51c0aa8e2d93b6', apiToken: { id: 't9', name: 'Claude Desktop', createdAt: new Date().toISOString(), lastUsedAt: null, revokedAt: null } } }
+  }
   if (method !== 'GET') return { body: {} }
   if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
+  // Vor /projects/:id (sonst hielte es «name-preview» für eine Projekt-ID)
+  if (p === '/projects/name-preview') return { body: { preview: fx.namePreview(u.searchParams.get('name') ?? '') } }
   if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.allProjects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
   if ((m = p.match(/^\/deployments\/([^/]+)$/))) {
-    const d = fx.projects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
-    return { body: { deployment: d, log: d?.status === 'failed' ? fx.failedLog : fx.deployLog } }
+    const d = fx.allProjects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
+    return { body: { deployment: d, log: d?.status === 'failed' ? fx.logForFailure(d.errorMessage, d.id) : fx.deployLog } }
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/log-lines$/))) return { body: fx.logLines(m[1]!, u.searchParams.get('service')) }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/access$/))) return { body: fx.siteAccess(m[1]!) }
   if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
@@ -96,12 +101,24 @@ type Shot = {
   broken?: boolean
   /** M8: GitHub App angelegt und installiert */
   githubConnected?: boolean
+  /** Cloudflare fertig eingerichtet (Zertifikat ausgestellt): Zusammenfassung statt Schritte */
+  cfDone?: boolean
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
   hang?: string[]
+  /** Diese API-Pfade antworten mit 500 (Fehlerzustand) */
+  fail?: string[]
+  /** Scan-Bericht mit gescheiterter Stufe (Zustand «Teilweise») */
+  stageFailed?: boolean
+  /** Projektliste: Scan von Haushaltsbuch läuft (wie der Scan-Bericht dieses Projekts) */
+  scanRunning?: boolean
+  /** Angemeldet, aber mit anderen Angaben (z. B. Einrichtung noch nicht ausgeblendet) */
+  me?: Partial<import('../src/api.js').MeDto>
+  /** Leerer Speicher der Sitzung erzwingen (Assistent erscheint wie beim ersten Start) */
+  freshSession?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
@@ -111,6 +128,8 @@ type Shot = {
   prepare?: (page: Page) => Promise<void>
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
+  /** Erlaubte Pixelabweichung (visuelle Tests), wenn nur Kantenglättung schwankt – mit Begründung an der Szene */
+  maxDiff?: number
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -125,8 +144,32 @@ const shots: Shot[] = [
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
   { group: 'uebergang', name: 'projekt-alte-container', path: `/projekte/${P}`, full: false, legacy: true },
   { group: 'projekte', name: 'projekt-fehler', path: `/projekte/${W}` },
+  // UI-Qualität 2: Fehler erklären – je Muster die Fehlerbox mit ihrer Aktion
+  {
+    group: 'fehler', name: 'fehler-build-claude', path: '/projekte/p-fehler-build', full: false, el: '.failure',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Mit Claude lösen' }).click(); await pg.waitForTimeout(200) },
+  },
+  { group: 'fehler', name: 'fehler-port', path: '/projekte/p-fehler-port', full: false, el: '.failure' },
+  {
+    group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Grenze erhöhen' }).click(); await pg.waitForTimeout(200) },
+  },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
+  // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand
+  {
+    group: 'logs', name: 'logs-suche', path: `/projekte/${P}?tab=logs`, full: false, el: '.logs',
+    prepare: async (pg) => {
+      await pg.getByRole('searchbox', { name: 'Im Log suchen' }).fill('vorschau')
+      await pg.getByRole('button', { name: 'Zeilennummern' }).click()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'logs', name: 'logs-fehler', path: `/projekte/${P}?tab=logs`, full: false, el: '.logs',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Warnungen und Fehler' }).click(); await pg.waitForTimeout(150) },
+  },
+  { group: 'logs', name: 'logs-leer', path: `/projekte/${W}?tab=logs`, full: false, el: '.logs' },
   { group: 'projekte', name: 'projekt-security', path: `/projekte/${S}?tab=security` },
   { group: 'security', name: 'projekt-security-laeuft', path: `/projekte/${fx.runningScanProjectId}?tab=security` },
   {
@@ -191,15 +234,78 @@ const shots: Shot[] = [
       await pg.waitForTimeout(150)
     },
   },
-  { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen` },
+  // Kantenglättung der klebenden Sprungnavigation schwankt (wie veroeffentlichung-*), sichtbar gleich
+  { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen`, maxDiff: 600 },
   {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
     prepare: async (pg) => { await pg.locator('form button[type="submit"]').click(); await pg.waitForTimeout(200); await pg.evaluate(() => window.scrollTo(0, 0)) },
   },
+  // UI-Qualität 5: Vorschau mit Kollision (Kurzname «fotoalbum» ist belegt), fünfte Quelle «Per Chat»,
+  // Meldung beim Verlassen eines Felds (ohne Absenden)
+  {
+    group: 'formulare', name: 'neues-projekt-vorschau', path: '/projekte/neu', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('Fotoalbum')
+      await pg.locator('.name-preview code').filter({ hasText: /^fotoalbum-2$/ }).waitFor()
+      await pg.getByLabel('Image', { exact: true }).fill('nginx alpine')
+      await pg.getByLabel('Port im Container').focus()
+      await pg.waitForTimeout(200)
+    },
+  },
+  { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
+  // UI-Qualität 8: Glocke, Sitzung abgelaufen, Rückfrage beim Verlassen, neues Token
+  {
+    group: 'sitzung', name: 'glocke', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Ereignisse/ }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'sitzung', name: 'sitzung-abgelaufen', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
+      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    // Speichern scheitert an der abgelaufenen Sitzung: der Dialog nennt, was nicht ausgeführt wurde
+    group: 'sitzung', name: 'sitzung-abgelaufen-aktion', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      const row = pg.locator('#set-umgebung .env-row').last().locator('input')
+      await row.nth(0).fill('API_KEY')
+      await row.nth(1).fill('geheim')
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
+      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'sitzung', name: 'tokens-neu', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name des Tokens').fill('Claude Desktop')
+      await pg.getByRole('button', { name: 'Token anlegen' }).click()
+      await pg.getByRole('button', { name: 'Claude Desktop' }).click()
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'security', name: 'security-global', path: '/security' },
+  // UI-Qualität 6: alte Adressen leiten weiter – /extern auf den Reiter unter Security, /domains in System
   { group: 'security', name: 'externe-ziele', path: '/extern' },
-  { group: 'verwaltung', name: 'domains', path: '/domains' },
+  { group: 'verwaltung', name: 'domains', path: '/domains', full: false },
+  { group: 'system', name: 'system-cloudflare-fertig', path: '/system/cloudflare', cfDone: true },
   { group: 'verwaltung', name: 'tokens', path: '/tokens' },
   { group: 'verwaltung', name: 'audit', path: '/audit' },
   {
@@ -250,8 +356,9 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: /Per Chat/ }).click(); await pg.waitForTimeout(300) },
   },
   /* Veröffentlichung: Privat (projekt-einstellungen), Öffentlich, Pausiert, gesperrt, Rückfragen, Fortschritt, Toast */
-  { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen` },
-  { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen` },
+  // Kantenglättung der klebenden Sprungnavigation schwankt (bis rund 450 Pixel Text, sichtbar gleich)
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen`, maxDiff: 600 },
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen`, maxDiff: 600 },
   { group: 'pauseseite', name: 'pauseseite-vorlage', path: '/system/veroeffentlichung' },
   {
     group: 'pauseseite', name: 'pauseseite-vorlage-vorschau-dunkel', path: '/system/veroeffentlichung', full: false,
@@ -411,36 +518,6 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
-  /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
-  { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
-  { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
-  { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
-  {
-    group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Prüfen', exact: true }).click(); await pg.waitForTimeout(300) },
-  },
-  { group: 'm9', name: 'm9-einstellungen-standards', path: '/u/example/einstellungen/standards' },
-  { group: 'm9', name: 'm9-umgebungen', path: '/umgebungen' },
-  {
-    group: 'm9', name: 'm9-umgebung-anlegen', path: '/umgebungen/neu',
-    prepare: async (pg) => { await pg.locator('#ne-name').fill('Verein Beispiel'); await pg.waitForTimeout(150) },
-  },
-  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung' },
-  {
-    group: 'm9', name: 'm9-verschieben', path: `/u/example/projekte/${Z}?tab=einstellungen`, full: false,
-    prepare: async (pg) => {
-      await pg.locator('.move-select').selectOption('verein')
-      await pg.waitForTimeout(300)
-      await pg.getByRole('button', { name: 'Verschieben …' }).click()
-      await pg.waitForTimeout(200)
-      await pg.locator('.move-card').evaluate((el) => el.scrollIntoView({ block: 'start' }))
-      await pg.evaluate(() => window.scrollBy(0, -24))
-      await pg.waitForTimeout(150)
-    },
-  },
-  { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
-  { group: 'm9', name: 'm9-server', path: '/server' },
-  { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
   // Projektseite im neuen Design (docs/design-cal/ui-projektseite)
   { group: 'p1', name: '1-deployments-karte-container', path: `/projekte/${P}`, el: 'section[aria-labelledby="ov-deploys"]' },
   { group: 'p1', name: '1-deployments-karte-statisch', path: `/projekte/${H}`, el: 'section[aria-labelledby="ov-deploys"]' },
@@ -514,6 +591,119 @@ const shots: Shot[] = [
       await pg.waitForTimeout(300)
     },
   },
+  // Etappe 1 (UI-Grundlagen): fünf Zustände
+  { group: 'zustand', name: 'zustand-laden-projektseite', path: `/projekte/${P}`, full: false, hang: [`/api/v1/projects/${P}`] },
+  { group: 'zustand', name: 'zustand-laden-audit', path: '/audit', full: false, hang: ['/api/v1/audit'] },
+  { group: 'zustand', name: 'zustand-fehler-projekte', path: '/projekte', full: false, fail: ['/api/v1/projects'] },
+  { group: 'zustand', name: 'zustand-fehler-karte', path: `/projekte/${P}`, full: false, fail: [`/api/v1/projects/${P}/deployments`, '/api/v1/audit'] },
+  { group: 'zustand', name: 'zustand-leer-audit', path: '/audit', full: false, empty: true },
+  { group: 'zustand', name: 'zustand-teilweise-scan', path: `/projekte/${S}?tab=security`, full: false, stageFailed: true },
+  {
+    // Veraltet: Seite geladen, danach antwortet der Server nicht mehr
+    group: 'zustand', name: 'zustand-veraltet', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' }))
+      await pg.waitForTimeout(2200)
+      // Ohne Sekunden-Polling (UI-Qualität 3) lädt nur Veraltetes neu: Uhr 5 s vor, damit die Daten
+      // älter als staleTime sind (die Screenshot-Tests halten die Uhr sonst fest)
+      await pg.clock.setFixedTime(await pg.evaluate(() => Date.now() + 5_000))
+      // react-query lauscht auf window «visibilitychange» (Fenster wieder sichtbar → neu laden)
+      await pg.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+      await pg.locator('.stale-bar').waitFor({ timeout: 8000 })
+      await pg.waitForTimeout(200)
+    },
+  },
+  // Etappe 2 (UI-Grundlagen): Rückmeldung bei Aktionen
+  {
+    group: 'aktion', name: 'aktion-vorgaenge', path: '/projekte', full: false, scanRunning: true,
+    prepare: async (pg) => { await pg.locator('.activity-trigger').click(); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'aktion', name: 'aktion-knopf-laedt', path: `/projekte/${H}?tab=einstellungen`, full: false, hang: [`PATCH /api/v1/projects/${H}`],
+    prepare: async (pg) => {
+      const b = pg.getByRole('button', { name: 'Behalten', exact: true })
+      await b.scrollIntoViewIfNeeded()
+      await b.click()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    group: 'aktion', name: 'aktion-rueckgaengig', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Behalten', exact: true }).click()
+      await pg.locator('[data-sonner-toast]').first().waitFor()
+      await pg.waitForTimeout(500)
+    },
+  },
+  {
+    group: 'aktion', name: 'aktion-fehler-toast', path: '/projekte', full: false, fail: ['POST /api/v1/projects/p-wetter/deploy'],
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Erneut deployen' }).first().click()
+      await pg.locator('[data-sonner-toast][data-type="error"]').first().waitFor()
+      await pg.waitForTimeout(500)
+    },
+  },
+  // Etappe 7: Erster Start – der Assistent öffnet sich von der Startseite aus von selbst
+  { group: 'start', name: 'einrichtung', path: '/projekte', me: { passwordSource: 'env', setup: null } },
+  {
+    group: 'start', name: 'einrichtung-uebersprungen', path: '/einrichtung', full: false,
+    me: { passwordSource: 'env', setup: { dismissed: false, skipped: ['adressen'] } },
+  },
+  { group: 'start', name: 'einrichtung-system', path: '/system', full: false, me: { passwordSource: 'env', setup: { dismissed: true, skipped: [] } } },
+  // Etappe 6: Befehlspalette und Tastatur
+  {
+    group: 'tastatur', name: 'palette', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.keyboard.press('ControlOrMeta+k'); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'tastatur', name: 'palette-suche', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.keyboard.press('ControlOrMeta+k'); await pg.keyboard.type('haus'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'tastatur', name: 'palette-offline', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.keyboard.press('ControlOrMeta+k')
+      await pg.keyboard.type('offline haus')
+      await pg.keyboard.press('Enter')
+      await pg.waitForTimeout(400)
+    },
+  },
+  {
+    group: 'tastatur', name: 'kuerzel', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.locator('body').click({ position: { x: 5, y: 600 } }); await pg.keyboard.press('Shift+?'); await pg.waitForTimeout(400) },
+  },
+  // Etappe 4: Komponenten-Übersicht
+  { group: 'design', name: 'design-bausteine', path: '/design' },
+  /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
+  { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
+  { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
+  { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
+  {
+    group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Prüfen', exact: true }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'm9', name: 'm9-einstellungen-standards', path: '/u/example/einstellungen/standards' },
+  { group: 'm9', name: 'm9-umgebungen', path: '/umgebungen' },
+  {
+    group: 'm9', name: 'm9-umgebung-anlegen', path: '/umgebungen/neu',
+    prepare: async (pg) => { await pg.locator('#ne-name').fill('Verein Beispiel'); await pg.waitForTimeout(150) },
+  },
+  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung' },
+  {
+    group: 'm9', name: 'm9-verschieben', path: `/u/example/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('.move-select').selectOption('verein')
+      await pg.waitForTimeout(300)
+      await pg.getByRole('button', { name: 'Verschieben …' }).click()
+      await pg.waitForTimeout(200)
+      await pg.locator('.move-card').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
+  { group: 'm9', name: 'm9-server', path: '/server' },
+  { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -523,33 +713,65 @@ const shots: Shot[] = [
   },
 ]
 
-const only = args.only?.split(',').map((s) => s.trim()).filter(Boolean)
-const selected = only ? shots.filter((s) => only.includes(s.group) || only.includes(s.name)) : shots
+export { shots }
+export type { Shot }
 
-const server = await createServer({ root: webRoot, logLevel: 'error', server: { port: PORT, strictPort: true } })
-await server.listen()
-// Installiertes Chrome (kein Browser-Download nötig); PW_CHANNEL=chromium für Playwrights eigenen
-const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
-let n = 0
-try {
-  for (const theme of ['hell', 'dunkel'] as const) {
-    const t = theme === 'hell' ? 'light' : 'dark'
-    for (const s of selected) {
-      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce', locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t })
+/** Optionen des Browser-Kontexts für eine Aufnahme (Desktop, 1440 px) */
+export const contextOptions = (t: 'light' | 'dark') => ({
+  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t,
+})
+
+/**
+ * Theme setzen und die API aus den Fixtures beantworten (page.route auf dem
+ * Kontext). Gemeinsam für shoot.ts und die visuellen Tests (visual/).
+ */
+export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | 'dark', port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
+      // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
+      await ctx.addInitScript({ content: `(() => {
+        const Real = window.EventSource
+        window.EventSource = function (url, init) {
+          if (!/\\/(logs|access)\\/stream/.test(String(url))) return new Real(url, init)
+          const es = { url: String(url), readyState: 0, onopen: null, onmessage: null, onerror: null,
+            addEventListener() {}, removeEventListener() {}, close() { es.readyState = 2 } }
+          setTimeout(() => { es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          return es
+        }
+        window.EventSource.CLOSED = 2; window.EventSource.OPEN = 1; window.EventSource.CONNECTING = 0
+      })()` })
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
-        if ((url.port === String(PORT) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
+        if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
           if (url.pathname.startsWith('/api/')) {
+            // M9: Listen einer Umgebung (/environments/<slug>/projects …) zählen für die Sonderfälle der
+            // Szenen wie die alten Pfade ohne Umgebung (/api/v1/projects)
+            const path = url.pathname.replace(/^\/api\/v1\/environments\/[^/]+(?=\/)/, '/api/v1')
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
-            if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
+            if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
-            if (s.broken && url.pathname === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
+            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, ...s.me })
+            if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
+              const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
+              return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
+            }
+            if (s.fail?.includes(path) || s.fail?.includes(`${route.request().method()} ${path}`)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
+            if (s.stageFailed && /\/scans\/latest$/.test(url.pathname)) {
+              const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
+              if (r.report) {
+                const st = r.report.scan.stages
+                const key = Object.keys(st).find((k) => k.startsWith('nuclei')) ?? Object.keys(st).at(-1)!
+                st[key] = { ...st[key]!, ran: false, failed: true, state: 'failed', note: 'Nuclei-Container nach 3 Versuchen nicht gestartet (Image-Pull verweigert)' }
+              }
+              return json(route, r)
+            }
+            if (s.empty && path === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.broken && path === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
-            if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
+            if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
@@ -568,12 +790,44 @@ try {
         // Erreichbarkeits-Prüfungen der Oberfläche: antworten, ohne das Netz zu fragen
         return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, body: '' })
       })
-      const page = await ctx.newPage()
-      await page.goto(`http://localhost:${PORT}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
+}
+
+/** Seite öffnen, auf Daten und Schriften warten, Szene vorbereiten. */
+export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> {
+      await page.goto(`http://localhost:${port}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
+      // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
+      if (s.fail?.some((f) => f.startsWith('/'))) {
+        await page.locator('.error-state').first().waitFor({ timeout: 8000 })
+        // Mehrere Abfragen scheitern unabhängig (je mit Wiederholversuch nach rund 1 s): alle abwarten
+        await page.locator('.error-state').nth(s.fail.filter((f) => f.startsWith('/')).length - 1).waitFor({ timeout: 8000 })
+      }
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)
+}
+
+// Als Skript gestartet (nicht importiert): Screenshots in einen Ordner schreiben
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
+const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
+mkdirSync(outDir, { recursive: true })
+const only = args.only?.split(',').map((s) => s.trim()).filter(Boolean)
+const selected = only ? shots.filter((s) => only.includes(s.group) || only.includes(s.name)) : shots
+
+const server = await createServer({ root: webRoot, logLevel: 'error', server: { port: PORT, strictPort: true } })
+await server.listen()
+// Installiertes Chrome (kein Browser-Download nötig); PW_CHANNEL=chromium für Playwrights eigenen
+const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'chrome' })
+let n = 0
+try {
+  for (const theme of ['hell', 'dunkel'] as const) {
+    const t = theme === 'hell' ? 'light' : 'dark'
+    for (const s of selected) {
+      const ctx = await browser.newContext(contextOptions(t))
+      await installRoutes(ctx, s, t)
+      const page = await ctx.newPage()
+      await openShot(page, s)
       const file = join(outDir, `${s.name}-${theme}.png`)
       if (s.el) {
         const box = await page.locator(s.el).first().boundingBox()
@@ -593,3 +847,4 @@ try {
   await server.close()
 }
 console.log(`${n} Screenshots in ${outDir.replace(repo + '/', '')}`)
+}

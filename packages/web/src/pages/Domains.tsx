@@ -1,10 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { api } from '../api.js'
 import { useEnvPath } from '../lib/env.js'
-import { api, ApiError } from '../api.js'
-import { PageHead } from '../components/PageHead.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, isPublic } from '../lib/projects.js'
+import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
 
 /**
  * Domains: woher die Adressen kommen. Intern (Basisdomain oder nip.io,
@@ -24,11 +24,24 @@ export function Domains() {
   const t = s?.publicTunnel
   const healthy = t?.status === 'healthy'
 
-  return (
-    <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'domains' }]} title="Domains" />
+  // Ohne Systemstatus stünde überall «keine»: erst laden bzw. den Fehler zeigen
+  if (!s) {
+    return (
+      <section className="section domains-section" id="domains" aria-labelledby="domains-h">
+        <h2 id="domains-h">Domains</h2>
+        {system.isError
+          ? <ErrorState what="Der Systemstatus" error={system.error} retrying={system.isFetching} onRetry={() => void system.refetch()} />
+          : <Loading label="Domains werden geladen"><SkCard lines={3} /><SkCard lines={4} className="sk-gap-lg" /></Loading>}
+      </section>
+    )
+  }
 
-      <h2>Intern</h2>
+  // UI-Qualität 6: Abschnitt von System › Cloudflare & HTTPS (/domains leitet hierher, #domains)
+  return (
+    <section className="section domains-section" id="domains" aria-labelledby="domains-h">
+      <h2 id="domains-h">Domains</h2>
+
+      <h3>Intern</h3>
       <ul className="check-list">
         <li className={s?.baseDomain ? 'check-ok' : 'check-none'}>
           <span className="check-name">Basisdomain</span>
@@ -49,17 +62,16 @@ export function Domains() {
           <span className="check-detail">{s?.tls.tailscaleIp ? <>dieselben Namen unterwegs über <code>{s.tls.tailscaleIp}</code></> : 'nicht eingerichtet (TAILSCALE_IP)'}</span>
         </li>
       </ul>
-      <p className="hint">Einzelheiten und die Prüfung «löst dieses Gerät die Namen auf?» unter <Link to="/server">Server</Link>.</p>
+      <p className="hint">Einzelheiten und die Prüfung «löst dieses Gerät die Namen auf?» unter <Link to="/server">Server › Übersicht</Link>.</p>
 
-      <h2>Öffentlich</h2>
+      <h3>Öffentlich</h3>
       {!configured ? (
         <div className="state state-empty">
-          <h2>Cloudflare Tunnel nicht eingerichtet</h2>
+          <h4>Cloudflare Tunnel nicht eingerichtet</h4>
           <p>
             Projekte sind nur im LAN und im Tailnet erreichbar. Öffentlich schalten geht, sobald der
-            Tunnel steht – eingerichtet wird er unter System.
+            Tunnel steht – eingerichtet wird er oben auf dieser Seite.
           </p>
-          <Link className="button" to={ep('/einstellungen/cloudflare')}>Cloudflare &amp; HTTPS öffnen</Link>
         </div>
       ) : (
         <>
@@ -72,15 +84,17 @@ export function Domains() {
 
           <div className="section-head" style={{ marginTop: 24 }}>
             <div>
-              <h3>Zonen</h3>
+              <h4>Zonen</h4>
               <p>Öffentliche Namen entstehen unter der Standard-Zone, wenn nur eine Subdomain angegeben ist.</p>
             </div>
-            <button onClick={() => sync.mutate()} disabled={sync.isPending}>{sync.isPending ? 'Gleicht ab…' : 'Mit Cloudflare abgleichen'}</button>
+            <button onClick={() => sync.mutate()} disabled={sync.isPending} aria-busy={sync.isPending || undefined}>Mit Cloudflare abgleichen</button>
           </div>
-          {d.isLoading ? (
-            <p className="state state-loading">Wird geladen…</p>
-          ) : (d.data?.domains ?? []).length === 0 ? (
-            <p className="state state-empty">Keine Zonen. Abgleichen holt sie aus dem Cloudflare-Konto.</p>
+          {!d.data && d.isError ? (
+            <ErrorState compact what="Die Zonenliste" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
+          ) : !d.data ? (
+            <Loading label="Zonen werden geladen"><SkRows n={2} /></Loading>
+          ) : d.data.domains.length === 0 ? (
+            <EmptyState compact title="Keine Zonen." action={<button type="button" className="button-small" onClick={() => sync.mutate()}>Mit Cloudflare abgleichen</button>}>Abgleichen holt sie aus dem Cloudflare-Konto.</EmptyState>
           ) : (
             <div className="table-scroll">
               <table className="table">
@@ -99,11 +113,10 @@ export function Domains() {
               </table>
             </div>
           )}
-          {[sync, setDefault].map((m, i) => (m.isError ? <p key={i} role="alert" className="error">{m.error instanceof ApiError ? m.error.message : 'Fehler'}</p> : null))}
         </>
       )}
 
-      <h3>Öffentliche Projekte</h3>
+      <h4>Öffentliche Projekte</h4>
       {publicProjects.length === 0 ? (
         <p className="muted">Keine. Öffentlich wird ein Projekt unter Einstellungen → Erreichbarkeit, nach dem ersten Scan.</p>
       ) : (
@@ -128,3 +141,4 @@ export function Domains() {
     </section>
   )
 }
+// (eigene Seite /domains entfällt: Weiterleitung in App.tsx)

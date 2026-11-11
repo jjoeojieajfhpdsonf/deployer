@@ -5,6 +5,9 @@ const base = (size = 16) => ({ width: size, height: size, viewBox: '0 0 16 16', 
 export const IconSearch = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
 )
+export const IconDownload = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /></svg>
+)
 export const IconPlus = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>
 )
@@ -14,6 +17,20 @@ export const IconAlert = ({ size = 20, className }: P) => (
 /** Warnung (Dreieck) – zu einer Warnung gehört immer auch das Wort */
 export const IconWarn = ({ size = 14, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 2.2 14.3 13H1.7Z" /><path d="M8 6.4v3M8 11.3v.1" /></svg>
+)
+/* Ergebnis einer Prüfung: im Kreis, gemeinsam für Übersicht und Cloudflare-Assistent */
+export const IconOk = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="m5.4 8.2 1.8 1.8 3.4-3.6" /></svg>
+)
+export const IconBad = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
+)
+export const IconPending = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
+)
+/** Übersprungen / nicht nötig: Kreis mit Strich */
+export const IconSkipped = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
 )
 export const IconMore =({ size, className }: P) => (
   // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer

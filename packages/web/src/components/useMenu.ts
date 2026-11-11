@@ -19,7 +19,7 @@ const ITEMS = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([di
  * Schliessens kehrt die laufende Transition einfach um (kein Neustart,
  * kein Flackern).
  */
-export function useMenu({ onOpen }: { onOpen?: () => void } = {}) {
+export function useMenu({ onOpen, onClose }: { onOpen?: () => void; onClose?: () => void } = {}) {
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
   const openRef = useRef(false)
@@ -28,10 +28,14 @@ export function useMenu({ onOpen }: { onOpen?: () => void } = {}) {
   const listRef = useRef<HTMLDivElement>(null)
   const onOpenRef = useRef(onOpen)
   onOpenRef.current = onOpen
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   const close = useCallback(() => {
     if (!openRef.current) return
     openRef.current = false
+    // Offene Rückfrage im Menü zurücksetzen: beim nächsten Öffnen beginnt es normal
+    onCloseRef.current?.()
     // Fokus zurück, wenn er im Menü lag (oder nirgends). Hat der Klick daneben
     // ein anderes Feld getroffen, übernimmt danach der Browser den Fokus.
     const active = document.activeElement
@@ -64,6 +68,12 @@ export function useMenu({ onOpen }: { onOpen?: () => void } = {}) {
         close()
         return
       }
+      // Tab verlässt das Menü nicht still: es schliesst, der Fokus geht zurück an den Auslöser
+      if (e.key === 'Tab' && rootRef.current?.contains(document.activeElement)) {
+        e.preventDefault()
+        close()
+        return
+      }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const items = [...(listRef.current?.querySelectorAll<HTMLElement>(ITEMS) ?? [])]
         if (!items.length) return
@@ -75,10 +85,35 @@ export function useMenu({ onOpen }: { onOpen?: () => void } = {}) {
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    listRef.current?.querySelector<HTMLElement>(ITEMS)?.focus({ preventScroll: true })
+    const list = listRef.current
+    // Einträge nur über die Pfeiltasten erreichbar (Menü-Muster), nicht über Tab
+    const prepare = () => {
+      list?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]').forEach((el) => { el.tabIndex = -1 })
+      list?.querySelectorAll<HTMLElement>('.menu-sep').forEach((el) => el.setAttribute('role', 'separator'))
+    }
+    prepare()
+    list?.querySelector<HTMLElement>(ITEMS)?.focus({ preventScroll: true })
+    // Rückfrage im Menü («Stoppen …» → «Ja, stoppen»): der fokussierte Eintrag verschwindet.
+    // Fokus auf die erste Antwort, Warntext als Beschreibung daran; zurück: erster Eintrag.
+    const observer = new MutationObserver(() => {
+      prepare()
+      const active = document.activeElement
+      const lost = !active || active === document.body || !list?.contains(active)
+      const note = list?.querySelector<HTMLElement>('.menu-confirm')
+      if (note) {
+        if (!note.id) note.id = `menu-confirm-${Math.random().toString(36).slice(2, 8)}`
+        const answers = [...(list?.querySelectorAll<HTMLElement>('.menu-confirm ~ [role="menuitem"]') ?? [])]
+        answers.forEach((b) => b.setAttribute('aria-describedby', note.id))
+        if (lost) answers[0]?.focus({ preventScroll: true })
+      } else if (lost && openRef.current) {
+        list?.querySelector<HTMLElement>(ITEMS)?.focus({ preventScroll: true })
+      }
+    })
+    if (list) observer.observe(list, { childList: true, subtree: true })
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      observer.disconnect()
     }
   }, [open, close])
 

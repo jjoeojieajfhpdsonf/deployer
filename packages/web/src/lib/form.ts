@@ -86,9 +86,14 @@ export function useFormErrors<T>(opts: {
     return false
   }, [compute, idFor])
 
-  /** Beim Verlassen eines Felds (erst nach dem ersten Absenden). */
+  /**
+   * Beim Verlassen eines Felds (UI-Qualität 5): sobald in dem Feld etwas
+   * eingegeben wurde – nicht während des Tippens und nicht beim blossen
+   * Durchtabben; nach dem ersten Absenden für alle Felder.
+   */
+  const touched = useRef(new Set<string>())
   const validateField = useCallback((name: string) => {
-    if (!submitted.current) return
+    if (!submitted.current && !touched.current.has(name)) return
     // Ein Frame später: dann ist die letzte Eingabe gerendert.
     requestAnimationFrame(() => applyField(name))
   }, [])
@@ -123,11 +128,18 @@ export function useFormErrors<T>(opts: {
       name,
       'aria-invalid': err ? (true as const) : undefined,
       'aria-describedby': [err ? `${id}-error` : null, describedBy].filter(Boolean).join(' ') || undefined,
-      onBlur: () => validateField(name),
+      onInput: () => { touched.current.add(name) },
+      // Geht der Fokus auf einen Knopf (Absenden, Abbrechen), nicht prüfen: die Meldung würde
+      // das Layout zwischen Drücken und Loslassen verschieben und den Klick verlieren lassen.
+      // Absenden prüft ohnehin alles.
+      onBlur: (ev: { relatedTarget: EventTarget | null }) => {
+        if (ev.relatedTarget instanceof Element && ev.relatedTarget.closest('button')) return
+        validateField(name)
+      },
     }
   }
 
-  return { errors, setErrors, validateAll, validateField, setServerErrors, field, formRef, idFor, reset: () => { submitted.current = false; setErrors({}) } }
+  return { errors, setErrors, validateAll, validateField, setServerErrors, field, formRef, idFor, reset: () => { submitted.current = false; touched.current.clear(); setErrors({}) } }
 }
 
 /** Stabile id aus einem Feldnamen: "source.image" -> "f-source-image" */

@@ -102,6 +102,9 @@ describe('Fehlermeldungen der Oberfläche', () => {
   })
   test('Grenzen der Felder', () => {
     assert.equal(clientErrorSchema.safeParse({ message: 'x'.repeat(501) }).success, false)
+    // Bereiche der Error Boundary: App, Seite, Zusatz in der Shell
+    for (const scope of ['app', 'page', 'part']) assert.equal(clientErrorSchema.safeParse({ message: 'x', scope }).success, true, scope)
+    assert.equal(clientErrorSchema.safeParse({ message: 'x', scope: 'anderes' }).success, false)
   })
   test('höchstens 30 pro Minute', () => {
     const t = 10_000_000

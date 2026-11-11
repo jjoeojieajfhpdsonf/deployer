@@ -28,6 +28,7 @@ import * as docker from '../drivers/docker.js'
 import { audit } from './audit.js'
 import { AppError, badRequest, conflict, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { publish } from '../lib/events.js'
 import { redactSecrets, redactDeep, registerSecret } from '../lib/redact.js'
 
 /**
@@ -239,6 +240,8 @@ async function save(next: Stored): Promise<void> {
   states.set(currentEnvId(), next)
   await persist(next)
   await applyRuntime()
+  // UI-Qualität 3: Zertifikat und Cloudflare-Stand ohne Polling in der Oberfläche
+  publish({ type: 'cert' })
 }
 
 const TOKEN_FILE = 'cloudflare_token'

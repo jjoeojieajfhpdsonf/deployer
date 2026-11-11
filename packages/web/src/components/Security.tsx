@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError, type ScanReportDto, type FindingDto } from '../api.js'
-import { acceptFindingSchema, type ScanStageDto } from '@airlock/shared'
+import { api, type ScanReportDto, type FindingDto } from '../api.js'
+import { acceptFindingSchema, SCAN_STAGE_LABEL, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
+import { poll } from '../lib/live.js'
+import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
+import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
+import { IconBad, IconPending, IconSkipped } from './Icons.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 
@@ -18,15 +22,8 @@ type Sev = FindingDto['severity']
 const SEVERITIES: Sev[] = ['critical', 'high', 'medium', 'low']
 export const SEVERITY_LABEL: Record<Sev, string> = { critical: 'kritisch', high: 'hoch', medium: 'mittel', low: 'niedrig' }
 
-const STAGE_LABEL: Record<string, string> = {
-  'trivy-image': 'Image (Trivy)',
-  'trivy-source': 'Quellcode (Trivy)',
-  headers: 'Security-Header',
-  'zap-baseline': 'OWASP ZAP (passiv)',
-  'zap-full': 'OWASP ZAP (aktiv)',
-  nuclei: 'Offene Dateien (Nuclei)',
-  testssl: 'TLS (testssl.sh)',
-}
+// Einheitliche Stufennamen (shared), gleich in Karte, Reiter, Fortschritt und MCP
+const STAGE_LABEL = SCAN_STAGE_LABEL
 /** Welches Werkzeug die Befunde einer Stufe liefert */
 const STAGE_TOOL: [RegExp, string][] = [[/^trivy-/, 'trivy'], [/^headers$/, 'header-check'], [/^zap-/, 'zap'], [/^nuclei$/, 'nuclei'], [/^testssl$/, 'testssl']]
 /** Reihenfolge wie in der Pipeline */
@@ -39,9 +36,9 @@ const TOOL_LABEL: Record<string, string> = { trivy: 'Trivy', 'header-check': 'He
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconClean = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m5.3 8.2 1.9 1.9 3.5-3.7" /></svg>
 const IconFound = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.7M8 11v.1" /></svg>
-const IconSkipped = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
-const IconFailed = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
-const IconWaiting = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
+// Gleich gezeichnet wie in Icons.tsx: dort nur einmal
+const IconFailed = IconBad
+const IconWaiting = IconPending
 const IconRunning = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" opacity=".35" /><path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2" /></svg>
 const IconTimeout = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8V8l2.2 1.6" /></svg>
 export const IconWarn = () => <svg {...svg}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>
@@ -100,7 +97,9 @@ function clock(ms: number): string {
   return `${Math.floor(m / 60)} Std. ${m % 60} Min.`
 }
 
-const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+const hhmm = (iso: string) => fmtTime(iso)
+/** Laufzeit seit `iso`; ungültige Zeit zählt als «gerade gestartet» */
+const runFor = (iso: string | null | undefined, now: number) => clock(Math.max(0, ageMs(iso, now) ?? 0))
 
 /** Kopfzeile: «Gestartet 19:04 · läuft seit 5 Min. · ausgelöst durch MCP» */
 export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) {
@@ -118,7 +117,7 @@ export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) 
     <p className="scan-head">
       <span className="scan-head-state"><IconRunning /> Scan läuft</span>
       <span>Gestartet {hhmm(s.startedAt)}</span>
-      <span>läuft seit {clock(now - new Date(s.startedAt).getTime())}</span>
+      <span>läuft seit {runFor(s.startedAt, now)}</span>
       {by && <span>{by}</span>}
       {s.level === 'active' && <span>aktiver Scan</span>}
     </p>
@@ -190,7 +189,7 @@ function StageList({ stages, now, open, onTool, toolFilter }: {
               {result === 'waiting' && <span className="muted">wartet{v.timeoutMs ? ` · Zeitlimit ${Math.round(v.timeoutMs / 60_000)} Min.` : ''}</span>}
               {result === 'running' && (
                 <span className="stage-live">
-                  läuft seit {v.startedAt ? clock(now - new Date(v.startedAt).getTime()) : '…'}
+                  läuft seit {v.startedAt ? runFor(v.startedAt, now) : '…'}
                   {v.progress && <span className="stage-progress">{v.progress}</span>}
                   {v.timeoutMs ? <span className="muted">Zeitlimit {Math.round(v.timeoutMs / 60_000)} Min.</span> : null}
                 </span>
@@ -237,23 +236,22 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
           <span className="confirm-inline" role="group" aria-label="Scan abbrechen bestätigen">
             <span className="confirm-note">Befunde dieses Laufs werden nicht gewertet.</span>
             <button type="button" className="button-small" onClick={() => setConfirm(false)}>Weiterlaufen lassen</button>
-            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} autoFocus>
-              {cancel.isPending ? 'Bricht ab…' : 'Ja, abbrechen'}
+            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} aria-busy={cancel.isPending || undefined} autoFocus>
+              Ja, abbrechen
             </button>
           </span>
         )}
       </div>
       <div aria-live="polite"><ScanHead s={s} now={now} /></div>
-      {cancel.isError && <p role="alert" className="error-inline">{(cancel.error as Error).message}</p>}
       <StageList stages={s.stages} now={now} open={null} />
     </section>
   )
 }
 
 function scanTime(s: ScanReportDto['scan']) {
-  const start = new Date(s.startedAt)
-  const abs = start.toLocaleString('de-CH', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  const took = s.finishedAt ? duration(new Date(s.finishedAt).getTime() - start.getTime()) : null
+  const abs = fmtDateTimeShort(s.startedAt)
+  const span = spanMs(s.startedAt, s.finishedAt)
+  const took = span !== null ? duration(span) : null
   return { rel: relativeTime(s.startedAt), abs, took }
 }
 
@@ -287,12 +285,24 @@ export function ScanReport({
     requestAnimationFrame(() => document.getElementById('befunde')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // Zustand «Teilweise»: einzelne Stufen gescheitert, der Rest des Berichts gilt
+  const brokenStages = running ? [] : Object.entries(s.stages)
+    .filter(([, v]) => { const st = stateOf(v); return st === 'failed' || st === 'timeout' })
+    .map(([k]) => STAGE_LABEL[k.split(' ')[0]!] ?? k)
+
   return (
     <div className="scan-report">
+      {brokenStages.length > 0 && s.status !== 'failed' && (
+        <PartialNote>
+          {brokenStages.length === 1 ? <>Die Stufe «{brokenStages[0]}» ist gescheitert.</> : <>{brokenStages.length} Stufen sind gescheitert ({brokenStages.join(', ')}).</>}
+          {' '}Alle übrigen Ergebnisse sind vollständig; ihre Befunde stehen unten. Der Grund steht bei der Stufe.
+        </PartialNote>
+      )}
       {/* Ergebnis als Bento: Note, offene Befunde, Zeit; darunter die Stufen */}
       <div className="bento">
         <section className="bento-card" aria-labelledby="sec-result">
-          <h3 id="sec-result" className="bento-label">Ergebnis</h3>
+          {/* Ebene 2: direkt unter dem Seitentitel (h1), ohne Zwischenüberschrift */}
+          <h3 id="sec-result" className="bento-label" aria-level={2}>Ergebnis</h3>
           <div aria-live="polite" className="bento-value">
             {running ? <span className="scan-running"><span className="status-dot" aria-hidden="true" />Scan läuft …</span> : <GradeBadge grade={s.grade} score={s.score} />}
           </div>
@@ -302,13 +312,13 @@ export function ScanReport({
         </section>
 
         <section className="bento-card" aria-labelledby="sec-open">
-          <h3 id="sec-open" className="bento-label">Offene Befunde</h3>
+          <h3 id="sec-open" className="bento-label" aria-level={2}>Offene Befunde</h3>
           <div className="bento-value"><SeverityChips counts={report.counts} /></div>
         </section>
 
         <section className="bento-card" aria-labelledby="sec-time">
-          <h3 id="sec-time" className="bento-label">{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
-          <p className="bento-value bento-text">{running ? clock(now - new Date(s.startedAt).getTime()) : t.rel}</p>
+          <h3 id="sec-time" className="bento-label" aria-level={2}>{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
+          <p className="bento-value bento-text">{running ? runFor(s.startedAt, now) : t.rel}</p>
           <p className="bento-sub">
             {t.abs}
             {t.took && <> · Dauer {t.took}</>}
@@ -318,7 +328,7 @@ export function ScanReport({
         </section>
 
         <section className="bento-card bento-wide" aria-labelledby="sec-stages">
-          <h3 id="sec-stages" className="bento-label">Stufen</h3>
+          <h3 id="sec-stages" className="bento-label" aria-level={2}>Stufen</h3>
           {running && <ScanHead s={s} now={now} />}
           <StageList stages={s.stages} now={now} open={running ? null : open} onTool={running ? undefined : showFindings} toolFilter={toolFilter} />
         </section>
@@ -357,6 +367,8 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
     idFor: (n) => `f-${f.id}-${n}`,
   })
   const accept = useMutation({
+    // Das Formular (Begründung) zeigt den Fehler selbst
+    meta: { quiet: true },
     mutationFn: () => api.acceptFinding(f.id, reason),
     onSuccess: () => {
       setOpen(false)
@@ -415,9 +427,10 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
   const q = useQuery({
     queryKey: ['scan', projectId],
     queryFn: () => api.latestScan(projectId),
+    // Fortschritt kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
     refetchInterval: (query) => {
       const st = query.state.data?.report?.scan.status
-      return st === 'queued' || st === 'running' ? 4000 : false
+      return st === 'queued' || st === 'running' ? poll() : false
     },
   })
   const latest = q.data?.report
@@ -472,14 +485,17 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
           <strong>Aktiver Scan</strong> greift die App mit OWASP ZAP aktiv an (XSS, SQL-Injection) und kann dabei Daten anlegen oder ändern. Nur der interne Container, nie über das Internet.
         </p>
       </div>
-      {start.isError && (
-        <p role="alert" className="error">{start.error instanceof ApiError ? start.error.message : 'Scan nicht gestartet'}</p>
-      )}
       {running && latest && <LiveScan report={latest} onCancelled={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })} />}
-      {q.isLoading ? (
-        <p className="state state-loading">Wird geladen…</p>
+      {!q.data && q.isError ? (
+        <ErrorState what="Der Scan-Bericht" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+      ) : !q.data ? (
+        <Loading label="Scan-Bericht wird geladen"><SkStats n={3} /><SkRows n={4} /></Loading>
       ) : !finished ? (
-        !running && <p className="state state-empty">Noch kein Scan. Nach jedem Deploy läuft einer automatisch.</p>
+        !running && (
+          <EmptyState title="Noch kein Scan" action={<button type="button" className="button-primary" onClick={() => start.mutate('standard')}>Jetzt scannen</button>}>
+            Nach jedem Deploy läuft einer automatisch.
+          </EmptyState>
+        )
       ) : (
         <>
           {running && <div className="section-head"><h2>Letzter abgeschlossener Scan</h2></div>}

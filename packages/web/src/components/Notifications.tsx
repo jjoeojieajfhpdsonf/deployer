@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type NotifyEvent, type NotifySettingsDto } from '../api.js'
+import { ErrorState, Loading, SkCard } from './States.js'
+import { notifyOk } from '../lib/feedback.js'
 import { notifySettingsFormSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
+import { useUnsaved } from '../lib/unsaved.js'
 
 const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'deploy_failed', label: 'Deploy fehlgeschlagen' },
@@ -26,13 +29,20 @@ export function NotificationSettings() {
   const [form, setForm] = useState<NotifySettingsDto | null>(null)
   const [ntfyToken, setNtfyToken] = useState('')
   const [mailPassword, setMailPassword] = useState('')
-  const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
     if (q.data && !form) setForm(q.data)
   }, [q.data, form])
 
   const [portText, setPortText] = useState<string | null>(null)
+
+  // UI-Qualität 8: Geändertes, nicht gespeichert → Rückfrage beim Verlassen
+  const dirty = Boolean(form && q.data) && (
+    JSON.stringify(form) !== JSON.stringify(q.data)
+    || ntfyToken !== '' || mailPassword !== ''
+    || (portText !== null && portText !== String(q.data?.email?.port ?? 587))
+  )
+  useUnsaved(dirty, 'Benachrichtigungen')
 
   /**
    * Was gespeichert würde – in der Form, die die API erwartet, geprüft mit
@@ -63,20 +73,22 @@ export function NotificationSettings() {
       setNtfyToken('')
       setMailPassword('')
       setPortText(null)
-      setNote('✓ Gespeichert')
+      notifyOk('Benachrichtigungen gespeichert')
       v.reset()
       qc.setQueryData(['notifications'], d)
     },
     onError: (err) => void v.setServerErrors(err),
+    meta: { errorTitle: 'Benachrichtigungen nicht gespeichert' },
   })
   const test = useMutation({
+    meta: { errorTitle: 'Test nicht verschickt' },
     mutationFn: (c: 'push' | 'email') => api.testNotification(c),
-    onSuccess: (_d, c) => setNote(`✓ Test über ${c === 'push' ? 'ntfy' : 'E-Mail'} verschickt`),
+    onSuccess: (_d, c) => notifyOk(`Test über ${c === 'push' ? 'ntfy' : 'E-Mail'} verschickt`, { description: 'Prüfe, ob er angekommen ist.' }),
   })
 
   // Fehler zuerst: ohne Daten bleibt form null, die Ladeanzeige stünde sonst ewig.
-  if (q.isError) return <p className="state state-error" role="alert">Einstellungen nicht abrufbar.</p>
-  if (q.isLoading || !form) return <p className="state state-loading">Wird geladen…</p>
+  if (!form && q.isError) return <ErrorState plural what="Die Benachrichtigungs-Einstellungen" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+  if (!form) return <Loading label="Einstellungen werden geladen"><SkCard lines={4} /><SkCard lines={6} className="sk-gap-lg" /></Loading>
 
   const ntfy = form.ntfy ?? { url: '', topic: '', hasToken: false }
   const email = form.email ?? { host: '', port: 587, secure: false, user: null, hasPassword: false, from: '', to: '' }
@@ -91,7 +103,6 @@ export function NotificationSettings() {
       ref={v.formRef}
       onSubmit={(ev) => {
         ev.preventDefault()
-        setNote(null)
         if (v.validateAll()) save.mutate()
       }}
     >
@@ -164,14 +175,11 @@ export function NotificationSettings() {
       </fieldset>
 
       <div className="form-actions">
-        <button className="button-primary" type="submit" disabled={save.isPending}>Speichern</button>
-        <button type="button" onClick={() => test.mutate('push')} disabled={!q.data?.ntfy || test.isPending} title={q.data?.ntfy ? undefined : 'Erst ntfy einrichten und speichern'}>Test-Push</button>
-        <button type="button" onClick={() => test.mutate('email')} disabled={!q.data?.email || test.isPending} title={q.data?.email ? undefined : 'Erst E-Mail einrichten und speichern'}>Test-E-Mail</button>
+        <button className="button-primary" type="submit" disabled={save.isPending} aria-busy={save.isPending || undefined}>Speichern</button>
+        <button type="button" onClick={() => test.mutate('push')} disabled={!q.data?.ntfy || test.isPending} aria-busy={(test.isPending && test.variables === 'push') || undefined} title={q.data?.ntfy ? undefined : 'Erst ntfy einrichten und speichern'}>Test-Push</button>
+        <button type="button" onClick={() => test.mutate('email')} disabled={!q.data?.email || test.isPending} aria-busy={(test.isPending && test.variables === 'email') || undefined} title={q.data?.email ? undefined : 'Erst E-Mail einrichten und speichern'}>Test-E-Mail</button>
       </div>
       {(!q.data?.ntfy || !q.data?.email) && <p className="hint">Testen geht, sobald der jeweilige Kanal gespeichert ist.</p>}
-      {note && <p className="hint" role="status">{note}</p>}
-      {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
-      {test.isError && <p role="alert" className="error">{(test.error as Error).message}</p>}
     </form>
   )
 }

@@ -5,6 +5,8 @@ import { useEnv, useEnvPath } from '../lib/env.js'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { relativeTime } from '../lib/format.js'
+import { fmtDateTime } from '../lib/dates.js'
+import { Sk } from '../components/States.js'
 import { passwordChangeFormSchema, PASSWORD_MIN } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
@@ -34,16 +36,16 @@ export function Account() {
 
   return (
     <section className="page page-narrow">
-      <PageHead crumbs={[{ label: 'konto' }]} title="Konto" />
+      <PageHead crumbs={[{ label: 'Konto' }]} title="Konto" />
 
       <div className="panel panel-pad">
         <dl className="facts">
           <dt>Name</dt>
-          <dd>{m?.name ?? '…'} <span className="muted">· Administrator</span></dd>
+          <dd>{m?.name ?? <Sk w={80} h={12} className="sk-inline" />} <span className="muted">· Administrator</span></dd>
           <dt>Anmeldung</dt>
           <dd>Passwort, Sitzung im Browser{m?.viaHttps ? ' über HTTPS' : ' über HTTP (ohne TLS)'}</dd>
           <dt>Sitzung</dt>
-          <dd>{m?.sessionSince ? <>angemeldet {relativeTime(m.sessionSince)} <span className="muted">({new Date(m.sessionSince).toLocaleString('de-CH')})</span>, gilt 7 Tage</> : '–'}</dd>
+          <dd>{m?.sessionSince ? <>angemeldet {relativeTime(m.sessionSince)} <span className="muted">({fmtDateTime(m.sessionSince)})</span>, gilt 7 Tage</> : '–'}</dd>
           <dt>Passwort</dt>
           <dd>
             {m?.passwordChangedAt
@@ -51,7 +53,7 @@ export function Account() {
               : 'aus der Konfiguration (.env)'}
           </dd>
           <dt>API-Tokens</dt>
-          <dd>{tokens.isLoading ? '…' : `${activeTokens} gültig in ${env?.name ?? 'dieser Umgebung'}`} · <Link to={ep('/tokens')}>verwalten</Link></dd>
+          <dd>{tokens.data ? `${activeTokens} gültig in ${env?.name ?? 'dieser Umgebung'}` : tokens.isError ? 'nicht abrufbar' : <Sk w={56} h={12} className="sk-inline" />} · <Link to={ep('/tokens')}>verwalten</Link></dd>
         </dl>
         <p className="hint" style={{ marginTop: 14 }}>
           Name im Profil: <code>ADMIN_NAME</code> in <code>.env</code>.
@@ -72,6 +74,8 @@ function PasswordForm({ formRef }: { formRef: React.RefObject<HTMLFormElement | 
   const form = useFormErrors({ schema: passwordChangeFormSchema, values: () => ({ current, next, repeat }) })
 
   const change = useMutation({
+    // Das Formular zeigt den Fehler selbst (falsches Passwort am Feld)
+    meta: { quiet: true },
     mutationFn: () => api.changePassword(current, next),
     onSuccess: () => {
       setCurrent('')
@@ -120,8 +124,8 @@ function PasswordForm({ formRef }: { formRef: React.RefObject<HTMLFormElement | 
       {done && <p role="status" className="hint ok">✓ Passwort geändert. Andere Sitzungen sind abgemeldet.</p>}
 
       <div className="form-actions">
-        <button type="submit" className="button-primary" disabled={change.isPending}>
-          {change.isPending ? 'Wird geändert…' : 'Passwort ändern'}
+        <button type="submit" className="button-primary" disabled={change.isPending} aria-busy={change.isPending || undefined}>
+          Passwort ändern
         </button>
       </div>
       <p className="hint">

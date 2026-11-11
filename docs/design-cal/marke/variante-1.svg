@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor">
+  <!-- Doppeltor: äusseres Portal, darin das zweite, geschlossene Tor -->
+  <path d="M4 28V16a12 12 0 0 1 24 0v12h-4V16a8 8 0 0 0-16 0v12z"/>
+  <path d="M12 28V16a4 4 0 0 1 8 0v12z"/>
+</svg>

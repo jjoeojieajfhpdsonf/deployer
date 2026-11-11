@@ -4,20 +4,20 @@
  * Funktionen, ohne Datenbank und Docker – testbar.
  */
 
-import type { ScanReportDto } from '@airlock/shared'
+import { SCAN_STAGE_LABEL, type ScanReportDto } from '@airlock/shared'
 import type { ScanStage, ScanStages } from '../db/schema.js'
 
 export type StageKey = 'trivy-image' | 'trivy-source' | 'headers' | 'zap-baseline' | 'zap-full' | 'nuclei' | 'testssl'
 
 /** Was eine Stufe prüft (Anzeige und MCP) und wie lange sie höchstens laufen darf. */
 export const STAGE_INFO: Record<StageKey, { label: string; checks: string; timeoutMs: number }> = {
-  'trivy-image': { label: 'Image (Trivy)', checks: 'Trivy: bekannte Schwachstellen in Paketen und Image, Secrets, Fehlkonfiguration', timeoutMs: 15 * 60_000 },
-  'trivy-source': { label: 'Quellcode (Trivy)', checks: 'Trivy: verwundbare Abhängigkeiten aus Lockfiles, Secrets im Code, Fehlkonfiguration (Dockerfile, Compose)', timeoutMs: 10 * 60_000 },
-  headers: { label: 'Security-Header', checks: 'Header-Check: Security-Header und Cookies der Antwort', timeoutMs: 60_000 },
-  'zap-baseline': { label: 'OWASP ZAP (passiv)', checks: 'ZAP Baseline: Seite crawlen und passiv auf typische Web-Schwachstellen prüfen', timeoutMs: 15 * 60_000 },
-  'zap-full': { label: 'OWASP ZAP (aktiv)', checks: 'ZAP Full Scan: aktive Angriffe (XSS, SQL-Injection) gegen den Container', timeoutMs: 45 * 60_000 },
-  nuclei: { label: 'Offene Dateien (Nuclei)', checks: 'Nuclei: offen erreichbare Dateien, Admin-Oberflächen, Standard-Logins', timeoutMs: 15 * 60_000 },
-  testssl: { label: 'TLS (testssl.sh)', checks: 'testssl.sh: Zertifikat, Protokolle und Cipher', timeoutMs: 10 * 60_000 },
+  'trivy-image': { label: SCAN_STAGE_LABEL['trivy-image']!, checks: 'Trivy: bekannte Schwachstellen in Paketen und Image, Secrets, Fehlkonfiguration', timeoutMs: 15 * 60_000 },
+  'trivy-source': { label: SCAN_STAGE_LABEL['trivy-source']!, checks: 'Trivy: verwundbare Abhängigkeiten aus Lockfiles, Secrets im Code, Fehlkonfiguration (Dockerfile, Compose)', timeoutMs: 10 * 60_000 },
+  headers: { label: SCAN_STAGE_LABEL.headers!, checks: 'Header-Check: Security-Header und Cookies der Antwort', timeoutMs: 60_000 },
+  'zap-baseline': { label: SCAN_STAGE_LABEL['zap-baseline']!, checks: 'ZAP Baseline: Seite crawlen und passiv auf typische Web-Schwachstellen prüfen', timeoutMs: 15 * 60_000 },
+  'zap-full': { label: SCAN_STAGE_LABEL['zap-full']!, checks: 'ZAP Full Scan: aktive Angriffe (XSS, SQL-Injection) gegen den Container', timeoutMs: 45 * 60_000 },
+  nuclei: { label: SCAN_STAGE_LABEL.nuclei!, checks: 'Nuclei: offen erreichbare Dateien, Admin-Oberflächen, Standard-Logins', timeoutMs: 15 * 60_000 },
+  testssl: { label: SCAN_STAGE_LABEL.testssl!, checks: 'testssl.sh: Zertifikat, Protokolle und Cipher', timeoutMs: 10 * 60_000 },
 }
 
 /** Stufenschlüssel ohne Zusatz («trivy-image nginx:1» → «trivy-image»). */

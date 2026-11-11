@@ -1,19 +1,24 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { Readable } from 'node:stream'
 import { listScopeFor } from '../scope.js'
 import {
   createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
+  parseDockerLines, rangeMinutes,
 } from '@airlock/shared'
+import { logSources, readLogLines } from '../../domain/logs.js'
+import { trackStream } from '../../lib/events.js'
 import { checkSourceEarly } from '../../domain/source-checks.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import {
   listProjects, findProject, toDto, createProject, updateProject, deleteProject,
-  assertSourceSupported,
+  assertSourceSupported, previewName,
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
 import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
 import { parseSiteAccess } from '../../lib/site-access.js'
 import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
+import { withFailure } from '../../deploy/explain.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject, restartProject } from '../../domain/lifecycle.js'
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
@@ -40,6 +45,13 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   const list = async (request: FastifyRequest) => ({ projects: await listProjects(listScopeFor(request)) })
   app.get('/projects', list)
   app.get('/environments/:env/projects', list)
+
+  // UI-Qualität 5: Kurzname und Adresse vor dem Anlegen, mit Kollisionsprüfung (M9: in der Umgebung)
+  const namePreview = async (request: FastifyRequest<{ Querystring: { name?: string } }>) => ({
+    preview: await previewName(listScopeFor(request), String(request.query.name ?? '').slice(0, 120)),
+  })
+  app.get('/projects/name-preview', namePreview)
+  app.get('/environments/:env/projects/name-preview', namePreview)
 
   const create = async (request: FastifyRequest, reply: FastifyReply) => {
     const scope = listScopeFor(request)
@@ -226,10 +238,19 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: IdParams }>('/projects/:id/deployments', async (request) => {
     const project = await findProject(request.scope, request.params.id)
-    return { deployments: await listDeployments(project.id) }
+    return { deployments: await withFailure(project, await listDeployments(project.id)) }
   })
 
   /* --- Logs ---------------------------------------------------------------- */
+
+  /**
+   * UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe für den Reiter «Logs».
+   * range: 15m | 1h | 24h; service: ein Compose-Dienst (sonst alle, nach Zeit gemischt).
+   */
+  app.get<{ Params: IdParams; Querystring: { range?: string; service?: string } }>('/projects/:id/log-lines', async (request) => {
+    const project = await findProject(request.scope, request.params.id)
+    return readLogLines(project, { minutes: rangeMinutes(request.query.range), service: request.query.service || null })
+  })
 
   app.get<{ Params: IdParams; Querystring: { lines?: string; since?: string } }>(
     '/projects/:id/logs',
@@ -249,51 +270,136 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
    * Projektseite, Reiter «Zugriffe»: Aufrufe einer statischen Seite aus
    * Caddys Zugriffs-Log (letzte 24 Stunden, höchstens 500, IP gekürzt).
    */
-  app.get<{ Params: IdParams }>('/projects/:id/access', async (request) => {
+  // UI-Qualität 4: Zeitraum wählbar (15m, 1h, 24h; Standard wie bisher 24 Stunden)
+  app.get<{ Params: IdParams; Querystring: { range?: string } }>('/projects/:id/access', async (request) => {
     const project = await findProject(request.scope, request.params.id)
-    const routes = await routeDtosFor(project.id, project.slug)
-    const hosts = routes.flatMap((r) => [r.hostname, ...r.aliases])
-    const sinceMs = Date.now() - 24 * 60 * 60_000
+    const hosts = await siteHosts(project)
+    const sinceMs = Date.now() - (request.query.range ? rangeMinutes(request.query.range) : 24 * 60) * 60_000
     try {
       const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
-      return { entries: parseSiteAccess(logs, { hosts, sinceMs }), since: new Date(sinceMs).toISOString(), error: null }
+      // Höchstens 2000 (wie der Reiter «Logs»); die Oberfläche sagt «neueste 2000», wenn es mehr gab
+      return { entries: parseSiteAccess(logs, { hosts, sinceMs, limit: ACCESS_MAX }), since: new Date(sinceMs).toISOString(), error: null }
     } catch (err) {
       return { entries: [], since: new Date(sinceMs).toISOString(), error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
     }
   })
 
-  app.get<{ Params: IdParams }>('/projects/:id/logs/stream', async (request, reply) => {
+  /** UI-Qualität 4: neue Zugriffe live (wie der Reiter «Logs»), aus Caddys Log gefiltert auf die Adressen des Projekts */
+  app.get<{ Params: IdParams; Querystring: { since?: string } }>('/projects/:id/access/stream', async (request, reply) => {
     const project = await findProject(request.scope, request.params.id)
-    const active = await activeDeployment(project.id)
-    if (!active?.containerId) throw notFound('Laufender Container')
+    const hosts = await siteHosts(project)
+    const since = sinceOf(request.query.since)
+    const stream = await docker.followLogs(config.CADDY_CONTAINER, since ? since.sec : undefined, { tail: since ? undefined : 0 })
+    openSse(reply)
+    const decoder = new docker.DockerLogDecoder()
+    const emit = (lines: string[]) => {
+      // Caddy schreibt JSON-Zeilen; parseSiteAccess liefert die neuesten zuerst – gesendet wird in
+      // zeitlicher Reihenfolge, die Oberfläche setzt jeden neuen Aufruf oben ein
+      const entries = parseSiteAccess(lines.join('\n'), { hosts, sinceMs: 0 }).reverse()
+      for (const e of entries) if (!since || e.at > since.iso) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`)
+    }
+    followUntilClosed(request, reply, [stream], (chunk) => emit(decoder.push(chunk)), () => emit(decoder.flush()))
+    return reply
+  })
 
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    })
-
-    const stream = await docker.followLogs(active.containerId)
-    const send = (chunk: Buffer) => {
-      const text = docker.demuxDockerLog(chunk)
-      for (const line of text.split('\n')) {
-        if (line.length) reply.raw.write(`data: ${JSON.stringify(line)}\n\n`)
+  /**
+   * Neue Zeilen live, als LogLineDto (Zeit, Dienst, Stufe). Anschluss an den
+   * Stand von /log-lines über ?since= (Zeit der letzten Zeile): nichts doppelt,
+   * nichts verloren. Compose: alle Dienste oder ?service=.
+   */
+  app.get<{ Params: IdParams; Querystring: { service?: string; since?: string } }>('/projects/:id/logs/stream', async (request, reply) => {
+    const project = await findProject(request.scope, request.params.id)
+    const sources = (await logSources(project)).filter((s) => !request.query.service || s.service === request.query.service)
+    if (!sources.length) throw notFound('Laufender Container')
+    const since = sinceOf(request.query.since)
+    // Alle öffnen; scheitert einer, die schon offenen wieder schliessen
+    const opened = await Promise.allSettled(sources.map((s) => docker.followLogs(s.containerId, since?.sec, { tail: since ? undefined : 0, timestamps: true })))
+    const streams = opened.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    if (streams.length < sources.length) {
+      for (const s of streams) (s as unknown as { destroy?: () => void }).destroy?.()
+      throw new AppError('logs_unavailable', 'Die Ausgabe eines Dienstes ist gerade nicht lesbar', 503)
+    }
+    openSse(reply)
+    const decoders = sources.map(() => new docker.DockerLogDecoder())
+    const emit = (lines: string[], i: number) => {
+      for (const l of parseDockerLines(lines.join('\n'), sources[i]!.service)) {
+        if (since && l.at && l.at <= since.iso) continue
+        reply.raw.write(`data: ${JSON.stringify(l)}\n\n`)
       }
     }
-    stream.on('data', send)
-
-    const keepalive = setInterval(() => reply.raw.write(': ping\n\n'), 20_000)
-    const close = () => {
-      clearInterval(keepalive)
-      stream.removeListener('data', send)
-      ;(stream as unknown as { destroy?: () => void }).destroy?.()
-      reply.raw.end()
-    }
-    request.raw.on('close', close)
-    stream.on('end', close)
-    stream.on('error', close)
-
+    followUntilClosed(request, reply, streams, (chunk, i) => emit(decoders[i]!.push(chunk), i), (i) => emit(decoders[i]!.flush(), i))
     return reply
+  })
+}
+
+const ACCESS_MAX = 2000
+
+/** ?since= (ISO-Zeitpunkt der letzten bekannten Zeile) für Docker (Sekunden mit Bruchteil) und zum Vergleichen */
+function sinceOf(v: string | undefined): { sec: number; iso: string } | null {
+  if (!v) return null
+  const ms = Date.parse(v)
+  if (!Number.isFinite(ms)) return null
+  return { sec: ms / 1000, iso: new Date(ms).toISOString() }
+}
+
+/** Adressen einer statischen Seite (für das Zugriffs-Log) */
+async function siteHosts(project: { id: string; slug: string }): Promise<string[]> {
+  const routes = await routeDtosFor(project.id, project.slug)
+  return routes.flatMap((r) => [r.hostname, ...r.aliases])
+}
+
+function openSse(reply: FastifyReply): void {
+  reply.raw.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+}
+
+/**
+ * Docker-Ströme an eine SSE-Antwort hängen, mit Herzschlag; alles schliesst,
+ * sobald der Browser geht oder ein Strom endet. Nach dem Ende wird nichts
+ * mehr geschrieben.
+ */
+function followUntilClosed(
+  request: FastifyRequest, reply: FastifyReply, streams: Readable[],
+  send: (chunk: Buffer, i: number) => void,
+  /** Ein Strom ist zu Ende: Rest ausgeben */
+  ended?: (i: number) => void,
+): void {
+  let closed = false
+  let open = streams.length
+  const handlers = streams.map((s, i) => {
+    const h = (chunk: Buffer) => { if (!closed) send(chunk, i) }
+    s.on('data', h)
+    return h
+  })
+  // Endet ein Dienst (Compose), laufen die anderen weiter; erst wenn alle zu sind, endet die Antwort
+  const one = (i: number) => {
+    if (closed) return
+    ended?.(i)
+    if (--open <= 0) close()
+  }
+  const keepalive = setInterval(() => { if (!closed) reply.raw.write(': ping\n\n') }, 20_000)
+  const close = () => {
+    if (closed) return
+    closed = true
+    clearInterval(keepalive)
+    untrack()
+    streams.forEach((s, i) => {
+      s.removeListener('data', handlers[i]!)
+      ;(s as unknown as { destroy?: () => void }).destroy?.()
+    })
+    reply.raw.end()
+  }
+  // Beim Herunterfahren schliessen (sonst wartet app.close())
+  const untrack = trackStream(close)
+  request.raw.on('close', close)
+  streams.forEach((s, i) => {
+    let done = false
+    const fin = () => { if (!done) { done = true; one(i) } }
+    s.on('end', fin)
+    s.on('error', fin)
   })
 }

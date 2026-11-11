@@ -1,0 +1,320 @@
+# Milestone «UI-Grundlagen»
+
+Branch `ui-grundlagen`, abgezweigt von `ui-projektseite` (Commit `ef34124`, weil `ui-projektseite`
+um Mitternacht noch nicht in `main` war; die Session «Projektseite neu gestalten» lief nicht mehr,
+ihr letzter Commit ist die Grundlage). Ein Commit pro Etappe. Nicht nach `main` gemergt, nicht
+gepusht.
+
+Alles in Hell und Dunkel, im bestehenden Design (Tokens in `packages/web/src/styles.css`, Cal Sans,
+Inter, Geist Mono). Nur Desktop: geprüft wird bei 1440 px.
+
+Offene Entscheidungen stehen als Fragen in `docs/FRAGEN-NACHT.md` (Hauptordner, nicht committet);
+hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
+
+## Prüfungen je Etappe
+
+- `pnpm -r typecheck`, alle Tests (`pnpm -r test`, API: `node:test`), `pnpm -r build`
+- Screenshots: bis Etappe 2 mit `design-shots/shoot.ts`, ab Etappe 3 `pnpm test:visual`
+  (zusätzlich `shoot.ts` für die Bilder der Etappe in `docs/design-cal/ui-grundlagen/`)
+- Kontrast: `node docs/design-cal/contrast.mjs`
+- Impeccable nur als Gutachter (audit/critique/detect); Befunde zu Kontrast, Schriftgrösse und
+  kaputter Darstellung werden behoben, Stilfragen gehen nach dem Taste Skill.
+
+## Etappen
+
+| Nr. | Inhalt | Stand |
+|---|---|---|
+| 1 | Zustände: Error Boundary, fünf Zustände je Ansicht, Datumswerte absichern | erledigt |
+| 2 | Rückmeldung bei Aktionen: Ladeknopf, Toast, Rückgängig, Aktivitätsanzeige | erledigt; Bestätigung offen, Frage Nr. 3 |
+| 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | erledigt |
+| 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | erledigt; 4 Zeichen offen, Frage Nr. 4 |
+| 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | erledigt; Wahl a/b offen, Frage Nr. 1 |
+| 6 | Befehlspalette und Tastatur | erledigt; Browser-Konflikt offen, Frage Nr. 5 |
+| 7 | Erster Start, Login, Marke | erledigt; Wahl der Marke offen, Frage Nr. 6 |
+| 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | erledigt |
+| 9 | Handyansicht | **entfällt auf Wunsch** («Handy egal») |
+
+### Etappe 1 – Zustände
+
+Schon vorhanden (Commit `1d4c8fc` auf `main`, über `ui-projektseite` enthalten):
+- Error Boundary um die App und um jede Seite (`components/ErrorBoundary.tsx`): «Etwas ist
+  schiefgelaufen», «Neu laden», Details einklappbar, Meldung an `POST /api/v1/client-errors`
+  (gekürzt, Secrets entfernt, Rate-Limit), Log auf dem Server.
+- Datumsprüfung für «Voraussichtlich zurück» (`parseLocalDateTime`, `backAtProblem` in
+  `packages/shared/src/pause-page.ts`), `lib/dates.ts` in der API.
+
+Abnahme:
+- Keine Ansicht zeigt je eine leere oder schwarze Seite; jeder Renderfehler endet in der Fehlerseite.
+- Jede Ansicht hat die fünf Zustände Laden, Leer, Fehler, Teilweise, Veraltet (Tabelle unten).
+- Laden: Skeletons in der Form des Inhalts; kein «wird geladen…»-Text mehr.
+- Leer: Satz mit nächstem Schritt (Knopf oder Link).
+- Fehler: verständlicher Satz und «Erneut versuchen».
+- Teilweise: was da ist, wird gezeigt; der fehlende Teil hat einen eigenen Hinweis.
+- Veraltet: Server nicht erreichbar → letzte Daten bleiben, Hinweisleiste mit «Stand vor n Min.».
+- Kein `new Date(…)`, `toISOString()` oder `toLocale…()` auf ungeprüften Werten (Test).
+
+Umsetzung:
+- `components/States.tsx`: Skeleton-Bausteine (`Sk`, `SkLines`, `SkStats`, `SkProjectCards`, `SkCard`,
+  `SkRows`, `SkLog`, `SkHead`, `SkProjectDetail`), `EmptyState`, `ErrorState` (Grund in Worten,
+  «Erneut versuchen»), `PartialNote`, `QueryView`. Regel: **Daten gehen vor** – scheitert nur ein
+  späteres Nachladen, bleibt die Ansicht stehen (vorher sprang z. B. die Projektliste auf «konnten
+  nicht geladen werden», sobald ein Hintergrund-Abruf scheiterte).
+- `lib/connection.ts` + `components/StaleBar.tsx`: hört auf alle Abfragen; antwortet der Server nicht
+  (Netz weg, 502/503/504), erscheint über dem Inhalt «Keine Verbindung zum Server. Angezeigt ist der
+  Stand vor n Min.» mit «Erneut versuchen»; die nächste erfolgreiche Antwort blendet sie aus.
+- `api.ts`: Netzabbruch und Nicht-JSON-Antworten (Proxy-Fehlerseite) werden zu `ApiError` mit
+  Status 0 bzw. dem HTTP-Status statt eines rohen `TypeError`/`SyntaxError`.
+- `lib/dates.ts` (Oberfläche): einzige Stelle für Datumsumwandlung und -format; ungültige Werte
+  ergeben «–». 40 Stellen umgestellt. `lib/dates.test.ts` prüft die Formatierer mit kaputten Werten
+  (u. a. Jahr 333333) und durchsucht den Quelltext nach `new Date(wert)`, `Date.parse`,
+  `toISOString`, `toLocaleDateString/TimeString` ausserhalb von `lib/dates.ts`.
+- Neues Test-Skript für die Oberfläche: `pnpm --filter @airlock/web test`.
+
+Zustände je Ansicht («V» = gemeinsame Leiste «Keine Verbindung», gilt überall in der Shell):
+
+| Ansicht | Laden | Leer (nächster Schritt) | Fehler | Teilweise | Veraltet |
+|---|---|---|---|---|---|
+| Shell (Anmeldung prüfen) | Skeleton Seitenleiste + Inhalt | – | «Keine Verbindung zur API» + «Erneut versuchen» | – | V |
+| Projekte | Kennzahlen + Karten | «Erstes Projekt anlegen» | ErrorState | Karte «Letzte Aktivität» mit eigenem Fehler | V |
+| Projektseite | Kopf, Reiter, Karten | – | ErrorState; 404 → «Projekt nicht gefunden» | Deployments-, Aktivitäts-, Security-Karte je mit eigenem Fehler; Fehlerbox ohne Log → Hinweis | V |
+| – Deployments | Zeilen | «Noch kein Deployment» | ErrorState | Log je Deployment mit eigenem Fehler | V |
+| – Logs | Log-Zeilen | «Noch keine Ausgabe» (Start über «⋯») | ErrorState | – | V |
+| – Zugriffe (statisch) | Zeilen | «Noch keine Aufrufe» / «Alle zeigen» | ErrorState | – | V |
+| – Security | Kennzahlen + Zeilen | «Jetzt scannen» | ErrorState | gescheiterte Stufe: Hinweis, Rest vollständig | V |
+| – Einstellungen | Zeilen je Karte | – | je Karte (Veröffentlichung, Header) | Karten unabhängig | V |
+| Neues Projekt | – (Formular) | – | Feld- und Formularfehler (bestehend) | – | V |
+| Security (global) | Kennzahlen + Zeilen | «Projekt anlegen» | ErrorState | – | V |
+| Domains | Karten | Zonen: «Mit Cloudflare abgleichen» | ErrorState (Systemstatus, Zonen) | Zonenliste unabhängig | V |
+| Externe Ziele | Zeilen | «Ziel hinzufügen» (Fokus ins Feld) | ErrorState | Scan je Ziel mit eigenem Fehler | V |
+| Tokens | Zeilen | «Token anlegen» (Fokus ins Feld) | ErrorState | – | V |
+| Audit | Zeilen | Suche leeren / alle zeigen / Projekt anlegen | ErrorState | – | V |
+| System (alle Unterseiten) | Karten | – | ErrorState je Bereich (Status, Cloudflare, GitHub, Benachrichtigungen, Pause-Vorlage) | Bereiche unabhängig | V |
+| Konto | Platzhalter in den Werten | – | «nicht abrufbar» beim Token-Zähler | – | V |
+| Nicht gefunden | – | «Zu den Projekten» | – | – | – |
+
+Screenshots: `docs/design-cal/ui-grundlagen/1-zustaende/` (Gruppe `zustand` in `design-shots/shoot.ts`).
+
+### Etappe 2 – Rückmeldung bei Aktionen
+
+Abnahme:
+- Ein Knopf-Muster: Ladezustand mit Spinner, Breite bleibt stabil.
+- Ergebnis als Toast; «Rückgängig» bei Offline nehmen, Header setzen/entfernen, Schaltern.
+- Fehler-Toast mit Grund und Aktion.
+- Aktivitätsanzeige im Kopf für Deploy, Scan, Zertifikat, Tunnel: Zahl laufender Vorgänge, Klick
+  öffnet Liste mit Fortschritt und Link; bleibt beim Seitenwechsel.
+- Ein gemeinsamer Toast und eine gemeinsame Bestätigung für die ganze App; Übergänge nach Emils
+  Skills, `prefers-reduced-motion` beachtet.
+
+Umsetzung:
+- **Ladeknopf:** `aria-busy` auf dem Knopf. Der Text bleibt im Fluss (Breite stabil) und wird
+  unsichtbar, ein Ring dreht darüber; gefüllte Knöpfe behalten ihre Füllung. Ohne Bewegung steht
+  der Ring still. 44 Stellen umgestellt, die vorher den Text tauschten («Wird gespeichert…»,
+  «Startet…», «Prüft …»).
+- **Toast:** `lib/feedback.ts` (`notifyOk`, `notifyWarn`, `notifyError`, `UNDO_MS`). Fehler jeder
+  Aktion laufen über den `MutationCache` in einen Fehler-Toast mit Titel (`meta.errorTitle`), Grund
+  (`errorReason`) und «Erneut versuchen». Feldfehler (400 mit `details`) und Stellen mit eigener
+  Anzeige (`meta.quiet`: Passwort, Begründung beim Akzeptieren, Pause-Dialog, Veröffentlichung,
+  Erreichbarkeit) bleiben am Formular. Die verstreuten Fehlerzeilen unter Knöpfen (rund 30) sind
+  entfernt, ebenso die eigenen Hinweiszeilen nach Start/Stopp und Speichern.
+- **Rückgängig:** Offline nehmen/Pausieren/Access (schon vorhanden, `lib/public.ts`), Erreichbarkeit
+  (schon vorhanden), Header setzen/entfernen/zurücksetzen (neu: Regel davor wird wieder gesetzt bzw.
+  entfernt), Schalter «Nach Merge» (Auto-Deploy), «Behalten»/«Ablauf wieder aktivieren», Stoppen
+  (→ Starten).
+- **Aktivitätsanzeige** (`components/ActivityIndicator.tsx`, `lib/activities.ts`): im Kopf neben dem
+  Profil, nur solange etwas läuft – Ring, Zahl, «Vorgang/Vorgänge». Klick öffnet die Liste
+  (gleiches Menü-Verhalten wie das Profil): Deploy mit Schritt n von 4, Scan mit Stufe n von m,
+  Zertifikat mit Schritt 1/2 von 2, Tunnel; je mit Balken und Link. Quellen: Projektliste,
+  Cloudflare-Status, laufende Mutation mit festem Schlüssel (Tunnel) – deshalb bleibt sie beim
+  Seitenwechsel. Endet ein Deploy oder Scan, solange die Oberfläche offen ist: Toast mit Ergebnis
+  und Link («Log ansehen», «Ansehen»).
+- **Bestätigung:** offen, Frage Nr. 3 (inline wie heute, ein modaler Dialog, oder gemischt).
+- Gutachten (Impeccable) behoben: Projektseite je Projekt neu aufgebaut (`key`), damit «Rückgängig»
+  nach einem Projektwechsel das richtige Projekt trifft; «Erneut versuchen» nur bei Server weg/5xx
+  und nie bei Löschen/Trennen; Balken der Aktivitätsliste gleich lang; Fokus geht beim Verschwinden
+  der Anzeige zum Profil; Ergebnis-Toast auch für das Zertifikat; ohne Bewegung kein Teilbalken, der
+  wie 30 % aussieht; ein Tempo für alle Ringe.
+- Bewegung: Emils Skill `review-animations` lässt sich nur von Hand aufrufen
+  (`/review-animations`); das Gutachten dazu steht noch aus.
+- Screenshots: `docs/design-cal/ui-grundlagen/2-rueckmeldung/` (Gruppe `aktion`).
+
+### Etappe 3 – Visuelle Regressionstests
+
+Abnahme:
+- Playwright-Screenshot-Tests aller Hauptseiten und wichtigen Zustände mit Fixtures, Hell und
+  Dunkel, 1440 px; feste Uhrzeit, damit die Bilder stabil sind.
+- Vergleich mit Referenzbildern, kleine Schwelle, Diff-Bilder bei Abweichung.
+- `pnpm test:visual` und `pnpm test:visual:update`; Regel in `CLAUDE.md`.
+
+Umsetzung:
+- `@playwright/test` 1.65.0 (gleiche Version wie `playwright`), installiertes Chrome.
+- `packages/web/visual/`: `playwright.config.ts` (eigener Vite-Server auf Port 5299, 4 Worker,
+  Schwelle höchstens 20 abweichende Pixel – ein Anteil von 0,2 % liess einen halb so langen Balken
+  durch –, Animationen aus, feste Schriftglättung ohne LCD-Text und GPU, sonst schwankte die Seite
+  mit offenem Menü), `ui.spec.ts` (42 Szenen × Hell/Dunkel = 84
+  Bilder), `fixed-clock.ts` (feste Uhr 10.11.2026 14:00 in Node für die Fixtures und im Browser über
+  `page.clock`). Referenzen in `visual/referenz/` (eingecheckt, rund 11 MB), Ergebnisse und
+  Diff-Bilder in `visual/ergebnis/`, HTML-Bericht in `visual/bericht/` (beide in `.gitignore`).
+- `design-shots/shoot.ts` exportiert jetzt Szenen, Kontext-Optionen, API-Attrappe (`installRoutes`)
+  und `openShot`; dieselben Fixtures für Screenshots und Tests. Als Skript gestartet verhält es sich
+  wie bisher.
+- Stabilität: drei Läufe hintereinander, 84 von 84 ohne Abweichung (rund 35 s). Probe: eine
+  absichtlich geänderte Balkenbreite wird erkannt (Diff-Bild in `visual/ergebnis/`).
+
+### Etappe 4 – Komponenten-Übersicht
+
+Abnahme:
+- `/design` (nur angemeldet) zeigt alle Bausteine in Hell und Dunkel nebeneinander.
+- Doppelte oder abweichende Varianten im Code zusammengeführt; Liste unten.
+
+Umsetzung:
+- `pages/Design.tsx`, Route `/design` (hinter der Anmeldung, nicht in der Seitenleiste): Knöpfe
+  (alle Varianten, deaktiviert, lädt), Pillen und Zähler (Status, Öffentlich, Schwere, Note,
+  Reiter-Zähler), Zeilen (Einstellungskarte mit Schalter), Karten (Kennzahl, Karte), Reiter und
+  Filter, Menü, Dialog, Toasts (Knöpfe lösen echte Toasts aus), Formularfelder mit Fehler,
+  Code-Feld und Log, Skeletons, Leer/Fehler/Teilweise/Veraltet/Hinweise, Zeichen, Diagramme
+  (Note im Ring, CPU/RAM-Verlauf).
+- Hell und Dunkel nebeneinander: die Tokens gelten jetzt auch für `.theme-light`/`.theme-dark`
+  (`:root, .theme-light` und `:root[data-theme='dark'], .theme-dark`); die sechs Dunkel-Regeln für
+  einzelne Bausteine greifen auch in `.theme-dark`, nicht aber in `.theme-light`. Seite selbst
+  unverändert (alle bisherigen Referenzbilder gleich). `contrast.mjs` liest die neuen Blöcke.
+- Gefunden über die Übersicht und behoben: Ladeknopf «Ja, löschen» zeigte im Dunkelmodus den
+  Text durch den Ring (Dunkel-Regel war spezifischer).
+- Screenshot `docs/design-cal/ui-grundlagen/4-bausteine/`, visuelle Szene `design-bausteine`.
+
+Zusammengeführt bzw. entfernt:
+| Was | Vorher | Jetzt |
+|---|---|---|
+| `IconOk`, `IconBad`, `IconPending` | gleich gezeichnet in `ProjectOverview.tsx` und `CloudflareSetup.tsx` | nur `Icons.tsx` |
+| `IconChevron` | `DeployList.tsx` (Strich 1,7) und `Icons.tsx` (1,6), gleiche Form | nur `Icons.tsx` |
+| `relativeTime`, `duration` | zusätzlich aus `components/Status.tsx` weitergereicht | nur `lib/format.ts` |
+| Lade-Texte auf Knöpfen («Wird gespeichert…», «Startet…» u. a.) | 44 Varianten | ein Muster `aria-busy` (Etappe 2) |
+| Fehlerzeilen unter Knöpfen (`.error`, `.error-inline` je Stelle) | rund 30 Stellen | Fehler-Toast (Etappe 2) |
+| Hinweiszeilen nach Aktionen (`.notice-ok`, eigene «✓ Gespeichert») | Projekte, Projektseite, Benachrichtigungen, Auto-Deploy | Toast (Etappe 2); Klasse `.notice-ok` entfernt |
+| Ladeanzeige `.state-loading` | Punkt + «Wird geladen…» | Skeletons (Etappe 1); Klasse entfernt |
+
+Nach dem Gutachten (mit Etappe 6 committet): weitere gleich gezeichnete Zeichen zusammengelegt
+(`IconFailed` = `IconBad`, `IconWaiting` = `IconPending`, `IconOptional`/`IconSkipped` → `IconSkipped`,
+Zeichen der Feldmeldung = `IconAlert`); roter Knopf deaktiviert im Dunkelmodus wieder lesbar
+(Dunkel-Regel nur noch für aktive Knöpfe); `--sh-ring` auch im Dunkel-Block; Übersicht ergänzt um
+Tabelle, Schalter (speichert, gesperrt), Rückfrage im Menü, `notice`, `error`; Spalten als
+`<section aria-labelledby>`, Hinweis per `aria-describedby`.
+
+Noch nicht zusammengeführt (abweichende Ausgabe oder Gestaltung, Teil von Frage Nr. 4):
+- Zahlen: `fmtBytes` (`KeyFacts.tsx`) gegen `formatBytes` (`System.tsx`); `fmtCpu` in `KeyFacts.tsx`
+  und `ProjectOverview.tsx` mit anderen Nachkommastellen; `ago()` der Leiste «Keine Verbindung»
+  gegen `relativeTime` («vor weniger als einer Minute» / «gerade eben»).
+- CSS mit gleicher Aufgabe: Warnhinweise (`.partial-note`, `.stale-bar`, `.banner-warn`,
+  `.menu-confirm`/`.confirm-note`, `.publication-note-warn`), Fehlerkästen (`.error`,
+  `.error-state-compact`, `.alert`, `.cf-ingress-warn`), Schwere (`.sev`, `.sev-chip`, `.sc-sev`),
+  Pillen (`.chip`, `.dl-pill`).
+- Schrift unter 12 px (`.ov-meter-foot`, `.sc-ring-score`, `.cf-tag` 11 px; `.actor-avatar`,
+  `.rail-count` 10 px): gehört zu Milestone B, Etappe 7 («nichts unter 12 px»).
+
+Offen, Frage Nr. 4: `IconWarn`, `IconCheck`, `IconUp`, `IconKey` gibt es je zweimal mit
+**verschiedener** Form; welche bleibt, ist eine Gestaltungsfrage. Offen, Frage Nr. 3: die
+Bestätigungen (23 Stellen mit eigenem Markup).
+
+### Etappe 5 – Sprache und Texte
+
+Abnahme:
+- `docs/TEXTE.md`: Glossar mit Varianten (a) alles deutsch und (b) feste Fachbegriffe englisch,
+  Empfehlung mit Begründung, Text-Leitfaden. Nichts umbenannt.
+- Wahl a/b: offen, Frage Nr. 1.
+
+### Etappe 6 – Befehlspalette und Tastatur
+
+Abnahme:
+- ⌘K / Ctrl+K öffnet die Palette: Projekte und Seiten suchen, Aktionen (Neu deployen, Offline
+  nehmen, Scan starten, Token erstellen) mit denselben Bestätigungen wie in der Oberfläche.
+- Kürzel `/`, `g p`, `g s`, `g a`, `?`; keine Kürzel, die Browser-Standards überschreiben.
+
+Umsetzung:
+- `components/CommandPalette.tsx`: modaler Dialog oben im Fenster, Suchfeld als Combobox mit
+  Liste (`aria-activedescendant`, ↑/↓/Enter, Esc). Gruppen Seiten (14), Projekte, Aktionen
+  (erscheinen ab dem ersten Zeichen): «Neu deployen · Projekt», «Scan starten · Projekt»,
+  «Offline nehmen · Projekt» (nur öffentliche), «Token erstellen» (öffnet Tokens mit Fokus im
+  Namensfeld, `?neu=1`), «Neues Projekt anlegen». Suche ohne Akzente, alle Wörter müssen vorkommen.
+- Rückfragen wie in der Oberfläche: Deploy und Scan haben dort keine Rückfrage → laufen sofort mit
+  Toast. «Offline nehmen» zeigt denselben Text und dieselben Knöpfe wie im «⋯»-Menü
+  («Ja, pausieren», «Ja, ganz offline nehmen», «Abbrechen»), Fokus auf «Abbrechen».
+- `components/Shortcuts.tsx`: ⌘K/Ctrl+K (auch aus Feldern), `/` (Suche der Seite über
+  `data-page-search`, sonst Palette – ersetzt das eigene «/» der Projektliste), `g p`/`g s`/`g a`
+  (1,2 s Zeitfenster), `?` (Übersicht aller Kürzel als Dialog). Einzeltasten nur ausserhalb von
+  Feldern, ohne ⌘/Ctrl/Alt und nicht bei offenem Dialog.
+- Konflikt im Auftrag (Ctrl+K und «/» sind in einigen Browsern belegt): umgesetzt wie verlangt,
+  offen, Frage Nr. 5.
+- Gefunden durch die visuellen Tests: Die Palette las kaputte Projektdaten ausserhalb der
+  Fehlergrenze der Seite und riss die ganze App in die Fehlerseite. Jetzt filtert sie unvollständige
+  Projekte, und Palette und Aktivitätsanzeige stehen in einer eigenen Fehlergrenze (`scope="part"`:
+  melden, still wegfallen). Die API nimmt `part` als Bereich an (Test).
+- Screenshots `docs/design-cal/ui-grundlagen/6-tastatur/`, visuelle Szenen `palette`,
+  `palette-offline`, `kuerzel`.
+
+### Etappe 7 – Erster Start, Login, Marke
+
+Abnahme:
+- Login-Seite im Design.
+- Einrichtungs-Assistent (Passwort → Cloudflare → Tailscale/Adressen → Zertifikat → erstes
+  Projekt) mit Fortschritt, jederzeit überspringbar, unter System fortsetzbar.
+- Drei Logo-Varianten in `docs/design-cal/marke/`, eine eingebaut (Wahl offen, siehe Fragen).
+
+Umsetzung:
+- **Login:** war schon im Design (Karte, Cal Sans, Tokens); neu nur die Bildmarke statt des
+  Pfeil-Quadrats.
+- **Einrichtungs-Assistent** `/einrichtung` (`pages/Setup.tsx`, `lib/setup.ts`): fünf Schritte
+  Passwort → Cloudflare → Tailscale/Adressen → Zertifikat → erstes Projekt, mit Fortschritt
+  («3 von 5 erledigt», Balken). Ob ein Schritt erledigt ist, kommt aus den Daten (Passwort aus der
+  Oberfläche, Cloudflare-Token, Basisdomain + Tailscale-Adresse, Zertifikat, Projektzahl); jeder
+  Schritt führt an die Stelle, an der man ihn einrichtet. «Überspringen»/«Doch einrichten» je
+  Schritt, «Später fortsetzen» blendet ihn aus. Zustand mit Zeichen und Wort (erledigt,
+  übersprungen, als Nächstes, offen).
+- Gespeichert auf dem Server (`UiPrefs.setup`: ausgeblendet, übersprungene Schritte). Die API führt
+  Einstellungen jetzt zusammen statt sie zu ersetzen – ein Theme-Wechsel löscht den Stand der
+  Einrichtung nicht (Test `ui-prefs.test.ts`). `/auth/me` liefert `setup`.
+- Erscheint von selbst einmal pro Sitzung, solange etwas fehlt und er nicht ausgeblendet ist – nur
+  von der Startseite aus, nie über einen direkten Link hinweg. Unter System → Übersicht steht eine
+  Karte «Einrichtung · n von 5 erledigt · Einrichtung fortsetzen», solange etwas offen ist.
+- **Marke:** drei Varianten (Doppeltor, Kammer, Schiebetore) nach dem Taste Skill in
+  `docs/design-cal/marke/` mit Proben bei 16/32/128 px. Provisorisch eingebaut: Variante 1 (nach der
+  Nummer) als Favicon (hell/dunkel über `prefers-color-scheme`) und auf der Anmeldeseite
+  (`components/Logo.tsx`); Seitenleiste unverändert. Wahl und Ort: offen, Frage Nr. 6.
+- Befunde zu Etappe 6 (Gutachten) mit diesem Commit behoben: aktive Zeile der Palette mit Balken
+  und ↵ (nicht nur Fläche), sichtbarer Fokus im Suchfeld, «Neu deployen»/«Scan starten» gesperrt wie
+  in der Oberfläche (mit Grund), keine Doppelausführung, IME-Eingabe, Gruppen als `role="group"`,
+  Trefferzahl als Live-Region, Esc in der Rückfrage führt zurück zur Liste, Fokus nach Seitenwechsel
+  auf den Inhalt; Kürzel: auf dem Mac nur ⌘K, keine Tastenwiederholung, Ankreuzfelder sperren
+  Kürzel nicht mehr, «/» nur auf sichtbare Suche (markiert den Text), `aria-keyshortcuts`.
+- Screenshots `docs/design-cal/ui-grundlagen/7-start/`, visuelle Szenen `einrichtung`,
+  `einrichtung-uebersprungen`, `einrichtung-system`.
+
+### Etappe 8 – Barrierefreiheit
+
+Abnahme:
+- axe-core in den Playwright-Tests (alle Hauptseiten, Hell/Dunkel), ohne Befunde.
+- Sichtbarer Fokus überall; Bedienung per Tastatur (Menüs, Dialoge, Reiter, Palette).
+- `aria-label` für alle Icon-Knöpfe; Live-Regionen für Statuswechsel.
+
+Umsetzung:
+- `@axe-core/playwright` 4.14.0; `visual/a11y.spec.ts` prüft alle Szenen aus `visual/scenes.ts`
+  (ohne reine Ladezustände) in Hell und Dunkel nach WCAG 2.2 A/AA – 90 Prüfungen. Ausgenommen
+  ist nur die Vorschau der Pause-Seite (Inhalt des Nutzers im abgeschotteten `iframe`). Läuft mit
+  `pnpm test:visual`, einzeln mit `pnpm test:a11y`.
+- Befund und behoben: Der Knopf der Aktivitätsanzeige zeigte «2 Vorgänge», hiess aber «2 laufende
+  Vorgänge» (Label in Name, WCAG 2.5.3) – jetzt «2 Vorgänge laufen». Danach keine Befunde mehr.
+  Icon-Knöpfe ohne Namen gab es keine (axe-Regel `button-name` grün).
+- `visual/keyboard.spec.ts`: Profilmenü (Enter, Pfeile, Esc, Fokus zurück), Zeilenmenü der
+  Projektkarte, Reiter der Projektseite (Pfeile, Ende), Befehlspalette (suchen, Enter, Fokus im
+  Inhalt; Rückfrage mit Esc zurück), Kürzel (?, /, g a; im Feld tippt «g» nur Text), sichtbarer
+  Fokus beim Tab durch den Kopf. 7 Abläufe, alle grün.
+- Sichtbarer Fokus: global `:focus-visible` mit 2 px Tintenfarbe, Felder mit Rahmen in Tintenfarbe,
+  Palette mit Linie unter der Suchzeile (Etappe 6/7).
+- Live-Regionen: Deploy- und Scan-Ende als Toast (Sonners Region ist `aria-live="polite"`, Etappe 2);
+  neu der Deploy-Fortschritt auf der Projektseite («Deploy: Healthcheck (Schritt 3 von 4)»,
+  «Deploy fertig»); Fehlschlag weiter als `role="alert"`.
+- Befunde aus dem Gutachten zu Etappe 7 mit diesem Commit behoben: Weiterleitung auch ohne
+  `sessionStorage` nur einmal pro Aufruf; Karte unter System auch bei nur übersprungenen Schritten;
+  «Cloudflare» erst mit gültigem Token, «Zertifikat» erst mit gültigem Zertifikat, eigener Zustand
+  «läuft»; scheitert eine Abfrage, zeigt nur der betroffene Schritt «nicht abrufbar»;
+  «Überspringen» behält den Fokus (`aria-disabled`); optimistisches Speichern bricht laufende
+  Abrufe ab und setzt bei Fehler zurück; ein kaputter Stand der Einrichtung kostet nicht mehr die
+  Wahl der Darstellung (Test angepasst); `role="list"` für die Schrittliste.

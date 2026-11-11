@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { useEnvPath } from '../lib/env.js'
-import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
+import { api, ApiError, type ProjectDto } from '../api.js'
+import { LogsTab } from '../components/LogsTab.js'
+import { confirmLeave, hasUnsaved } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { PublicPillFor } from '../components/Publication.js'
-import { ProjectSettings } from '../components/ProjectSettings.js'
+import { ProjectSettings, useKeepToggle } from '../components/ProjectSettings.js'
+import { notifyOk } from '../lib/feedback.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
@@ -16,7 +19,10 @@ import { DeployList, useDeployments } from '../components/DeployList.js'
 import { SiteAccess } from '../components/SiteAccess.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
-import { runtimeStatus, isPublic } from '../lib/projects.js'
+import { poll } from '../lib/live.js'
+import { isLive, isPublic } from '../lib/projects.js'
+import { openTotal } from '@airlock/shared'
+import { EmptyState, ErrorState, Loading, SkLog, SkProjectDetail, SkRows } from '../components/States.js'
 
 const IconGear = () => (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -39,23 +45,48 @@ export function ProjectDetail() {
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
-  const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
-  const [watching, setWatching] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  // UI-Qualität 8: Reiterwechsel mit ungespeicherten Eingaben (z.B. Variablen) erst nach Rückfrage
+  // Gibt zurück, ob gewechselt wurde: Folgeschritte (Fokus, Löschen vormerken) nur dann
+  const showTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
+  const setTab = async (t: Tab): Promise<boolean> => {
+    if (t === tab) return true
+    const ok = await confirmLeave()
+    if (ok) showTab(t)
+    return ok
+  }
+  // Wechsel, den die Oberfläche selbst auslöst (Deploy/Rollback gestartet → Fortschritt in der
+  // Übersicht): nie mit Rückfrage aus dem Nichts und nie still verwerfen – mit offenen Eingaben
+  // bleibt der Reiter, der Vorgang läuft trotzdem (Anzeige oben rechts)
+  const showOverviewIfFree = () => { if (!hasUnsaved()) showTab('uebersicht') }
+  // UI-Qualität 5: direkt nach «Anlegen und deployen» läuft der Fortschritt des ersten Deploys
+  const location = useLocation()
+  const [watching, setWatching] = useState<string | null>(() => (location.state as { watch?: string } | null)?.watch ?? null)
+  // Einmal gelesen, dann aus dem Verlauf entfernen: sonst käme der Fortschritt nach Neuladen oder
+  // «Zurück» wieder (mit falscher Ansage für einen längst ersetzten Deploy)
+  useEffect(() => {
+    if ((location.state as { watch?: string } | null)?.watch) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const [announce, setAnnounce] = useState('')
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
-    setTab('einstellungen')
-    setDeleteRequested(true)
+    void setTab('einstellungen').then((ok) => { if (ok) setDeleteRequested(true) })
+  }
+  // Fehlerbox «Variable X fehlt» → «Hinzufügen»: Umgebung in den Einstellungen, Name vorbelegt
+  const [envRequest, setEnvRequest] = useState<string | null>(null)
+  const goToEnv = (name: string) => {
+    void setTab('einstellungen').then((ok) => { if (ok) setEnvRequest(name) })
   }
 
   const q = useQuery({
     queryKey: ['project', id],
     queryFn: () => api.getProject(id),
-    refetchInterval: watching ? false : 5_000,
+    // Ereignisstrom statt Polling (UI-Qualität 3); während DeployProgress läuft, meldet der eigene Strom
+    refetchInterval: watching ? false : poll,
   })
 
   const act = useMutation({
+    meta: { errorTitle: 'Aktion nicht ausgeführt' },
     mutationFn: async (what: HeadAction | 'recreate') => {
       if (what === 'deploy') return api.deploy(id)
       if (what === 'recreate') return api.recreate(id)
@@ -65,12 +96,14 @@ export function ProjectDetail() {
     },
     onSuccess: (res, what) => {
       const dep = (res as { deployment?: { id: string } } | undefined)?.deployment
-      setNotice(what === 'stop' ? 'Gestoppt. Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.'
-        : what === 'restart' && !dep ? 'Neu gestartet.'
-        : what === 'start' && !dep ? 'Gestartet.' : null)
+      const name = q.data?.project.name ?? 'Projekt'
+      // Ergebnis als Toast; Stoppen lässt sich mit Starten rückgängig machen
+      if (what === 'stop') notifyOk(`«${name}» ist gestoppt`, { id: `act-${id}`, description: 'Die Adresse antwortet nicht mehr, bis du das Projekt wieder startest.', undo: () => act.mutate('start') })
+      else if (what === 'restart' && !dep) notifyOk(`«${name}» ist neu gestartet`, { id: `act-${id}` })
+      else if (what === 'start' && !dep) notifyOk(`«${name}» läuft wieder`, { id: `act-${id}` })
       if (dep) {
         setWatching(dep.id)
-        setTab('uebersicht')
+        showOverviewIfFree()
       }
       void qc.invalidateQueries({ queryKey: ['project', id] })
     },
@@ -79,16 +112,22 @@ export function ProjectDetail() {
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
   // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
   const deployList = useDeployments(id)
-  const keep = useMutation({
-    mutationFn: (value: boolean) => api.updateProject(id, { keep: value }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
-  })
+  const keep = useKeepToggle({ id, name: q.data?.project.name ?? 'Projekt' })
 
-  if (q.isLoading) return <section className="page"><PageHead crumbs={[{ label: 'projekte', to: ep('/projekte') }, { label: '…' }]} title="Projekt" /><p className="state state-loading">Wird geladen…</p></section>
-  if (q.isError) {
+  // Daten gehen vor: scheitert nur ein späteres Nachladen, bleibt die Seite stehen (Zustand «Veraltet»)
+  if (!q.data && q.isError && !(q.error instanceof ApiError && q.error.status === 404)) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'projekte', to: ep('/projekte') }]} title="Projekt nicht gefunden" />
+        <PageHead crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: 'Projekt' }]} title="Projekt" />
+        <ErrorState what="Das Projekt" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
+      </section>
+    )
+  }
+  if (!q.data && !q.isError) return <section className="page"><Loading label="Projekt wird geladen"><SkProjectDetail /></Loading></section>
+  if (!q.data) {
+    return (
+      <section className="page">
+        <PageHead crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: 'Nicht gefunden' }]} title="Projekt nicht gefunden" />
         <div className="state state-empty">
           <p>Vielleicht wurde es gelöscht, in eine andere Umgebung verschoben, oder die Adresse ist veraltet.</p>
           <Link className="button" to={ep('/projekte')}>Zu den Projekten</Link>
@@ -100,16 +139,15 @@ export function ProjectDetail() {
   const p = q.data!.project
   const env = q.data!.env
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
-  const dbRt = runtimeStatus(p)
-  // Der Container fehlt oder ist beendet, obwohl er laufen sollte: dann zählt das, nicht die Datenbank
-  const down = Boolean(health.data?.container && !health.data.container.running)
-  const rt = down && dbRt.status === 'running' ? { status: 'failed' as const, deployFailed: dbRt.deployFailed } : dbRt
   const isStatic = p.runtimeKind === 'static'
-  const openFindings = p.security ? Object.values(p.security.open).reduce((a, b) => a + b, 0) : 0
+  const openFindings = openTotal(p.security?.open)
   const deployCount = deployList.data?.deployments[0]?.seq ?? deployList.data?.deployments.length
-  const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn'; countLabel?: string; live?: boolean }> = {
+  // Ton des Zählers nach der schwersten offenen Stufe (Farbregel, UI-Qualität 7)
+  const o = p.security?.open
+  const secTone = o?.critical ? 'critical' : o?.high ? 'bad' : o?.medium ? 'warn' : undefined
+  const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn' | 'bad' | 'critical'; countLabel?: string; live?: boolean }> = {
     uebersicht: { label: 'Übersicht' },
-    security: { label: 'Security', count: openFindings, tone: 'warn', countLabel: `${openFindings} ${openFindings === 1 ? 'offener Befund' : 'offene Befunde'}` },
+    security: { label: 'Security', count: openFindings, tone: secTone, countLabel: openFindings === 1 ? '1 offener Befund' : `${openFindings} offene Befunde` },
     deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
     logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
@@ -119,12 +157,13 @@ export function ProjectDetail() {
   return (
     <section className="page page-project">
       <PageHead
-        crumbs={[{ label: 'projekte', to: ep('/projekte') }, { label: p.slug }]}
-        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} /><PublicPillFor p={p} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
+        crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: p.name }]}
+        name={p.name}
+        title={<><h1>{p.name}</h1><StatusBadge state={p.state} /><PublicPillFor p={p} /></>}
         actions={
           <>
             {/* Sichtbar nur das Häufige; alles Weitere im «⋯»-Menü (Rückfragen dort, wie in der Projektkarte) */}
-            {url && rt.status === 'running' && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
+            {url && isLive(p) && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
             <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
               Neu deployen
             </button>
@@ -135,7 +174,6 @@ export function ProjectDetail() {
         <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
       </PageHead>
 
-      {notice && <p role="status" className="notice notice-ok">{notice}</p>}
       {p.legacyContainers && p.status !== 'deploying' && (
         <div className="notice notice-info legacy-notice" role="status">
           <span>
@@ -143,15 +181,8 @@ export function ProjectDetail() {
             «Neu erstellen» legt dieselbe Fassung mit den Namen von Airlock neu an; Daten in Volumes werden übernommen.
             {p.runtimeKind === 'compose' ? ' Die Dienste sind dabei kurz offline.' : ''}
           </span>
-          <button onClick={() => act.mutate('recreate')} disabled={act.isPending}>Neu erstellen</button>
+          <button onClick={() => act.mutate('recreate')} disabled={act.isPending} aria-busy={(act.isPending && act.variables === 'recreate') || undefined}>Neu erstellen</button>
         </div>
-      )}
-      {act.isError && (
-        <p role="alert" className="error">
-          {act.error instanceof ApiError && act.error.status === 409
-            ? 'Für dieses Projekt läuft bereits ein Deploy.'
-            : (act.error as Error).message}
-        </p>
       )}
 
       <nav
@@ -166,8 +197,8 @@ export function ProjectDetail() {
             : e.key === 'Home' ? TABS[0] : e.key === 'End' ? TABS.at(-1) : null
           if (!next) return
           e.preventDefault()
-          setTab(next)
-          requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
+          // Fokus nur auf den Reiter, der auch gewählt ist (bei «Weiter bearbeiten» bleibt alles)
+          void setTab(next).then((ok) => { if (ok) requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus()) })
         }}
       >
         {TABS.map((key) => {
@@ -186,16 +217,15 @@ export function ProjectDetail() {
             >
               {key === 'einstellungen' && <IconGear />}
               {t.label}
-              {t.count !== undefined && t.count > 0 && (
-                <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`}>
-                  <span aria-hidden="true">{t.count}</span><span className="visually-hidden">, {t.countLabel}</span>
-                </span>
-              )}
+              {/* Zahl sichtbar, für Screenreader als Satz (aria-label auf span ohne Rolle ist unzulässig) */}
+              {t.count !== undefined && t.count > 0 && <><span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`} aria-hidden="true">{t.count}</span><span className="sr-only">, {t.countLabel}</span></>}
               {t.live && <span className="tab-live" role="img" aria-label="Container läuft" title="Container läuft" />}
             </button>
           )
         })}
       </nav>
+      {/* Bleibt über Reiterwechsel und das Ende des Deploys hinweg im DOM */}
+      <p className="sr-only" role="status">{announce}</p>
       <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
 
       {tab === 'uebersicht' && (
@@ -203,7 +233,11 @@ export function ProjectDetail() {
           {watching && (
             <DeployProgress
               deploymentId={watching}
-              onFinished={() => {
+              hasPrevious={Boolean(p.activeDeployment)}
+              onFinished={(ok) => {
+                // Ende ansagen über die Region der Seite: der Fortschritt verschwindet gleich danach
+                setAnnounce(ok ? 'Deploy fertig. Der neue Stand ist live.'
+                  : p.activeDeployment ? 'Deploy fehlgeschlagen. Die vorherige Fassung läuft weiter.' : 'Deploy fehlgeschlagen. Es läuft noch keine Fassung.')
                 setWatching(null)
                 void qc.invalidateQueries({ queryKey: ['project', id] })
               }}
@@ -217,8 +251,9 @@ export function ProjectDetail() {
             onDeploy={() => act.mutate('deploy')}
             deploying={act.isPending || p.status === 'deploying'}
             onRollback={(depId) => setWatching(depId)}
-            onToggleKeep={() => keep.mutate(!p.keep)}
+            onToggleKeep={() => keep.mutate({ keep: !p.keep })}
             keepBusy={keep.isPending}
+            onAddEnv={goToEnv}
           />
         </div>
       )}
@@ -228,11 +263,11 @@ export function ProjectDetail() {
           projectId={id}
           onRollback={(depId) => {
             setWatching(depId)
-            setTab('uebersicht')
+            showOverviewIfFree()
           }}
         />
       )}
-      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} /> : <LiveLogs projectId={id} />)}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : <LogsTab projectId={id} slug={p.slug} activeDeploymentId={p.activeDeployment?.id ?? null} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings
@@ -241,15 +276,19 @@ export function ProjectDetail() {
           onDeleted={() => navigate(ep('/projekte'))}
           deleteRequested={deleteRequested}
           onDeleteShown={() => setDeleteRequested(false)}
+          envRequest={envRequest}
+          onEnvShown={() => setEnvRequest(null)}
           onManageHeaders={() => {
-            setTab('security')
-            // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
-            const go = (tries: number) => {
-              const el = document.getElementById('header-caddy')
-              if (el) el.scrollIntoView({ block: 'start' })
-              else if (tries > 0) setTimeout(() => go(tries - 1), 100)
-            }
-            go(20)
+            void setTab('security').then((ok) => {
+              if (!ok) return
+              // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
+              const go = (tries: number) => {
+                const el = document.getElementById('header-caddy')
+                if (el) el.scrollIntoView({ block: 'start' })
+                else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+              }
+              go(20)
+            })
           }}
         />
       )}
@@ -273,7 +312,7 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
   // Statische Seiten haben keinen Container: nichts neu zu starten
   const restartable = p.desiredState === 'running' && p.runtimeKind !== 'static' && Boolean(p.activeDeployment)
   return (
-    <RowMenu label="Weitere Aktionen">
+    <RowMenu label="Weitere Aktionen" onClose={() => setConfirm(null)}>
       {(close) => (
         <>
           {restartable && (confirm === 'restart' ? (
@@ -299,9 +338,16 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
   const list = useDeployments(projectId)
-  if (list.isLoading) return <p className="state state-loading">Wird geladen…</p>
-  const rows = list.data?.deployments ?? []
-  if (rows.length === 0) return <p className="state state-empty">Noch kein Deployment.</p>
+  if (!list.data && list.isError) return <ErrorState plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
+  if (!list.data) return <Loading label="Deployments werden geladen"><SkRows n={6} /></Loading>
+  const rows = list.data.deployments
+  if (rows.length === 0) {
+    return (
+      <EmptyState title="Noch kein Deployment">
+        Das erste Deployment startet, sobald das Projekt angelegt ist; danach mit «Neu deployen» oben rechts.
+      </EmptyState>
+    )
+  }
 
   return (
     <div className="tab-panel">
@@ -316,38 +362,6 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
-    </div>
-  )
-}
-
-/* --- Live-Logs --------------------------------------------------------------- */
-
-function LiveLogs({ projectId }: { projectId: string }) {
-  const [lines, setLines] = useState<string[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const ref = useRef<HTMLPreElement>(null)
-
-  useEffect(() => {
-    setLines([])
-    setError(null)
-    void api
-      .getLogs(projectId, 200)
-      .then((r) => setLines(r.logs ? r.logs.split('\n') : r.hint ? [r.hint] : []))
-      .catch((e: Error) => setError(e.message))
-    return subscribeLogs(projectId, (line) => setLines((l) => [...l.slice(-1000), line]))
-  }, [projectId])
-
-  useEffect(() => {
-    ref.current?.scrollTo({ top: ref.current.scrollHeight })
-  }, [lines])
-
-  if (error) return <p className="state state-error" role="alert">{error}</p>
-
-  return (
-    <div className="tab-panel">
-      <pre className="log log-tall" ref={ref} aria-label="Container-Log">
-        {lines.join('\n') || 'Noch keine Ausgabe…'}
-      </pre>
     </div>
   )
 }

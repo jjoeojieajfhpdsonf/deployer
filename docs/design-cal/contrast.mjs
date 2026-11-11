@@ -16,8 +16,8 @@ const block = (sel) => {
   return css.slice(i, css.indexOf('\n}', i))
 }
 const tokens = (txt) => Object.fromEntries([...txt.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\b/gi)].map((m) => [m[1], m[2].toLowerCase()]))
-const light = tokens(block(':root {'))
-const dark = { ...light, ...tokens(block(":root[data-theme='dark'] {")) }
+const light = tokens(block(':root, .theme-light {'))
+const dark = { ...light, ...tokens(block(":root[data-theme='dark'], .theme-dark {")) }
 
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
@@ -32,7 +32,8 @@ const checks = [
   ['muted', [...grounds, 'surface-3'], 4.5, 'Text'],
   ['primary-ink', ['primary'], 4.5, 'Text auf Primär-Button'],
   // Roter gefüllter Knopf (Bestätigung): Hell weisse Schrift (= bg), Dunkel Schrift in der Grundfarbe
-  ['bg', ['bad'], 4.5, 'Text auf rotem Bestätigungs-Knopf'],
+  // Gleiches Paar: roter Bestätigungs-Knopf und Schweregrad «kritisch» gefüllt (UI-Qualität 7)
+  ['bg', ['bad'], 4.5, 'Text auf Rot (Bestätigungs-Knopf, «kritisch» gefüllt)'],
   ...['ok', 'warn', 'bad', 'info'].map((s) => [s, [...grounds, 'surface-3', `${s}-bg`], 4.5, 'Statustext und -zeichen']),
   ['field-line', ['bg', 'surface', 'inset'], 3, 'Feldrahmen'],
   ['primary', ['bg', 'surface'], 3, 'Primärfläche'],

@@ -1,4 +1,5 @@
 import * as docker from '../drivers/docker.js'
+import { forgetContainer } from '../jobs/monitor.js'
 import { findProject, setDesiredState, setStatus, touchActivity } from './projects.js'
 import { activeDeployment, effectiveKind } from './deployments.js'
 import { reconcileCaddy } from './routes.js'
@@ -21,6 +22,7 @@ export async function startProject(
   actor: string,
 ): Promise<{ started: boolean; deployment?: DeploymentDto }> {
   const project = await findProject(scope, idOrSlug)
+  forgetContainer(project.id)
   await setDesiredState(project.id, 'running')
   // Ein Start von Hand ist Aktivität: sonst stoppte der Ablauf-Job ein
   // abgelaufenes Chat-Projekt in der nächsten Stunde wieder.
@@ -95,6 +97,7 @@ export async function restartProject(scope: Scope, idOrSlug: string, actor: stri
 
 export async function stopProject(scope: Scope, idOrSlug: string, actor: string): Promise<void> {
   const project = await findProject(scope, idOrSlug)
+  forgetContainer(project.id)
   await setDesiredState(project.id, 'stopped')
 
   const managed = await docker.listManagedContainers()

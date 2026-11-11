@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api.js'
+import { FALLBACK_MS } from '../lib/live.js'
 
 /** Servername für Brotkrumen und Seitenleiste; derselbe Abruf wie die Systemseite. */
 export function useSystem() {
-  return useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: 15_000, staleTime: 10_000 })
+  // Messwerte (CPU, RAM, Platz): einmal pro Minute; Warteschlange des Scanners kommt über den Ereignisstrom
+  return useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: FALLBACK_MS, staleTime: 10_000 })
 }
 
 export function useServerName(): string {
