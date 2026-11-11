@@ -1394,3 +1394,6 @@ export * from './failure.js'
 
 /* UI-Qualität 4: Logzeilen mit Zeit, Dienst und Stufe */
 export * from './logs.js'
+
+/* Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten eines Projekts */
+export * from './topology.js'

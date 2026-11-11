@@ -28,6 +28,7 @@ import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
 import { sinceSeconds } from '../../lib/dates.js'
 import { projectHealth } from '../../jobs/monitor.js'
+import { projectTopology } from '../../domain/topology.js'
 import { probeViaCaddy } from '../../lib/address-probe.js'
 import { config } from '../../config.js'
 import { publicRoutes } from './public.js'
@@ -100,6 +101,15 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams; Querystring: { fresh?: string } }>('/projects/:id/health', async (request) => {
     const project = await findProject(request.scope, request.params.id)
     return projectHealth(project.id, { fresh: request.query.fresh === '1' })
+  })
+
+  /**
+   * Reiter «Aufbau»: Zugang, Eingang (Hosts der Routen), Dienste, Daten
+   * (Datenbanken, Volumes) und die Linien dazwischen, mit Zuständen.
+   */
+  app.get<{ Params: IdParams }>('/projects/:id/topology', async (request) => {
+    const project = await findProject(request.scope, request.params.id)
+    return { topology: await projectTopology(project) }
   })
 
   /**

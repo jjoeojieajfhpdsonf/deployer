@@ -45,8 +45,8 @@ async function targetFor(projectId: string): Promise<Target | null> {
   return { projectId: p.id, slug: p.slug, containerId: kind === 'compose' ? host : active.containerId, host, network, port: p.port, path: p.healthcheckPath ?? '/', kind }
 }
 
-/** Docker-Stats einmal lesen: CPU in Kernen, RAM in MB (ohne Datei-Cache). */
-async function readStats(container: string): Promise<{ cpu: number; memMb: number } | null> {
+/** Docker-Stats einmal lesen: CPU in Kernen, RAM in MB (ohne Datei-Cache). Auch für den Reiter «Aufbau» (je Dienst). */
+export async function readStats(container: string): Promise<{ cpu: number; memMb: number } | null> {
   try {
     const s = (await docker.docker.getContainer(container).stats({ stream: false })) as unknown as {
       cpu_stats: { cpu_usage: { total_usage: number }; system_cpu_usage?: number; online_cpus?: number }
