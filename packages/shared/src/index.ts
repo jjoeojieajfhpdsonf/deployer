@@ -27,6 +27,56 @@ export const UI_HOST_LABEL = 'deployer'
 // 'name-preview': GET /projects/name-preview würde sonst ein Projekt dieses Namens verdecken
 export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan', 'name-preview'] as const
 
+/**
+ * Öffentliche Adressen: Namen, die in keiner Zone vergeben werden – die
+ * Kurznamen oben, dazu «int» (interne Basis) und «acme-probe» (Zertifikatsprobe).
+ */
+export const RESERVED_PUBLIC_LABELS = [...RESERVED_SLUGS, 'int', 'acme-probe'] as const
+
+/**
+ * Rein: Eingabe für den Namen einer öffentlichen Adresse beim Tippen
+ * normalisieren – Kleinbuchstaben, ä/ö/ü → ae/oe/ue, ß → ss, Leerzeichen und
+ * andere Zeichen → Bindestrich, nur a–z 0–9 -, keine doppelten oder
+ * randständigen Bindestriche, höchstens 63 Zeichen.
+ */
+export function normalizePublicLabel(raw: string): string {
+  const s = raw
+    .toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 63)
+  // Ende erst nach dem Kürzen bereinigen (sonst bliebe «abc-» stehen)
+  return s.replace(/-+$/, '').replace(/-{2,}/g, '-')
+}
+
+/**
+ * Rein: ein eingefügter voller Name (auch mit https:// und Pfad) in Name und
+ * Zone zerlegen, wenn er in einer der Zonen liegt. Längste Zone gewinnt;
+ * genau die Zone ergibt apex. Sonst null.
+ */
+export function splitPublicHost(input: string, zones: readonly string[]): { label: string; zone: string; apex: boolean } | null {
+  const host = input.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#:].*$/, '').replace(/\.$/, '')
+  if (!host.includes('.')) return null
+  const zone = [...zones].map((z) => z.toLowerCase()).sort((a, b) => b.length - a.length).find((z) => host === z || host.endsWith(`.${z}`))
+  if (!zone) return null
+  if (host === zone) return { label: '', zone, apex: true }
+  return { label: host.slice(0, -(zone.length + 1)), zone, apex: false }
+}
+
+/** Ergebnis der Prüfung eines öffentlichen Namens (Veröffentlichen, Adresse ändern, Neues Projekt) */
+export interface PublicNameCheckDto {
+  host: string | null
+  label: string
+  zone: string | null
+  apex: boolean
+  zones: string[]
+  problems: { kind: 'format' | 'reserved' | 'zone' | 'internal' | 'taken' | 'dns' | 'depth'; message: string }[]
+  /** Vorhandener DNS-Eintrag, der nicht von Airlock stammt (Übernehmen nur nach Bestätigung) */
+  existing: { type: string; content: string; worker: boolean } | null
+}
+
 export const slugSchema = z
   .string()
   .min(1, 'Gib einen Kurznamen an, z.B. solar-heute')
@@ -476,10 +526,30 @@ export interface PublicStatusDto {
   progress: PublicProgressDto | null
 }
 
+/** Name einer öffentlichen Adresse (ein Label vor der Zone), nach normalizePublicLabel */
+export const publicLabelSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^(?!-)[a-z0-9-]{1,63}(?<!-)$/, 'Nur a–z, 0–9 und Bindestrich, höchstens 63 Zeichen, z.B. solar')
+
 export const publishPublicSchema = z.object({
-  publicSubdomain: slugSchema.optional(),
+  publicSubdomain: publicLabelSchema.optional(),
   publicHostname: publicHostnameSchema.optional(),
+  /** Zone der Umgebung zum Namen (Standard: Hauptzone) */
+  publicZone: publicHostnameSchema.optional(),
+  /** Direkt unter der Zone (Schalter «Direkt unter <zone>») */
+  publicApex: z.boolean().optional(),
+  /** Vorhandenen fremden DNS-Eintrag ersetzen – nur nach ausdrücklicher Bestätigung */
+  takeOverDns: z.boolean().optional(),
   accessProtected: z.boolean().optional(),
+})
+
+/** Prüfung eines öffentlichen Namens (GET …/public/check) */
+export const publicNameCheckQuerySchema = z.object({
+  name: z.string().max(300).default(''),
+  zone: publicHostnameSchema.optional(),
+  apex: z.enum(['0', '1']).optional(),
 })
 
 /** Tailnet und LAN allein speichern, ohne die öffentliche Route anzufassen. */

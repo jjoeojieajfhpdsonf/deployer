@@ -433,10 +433,11 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | `export_repo` | `project`, `format` (`zip` oder Push-URL) | Nein |
 | `deploy` | `project`, optional `ref` (Branch, Tag, Commit) | Nein |
 | `start` / `stop` | `project` | Nein |
+| `update_project` | `project`, optional `port`, `healthcheck_path`, `cpu_limit`, `memory_limit_mb`, `deploy` (gleich neu deployen); wirkt sonst beim nächsten Deploy | Nein |
 | `rollback` | `project`, optional `version` | Ja |
 | `delete_project` | `project` | Ja |
 | `get_logs` | `project`, `lines` (max. 500), `since` | Nein |
-| `set_targets` | `project`, `targets`, `subdomain` | Ja, wenn `public` dazukommt |
+| `set_targets` | `project`, `targets`, `subdomain`; öffentlich `public_subdomain` + `public_zone` (Zone der Umgebung, Standard Hauptzone) statt vollem Hostnamen, `public_apex` (direkt unter der Zone), `take_over_dns` (fremden DNS-Eintrag ersetzen). Der Name wird normalisiert und vorher geprüft (vergeben, reserviert, fremder DNS-Eintrag), Fehler mit den möglichen Zonen | Ja, wenn `public` dazukommt |
 | `list_domains` | – | Nein |
 | `add_external_target` | `hostname` | Nein |
 | `verify_external_target` | `hostname` | Nein |

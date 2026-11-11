@@ -4,7 +4,7 @@ import { defaultEnvironmentId, defaultEnvironment, environmentById, allEnvironme
 import { cloudflareFor } from './cloudflare-settings.js'
 import { inEnvironment, serverJob, type EnvScope, type ListScope } from '../lib/scope.js'
 import { config } from '../config.js'
-import { RESERVED_SLUGS } from '@airlock/shared'
+import { RESERVED_PUBLIC_LABELS, normalizePublicLabel, type PublicNameCheckDto } from '@airlock/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
@@ -151,8 +151,61 @@ export async function setDefaultDomain(scope: EnvScope, name: string, actor: str
 export interface PublicInput {
   subdomain?: string
   hostname?: string
+  /** Zone der Umgebung zum Namen (statt der Hauptzone); zusammen mit subdomain */
+  zone?: string
+  /** Direkt unter der Zone (nur ausdrücklich, Schalter «Direkt unter <zone>») */
+  apex?: boolean
+  /** Fremden DNS-Eintrag ersetzen – nur nach ausdrücklicher Bestätigung */
+  takeOver?: boolean
   /** undefined = wie bisher (Review M5: sonst fiel Access beim nächsten Aufruf still weg) */
   accessProtected?: boolean
+}
+
+/**
+ * Öffentlichen Namen prüfen, ohne etwas zu ändern (Formular: beim Tippen mit
+ * Verzögerung; MCP: vor dem Setzen). Prüft Form, reservierte Namen, Zone der
+ * Umgebung, interne Basis, Belegung in Airlock und einen vorhandenen
+ * DNS-Eintrag bei Cloudflare, der nicht von Airlock stammt (dann mit Typ und
+ * Ziel – übernehmen nur nach ausdrücklicher Bestätigung).
+ */
+export async function checkPublicName(project: Project, input: { label: string; zone?: string; apex?: boolean }): Promise<PublicNameCheckDto> {
+  const ctx = requireCtx(project.environmentId)
+  const domains = await listDomains(inEnvironment(project.environmentId)).then((d) => (d.length ? d : syncDomains(ctx.cf, project.environmentId)))
+  const zones = domains.map((d) => d.name)
+  const mainZone = environmentById(project.environmentId)?.zoneName ?? null
+  const zoneName = input.zone ?? (mainZone && zones.includes(mainZone) ? mainZone : zones[0] ?? null)
+  const label = input.apex ? '' : normalizePublicLabel(input.label)
+  const out: PublicNameCheckDto = { host: null, label, zone: zoneName, apex: Boolean(input.apex), zones, problems: [], existing: null }
+  const zone = domains.find((d) => d.name === zoneName)
+  if (!zoneName || !zone) {
+    out.problems.push({ kind: 'zone', message: zoneName ? `${zoneName} gehört nicht zu dieser Umgebung` : 'Diese Umgebung hat noch keine Zone bei Cloudflare' })
+    return out
+  }
+  if (!input.apex && !label) {
+    out.problems.push({ kind: 'format', message: 'Gib einen Namen an, z.B. solar' })
+    return out
+  }
+  const host = input.apex ? zoneName : `${label}.${zoneName}`
+  out.host = host
+  if (!input.apex && (RESERVED_PUBLIC_LABELS as readonly string[]).includes(label)) out.problems.push({ kind: 'reserved', message: `«${label}» ist reserviert` })
+  if (ctx.baseDomain && (host === ctx.baseDomain || host.endsWith(`.${ctx.baseDomain}`))) out.problems.push({ kind: 'internal', message: `${host} liegt unter der internen Basis` })
+  const taken = await db.select({ projectId: schema.routes.projectId }).from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, host)))
+  if (taken.some((r) => r.projectId !== project.id)) out.problems.push({ kind: 'taken', message: `${host} ist in Airlock schon vergeben` })
+  try {
+    const recs = (await ctx.cf.listRecords(zone.zoneId, host)).filter((r) => ['A', 'AAAA', 'CNAME'].includes(r.type))
+    const foreign = recs.find((r) => !isManagedComment(r.comment))
+    if (foreign) {
+      // Worker-Routen und Custom Domains stehen als Platzhalter (AAAA 100:: bzw. A 192.0.2.1) in der Zone
+      const worker = (foreign.type === 'AAAA' && foreign.content === '100::') || (foreign.type === 'A' && foreign.content === '192.0.2.1')
+      out.existing = { type: foreign.type, content: foreign.content, worker }
+      out.problems.push({ kind: 'dns', message: worker
+        ? `Für ${host} gibt es bei Cloudflare schon einen Worker bzw. eine Custom Domain`
+        : `Für ${host} gibt es bei Cloudflare schon einen Eintrag (${foreign.type} → ${foreign.content}), der nicht von Airlock stammt` })
+    }
+  } catch (err) {
+    log.warn('DNS-Prüfung für öffentlichen Namen fehlgeschlagen', { host, err: String(err) })
+  }
+  return out
 }
 
 export async function publicRoute(projectId: string) {
@@ -168,6 +221,8 @@ export interface PublicPlan {
   zone: Zone
   access: boolean
   before: PublicRouteRow | null
+  /** Fremden DNS-Eintrag ersetzen (ausdrücklich bestätigt) */
+  takeOver?: boolean
 }
 
 /**
@@ -189,14 +244,20 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     const own = inEnvironment(project.environmentId)
     const domains = await listDomains(own).then((d) => (d.length ? d : syncDomains(cf, project.environmentId)))
     const mainZone = environmentById(project.environmentId)?.zoneName ?? null
-    const nameGiven = Boolean(input.subdomain || input.hostname)
+    // Name und Zone getrennt (Antwort Adressen): zu einem Hostnamen zusammensetzen; die Zone muss zur Umgebung gehören
+    if (input.zone && !domains.some((d) => d.name === input.zone)) {
+      throw badRequest(`Die Zone ${input.zone} gehört nicht zu dieser Umgebung. Möglich: ${domains.map((d) => d.name).join(', ') || 'keine'}`)
+    }
+    const fromParts = input.zone ? (input.apex ? input.zone : input.subdomain ? `${input.subdomain}.${input.zone}` : undefined) : undefined
+    const nameGiven = Boolean(input.subdomain || input.hostname || fromParts)
     const { hostname, zone } = resolvePublicHostname(
-      nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
+      fromParts ? { hostname: fromParts } : nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
       {
         zones: domains.map((d) => ({ id: d.zoneId, name: d.name })),
         defaultZone: (mainZone && domains.some((d) => d.name === mainZone) ? mainZone : null) ?? domains.find((d) => d.isDefault)?.name ?? null,
         internalBaseDomain: ctx.baseDomain,
-        reservedLabels: RESERVED_SLUGS,
+        reservedLabels: RESERVED_PUBLIC_LABELS,
+        allowApex: Boolean(input.apex) || (!nameGiven && Boolean(before) && before?.hostname === mainZone),
       },
     )
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
@@ -204,7 +265,7 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     // M9: ohne Angabe und ohne frühere Route gilt der Access-Standard der Umgebung
     const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     if (access && !ctx.accessEmail) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (Einstellungen → Standards → Cloudflare Access).')
-    return { project, hostname, zone, access, before }
+    return { project, hostname, zone, access, before, takeOver: Boolean(input.takeOver) }
   } catch (err) {
     wrap(err)
   }
@@ -225,7 +286,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
   try {
     // 1. DNS: CNAME proxied auf den Tunnel; fremde Einträge bleiben unangetastet.
     progress?.start('dns')
-    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true })
+    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true }, { takeOver: plan.takeOver })
     if (rec.action === 'created') created.recordId = rec.record.id
     progress?.set('dns', 'done', rec.action === 'created' ? `CNAME ${hostname} auf den Tunnel angelegt` : `CNAME ${hostname} zeigt auf den Tunnel`)
 

@@ -67,7 +67,7 @@ describe('Befund -> Header und Werte', () => {
   })
 
   test('mit allen Regeln (über Caddy) meldet der Check keinen Header-Befund mehr', () => {
-    const rules = (['x-content-type-options', 'referrer-policy', 'frame-ancestors', 'strict-transport-security'] as const).map((h) => rule(h))
+    const rules = (['x-content-type-options', 'referrer-policy', 'frame-ancestors', 'strict-transport-security', 'permissions-policy'] as const).map((h) => rule(h))
     rules.push(rule('content-security-policy', 'enforce', "default-src 'self'"))
     const headers: Record<string, string> = {}
     for (const h of headerHandlers(rules, { secure: true, hstsAllowed: true }) as H[]) {

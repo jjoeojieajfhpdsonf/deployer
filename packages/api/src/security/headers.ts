@@ -64,10 +64,20 @@ export function checkHeaders(r: HttpResponseLike): FindingInput[] {
       'Header Strict-Transport-Security: max-age=31536000 setzen.')
   }
 
-  for (const name of ['server', 'x-powered-by']) {
+  // Antwort 7: vorher nur ZAP 10063; mit «Header setzen» (permissions-policy)
+  if (!one(h['permissions-policy'])) {
+    add('low', 'Permissions-Policy fehlt',
+      'Ohne Permissions-Policy darf die Seite (und jedes eingebettete Skript) Kamera, Mikrofon, Standort und Ähnliches anfragen.',
+      'Header Permissions-Policy setzen, z.B. "camera=(), microphone=(), geolocation=()".')
+  }
+
+  // Antwort 7: X-AspNet-Version und X-Backend-Server wie Server/X-Powered-By (vorher ZAP 10061, 10039)
+  const VERSION_HEADERS: Record<string, string> = { server: 'Server', 'x-powered-by': 'X-Powered-By', 'x-aspnet-version': 'X-AspNet-Version', 'x-backend-server': 'X-Backend-Server' }
+  for (const name of Object.keys(VERSION_HEADERS)) {
     const v = one(h[name])
-    if (v && /\d/.test(v)) {
-      add('low', `Versionsangabe im Header ${name === 'server' ? 'Server' : 'X-Powered-By'}`,
+    // X-Backend-Server verrät den internen Rechner auch ohne Zahl
+    if (v && (/\d/.test(v) || name === 'x-backend-server')) {
+      add('low', name === 'x-backend-server' ? 'Interner Server im Header X-Backend-Server' : `Versionsangabe im Header ${VERSION_HEADERS[name]}`,
         `Der Header verrät "${v.slice(0, 60)}" und erleichtert gezielte Angriffe auf bekannte Lücken.`,
         'Versionsangabe entfernen oder den Header ganz weglassen.')
     }
@@ -114,6 +124,12 @@ export const ZAP_COVERED_BY_HEADERS = new Set([
   '10054', // Cookie ohne SameSite
   '10036', // Server-Version
   '10037', // X-Powered-By
+  // Antwort 7: jetzt im Header-Check
+  '10063', // Permissions-Policy fehlt
+  '10061', // X-AspNet-Version
+  '10039', // X-Backend-Server
+  // Bleiben ZAP-Befunde (Qualität einer vorhandenen Regel, kein fehlender Header):
+  // 10055 CSP-Qualität (Aktion: CSP-Ablauf), 10098 CORS
   '10040', // Gemischte Inhalte (HTTP auf HTTPS-Seite) – prüft der Header-Check auch
   '10116', // "ZAP is Out of Date" – betrifft den Scanner, nicht das Ziel
 ])

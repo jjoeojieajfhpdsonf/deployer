@@ -1,13 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets } from '@airlock/shared'
+import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets, updateProjectSchema, portSchema, healthcheckPathSchema } from '@airlock/shared'
 import { listProjects, findProject, findProjectForServerJob, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
 import { listDeployments, getDeployment, activeDeployment, toDeploymentDto } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
 import {
   planPublic, applyPublic, removePublic, publicEnabled, listDomains, syncDomains,
-  publicRoute, publicStatus, publishability, pauseFlow, resumeFlow, unpublishFlow,
+  publicRoute, publicStatus, publishability, pauseFlow, resumeFlow, unpublishFlow, checkPublicName,
 } from '../domain/public.js'
 import { startProject, stopProject } from '../domain/lifecycle.js'
 import { checkSourceEarly } from '../domain/source-checks.js'
@@ -23,7 +23,7 @@ import * as docker from '../drivers/docker.js'
 import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
 import { sinceSeconds } from '../lib/dates.js'
-import { slugify } from '@airlock/shared'
+import { slugify, normalizePublicLabel } from '@airlock/shared'
 import { issueConfirmation, consumeConfirmation } from './confirm.js'
 import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latestExternalScan, scanBelongsTo, acceptFinding, findingProject } from '../security/scan.js'
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
@@ -251,8 +251,8 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     env: z.array(envEntryInputSchema).max(200).optional(),
     targets: z.array(z.enum(routeTargets)).default(['tailnet']).describe('"public" wird vorgemerkt: öffentlich erst nach bestandenem Scan und Bestätigung in der Oberfläche'),
     subdomain: z.string().optional(),
-    public_subdomain: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Subdomain der Standard-Domain'),
-    public_hostname: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: voller Hostname'),
+    public_subdomain: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Name vor der Zone (wird normalisiert)'),
+    public_zone: z.string().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Zone dieser Umgebung (Standard: Hauptzone)'),
     access: z.boolean().optional().describe('Für die vorgemerkte Öffentlich-Anfrage: Cloudflare Access davorschalten'),
     wait,
   }, async (a) => {
@@ -269,7 +269,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const p = input.source.type === 'files' ? await createFilesProject(scope, input, actor) : await createProject(scope, input, actor)
     // Öffentlich geht erst nach dem Scan (M6): vormerken statt still verwerfen
     const req = wantsPublic
-      ? await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
+      ? await requestPublic(p.id, { subdomain: a.public_subdomain !== undefined ? normalizePublicLabel(a.public_subdomain) : undefined, zone: a.public_zone, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
       : null
     const dep = await startDeploy(scope, p.id, actor, undefined, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
@@ -339,6 +339,27 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const r = await startProject(scope, a.project, actor)
     const result = r.deployment ? await waitFor(r.deployment) : null
     return ok({ ...summarize(await toDto(await findProject(scope, a.project))), ...(result ? { deploy: result } : {}) })
+  })
+
+  // Antwort 8: dieselben Felder wie der Abschnitt «Container» in den Einstellungen
+  tool('update_project', 'Container-Einstellungen ändern: Port, Healthcheck-Pfad, CPU-Grenze (Kerne), RAM-Grenze (MB). Wirkt beim nächsten Deploy; mit deploy:true gleich neu deployen.', {
+    project,
+    port: portSchema.optional().describe('Port, auf dem die App im Container lauscht'),
+    healthcheck_path: healthcheckPathSchema.optional().describe('Pfad für den Healthcheck, z.B. /health'),
+    cpu_limit: z.number().min(0.1).max(16).optional().describe('CPU-Grenze in Kernen, 0.1–16'),
+    memory_limit_mb: z.number().int().min(64).max(32768).optional().describe('RAM-Grenze in MB, 64–32768'),
+    deploy: z.boolean().optional().describe('Danach neu deployen, damit die Werte gleich gelten'),
+  }, async (a) => {
+    const p = await findProject(scope, a.project)
+    const patch = updateProjectSchema.parse({ port: a.port, healthcheckPath: a.healthcheck_path, cpuLimit: a.cpu_limit, memoryLimitMb: a.memory_limit_mb })
+    if (Object.values(patch).every((v) => v === undefined)) return fail('Nichts zu ändern: port, healthcheck_path, cpu_limit oder memory_limit_mb angeben.')
+    await updateProject(p.id, patch)
+    await audit({ actor, action: 'project.update', targetType: 'project', targetId: p.id, params: patch, result: 'ok' })
+    if (a.deploy) {
+      const dep = await startDeploy(scope, p.id, actor, undefined, { via: 'mcp' })
+      return ok({ ...summarize(await toDto(await findProject(scope, p.id))), deploy: await waitFor(dep) })
+    }
+    return ok({ ...summarize(await toDto(await findProject(scope, p.id))), hint: 'Gilt beim nächsten Deploy (deploy oder update_project mit deploy:true).' })
   })
 
   tool('stop', 'Projekt stoppen (nicht löschen)', { project }, async (a) => {
@@ -478,13 +499,26 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     project,
     targets: z.array(z.enum(routeTargets)),
     subdomain: z.string().optional().describe('Interne Subdomain'),
-    public_subdomain: z.string().optional().describe('Öffentlich: Subdomain der Standard-Domain (Standard: Slug)'),
-    public_hostname: z.string().optional().describe('Öffentlich: voller Hostname in einer Zone des Kontos'),
+    // Name und Zone getrennt statt voller Hostname: Zone nur aus dieser Umgebung (list_domains)
+    public_subdomain: z.string().optional().describe('Öffentlich: Name vor der Zone, z.B. "solar" (Standard: Slug). Wird normalisiert (Kleinbuchstaben, Umlaute → ae/oe/ue).'),
+    public_zone: z.string().optional().describe('Öffentlich: Zone dieser Umgebung (siehe list_domains; Standard: Hauptzone)'),
+    public_apex: z.boolean().optional().describe('Öffentlich: direkt unter der Zone statt mit Namen (nur ausdrücklich)'),
+    take_over_dns: z.boolean().optional().describe('Öffentlich: einen vorhandenen DNS-Eintrag, der nicht von Airlock stammt, ersetzen (verlangt Bestätigung)'),
     access: z.boolean().optional().describe('Öffentlich: Cloudflare Access davorschalten (Login per E-Mail-Code)'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
     const p = await findProject(scope, a.project)
     const wantsPublic = a.targets.includes('public')
+    // Gleiche Prüfung wie das Formular: verständliche Meldung statt eines Fehlers von Cloudflare
+    const label = a.public_subdomain !== undefined ? normalizePublicLabel(a.public_subdomain) : undefined
+    if (wantsPublic && (label !== undefined || a.public_zone || a.public_apex)) {
+      const chk = await checkPublicName(p, { label: label ?? p.slug, zone: a.public_zone, apex: a.public_apex })
+      const blocking = chk.problems.filter((x) => !(x.kind === 'dns' && a.take_over_dns && !chk.existing?.worker))
+      if (blocking.length) {
+        return fail(`${chk.host ?? 'Name'}: ${blocking.map((x) => x.message).join('; ')}.${chk.existing && !chk.existing.worker ? ' Mit take_over_dns:true (und Bestätigung) wird der Eintrag ersetzt.' : ''} Zonen dieser Umgebung: ${chk.zones.join(', ') || 'keine'}.`)
+      }
+    }
+    const publicInput = { subdomain: label, zone: a.public_zone, apex: a.public_apex, takeOver: a.take_over_dns, accessProtected: a.access }
     let plan: Awaited<ReturnType<typeof planPublic>> | null = null
     // Ohne "public", aber gerade öffentlich: das ist «ganz offline nehmen» – mit Rückfrage
     const current = wantsPublic ? null : await publicRoute(p.id)
@@ -498,7 +532,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
       // scheitert – oder ein Teil (interne Ziele) wäre schon umgestellt.
       try {
-        plan = await planPublic(p, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access })
+        plan = await planPublic(p, publicInput)
       } catch (err) {
         // Schwelle nicht erfüllt (Scan läuft, fehlt, kritischer Befund): interne
         // Ziele setzen und «öffentlich» vormerken statt still verwerfen.
@@ -512,14 +546,14 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
           }
         }
         const gate = await publishability(p.id)
-        const req = await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, gate.ok ? 'Schwelle' : gate.why)
+        const req = await requestPublic(p.id, publicInput, actor, gate.ok ? 'Schwelle' : gate.why)
         return ok({ ...summarize(await toDto(await findProject(scope, p.id))), public: mcpRequestInfo(req, gate) })
       }
       const before = plan.before
       const changes = !before || before.hostname !== plan.hostname || before.accessProtected !== plan.access
       if (changes) {
         const c = await confirm('set_targets', {
-          project: p.id, targets: [...a.targets].sort(), public_subdomain: a.public_subdomain, public_hostname: a.public_hostname, access: a.access, confirmation_token: a.confirmation_token,
+          project: p.id, targets: [...a.targets].sort(), public_subdomain: label, public_zone: a.public_zone, public_apex: a.public_apex, take_over_dns: a.take_over_dns, access: a.access, confirmation_token: a.confirmation_token,
         }, `"${p.name}" ÖFFENTLICH im Internet erreichbar machen unter ${plan.hostname}${plan.access ? ' (hinter Cloudflare Access)' : ' (ohne Login)'}?`)
         if (!c.go) return c.result
       }
