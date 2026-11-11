@@ -53,7 +53,7 @@ export function Account() {
               : 'aus der Konfiguration (.env)'}
           </dd>
           <dt>API-Tokens</dt>
-          <dd>{tokens.data ? `${activeTokens} gültig in ${env?.name ?? 'dieser Umgebung'}` : tokens.isError ? 'nicht abrufbar' : <Sk w={56} h={12} className="sk-inline" />} · <Link to={ep('/tokens')}>verwalten</Link></dd>
+          <dd>{tokens.data ? `${activeTokens} gültig in ${env?.name ?? 'dieser Umgebung'}` : tokens.isError ? 'nicht abrufbar' : <Sk w={56} h={12} className="sk-inline" />} · <Link to={ep('/einstellungen/tokens')}>verwalten</Link></dd>
         </dl>
         <p className="hint" style={{ marginTop: 14 }}>
           Name im Profil: <code>ADMIN_NAME</code> in <code>.env</code>.

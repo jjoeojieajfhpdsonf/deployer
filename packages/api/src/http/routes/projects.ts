@@ -16,7 +16,10 @@ import {
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
 import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
 import { parseSiteAccess } from '../../lib/site-access.js'
-import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
+import { planPublic, applyPublic, removePublic, checkPublicNameIn, publicEnabled } from '../../domain/public.js'
+import { requestPublic, approvePublicRequest } from '../../domain/public-requests.js'
+import { blockingProblems } from '../../lib/public-name-check.js'
+import type { PublicNameCheckDto } from '@airlock/shared'
 import { listDeployments } from '../../domain/deployments.js'
 import { withFailure } from '../../deploy/explain.js'
 import { activeDeployment } from '../../domain/deployments.js'
@@ -28,12 +31,30 @@ import { actorFor } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
 import { sinceSeconds } from '../../lib/dates.js'
 import { projectHealth } from '../../jobs/monitor.js'
+import { projectTopology } from '../../domain/topology.js'
 import { probeViaCaddy } from '../../lib/address-probe.js'
 import { config } from '../../config.js'
 import { publicRoutes } from './public.js'
 
 interface IdParams {
   id: string
+}
+
+/**
+ * Neues Projekt mit «Öffentlich nach dem ersten Scan»: Name vor dem Anlegen
+ * prüfen. Ein fremder DNS-Eintrag lässt sich hier nicht ersetzen (die
+ * Anfrage merkt sich das nicht) – das geht danach unter Veröffentlichung.
+ * Die Meldung steht am Namensfeld (details mit Pfad).
+ */
+async function assertPublicOnCreate(envId: string, pub: { subdomain?: string; zone?: string; apex?: boolean }, slug: string): Promise<PublicNameCheckDto> {
+  if (!publicEnabled(envId)) throw badRequest('Öffentlich ist in dieser Umgebung nicht eingerichtet: unter Einstellungen → Cloudflare & HTTPS Token und Tunnel einrichten.')
+  const check = await checkPublicNameIn(envId, { label: pub.subdomain ?? slug, zone: pub.zone, apex: pub.apex })
+  const blocking = blockingProblems(check, false)
+  if (blocking.length) {
+    const msg = `${blocking.map((x) => x.message).join('; ')}${check.existing && !check.existing.worker ? '. Ersetzen geht nach dem Anlegen unter Einstellungen → Veröffentlichung.' : ''}`
+    throw badRequest(msg, [{ path: 'public.subdomain', message: msg }])
+  }
+  return check
 }
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
@@ -60,9 +81,19 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     // Früh prüfen: gesperrte Repo-URL oder unzulässige compose.yaml kommen als
     // 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
+    // Öffentlich nach dem ersten Scan: Name vorher prüfen (gleiche Prüfung wie beim Tippen)
+    const pubCheck = input.public ? await assertPublicOnCreate(scope.envId, input.public, input.slug ?? slugify(input.name)) : null
     const project = input.source.type === 'files'
       ? await createFilesProject(scope, input, actorFor(request))
       : await createProject(scope, input, actorFor(request))
+    if (input.public && pubCheck) {
+      // Beim Anlegen in der Oberfläche ausdrücklich gewählt: vorgemerkt und gleich bestätigt;
+      // wirksam nach dem ersten Scan ohne kritischen Befund (nie still)
+      await requestPublic(project.id, {
+        subdomain: pubCheck.apex ? undefined : pubCheck.label, zone: pubCheck.zone ?? undefined, apex: pubCheck.apex, accessProtected: input.public.accessProtected,
+      }, actorFor(request), 'beim Anlegen: nach dem ersten Scan')
+      await approvePublicRequest(project.id, actorFor(request))
+    }
 
     if (input.deploy) {
       const deployment = await startDeploy(scope, project.id, actorFor(request))
@@ -100,6 +131,15 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams; Querystring: { fresh?: string } }>('/projects/:id/health', async (request) => {
     const project = await findProject(request.scope, request.params.id)
     return projectHealth(project.id, { fresh: request.query.fresh === '1' })
+  })
+
+  /**
+   * Reiter «Aufbau»: Zugang, Eingang (Hosts der Routen), Dienste, Daten
+   * (Datenbanken, Volumes) und die Linien dazwischen, mit Zuständen.
+   */
+  app.get<{ Params: IdParams }>('/projects/:id/topology', async (request) => {
+    const project = await findProject(request.scope, request.params.id)
+    return { topology: await projectTopology(project) }
   })
 
   /**
@@ -159,7 +199,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const { entries } = putEnvSchema.parse(request.body)
     const seen = new Set<string>()
     for (const e of entries) {
-      if (seen.has(e.key)) throw badRequest(`Die Variable "${e.key}" kommt doppelt vor`)
+      if (seen.has(e.key)) throw badRequest(`Die Umgebungsvariable "${e.key}" kommt doppelt vor`)
       seen.add(e.key)
     }
     await replaceEnv(project.id, entries)

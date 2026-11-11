@@ -14,6 +14,8 @@ export const notifyEvents = [
   'infra_problem',
   'expiry',
   'weekly_summary',
+  // Antwort 11: Caddy sieht Docker-Gateway-Adressen statt der Geräte (IP-Filter greift dann nicht)
+  'gateway_warning',
 ] as const
 export type NotifyEvent = (typeof notifyEvents)[number]
 
@@ -30,6 +32,7 @@ export const DEFAULT_MATRIX: Matrix = {
   infra_problem: { push: true, email: true },
   expiry: { push: false, email: true },
   weekly_summary: { push: false, email: true },
+  gateway_warning: { push: false, email: true },
 }
 
 export const EVENT_LABEL: Record<NotifyEvent, string> = {
@@ -41,6 +44,7 @@ export const EVENT_LABEL: Record<NotifyEvent, string> = {
   infra_problem: 'Tunnel oder Zertifikat mit Problem',
   expiry: 'Chat-Projekt läuft ab oder wurde gestoppt',
   weekly_summary: 'Wöchentliche Zusammenfassung',
+  gateway_warning: 'Anfragen kommen über das Docker-Gateway',
 }
 
 export interface Message {
@@ -82,6 +86,7 @@ const PRIORITY: Record<NotifyEvent, number> = {
   infra_problem: 5,
   expiry: 3,
   weekly_summary: 2,
+  gateway_warning: 3,
 }
 
 export function renderMessage(event: NotifyEvent, data: Record<string, unknown>): Message {
@@ -92,9 +97,10 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
     case 'finding_critical':
     case 'finding_high': {
       const list = (data.findings as { title: string; location: string }[] | undefined) ?? []
-      const word = event === 'finding_critical' ? 'kritische' : 'hohe'
+      const one = list.length === 1
+      const word = event === 'finding_critical' ? (one ? 'neuer kritischer Befund' : 'neue kritische Befunde') : (one ? 'neuer hoher Befund' : 'neue hohe Befunde')
       return {
-        title: `${list.length} neue ${word} Befunde: ${s('target')}`,
+        title: `${list.length} ${word}: ${s('target')}`,
         body: `${list.slice(0, 5).map((f) => `• ${f.title} (${f.location})`).join('\n')}${list.length > 5 ? `\n… und ${list.length - 5} weitere` : ''}\nScore ${s('score')} (${s('grade')})`,
         priority: PRIORITY[event],
       }
@@ -109,5 +115,11 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
       return { title: `${s('project')} ${data.stopped ? 'wurde gestoppt' : `läuft am ${s('date')} ab`}`, body: data.stopped ? `Das Chat-Projekt wurde nach ${s('days')} Tagen ohne Änderung gestoppt. Starten mit einem Klick oder per MCP (start).` : `Ohne Änderung wird das Chat-Projekt am ${s('date')} gestoppt. «Behalten» schaltet den Ablauf ab.`, priority: PRIORITY[event] }
     case 'weekly_summary':
       return { title: 'Airlock: Wochenübersicht', body: s('text'), priority: PRIORITY[event] }
+    case 'gateway_warning':
+      return {
+        title: 'Anfragen über das Docker-Gateway',
+        body: `In den letzten 30 Minuten kamen ${s('fromGateway')} von ${s('total')} fremden Anfragen auf Airlock von ${s('ips')}. Caddy sieht dann nicht das Gerät, der IP-Filter greift nicht. Einzelheiten unter Server › Übersicht.`,
+        priority: PRIORITY[event],
+      }
   }
 }

@@ -95,7 +95,7 @@ const EVENTS: Record<string, Describe> = {
   },
   'project.env.replace': (p) => {
     const k = list(p.keys)
-    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} ${k.length === 1 ? 'Variable' : 'Variablen'}` : 'keine Variablen'] }
+    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} gesetzt` : 'keine mehr gesetzt'] }
   },
   'project.routes.set': (p) => ({ title: 'Erreichbarkeit geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
   'project.routes.internal': (p) => ({ title: 'Erreichbarkeit intern geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
@@ -188,7 +188,7 @@ const MCP_TOOL: Record<string, string> = {
 const WORD: Record<string, string> = {
   deploy: 'Deploy', failed: 'fehlgeschlagen', done: 'fertig', start: 'gestartet', started: 'gestartet', stop: 'gestoppt', update: 'geändert',
   updated: 'geändert', create: 'angelegt', created: 'angelegt', delete: 'gelöscht', remove: 'entfernt', set: 'gesetzt', check: 'geprüft',
-  scan: 'Scan', project: 'Projekt', env: 'Variablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
+  scan: 'Scan', project: 'Projekt', env: 'Umgebungsvariablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
 }
 
 /** Lesbarer Satz für unbekannte Typen: «deploy.failed» → «Deploy fehlgeschlagen» */
@@ -227,6 +227,11 @@ export function describeEvent(e: AuditEventDto): EventInfo {
     const tool = action.slice(4)
     // Der Auslöser «Claude (<Token>)» sagt schon, dass es über MCP kam
     return { title: MCP_TOOL[tool] ?? fallbackTitle(tool), sub: e.result === 'error' && e.error ? [firstLine(e.error)] : [], category: e.result === 'error' ? 'error' : 'claude', chip: null }
+  }
+  if (action.startsWith('notify.')) {
+    // Titel kommt fertig vom Server (derselbe wie in Push und E-Mail)
+    const kind = action.slice(7)
+    return { title: typeof p.title === 'string' ? p.title : fallbackTitle(kind), sub: [], category: NOTIFY_CATEGORY[kind] ?? 'config', chip: null }
   }
   const d = EVENTS[action]
   const base = d ? d(p, e) : { title: fallbackTitle(action), category: 'config' as Category, sub: [] }
@@ -300,6 +305,14 @@ function sameScan(c: Cluster, e: AuditEventDto): boolean {
 
 /** Nur gelesen (get_project, read_files …): in der Aktivität eines Projekts ohne Aussage */
 export const isReadOnly = (e: AuditEventDto) => /^mcp\.(get_|list_|read_files)/.test(e.action) && e.result !== 'error'
+
+/** Antwort 11: Benachrichtigung zu einem Ereignis (für die Glocke); in Aktivitäten stünde es doppelt */
+export const isNotifyEvent = (e: AuditEventDto) => e.action.startsWith('notify.')
+
+const NOTIFY_CATEGORY: Record<string, Category> = {
+  deploy_failed: 'error', finding_critical: 'danger', finding_high: 'danger', project_public: 'public',
+  external_verification_lost: 'scan', infra_problem: 'error', expiry: 'paused', gateway_warning: 'access',
+}
 
 /** Wie weit ein MCP-Aufruf von seinem Ereignis entfernt sein darf (mit wait läuft der Deploy mit) */
 const TWIN = 10 * MIN

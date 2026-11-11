@@ -44,9 +44,16 @@ const LogRowView = memo(function LogRowView({ row, numbers, multi, re }: { row: 
   )
 })
 
-export function LogsTab({ projectId, slug, activeDeploymentId }: { projectId: string; slug: string; activeDeploymentId: string | null }) {
+export function LogsTab({ projectId, slug, activeDeploymentId, service: serviceProp, onService }: {
+  projectId: string; slug: string; activeDeploymentId: string | null
+  /** Gewählter Dienst aus der Adresse (?dienst=, z. B. «Alle Logs» im Reiter «Aufbau»); mit onService gesteuert */
+  service?: string | null
+  onService?: (service: string | null) => void
+}) {
   const [range, setRange] = useState<LogRange>('15m')
-  const [service, setService] = useState<string | null>(null)
+  const [own, setOwn] = useState<string | null>(null)
+  const service = onService ? (serviceProp ?? null) : own
+  const setService = (s: string | null) => (onService ? onService(s) : setOwn(s))
   const [search, setSearch] = useState('')
   const [level, setLevel] = useState<LevelFilter>('alle')
   const [live, setLive] = useState(true)

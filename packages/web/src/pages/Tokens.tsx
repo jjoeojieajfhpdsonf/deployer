@@ -6,12 +6,13 @@ import { relativeTime } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtDate } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'
-import { PageHead } from '../components/PageHead.js'
 import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
 import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 import { useEnv } from '../lib/env.js'
+import { ConfirmDialog } from '../components/Confirm.js'
+import { appOrigin } from '../lib/origin.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -27,8 +28,10 @@ export function Tokens() {
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  // Antwort 14: Befehl je Shell (macOS-Standard zsh)
+  const [shell, setShell] = useState<'zsh' | 'bash'>('zsh')
 
-  const mcpUrl = `${window.location.origin}/mcp`
+  const mcpUrl = `${appOrigin()}/mcp`
 
   const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name }) })
   // Aus der Befehlspalette («Token erstellen»): gleich ins Namensfeld
@@ -47,13 +50,17 @@ export function Tokens() {
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
   })
+  // Widerrufen im modalen Dialog (zerstörerisch); Fehler zeigt der Dialog selbst
   const revoke = useMutation({
+    meta: { errorTitle: 'Token nicht widerrufen', noRetry: true, quiet: true },
     mutationFn: (id: string) => api.revokeToken(id),
     onSuccess: () => {
       setConfirming(null)
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
   })
+  const revoking = confirming ? tokens.data?.tokens.find((t) => t.id === confirming) : undefined
+  const openRevoke = (id: string | null) => { revoke.reset(); setConfirming(id) }
 
   async function copy(label: string, text: string) {
     const ok = await copyText(text)
@@ -68,8 +75,15 @@ export function Tokens() {
   }
 
   // UI-Qualität 8: fertige Einrichtung je Client zum Kopieren (vorher fehlte das Leerzeichen vor der URL)
+  // Antwort 14: für alle Ordner (--scope user) und ohne Token im Befehl – es wird verdeckt eingelesen,
+  // damit es nicht in der Shell-History landet; danach wieder gelöscht
+  const read = shell === 'zsh' ? 'read -rs "AIRLOCK_TOKEN?Token: "' : 'read -rsp "Token: " AIRLOCK_TOKEN'
   const cli = fresh
-    ? `claude mcp add --transport http airlock ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
+    ? [
+        read,
+        `claude mcp add --transport http --scope user airlock ${mcpUrl} --header "Authorization: Bearer $AIRLOCK_TOKEN"`,
+        'unset AIRLOCK_TOKEN',
+      ].join('\n')
     : ''
   // Claude Desktop spricht entfernte MCP-Server über mcp-remote an (Eintrag in claude_desktop_config.json).
   // Kopfzeile über eine Umgebungsvariable und ohne Leerzeichen im Argument: so empfiehlt es mcp-remote,
@@ -90,19 +104,14 @@ export function Tokens() {
   const [anyCopied, setAnyCopied] = useState(false)
   useUnsaved(Boolean(fresh) && !anyCopied, `Das neue Token «${fresh?.name ?? ''}»`, 'once')
 
+  // Antwort 9: Reiter «Tokens» in den Einstellungen der Umgebung (Titel und Brotkrumen von dort)
   return (
-    <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'Konto', to: '/konto' }, { label: 'Tokens' }]} title="Tokens">
-        <p className="lede">
-          Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
-          MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,
-          mit Anmeldung – nicht mit einem Token.
-        </p>
-        <p className="lede">
-          Ein Token gilt nur für die Umgebung <strong>{env?.name}</strong>: Es sieht und ändert nur ihre Projekte,
-          Domains und externen Ziele. Für eine andere Umgebung dort ein eigenes Token anlegen.
-        </p>
-      </PageHead>
+    <div className="tokens-panel">
+      <p className="hint tokens-lede">
+        Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
+        MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an – nur in der Umgebung <strong>{env?.name}</strong>:
+        ihre Projekte, Domains und externen Ziele. Tokens verwalten geht nur hier, mit Anmeldung.
+      </p>
 
       <form onSubmit={submit} className="inline-form" noValidate ref={form.formRef}>
         <div className="inline-form-field">
@@ -130,8 +139,14 @@ export function Tokens() {
           </div>
           {client === 'code' ? (
             <>
-              <p className="hint">Im Terminal ausführen:</p>
-              <pre className="code-block" tabIndex={0} role="group" aria-label="Befehl für Claude Code">{cli}</pre>
+              <div className="token-shell">
+                <p className="hint">Im Terminal ausführen. Der Befehl fragt nach dem Token (oben kopieren, die Eingabe bleibt unsichtbar) – so landet es nicht in der Shell-History. Gilt danach in allen Ordnern.</p>
+                <div className="segmented segmented-small" role="group" aria-label="Shell">
+                  <button type="button" aria-pressed={shell === 'zsh'} onClick={() => setShell('zsh')}>zsh</button>
+                  <button type="button" aria-pressed={shell === 'bash'} onClick={() => setShell('bash')}>bash</button>
+                </div>
+              </div>
+              <pre className="code-block" tabIndex={0} role="group" aria-label={`Befehl für Claude Code (${shell})`}>{cli}</pre>
               <div className="form-actions">
                 <button type="button" className="button-primary" onClick={() => copy('cli', cli)}>Befehl kopieren</button>
               </div>
@@ -170,25 +185,34 @@ export function Tokens() {
               Lege eins an, z.B. «Claude Desktop», und trage es dort als MCP-Server ein.
             </EmptyState>
           ) : (
-            <TokenTable rows={active} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+            <TokenTable rows={active} setConfirming={openRevoke} />
           )}
           {revoked.length > 0 && (
             <details className="revoked-tokens">
               <summary>{revoked.length} widerrufene Token</summary>
-              <TokenTable rows={revoked} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+              <TokenTable rows={revoked} setConfirming={openRevoke} />
             </details>
           )}
         </>
       )}
-    </section>
+      <ConfirmDialog
+        open={revoking !== undefined}
+        title={<>Token «{revoking?.name}» widerrufen?</>}
+        confirmLabel="Ja, widerrufen"
+        busy={revoke.isPending}
+        error={revoke.isError ? (revoke.error as Error).message : null}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => { if (revoking) revoke.mutate(revoking.id) }}
+      >
+        <p>Clients und Skripte mit diesem Token kommen danach nicht mehr an Airlock. Widerrufen lässt sich nicht rückgängig machen.</p>
+      </ConfirmDialog>
+    </div>
   )
 }
 
-function TokenTable({ rows, confirming, setConfirming, revoke }: {
+function TokenTable({ rows, setConfirming }: {
   rows: ApiTokenDto[]
-  confirming: string | null
   setConfirming: (id: string | null) => void
-  revoke: { isPending: boolean; mutate: (id: string) => void }
 }) {
   return (
     <div className="table-scroll">
@@ -208,16 +232,8 @@ function TokenTable({ rows, confirming, setConfirming, revoke }: {
                 </span>
               </td>
               <td className="row-actions">
-                {!t.revokedAt && confirming !== t.id && (
-                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
-                )}
-                {confirming === t.id && (
-                  <>
-                    <button onClick={() => setConfirming(null)}>Abbrechen</button>
-                    <button className="button-danger-solid" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
-                      Ja, widerrufen
-                    </button>
-                  </>
+                {!t.revokedAt && (
+                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen …</button>
                 )}
               </td>
             </tr>

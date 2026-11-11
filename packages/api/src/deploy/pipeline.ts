@@ -73,7 +73,7 @@ export async function startRollback(scope: Scope, idOrSlug: string, actor: strin
   if (!target || target.projectId !== project.id) throw badRequest('Keine frühere Fassung für ein Rollback gefunden')
   if (target.isActive) throw badRequest('Diese Fassung ist bereits aktiv')
   if (!canRollbackTo(target)) {
-    throw badRequest('Auf diese Fassung lässt sich nicht zurückrollen (fehlgeschlagen oder Artefakt entfernt)')
+    throw badRequest('Ein Rollback auf diese Fassung geht nicht (fehlgeschlagen oder Artefakt entfernt)')
   }
   return startJob(project, actor, { kind: 'rollback', target }, o)
 }
@@ -319,7 +319,7 @@ async function run(
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
     await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: told })
     // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
-    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) })
+    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) }, projectId)
   } finally {
     await dropWorkDir(deploymentId)
   }

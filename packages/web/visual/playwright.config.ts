@@ -10,9 +10,10 @@ import { defineConfig } from '@playwright/test'
  *   pnpm test:visual:update   gewollte Änderungen als neue Referenz übernehmen
  *
  * Eigener Port (5299), damit es nicht mit dem Screenshot-Werkzeug (5199)
- * zusammenstösst.
+ * zusammenstösst. Mit VISUAL_PORT=… ein anderer, damit mehrere Worktrees
+ * gleichzeitig testen können.
  */
-export const VISUAL_PORT = 5299
+export const VISUAL_PORT = Number(process.env.VISUAL_PORT) || 5299
 
 export default defineConfig({
   testDir: '.',

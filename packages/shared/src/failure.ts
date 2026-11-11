@@ -314,8 +314,8 @@ export function explainFailure(i: FailureInput): FailureExplanation {
  */
 export function envTexts(name: string, exists: boolean): { title: string; cause: string; action: FailureAction } {
   return exists
-    ? { title: `Variable ${name} wird nicht akzeptiert`, cause: `Die App meldet ${name} als fehlend oder ungültig, obwohl die Variable gesetzt ist. Stimmt der Wert?`, action: { kind: 'add_env', name, exists, label: `${name} ändern` } }
-    : { title: `Variable ${name} fehlt`, cause: `Die App braucht die Umgebungsvariable ${name} und startet ohne sie nicht.`, action: { kind: 'add_env', name, exists, label: `${name} hinzufügen` } }
+    ? { title: `Umgebungsvariable ${name} wird nicht akzeptiert`, cause: `Die App meldet ${name} als fehlend oder ungültig, obwohl die Umgebungsvariable gesetzt ist. Stimmt der Wert?`, action: { kind: 'add_env', name, exists, label: `${name} ändern` } }
+    : { title: `Umgebungsvariable ${name} fehlt`, cause: `Die App braucht die Umgebungsvariable ${name} und startet ohne sie nicht.`, action: { kind: 'add_env', name, exists, label: `${name} hinzufügen` } }
 }
 
 /** Was Claude als Nächstes tun kann – in Worten, weil das MCP-Ergebnis keine Knöpfe hat */
@@ -323,13 +323,17 @@ export function failureNextStep(e: FailureExplanation): string {
   const a = e.action
   switch (a.kind) {
     case 'add_env': return a.exists
-      ? `Wert der Umgebungsvariable ${a.name} in Airlock prüfen (Projekt › Einstellungen › Umgebung), dann neu deployen.`
-      : `Umgebungsvariable ${a.name} in Airlock anlegen (Projekt › Einstellungen › Umgebung), dann neu deployen.`
+      ? `Wert der Umgebungsvariable ${a.name} in Airlock prüfen (Projekt › Einstellungen › Umgebungsvariablen), dann neu deployen.`
+      : `Umgebungsvariable ${a.name} in Airlock anlegen (Projekt › Einstellungen › Umgebungsvariablen), dann neu deployen.`
     case 'set_field': {
+      // Antwort 8: dieselben Felder in der Oberfläche (Einstellungen › Container) und im MCP (update_project)
       const what = a.field === 'port' ? 'Port' : a.field === 'healthcheckPath' ? 'Healthcheck-Pfad' : 'RAM-Grenze'
+      const where = '(update_project oder Projekt › Einstellungen › Container)'
       return a.value !== null
-        ? `${what} des Projekts in Airlock auf ${a.value} ändern (Fehlerbox der Projektseite), dann neu deployen.`
-        : `${what} des Projekts in Airlock anpassen (Fehlerbox der Projektseite), dann neu deployen.`
+        ? `${what} des Projekts in Airlock auf ${a.value} ändern ${where}, dann neu deployen.`
+        : a.field === 'memoryLimitMb'
+        ? `RAM-Grenze des Projekts in Airlock erhöhen, etwa verdoppeln ${where}, dann neu deployen.`
+        : `${what} des Projekts in Airlock anpassen ${where}, dann neu deployen.`
     }
     case 'change_source': return 'Quelle des Projekts prüfen und korrigieren (Image-Name, Tag, Repo).'
     case 'redeploy': return 'Neu deployen (deploy).'

@@ -4,7 +4,8 @@ import { defaultEnvironmentId, defaultEnvironment, environmentById, allEnvironme
 import { cloudflareFor } from './cloudflare-settings.js'
 import { inEnvironment, serverJob, type EnvScope, type ListScope } from '../lib/scope.js'
 import { config } from '../config.js'
-import { RESERVED_SLUGS } from '@airlock/shared'
+import { RESERVED_PUBLIC_LABELS, type PublicNameCheckDto } from '@airlock/shared'
+import { shapePublicName, markTaken, markForeignRecord } from '../lib/public-name-check.js'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
@@ -151,8 +152,47 @@ export async function setDefaultDomain(scope: EnvScope, name: string, actor: str
 export interface PublicInput {
   subdomain?: string
   hostname?: string
+  /** Zone der Umgebung zum Namen (statt der Hauptzone); zusammen mit subdomain */
+  zone?: string
+  /** Direkt unter der Zone (nur ausdrücklich, Schalter «Direkt unter <zone>») */
+  apex?: boolean
+  /** Fremden DNS-Eintrag ersetzen – nur nach ausdrücklicher Bestätigung */
+  takeOver?: boolean
   /** undefined = wie bisher (Review M5: sonst fiel Access beim nächsten Aufruf still weg) */
   accessProtected?: boolean
+}
+
+/**
+ * Öffentlichen Namen prüfen, ohne etwas zu ändern (Formular: beim Tippen mit
+ * Verzögerung; MCP: vor dem Setzen). Prüft Form, reservierte Namen, Zone der
+ * Umgebung, interne Basis, Belegung in Airlock und einen vorhandenen
+ * DNS-Eintrag bei Cloudflare, der nicht von Airlock stammt (dann mit Typ und
+ * Ziel – übernehmen nur nach ausdrücklicher Bestätigung).
+ */
+export async function checkPublicName(project: Project, input: { label: string; zone?: string; apex?: boolean }): Promise<PublicNameCheckDto> {
+  return checkPublicNameIn(project.environmentId, input, project.id)
+}
+
+/**
+ * Dieselbe Prüfung in einer Umgebung, ohne Projekt (Neues Projekt): dann
+ * zählt jede öffentliche Route als vergeben; mit ownProjectId die eigene nicht.
+ */
+export async function checkPublicNameIn(envId: string, input: { label: string; zone?: string; apex?: boolean }, ownProjectId?: string): Promise<PublicNameCheckDto> {
+  const ctx = requireCtx(envId)
+  const domains = await listDomains(inEnvironment(envId)).then((d) => (d.length ? d : syncDomains(ctx.cf, envId)))
+  const out = shapePublicName(input, { zones: domains.map((d) => d.name), mainZone: environmentById(envId)?.zoneName ?? null, baseDomain: ctx.baseDomain })
+  const zone = domains.find((d) => d.name === out.zone)
+  if (!out.host || !zone) return out
+  const host = out.host
+  const taken = await db.select({ projectId: schema.routes.projectId }).from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, host)))
+  markTaken(out, taken.some((r) => r.projectId !== ownProjectId))
+  try {
+    const recs = await ctx.cf.listRecords(zone.zoneId, host)
+    markForeignRecord(out, recs.map((r) => ({ type: r.type, content: r.content, managed: isManagedComment(r.comment) })))
+  } catch (err) {
+    log.warn('DNS-Prüfung für öffentlichen Namen fehlgeschlagen', { host, err: String(err) })
+  }
+  return out
 }
 
 export async function publicRoute(projectId: string) {
@@ -168,6 +208,8 @@ export interface PublicPlan {
   zone: Zone
   access: boolean
   before: PublicRouteRow | null
+  /** Fremden DNS-Eintrag ersetzen (ausdrücklich bestätigt) */
+  takeOver?: boolean
 }
 
 /**
@@ -189,14 +231,20 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     const own = inEnvironment(project.environmentId)
     const domains = await listDomains(own).then((d) => (d.length ? d : syncDomains(cf, project.environmentId)))
     const mainZone = environmentById(project.environmentId)?.zoneName ?? null
-    const nameGiven = Boolean(input.subdomain || input.hostname)
+    // Name und Zone getrennt (Antwort Adressen): zu einem Hostnamen zusammensetzen; die Zone muss zur Umgebung gehören
+    if (input.zone && !domains.some((d) => d.name === input.zone)) {
+      throw badRequest(`Die Zone ${input.zone} gehört nicht zu dieser Umgebung. Möglich: ${domains.map((d) => d.name).join(', ') || 'keine'}`)
+    }
+    const fromParts = input.zone ? (input.apex ? input.zone : input.subdomain ? `${input.subdomain}.${input.zone}` : undefined) : undefined
+    const nameGiven = Boolean(input.subdomain || input.hostname || fromParts)
     const { hostname, zone } = resolvePublicHostname(
-      nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
+      fromParts ? { hostname: fromParts } : nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
       {
         zones: domains.map((d) => ({ id: d.zoneId, name: d.name })),
         defaultZone: (mainZone && domains.some((d) => d.name === mainZone) ? mainZone : null) ?? domains.find((d) => d.isDefault)?.name ?? null,
         internalBaseDomain: ctx.baseDomain,
-        reservedLabels: RESERVED_SLUGS,
+        reservedLabels: RESERVED_PUBLIC_LABELS,
+        allowApex: Boolean(input.apex) || (!nameGiven && Boolean(before) && before?.hostname === mainZone),
       },
     )
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
@@ -204,7 +252,7 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     // M9: ohne Angabe und ohne frühere Route gilt der Access-Standard der Umgebung
     const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     if (access && !ctx.accessEmail) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (Einstellungen → Standards → Cloudflare Access).')
-    return { project, hostname, zone, access, before }
+    return { project, hostname, zone, access, before, takeOver: Boolean(input.takeOver) }
   } catch (err) {
     wrap(err)
   }
@@ -225,7 +273,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
   try {
     // 1. DNS: CNAME proxied auf den Tunnel; fremde Einträge bleiben unangetastet.
     progress?.start('dns')
-    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true })
+    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true }, { takeOver: plan.takeOver })
     if (rec.action === 'created') created.recordId = rec.record.id
     progress?.set('dns', 'done', rec.action === 'created' ? `CNAME ${hostname} auf den Tunnel angelegt` : `CNAME ${hostname} zeigt auf den Tunnel`)
 
@@ -255,7 +303,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
 
     // 4. Access abgeschaltet: App weg (erst nach dem Speichern, dann ist der Stand konsistent)
     if (!plan.access && accessAppId) await cf.deleteAccessApp(ctx.accountId, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
-    progress?.set('access', 'done', plan.access ? 'Login per E-Mail-Code vorgeschaltet' : 'ohne Login')
+    progress?.set('access', 'done', plan.access ? 'Anmeldung per E-Mail-Code vorgeschaltet' : 'ohne Anmeldung')
 
     // 5. Alter Name (bei Umbenennung) aus DNS und Access entfernen
     if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, ctx.accountId, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
@@ -348,7 +396,7 @@ async function dropCloudflareObjects(cf: Cloudflare, accountId: string, route: {
   }
   pr?.start('access')
   if (route.cfAccessAppId) await cf.deleteAccessApp(accountId, route.cfAccessAppId)
-  pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Login-Schutz entfernt' : 'war nicht eingeschaltet')
+  pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Anmeldung per E-Mail-Code entfernt' : 'war nicht eingeschaltet')
 }
 
 /* --- Pausieren und Fortsetzen ----------------------------------------------------- */
@@ -530,7 +578,11 @@ export async function applyApprovedRequest(projectId: string): Promise<void> {
   const actor = `${req.approvedBy} (vorgemerkt)`
   try {
     log.info('Vorgemerkte Öffentlich-Anfrage wird ausgeführt', { projectId, actor })
-    await publishFlow(project, { subdomain: req.subdomain ?? undefined, hostname: req.hostname ?? undefined, accessProtected: req.accessProtected }, actor)
+    // Direkt unter der Zone (Neues Projekt, «Direkt unter <zone>»): als Name steht die Zone selbst
+    const apexZone = req.hostname && (await listDomains(inEnvironment(project.environmentId))).some((d) => d.name === req.hostname) ? req.hostname : null
+    await publishFlow(project, apexZone
+      ? { zone: apexZone, apex: true, accessProtected: req.accessProtected }
+      : { subdomain: req.subdomain ?? undefined, hostname: req.hostname ?? undefined, accessProtected: req.accessProtected }, actor)
     await discardPublicRequest(projectId, actor, 'nach bestandenem Scan veröffentlicht')
   } catch (err) {
     const msg = (err as Error).message

@@ -81,6 +81,10 @@ export function headerHandlers(rules: HeaderRuleSpec[], ctx: HeaderBuildContext)
   const hsts = by.get('strict-transport-security')
   if (hsts && ctx.secure && ctx.hstsAllowed) out.push(addIfMissing('Strict-Transport-Security', hsts.value))
 
+  // Antwort 7: Permissions-Policy (Kamera, Mikrofon, Standort … abschalten)
+  const pp = by.get('permissions-policy')
+  if (pp) out.push(addIfMissing('Permissions-Policy', pp.value))
+
   return out
 }
 

@@ -4,6 +4,7 @@ import { loginSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { Logo } from '../components/Logo.js'
+import { markLoggedOut } from '../lib/session.js'
 
 /** Anmeldeseite (ohne Sitzung beim Öffnen) */
 export function Login({ onDone }: { onDone: () => void }) {
@@ -71,7 +72,7 @@ export function LoginForm({ onDone, inDialog = false, headingId, failed = [] }: 
       </p>
       {failed.length > 0 && (
         <div className="banner banner-warn session-failed" role="status">
-          <p>Wegen der abgelaufenen Sitzung: {failed.join(', ')}. Nach der Anmeldung bitte noch einmal auslösen.</p>
+          <p>Wegen der abgelaufenen Sitzung: {failed.join(', ')}. Nach der Anmeldung lässt es sich erneut ausführen.</p>
         </div>
       )}
       <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
@@ -89,6 +90,13 @@ export function LoginForm({ onDone, inDialog = false, headingId, failed = [] }: 
       <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
         Anmelden
       </button>
+      {/* Antwort 15: Ausweg aus dem Dialog – zur Anmeldeseite, mit ehrlichem Hinweis */}
+      {inDialog && (
+        <p className="hint session-escape">
+          <button type="button" className="link-button" onClick={() => markLoggedOut()}>Zur Anmeldeseite</button>
+          {' '}– ungespeicherte Eingaben auf dieser Seite gehen dabei verloren.
+        </p>
+      )}
     </form>
   )
 }

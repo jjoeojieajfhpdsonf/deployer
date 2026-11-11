@@ -11,6 +11,8 @@ export const headerKeys = [
   'frame-ancestors',
   'content-security-policy',
   'strict-transport-security',
+  // Antwort 7: vorher nur von ZAP gemeldet (10063), jetzt im Header-Check mit «Header setzen»
+  'permissions-policy',
 ] as const
 export type HeaderKey = (typeof headerKeys)[number]
 
@@ -24,6 +26,7 @@ export const HEADER_LABEL: Record<HeaderKey, string> = {
   'frame-ancestors': 'frame-ancestors',
   'content-security-policy': 'Content-Security-Policy',
   'strict-transport-security': 'Strict-Transport-Security',
+  'permissions-policy': 'Permissions-Policy',
 }
 
 /** Ausgangswert je Header. */
@@ -35,6 +38,8 @@ export const HEADER_DEFAULT: Record<HeaderKey, string> = {
   'content-security-policy': "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'",
   // Kurz zum Start (5 Minuten): kippt TLS doch, erinnern sich Browser nicht lange.
   'strict-transport-security': 'max-age=300',
+  // Was eine gewöhnliche Seite nicht braucht, abschalten; Apps, die es brauchen, passen den Wert an
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
 }
 
 /** Header, die nur mit Rückfrage bzw. Bestätigungs-Token scharf werden. */
@@ -53,7 +58,19 @@ export function headerFixFor(f: { tool: string; title: string }): HeaderKey | nu
   if (f.title.startsWith('X-Content-Type-Options')) return 'x-content-type-options'
   if (f.title.startsWith('Referrer-Policy fehlt')) return 'referrer-policy'
   if (f.title.startsWith('Strict-Transport-Security fehlt')) return 'strict-transport-security'
+  if (f.title.startsWith('Permissions-Policy fehlt')) return 'permissions-policy'
   return null
+}
+
+/**
+ * Antwort 7: Befund von ZAP zur Qualität einer vorhandenen CSP (Regel 10055,
+ * Titel «CSP: Wildcard Directive», «CSP: script-src unsafe-inline» …; ältere
+ * ZAP-Versionen «CSP Scanner: …»). Bleibt ein ZAP-Befund; die Aktion führt
+ * zum CSP-Ablauf (Report-Only, Vorschlag aus den Meldungen). Die fehlende
+ * CSP (10038) meldet der eigene Header-Check, nicht ZAP.
+ */
+export function isCspQualityFinding(f: { tool: string; title: string }): boolean {
+  return f.tool === 'zap' && /^CSP(?: Scanner)?\s*:/i.test(f.title.trim())
 }
 
 /** Werte prüfen: keine Zeilenumbrüche (Header-Injection), vernünftige Länge. */
@@ -93,6 +110,10 @@ export function headerValueProblem(header: HeaderKey, value: string, mode: Heade
       if (/preload/i.test(value)) return 'preload setzt Airlock nicht: das lässt sich kaum rückgängig machen'
       return null
     }
+    case 'permissions-policy':
+      if (mode !== 'enforce') return 'Permissions-Policy kennt keinen Report-Only-Modus'
+      // Liste aus «funktion=(…)», durch Komma getrennt: camera=(), geolocation=(self)
+      return /^[a-z-]+=\([^()]*\)(\s*,\s*[a-z-]+=\([^()]*\))*$/i.test(value) ? null : 'Form: camera=(), geolocation=(self)'
   }
 }
 

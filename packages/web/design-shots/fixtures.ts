@@ -7,9 +7,9 @@
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
-  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
 } from '@airlock/shared'
-import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
+import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -404,10 +404,12 @@ export const deployLog = [
 
 export function health(id: string): ProjectHealthDto {
   const failed = id === 'p-wetter'
+  // Antwort 8: Bildarchiv (Speichergrenze 512 MB) läuft mit der alten Fassung knapp unter der Grenze
+  const tight = id === 'p-fehler-oom'
   const samples = Array.from({ length: 60 }, (_, i) => ({
     at: new Date(Date.now() - (59 - i) * MIN).toISOString(),
     cpu: Math.round((0.12 + 0.08 * Math.sin(i / 5) + (i > 44 && i < 50 ? 0.35 : 0)) * 100) / 100,
-    memMb: Math.round(310 + 40 * Math.sin(i / 9) + i * 1.2),
+    memMb: tight ? Math.round(402 + i * 1.5 + 8 * Math.sin(i / 4)) : Math.round(310 + 40 * Math.sin(i / 9) + i * 1.2),
   }))
   return {
     kind: 'compose',
@@ -416,6 +418,115 @@ export function health(id: string): ProjectHealthDto {
       ? { at: ago(13 * MIN), ok: false, status: null, error: 'connect ECONNREFUSED 172.20.0.4:8080', ms: 60_000, url: 'http://wetterstation:8080/health', port: 8080 }
       : { at: ago(40_000), ok: true, status: 200, error: null, ms: 41, url: 'http://fotoalbum:8080/health', port: 8080 },
     samples: failed ? [] : samples,
+  }
+}
+
+/* --- Reiter «Aufbau» (wie GET /projects/:id/topology) ------------------------------- */
+
+const LAN_IP = '192-168-0-31'
+type Topo = import('@airlock/shared').TopologyDto
+type TopoHost = Topo['hosts'][number]
+type TopoService = Topo['services'][number]
+
+const way = (w: 'public' | 'tailnet' | 'lan', on: boolean, detail: string | null, paused = false): Topo['access'][number] => ({ id: `way:${w}`, way: w, on, paused, detail })
+const host = (hostname: string, o: Partial<TopoHost> = {}): TopoHost => ({
+  id: `host:${hostname}`, hostname, url: `https://${hostname}`, ways: ['tailnet', 'lan'], fallback: false, headers: 4, tls: 'https', tlsProblem: null, accessProtected: false, paused: false, service: null, ...o,
+})
+const svc = (name: string, o: Partial<TopoService> = {}): TopoService => ({
+  id: `svc:${name}`, name, image: null, port: null, state: 'running', health: null, exitCode: null, version: null, web: false, oneShot: false, database: null, usage: null, volumes: [], ...o,
+})
+const nip = (slug: string, service: string): TopoHost => host(`${slug}.${LAN_IP}.nip.io`, { url: `http://${slug}.${LAN_IP}.nip.io`, ways: ['lan'], fallback: true, tls: 'http', service })
+/** Linien wie der Server: Zugang → Host, Host → Dienst; aus = gestrichelt */
+const routeEdges = (access: Topo['access'], hosts: TopoHost[], up: boolean): Topo['edges'] => {
+  const out: Topo['edges'] = []
+  const main = hosts.find((h) => !h.fallback && !h.ways.includes('public'))
+  for (const a of access) {
+    const reached = hosts.filter((h) => h.ways.includes(a.way))
+    if (reached.length) for (const h of reached) out.push({ from: a.id, to: h.id, on: a.on && !h.paused, via: 'route' })
+    else if (main) out.push({ from: a.id, to: main.id, on: false, via: 'route' })
+  }
+  for (const h of hosts) if (h.service) out.push({ from: h.id, to: h.service, on: up && !h.paused, via: 'route' })
+  return out
+}
+
+export function topology(id: string): Topo {
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const limits = { cpu: p.cpuLimit, memoryMb: p.memoryLimitMb }
+  const lanCidr = '192.168.0.0/24'
+  const tailCidr = '100.64.0.0/10'
+  if (id === 'p-foto') {
+    // Compose: Web, Worker, Postgres; Fotos-Volume geteilt, Daten der Datenbank im eigenen Volume
+    const access = [way('public', false, null), way('tailnet', true, tailCidr), way('lan', true, lanCidr)]
+    const hosts = [host('fotoalbum.int.example.ch', { headers: 5, service: 'svc:web' }), nip('fotoalbum', 'svc:web')]
+    const services = [
+      svc('web', { image: 'airlock/fotoalbum-web:a3f9c21d0be4', port: 8080, health: 'healthy', version: 'a3f9c21d0be4', web: true, usage: { cpu: 0.04, memMb: 160 }, volumes: ['vol:fotos'] }),
+      svc('worker', { image: 'ghcr.io/example/fotoalbum-worker:1.4', version: '1.4', usage: { cpu: 0.04, memMb: 96 }, volumes: ['vol:fotos'] }),
+      svc('db', { image: 'postgres:16-alpine', port: 5432, version: '16-alpine', database: 'postgres', usage: { cpu: 0.01, memMb: 220 }, volumes: ['vol:pgdata'] }),
+    ]
+    return {
+      kind: 'compose', access, hosts, services, main: 'svc:web', limits,
+      volumes: [
+        { id: 'vol:fotos', name: 'fotos', mountPath: '/srv/fotos', sizeBytes: null, usedBy: ['svc:web', 'svc:worker'], paths: { 'svc:web': '/srv/fotos', 'svc:worker': '/data' } },
+        { id: 'vol:pgdata', name: 'pgdata', mountPath: '/var/lib/postgresql/data', sizeBytes: null, usedBy: ['svc:db'], paths: { 'svc:db': '/var/lib/postgresql/data' } },
+      ],
+      edges: [
+        ...routeEdges(access, hosts, true),
+        { from: 'svc:web', to: 'svc:db', on: true, via: 'depends_on' },
+        { from: 'svc:worker', to: 'svc:db', on: true, via: 'depends_on' },
+        { from: 'svc:web', to: 'vol:fotos', on: true, via: 'mount' },
+        { from: 'svc:worker', to: 'vol:fotos', on: true, via: 'mount' },
+        { from: 'svc:db', to: 'vol:pgdata', on: true, via: 'mount' },
+      ],
+    }
+  }
+  if (p.runtimeKind === 'static') {
+    // Statische Seite: Caddy liefert aus; Vereinsseite öffentlich pausiert, nur im Tailnet
+    const pub = p.routes.find((r) => r.target === 'public')
+    const internal = p.routes.find((r) => r.target !== 'public')!
+    const ways = (internal.targets ?? [internal.target]) as ('tailnet' | 'lan')[]
+    const access = [
+      way('public', Boolean(pub) && !pub?.pausedAt, pub ? (pub.accessProtected ? 'Cloudflare Access' : 'Cloudflare Tunnel') : null, Boolean(pub?.pausedAt)),
+      way('tailnet', ways.includes('tailnet'), tailCidr), way('lan', ways.includes('lan'), lanCidr),
+    ]
+    const s = `svc:${p.slug}`
+    const hosts = [
+      ...(pub ? [host(pub.hostname, { ways: ['public'], tls: 'cloudflare', paused: Boolean(pub.pausedAt), accessProtected: Boolean(pub.accessProtected), headers: 3, service: s })] : []),
+      host(internal.hostname, { ways, headers: 3, service: s }),
+    ]
+    return {
+      kind: 'static', access, hosts, main: s, limits, volumes: [],
+      services: [svc(p.slug, { state: 'static', version: p.activeDeployment?.version ?? null, web: true })],
+      edges: routeEdges(access, hosts, true),
+    }
+  }
+  // Ein Container (Image oder Dockerfile)
+  const failed = id === 'p-wetter'
+  const stopped = p.desiredState !== 'running'
+  const pub = p.routes.find((r) => r.target === 'public')
+  const internal = p.routes.find((r) => r.target !== 'public')!
+  const s = `svc:${p.slug}`
+  const access = [
+    way('public', Boolean(pub) && !pub?.pausedAt, pub ? (pub.accessProtected ? 'Cloudflare Access' : 'Cloudflare Tunnel') : null, Boolean(pub?.pausedAt)),
+    way('tailnet', true, tailCidr), way('lan', true, lanCidr),
+  ]
+  const hosts = [
+    ...(pub ? [host(pub.hostname, { ways: ['public'], tls: 'cloudflare', accessProtected: Boolean(pub.accessProtected), headers: 4, service: s })] : []),
+    host(internal.hostname, { service: s }),
+    nip(p.slug, s),
+  ]
+  const image = (p.source as { image?: string } | null)?.image ?? null
+  const withData = id === 'p-haushalt'
+  return {
+    kind: p.runtimeKind, access, hosts, main: s, limits,
+    services: [svc(p.slug, {
+      image, port: p.port, web: true,
+      version: p.runtimeKind === 'dockerfile' ? p.activeDeployment?.version ?? null : image?.split(':').at(-1) ?? null,
+      state: failed ? 'exited' : stopped ? 'stopped' : 'running', exitCode: failed ? 1 : null,
+      usage: failed || stopped ? null : { cpu: 0.12, memMb: 318 },
+      volumes: withData ? ['vol:haushalt-daten'] : [],
+    })],
+    volumes: withData ? [{ id: 'vol:haushalt-daten', name: 'haushalt-daten', mountPath: '/data', sizeBytes: null, usedBy: [s], paths: { [s]: '/data' } }] : [],
+    edges: [...routeEdges(access, hosts, !failed && !stopped), ...(withData ? [{ from: s, to: 'vol:haushalt-daten', on: true, via: 'mount' as const }] : [])],
   }
 }
 
@@ -501,6 +612,25 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
 }
 
 /** Befunde des letzten abgeschlossenen Scans je Projekt */
+/** Antwort 7: ZAP-Befund zur Qualität der CSP (Regel 10055) – nur in der Szene «security-csp-qualitaet» */
+export const cspQualityFinding: FindingDto = {
+  id: 'f10', tool: 'zap', severity: 'medium', title: 'CSP: Failure to Define Directive with No Fallback', location: 'https://kontoauszug-reader.int.example.ch/',
+  description: 'Die Content-Security-Policy legt frame-ancestors nicht fest; für diese Direktive gilt default-src nicht.',
+  fix: 'Die fehlende Direktive in der CSP ergänzen.', status: 'open', acceptReason: null,
+}
+
+/** Bericht mit dem CSP-Befund von ZAP (Zählung und Stufe passend) */
+export function withCspQuality(r: ScanReportDto): ScanReportDto {
+  const all = [...r.findings, cspQualityFinding]
+  const zap = r.scan.stages['zap-baseline']
+  return {
+    ...r,
+    scan: { ...r.scan, stages: zap ? { ...r.scan.stages, 'zap-baseline': { ...zap, findings: (zap.findings ?? 0) + 1 } } : r.scan.stages },
+    counts: countOpenFindings(all),
+    findings: all,
+  }
+}
+
 function findingsFor(id: string): FindingDto[] {
   return id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
 }
@@ -677,7 +807,12 @@ export function audit(targetId?: string): AuditEventDto[] {
     [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
     [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
     [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
-    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Umgebungsvariable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
+    // Antwort 11: Benachrichtigungen als Ereignisse (Glocke)
+    [13 * MIN + 29_000, 'system', 'notify.deploy_failed', 'p-wetter', 'ok', null, { title: 'Deploy fehlgeschlagen: Wetterstation', body: 'Umgebungsvariable SENSOR_URL fehlt (Healthcheck nicht bestanden)\nDie vorherige Fassung läuft weiter.' }],
+    [50 * MIN, 'system', 'notify.gateway_warning', 'notify', 'ok', null, { title: 'Anfragen über das Docker-Gateway', body: 'In den letzten 30 Minuten kamen 9 von 14 fremden Anfragen auf Airlock von 172.20.0.1.' }],
+    [3 * HOUR - 1_000, 'system', 'notify.finding_critical', 'p-kontoauszug', 'ok', null, { title: '1 neuer kritischer Befund: Kontoauszug-Reader', body: '• Veraltete Bibliothek mit bekannter Lücke (package-lock.json)' }],
+    [6 * HOUR, 'system', 'notify.expiry', H, 'ok', null, { title: 'hallo-welt läuft am 18.11.2026 ab', body: 'Ohne Änderung wird das Chat-Projekt am 18.11.2026 gestoppt.' }],
     [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
     [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
     [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],
@@ -796,7 +931,39 @@ export const cloudflare: CfStatusDto = {
   publicProjects: 0,
 }
 
-export const domains: { domains: DomainDto[]; publicEnabled: boolean } = { domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }], publicEnabled: false }
+export const domains: { domains: DomainDto[]; publicEnabled: boolean } = { domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }], publicEnabled: true }
+
+/** Umgebung mit zwei Zonen (Auswahl der Domain im Feld «Öffentliche Adresse») */
+export const domainsTwo: { domains: DomainDto[]; publicEnabled: boolean } = {
+  domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }, { id: 'd4', name: 'example.org', zoneId: 'z4', isDefault: false }],
+  publicEnabled: true,
+}
+
+/**
+ * Prüfung eines öffentlichen Namens (GET …/public/check), wie die API:
+ * reserviert (int, deployer, airlock, acme-probe …), in Airlock vergeben
+ * (öffentliche Routen der Fixtures), fremder DNS-Eintrag («alt»), Worker
+ * bzw. Custom Domain (direkt unter example.org), sonst frei.
+ */
+export function publicCheck(projectId: string | null, name: string, zone: string, apex: boolean): PublicNameCheckDto {
+  const zones = domainsTwo.domains.map((d) => d.name)
+  const label = apex ? '' : normalizePublicLabel(name)
+  const host = apex ? zone : label ? `${label}.${zone}` : null
+  const out: PublicNameCheckDto = { host, label, zone, apex, zones, problems: [], existing: null }
+  if (!host) return { ...out, problems: [{ kind: 'format', message: 'Gib einen Namen an, z.B. solar' }] }
+  if (!apex && (RESERVED_PUBLIC_LABELS as readonly string[]).includes(label)) out.problems.push({ kind: 'reserved', message: `«${label}» ist reserviert` })
+  const owner = allProjects.find((p) => p.routes.some((r) => r.target === 'public' && r.hostname === host))
+  if (owner && owner.id !== projectId) out.problems.push({ kind: 'taken', message: `${host} ist in Airlock schon vergeben` })
+  if (label === 'alt') {
+    out.existing = { type: 'CNAME', content: 'alter-server.example.net', worker: false }
+    out.problems.push({ kind: 'dns', message: `Für ${host} gibt es bei Cloudflare schon einen Eintrag (CNAME → alter-server.example.net), der nicht von Airlock stammt` })
+  }
+  if (apex && zone === 'example.org') {
+    out.existing = { type: 'AAAA', content: '100::', worker: true }
+    out.problems.push({ kind: 'dns', message: `Für ${host} gibt es bei Cloudflare schon einen Worker bzw. eine Custom Domain` })
+  }
+  return out
+}
 
 export const notifications: NotifySettingsDto = {
   ntfy: { url: 'https://ntfy.sh', topic: 'heimserver-7f3a', hasToken: false },
@@ -810,6 +977,7 @@ export const notifications: NotifySettingsDto = {
     infra_problem: { push: true, email: false },
     expiry: { push: false, email: false },
     weekly_summary: { push: false, email: false },
+    gateway_warning: { push: false, email: false },
   },
 }
 
@@ -854,6 +1022,8 @@ export function logLines(id: string, service: string | null): import('@airlock/s
   const compose = id === 'p-foto'
   // Wetterstation: in der Zeitspanne still (leerer Zustand)
   if (id === 'p-wetter') return { lines: [], services: [], hint: null }
+  // Notizen ist gestoppt: kein laufender Container (wie der Server)
+  if (id === 'p-notizen') return { lines: [], services: [], hint: 'Kein laufender Container – es gibt noch keine Ausgabe.' }
   const rows: [number, string | null, string][] = [
     [14 * MIN, 'db', 'LOG:  database system is ready to accept connections'],
     [14 * MIN - 2_000, 'web', 'Server listening at http://0.0.0.0:8080'],

@@ -103,6 +103,11 @@ export function actorLabel(actor: string): string {
 /** Ton eines Audit-Eintrags für den Punkt in der Aktivitätsliste. */
 export function auditTone(e: AuditEventDto): 'ok' | 'bad' | 'info' | 'warn' | 'none' {
   if (e.result === 'error') return 'bad'
+  // Benachrichtigungen (Glocke): Farbregel wie überall – kritisch und hoch rot (UI-Qualität 7)
+  if (e.action.startsWith('notify.')) {
+    if (/deploy_failed|infra_problem|finding_critical|finding_high/.test(e.action)) return 'bad'
+    return e.action === 'notify.project_public' ? 'ok' : 'warn'
+  }
   if (/deploy|rollback/.test(e.action)) return 'info'
   if (/scan|finding|expir|verification_lost/.test(e.action)) return 'warn'
   if (/create|start|public|verify/.test(e.action)) return 'ok'

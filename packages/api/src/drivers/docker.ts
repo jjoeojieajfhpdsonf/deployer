@@ -567,6 +567,35 @@ export async function listManagedContainers(): Promise<ManagedContainer[]> {
   return out
 }
 
+/**
+ * Reiter «Aufbau»: alle Container eines Projekts (auch gestoppte, auch aus
+ * der deployer-Zeit) mit Image, Zustand, eingehängten benannten Volumes und
+ * Ports im Container. Nur GET /containers/json – nichts, was der
+ * Socket-Proxy nicht ohnehin erlaubt.
+ */
+export async function listProjectContainers(slug: string): Promise<{
+  id: string; service: string | null; image: string; state: string; status: string
+  mounts: { name: string; destination: string }[]; ports: number[]
+}[]> {
+  const [current, old] = await Promise.all([
+    docker.listContainers({ all: true, filters: { label: [`${LABEL_MANAGED}=true`, `${LABEL_PROJECT}=${slug}`] } }),
+    docker.listContainers({ all: true, filters: { label: [`${LEGACY_LABEL_NS}.managed=true`, `${LEGACY_LABEL_NS}.project=${slug}`] } }),
+  ])
+  const seen = new Set<string>()
+  const out = []
+  for (const c of [...current, ...old]) {
+    if (seen.has(c.Id)) continue
+    seen.add(c.Id)
+    const { labels } = normalizeLabels(c.Labels ?? {})
+    const mounts = (c.Mounts ?? [])
+      .filter((m) => m.Type === 'volume' && m.Name)
+      .map((m) => ({ name: m.Name!, destination: m.Destination }))
+    const ports = [...new Set((c.Ports ?? []).map((p) => p.PrivatePort).filter((p) => Number.isInteger(p) && p > 0))].sort((a, b) => a - b)
+    out.push({ id: c.Id, service: labels[LABEL.composeService] ?? null, image: c.Image, state: c.State, status: c.Status, mounts, ports })
+  }
+  return out
+}
+
 /** Volumes eines Compose-Projekts (Label com.docker.compose.project). */
 export async function listComposeVolumes(composeProject: string): Promise<{ name: string; volume: string | null }[]> {
   const res = (await docker.listVolumes({

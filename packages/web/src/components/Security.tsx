@@ -8,9 +8,10 @@ import { relativeTime, duration } from '../lib/format.js'
 import { poll } from '../lib/live.js'
 import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
-import { IconBad, IconPending, IconSkipped } from './Icons.js'
+import { IconBad, IconPending, IconSkipped, IconWarn } from './Icons.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
+import { InlineConfirm } from './Confirm.js'
 
 /**
  * Ergebnis eines Scans: Note, Score, offene Befunde, Stufen, Zeit. Wird am
@@ -41,7 +42,8 @@ const IconFailed = IconBad
 const IconWaiting = IconPending
 const IconRunning = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" opacity=".35" /><path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2" /></svg>
 const IconTimeout = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8V8l2.2 1.6" /></svg>
-export const IconWarn = () => <svg {...svg}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>
+// Antwort 4: alle Zeichen nur in Icons.tsx; hier weitergereicht für die bisherigen Importe
+export { IconWarn }
 
 /** Note und Score auf einer Linie: «A  90 / 100» */
 export function GradeBadge({ grade, score }: { grade: string | null; score: number | null }) {
@@ -233,13 +235,10 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
         {!confirm ? (
           <button type="button" className="button-small" onClick={() => setConfirm(true)} disabled={cancel.isPending}>Scan abbrechen</button>
         ) : (
-          <span className="confirm-inline" role="group" aria-label="Scan abbrechen bestätigen">
-            <span className="confirm-note">Befunde dieses Laufs werden nicht gewertet.</span>
-            <button type="button" className="button-small" onClick={() => setConfirm(false)}>Weiterlaufen lassen</button>
-            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} aria-busy={cancel.isPending || undefined} autoFocus>
-              Ja, abbrechen
-            </button>
-          </span>
+          <InlineConfirm label="Scan abbrechen bestätigen" small tone="primary"
+            note="Befunde dieses Laufs werden nicht gewertet." noteIcon={false}
+            cancelLabel="Weiterlaufen lassen" confirmLabel="Ja, abbrechen" busy={cancel.isPending}
+            onCancel={() => setConfirm(false)} onConfirm={() => cancel.mutate()} />
         )}
       </div>
       <div aria-live="polite"><ScanHead s={s} now={now} /></div>
@@ -476,10 +475,8 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
             <IconWarn /> Aktiver Scan
           </button>
         ) : (
-          <span className="confirm-inline" role="group" aria-label="Aktiven Scan bestätigen">
-            <button onClick={() => setConfirmActive(false)}>Abbrechen</button>
-            <button className="button-danger-solid" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
-          </span>
+          <InlineConfirm label="Aktiven Scan bestätigen" confirmLabel="Ja, aktiv angreifen" disabled={start.isPending}
+            onCancel={() => setConfirmActive(false)} onConfirm={() => start.mutate('active')} />
         )}
         <p className="scan-actions-hint">
           <strong>Aktiver Scan</strong> greift die App mit OWASP ZAP aktiv an (XSS, SQL-Injection) und kann dabei Daten anlegen oder ändern. Nur der interne Container, nie über das Internet.

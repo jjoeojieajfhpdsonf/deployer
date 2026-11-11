@@ -14,9 +14,17 @@ export const IconPlus = ({ size, className }: P) => (
 export const IconAlert = ({ size = 20, className }: P) => (
   <svg {...base(size)} viewBox="0 0 16 16" className={className}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.6M8 10.9v.1" /></svg>
 )
-/** Warnung (Dreieck) – zu einer Warnung gehört immer auch das Wort */
+/** Warnung (abgerundetes Dreieck) – zu einer Warnung gehört immer auch das Wort */
 export const IconWarn = ({ size = 14, className }: P) => (
-  <svg {...base(size)} className={className}><path d="M8 2.2 14.3 13H1.7Z" /><path d="M8 6.4v3M8 11.3v.1" /></svg>
+  <svg {...base(size)} className={className}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>
+)
+/** Haken ohne Kreis (aktive Fassung, «kopiert») */
+export const IconCheck = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="m3.5 8.5 3 3 6-7" /></svg>
+)
+/** Pfeil nach oben – Spiegelbild von IconDownload (neue Fassung, Update verfügbar) */
+export const IconUp = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 )
 /* Ergebnis einer Prüfung: im Kreis, gemeinsam für Übersicht und Cloudflare-Assistent */
 export const IconOk = ({ size, className }: P) => (
@@ -78,7 +86,7 @@ export const IconTarget =({ size, className }: P) => (
   <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.5" /></svg>
 )
 export const IconKey = ({ size, className }: P) => (
-  <svg {...base(size)} className={className}><circle cx="5.5" cy="10.5" r="3" /><path d="m7.6 8.4 5.4-5.4M11 4.9l1.6 1.6M9.4 6.5l1.2 1.2" /></svg>
+  <svg {...base(size)} className={className}><circle cx="5.5" cy="10.5" r="3" /><path d="m7.6 8.4 5.9-5.9M11.5 4.5l1.6 1.6" /></svg>
 )
 export const IconList = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" /></svg>

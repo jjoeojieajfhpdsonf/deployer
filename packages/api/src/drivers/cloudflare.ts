@@ -233,9 +233,15 @@ export async function upsertManagedRecord(
   cf: Cloudflare,
   zoneId: string,
   want: Omit<DnsRecord, 'id' | 'comment'>,
+  /** Fremden Eintrag ersetzen – nur nach ausdrücklicher Bestätigung (Veröffentlichen: «Übernehmen») */
+  opts: { takeOver?: boolean } = {},
 ): Promise<{ record: DnsRecord; action: 'created' | 'updated' | 'unchanged' }> {
-  const existing = (await cf.listRecords(zoneId, want.name)).filter((r) => ['A', 'AAAA', 'CNAME'].includes(r.type))
+  let existing = (await cf.listRecords(zoneId, want.name)).filter((r) => ['A', 'AAAA', 'CNAME'].includes(r.type))
   const body = { ...want, comment: MANAGED_COMMENT }
+  if (opts.takeOver) {
+    for (const r of existing.filter((x) => !isManagedComment(x.comment))) await cf.deleteRecord(zoneId, r.id)
+    existing = existing.filter((x) => isManagedComment(x.comment))
+  }
   if (existing.length === 0) return { record: await cf.createRecord(zoneId, body), action: 'created' }
   const foreign = existing.find((r) => !isManagedComment(r.comment))
   if (foreign) {

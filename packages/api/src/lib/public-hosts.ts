@@ -20,7 +20,7 @@ const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
  */
 export function resolvePublicHostname(
   input: { subdomain?: string; hostname?: string },
-  o: { zones: Zone[]; defaultZone: string | null; internalBaseDomain: string | null; reservedLabels: readonly string[] },
+  o: { zones: Zone[]; defaultZone: string | null; internalBaseDomain: string | null; reservedLabels: readonly string[]; allowApex?: boolean },
 ): { hostname: string; zone: Zone } {
   let host: string
   if (input.hostname) host = input.hostname.trim().toLowerCase().replace(/\.$/, '')
@@ -35,7 +35,11 @@ export function resolvePublicHostname(
   if (b && (host === b || host.endsWith(`.${b}`))) throw new PublicHostError(`"${host}" liegt unter der internen Basisdomain und kann nicht öffentlich sein`)
   const zone = zoneFor(host, o.zones)
   if (!zone) throw new PublicHostError(`"${host}" gehört zu keiner Zone dieses Cloudflare-Kontos`)
-  if (host === zone.name.toLowerCase()) throw new PublicHostError(`Die Zone selbst (${host}) ist kein Projektname; bitte eine Subdomain wählen`)
+  // Direkt unter der Zone (apex) nur ausdrücklich (Schalter «Direkt unter <zone>»)
+  if (host === zone.name.toLowerCase()) {
+    if (o.allowApex) return { hostname: host, zone }
+    throw new PublicHostError(`Die Zone selbst (${host}) ist kein Projektname; bitte eine Subdomain wählen oder ausdrücklich «direkt unter ${host}»`)
+  }
   const sub = host.slice(0, -(zone.name.length + 1))
   if (sub.includes('.')) throw new PublicHostError(`"${host}" liegt mehr als eine Ebene unter ${zone.name}; das Zertifikat von Cloudflare deckt nur eine`)
   if (o.reservedLabels.includes(sub)) throw new PublicHostError(`"${sub}" ist reserviert`)

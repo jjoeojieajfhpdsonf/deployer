@@ -4,8 +4,9 @@ import { cfDomainsSchema, cfTokenSchema } from '@airlock/shared'
 import { api, ApiError, type CfStatusDto, type CfTokenCheckDto } from '../api.js'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
-import { IconBad, IconExternal, IconOk, IconPending, IconSkipped } from './Icons.js'
+import { IconBad, IconExternal, IconOk, IconPending, IconSkipped, IconUp } from './Icons.js'
 import { ErrorState, Loading, SkCard } from './States.js'
+import { ConfirmDialog, InlineConfirm } from './Confirm.js'
 import { MUTATION_TUNNEL } from '../lib/activities.js'
 import { relativeTime } from '../lib/format.js'
 import { FALLBACK_MS } from '../lib/live.js'
@@ -19,7 +20,6 @@ import { dateOf, fmtDate, fmtTime, msOf } from '../lib/dates.js'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconOptional = IconSkipped
-const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 
 /* M9: Die Bausteine nutzt auch der Assistent «Umgebung anlegen» (pages/NewEnvironment.tsx). */
 /** skipped: bewusst ausgelassen (Tunnel) – neutral, kein Haken, kein Fehler (UI-Qualität 6) */
@@ -319,7 +319,7 @@ export function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved:
         </select>
       </Field>
 
-      <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: Airlock legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall mit Tailscale.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
+      <Field id={v.idFor('tailscaleIp')} label="Tailnet-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: Airlock legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall im Tailnet.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
         <input {...v.field('tailscaleIp', `${v.idFor('tailscaleIp')}-hint`)} value={tailscaleIp} onChange={(x) => setTailscaleIp(x.target.value)} placeholder="100.101.102.103" inputMode="decimal" spellCheck={false} />
       </Field>
 
@@ -409,11 +409,10 @@ function CloudflaredVersion({ s, onChanged }: { s: CfStatusDto; onChanged: (s: C
         <button type="button" className="button-small" onClick={() => setConfirm(true)}>Auf {t.latestVersion} aktualisieren</button>
       )}
       {t.updateAvailable && confirm && (
-        <span className="confirm-inline" role="group" aria-label="Update bestätigen">
-          <span className="cf-meta-inline">Der Tunnel ist dabei einige Sekunden unterbrochen.</span>
-          <button type="button" className="button-small button-primary" onClick={() => update.mutate()} disabled={update.isPending} aria-busy={update.isPending || undefined} autoFocus>Jetzt aktualisieren</button>
-          <button type="button" className="button-small" onClick={() => setConfirm(false)}>Abbrechen</button>
-        </span>
+        <InlineConfirm label="Update bestätigen" small tone="primary"
+          note="Der Tunnel ist dabei einige Sekunden unterbrochen." noteIcon={false} noteClassName="cf-meta-inline"
+          confirmLabel="Jetzt aktualisieren" busy={update.isPending}
+          onCancel={() => setConfirm(false)} onConfirm={() => update.mutate()} />
       )}
       {!t.managed && t.updateAvailable && <span className="cf-meta-inline">Läuft aus compose.public.yaml – dort das Image anpassen.</span>}
     </div>
@@ -518,7 +517,8 @@ export function CertSummary({ s }: { s: CfStatusDto }) {
 
 function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void; onReplaceToken: () => void }) {
   const [confirm, setConfirm] = useState(false)
-  const disconnect = useMutation({ meta: { errorTitle: 'Cloudflare nicht getrennt', noRetry: true }, mutationFn: api.cloudflareDisconnect, onSuccess: (st) => { setConfirm(false); onChanged(st) } })
+  // Fehler zeigt der Dialog selbst (quiet), dort bleibt er offen
+  const disconnect = useMutation({ meta: { errorTitle: 'Cloudflare nicht getrennt', noRetry: true, quiet: true }, mutationFn: api.cloudflareDisconnect, onSuccess: (st) => { setConfirm(false); onChanged(st) } })
   return (
     <section className="cf-manage" aria-labelledby="cf-manage-title">
       <h3 id="cf-manage-title">Verbindung</h3>
@@ -537,15 +537,19 @@ function Manage({ s, onChanged, onReplaceToken }: { s: CfStatusDto; onChanged: (
             {s.publicProjects > 0 && <> <strong>Erst möglich, wenn kein Projekt mehr öffentlich ist ({s.publicProjects}).</strong></>}
           </p>
         </div>
-        {confirm ? (
-          <span className="confirm-inline" role="group" aria-label="Trennen bestätigen">
-            <button type="button" onClick={() => setConfirm(false)}>Abbrechen</button>
-            <button type="button" className="button-danger-solid" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} aria-busy={disconnect.isPending || undefined} autoFocus>Ja, trennen</button>
-          </span>
-        ) : (
-          <button type="button" className="button-danger" onClick={() => setConfirm(true)} disabled={s.publicProjects > 0}>Trennen</button>
-        )}
+        <button type="button" className="button-danger" onClick={() => { disconnect.reset(); setConfirm(true) }} disabled={s.publicProjects > 0}>Trennen …</button>
       </div>
+      <ConfirmDialog
+        open={confirm}
+        title="Cloudflare trennen?"
+        confirmLabel="Ja, trennen"
+        busy={disconnect.isPending}
+        error={disconnect.isError ? (disconnect.error as Error).message : null}
+        onCancel={() => setConfirm(false)}
+        onConfirm={() => disconnect.mutate()}
+      >
+        <p>Stoppt cloudflared, löscht den Tunnel bei Cloudflare und vergisst das Token. Interne Adressen laufen danach über http; die Basisdomain bleibt.</p>
+      </ConfirmDialog>
     </section>
   )
 }

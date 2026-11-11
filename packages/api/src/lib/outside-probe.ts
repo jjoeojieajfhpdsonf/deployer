@@ -54,7 +54,7 @@ export function classify(o: Observation, expect: Expect, opts: { access?: boolea
   // live
   if (o.maintenance) return { ...base, ok: false, final: false, message: 'Es kommt noch die Wartungsseite.' }
   if (opts.access && (s === 302 || s === 303) && /cloudflareaccess\.com/.test(o.location ?? '')) {
-    return { ...base, ok: true, final: true, message: 'Erreichbar – Cloudflare Access fragt zuerst nach dem Login.' }
+    return { ...base, ok: true, final: true, message: 'Erreichbar – Cloudflare Access verlangt zuerst eine Anmeldung.' }
   }
   if (s >= 530 || (s >= 520 && s <= 527)) return { ...base, ok: false, final: false, message: `Cloudflare erreicht den Tunnel noch nicht (HTTP ${s}).` }
   if (s === 404 && o.body?.startsWith(CADDY_404)) return { ...base, ok: false, final: false, message: 'Caddy kennt den Namen noch nicht (HTTP 404).' }

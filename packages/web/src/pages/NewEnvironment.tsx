@@ -213,7 +213,7 @@ function DnsStep({ base, tailscaleIp, onDone }: { base: string | null; tailscale
       <ul className="check-list">
         <li className={tailscaleIp ? 'check-ok' : 'check-none'}>
           <span className="check-name">Tailnet</span>
-          <span className="check-detail">{tailscaleIp ? `*.${base} → ${tailscaleIp} bei Cloudflare gesetzt (nicht proxied)` : 'keine Tailscale-IP bekannt – unterwegs nicht erreichbar'}</span>
+          <span className="check-detail">{tailscaleIp ? `*.${base} → ${tailscaleIp} bei Cloudflare gesetzt (nicht proxied)` : 'keine Tailnet-IP bekannt – unterwegs nicht erreichbar'}</span>
         </li>
         <li className={!d ? 'check-none' : d.ok ? 'check-ok' : 'check-fail'}>
           <span className="check-name">Lokaler DNS</span>

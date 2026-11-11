@@ -8,13 +8,14 @@ import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { PausePageSettings } from '../components/PausePageSettings.js'
 import { Field } from '../components/Field.js'
-import { IconWarn } from '../components/Icons.js'
+import { ConfirmDialog, InlineConfirm } from '../components/Confirm.js'
 import { useEnv, useEnvPath } from '../lib/env.js'
 import { copyText } from '../lib/clipboard.js'
 import { Domains } from './Domains.js'
 import { ScrollToHash } from './System.js'
+import { Tokens } from './Tokens.js'
 
-export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards'
+export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards' | 'tokens'
 
 /**
  * M9: Einstellungen der Umgebung (SPEC «Umgebungen»). Allgemein (Name,
@@ -30,12 +31,17 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
     { key: 'allgemein', to: ep('/einstellungen'), label: 'Allgemein' },
     { key: 'cloudflare', to: ep('/einstellungen/cloudflare'), label: 'Cloudflare & HTTPS' },
     { key: 'standards', to: ep('/einstellungen/standards'), label: 'Standards' },
+    // Antwort 9: Tokens gehören zur Umgebung (seit M9)
+    { key: 'tokens', to: ep('/einstellungen/tokens'), label: 'Tokens' },
   ]
   const current = tabs.find((t) => t.key === section)!
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'allgemein' ? [{ label: 'Einstellungen' }] : [{ label: 'Einstellungen', to: ep('/einstellungen') }, { label: current.label }]}
+        crumbs={section === 'allgemein' ? [{ label: 'Einstellungen' }]
+          // Antwort 9: «Airlock › <Umgebung> › Tokens»
+          : section === 'tokens' ? [{ label: env.name, to: ep('/einstellungen') }, { label: 'Tokens' }]
+          : [{ label: 'Einstellungen', to: ep('/einstellungen') }, { label: current.label }]}
         title="Einstellungen"
         name={section === 'allgemein' ? 'Einstellungen' : current.label}
       />
@@ -68,6 +74,7 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
           <PausePageSettings />
         </>
       )}
+      {section === 'tokens' && <Tokens />}
     </section>
   )
 }
@@ -98,7 +105,9 @@ function General({ env }: { env: EnvironmentDto }) {
   })
   const [confirmDefault, setConfirmDefault] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Löschen im modalen Dialog; Fehler zeigt der Dialog selbst (quiet)
   const remove = useMutation({
+    meta: { errorTitle: 'Umgebung nicht gelöscht', noRetry: true, quiet: true },
     mutationFn: () => api.deleteEnvironment(env.slug),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['environments'] })
@@ -144,11 +153,10 @@ function General({ env }: { env: EnvironmentDto }) {
             {!confirmDefault ? (
               <button type="button" onClick={() => setConfirmDefault(true)}>Zur Standard-Umgebung machen …</button>
             ) : (
-              <>
-                <span className="confirm-note"><IconWarn /> Die Oberfläche ist danach unter deployer.{env.baseDomain ?? '…'} erreichbar.</span>
-                <button type="button" onClick={() => setConfirmDefault(false)}>Abbrechen</button>
-                <button type="button" className="button-primary" onClick={() => { setConfirmDefault(false); save.mutate({ makeDefault: true }) }} autoFocus>Ja, zum Standard machen</button>
-              </>
+              <InlineConfirm label="Standard-Umgebung bestätigen" tone="primary"
+                note={<> Die Oberfläche ist danach unter deployer.{env.baseDomain ?? '…'} erreichbar.</>}
+                confirmLabel="Ja, zum Standard machen"
+                onCancel={() => setConfirmDefault(false)} onConfirm={() => { setConfirmDefault(false); save.mutate({ makeDefault: true }) }} />
             )}
           </div>
         </fieldset>
@@ -161,17 +169,20 @@ function General({ env }: { env: EnvironmentDto }) {
           <p className="hint" id="env-delete-blocked">{deleteBlocked}</p>
         ) : null}
         <div className="form-actions">
-          {!confirmDelete ? (
-            <button type="button" className="button-danger" onClick={() => setConfirmDelete(true)} disabled={Boolean(deleteBlocked)} aria-describedby={deleteBlocked ? 'env-delete-blocked' : undefined}>Umgebung löschen …</button>
-          ) : (
-            <>
-              <span className="confirm-note"><IconWarn /> «{env.name}» und ihre Tokens werden gelöscht.</span>
-              <button type="button" onClick={() => setConfirmDelete(false)}>Abbrechen</button>
-              <button type="button" className="button-danger-solid" onClick={() => remove.mutate()} disabled={remove.isPending} autoFocus>{remove.isPending ? 'Wird gelöscht…' : 'Ja, löschen'}</button>
-            </>
-          )}
+          <button type="button" className="button-danger" onClick={() => { remove.reset(); setConfirmDelete(true) }} disabled={Boolean(deleteBlocked)} aria-describedby={deleteBlocked ? 'env-delete-blocked' : undefined}>Umgebung löschen …</button>
         </div>
-        {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
+        <ConfirmDialog
+          open={confirmDelete}
+          title={<>Umgebung «{env.name}» löschen?</>}
+          confirmLabel={remove.isPending ? 'Wird gelöscht…' : 'Ja, löschen'}
+          busy={remove.isPending}
+          error={remove.isError ? (remove.error as Error).message : null}
+          typeToConfirm={{ value: env.slug, label: 'Kurzname zur Bestätigung' }}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => remove.mutate()}
+        >
+          <p>«{env.name}» und ihre Tokens werden gelöscht.</p>
+        </ConfirmDialog>
       </section>
     </>
   )
@@ -192,7 +203,7 @@ function NameResolution({ env }: { env: EnvironmentDto }) {
       <ul className="check-list">
         <li className={tailscale ? 'check-ok' : 'check-none'}>
           <span className="check-name">Tailnet</span>
-          <span className="check-detail">{tailscale ? `*.${env.baseDomain} → ${tailscale} (Cloudflare, nicht proxied)` : 'keine Tailscale-IP bekannt (Server → Übersicht)'}</span>
+          <span className="check-detail">{tailscale ? `*.${env.baseDomain} → ${tailscale} (Cloudflare, nicht proxied)` : 'keine Tailnet-IP bekannt (Server → Übersicht)'}</span>
         </li>
         <li className={!d ? 'check-none' : d.ok ? 'check-ok' : 'check-fail'}>
           <span className="check-name">Lokaler DNS</span>
@@ -244,7 +255,7 @@ function HeaderTemplates() {
   return (
     <>
       <h2 className="env-section-title">Header-Vorlagen</h2>
-      <p className="hint">Caddy setzt diese Header für jedes Projekt der Umgebung, solange das Projekt keine eigene Regel hat. Eine Änderung wirkt sofort auf alle, ohne Redeploy. Die Content-Security-Policy bleibt pro Projekt.</p>
+      <p className="hint">Caddy setzt diese Header für jedes Projekt der Umgebung, solange das Projekt keine eigene Regel hat. Eine Änderung wirkt sofort auf alle, ohne neuen Deploy. Die Content-Security-Policy bleibt pro Projekt.</p>
       {q.isLoading ? <p className="state state-loading">Wird geladen…</p> : (
         <div className="table-scroll">
           <table className="table">

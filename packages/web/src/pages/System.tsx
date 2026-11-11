@@ -266,11 +266,11 @@ function NetworkSection({ s }: { s: SystemStatusDto }) {
     <>
       <ul className="check-list">
         <li className={n.tailscaleIp ? 'check-ok' : 'check-fail'}>
-          <span className="check-name">Tailscale (Hauptadresse)</span>
+          <span className="check-name">Tailnet (Hauptadresse)</span>
           <span className="check-detail">
             {n.tailscaleIp
               ? <><code>{n.tailscaleIp}</code> <span className="muted">· {n.tailscaleSource}</span>{n.detectedTailscaleIp && n.detectedTailscaleIp !== n.tailscaleIp ? <span className="warn"> · erkannt wird {n.detectedTailscaleIp}</span> : null}</>
-              : 'keine Tailscale-IP – neue Projekte (Standard: nur Tailnet) sind so nicht erreichbar. Tailscale auf dem Server einrichten (docs/INSTALL.md) oder beim Projekt «LAN» wählen.'}
+              : 'keine Tailnet-IP – neue Projekte (Standard: nur Tailnet) sind so nicht erreichbar. Tailscale auf dem Server einrichten (docs/INSTALL.md) oder beim Projekt «LAN» wählen.'}
           </span>
         </li>
         <li className={n.lanIp ? 'check-ok' : 'check-none'}>
