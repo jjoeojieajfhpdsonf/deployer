@@ -12,6 +12,10 @@ export const VISUAL_SCENES = [
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
   // grosser Bildschirm (Seite bis 1440 px), vergrössert (Dialog übers ganze Fenster)
   'aufbau', 'aufbau-einzelcontainer', 'aufbau-statisch', 'aufbau-nicht-oeffentlich', 'aufbau-host', 'aufbau-schmal', 'aufbau-sehr-schmal', 'aufbau-breit', 'aufbau-vergroessert',
+  // Etappe 4: Live-Verkehr (fester Zustand, nur Zähler), auch vergrössert; «+ Dienst» (Vorlage, Diff), neuer Dienst
+  // «wird erstellt», Pull Request offen, gescheitert, ohne GitHub-App, Adminer mit interner Adresse, Entfernen
+  'aufbau-live', 'aufbau-live-vergroessert', 'aufbau-dienst-dialog', 'aufbau-dienst-diff', 'aufbau-dienst-wird-erstellt',
+  'aufbau-dienst-pr-offen', 'aufbau-dienst-gescheitert', 'aufbau-ohne-github', 'aufbau-adminer', 'aufbau-dienst-entfernen',
   'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
   // Etappe 3: Besucher (Reiter, Städte, Zugang, intern, Zustände, Wert per Tastatur, Übersicht, Projektliste)
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
