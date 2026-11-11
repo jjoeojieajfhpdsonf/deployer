@@ -421,6 +421,115 @@ export function health(id: string): ProjectHealthDto {
   }
 }
 
+/* --- Reiter «Aufbau» (wie GET /projects/:id/topology) ------------------------------- */
+
+const LAN_IP = '192-168-0-31'
+type Topo = import('@airlock/shared').TopologyDto
+type TopoHost = Topo['hosts'][number]
+type TopoService = Topo['services'][number]
+
+const way = (w: 'public' | 'tailnet' | 'lan', on: boolean, detail: string | null, paused = false): Topo['access'][number] => ({ id: `way:${w}`, way: w, on, paused, detail })
+const host = (hostname: string, o: Partial<TopoHost> = {}): TopoHost => ({
+  id: `host:${hostname}`, hostname, url: `https://${hostname}`, ways: ['tailnet', 'lan'], fallback: false, headers: 4, tls: 'https', tlsProblem: null, accessProtected: false, paused: false, service: null, ...o,
+})
+const svc = (name: string, o: Partial<TopoService> = {}): TopoService => ({
+  id: `svc:${name}`, name, image: null, port: null, state: 'running', health: null, exitCode: null, version: null, web: false, oneShot: false, database: null, usage: null, volumes: [], ...o,
+})
+const nip = (slug: string, service: string): TopoHost => host(`${slug}.${LAN_IP}.nip.io`, { url: `http://${slug}.${LAN_IP}.nip.io`, ways: ['lan'], fallback: true, tls: 'http', service })
+/** Linien wie der Server: Zugang → Host, Host → Dienst; aus = gestrichelt */
+const routeEdges = (access: Topo['access'], hosts: TopoHost[], up: boolean): Topo['edges'] => {
+  const out: Topo['edges'] = []
+  const main = hosts.find((h) => !h.fallback && !h.ways.includes('public'))
+  for (const a of access) {
+    const reached = hosts.filter((h) => h.ways.includes(a.way))
+    if (reached.length) for (const h of reached) out.push({ from: a.id, to: h.id, on: a.on && !h.paused, via: 'route' })
+    else if (main) out.push({ from: a.id, to: main.id, on: false, via: 'route' })
+  }
+  for (const h of hosts) if (h.service) out.push({ from: h.id, to: h.service, on: up && !h.paused, via: 'route' })
+  return out
+}
+
+export function topology(id: string): Topo {
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const limits = { cpu: p.cpuLimit, memoryMb: p.memoryLimitMb }
+  const lanCidr = '192.168.0.0/24'
+  const tailCidr = '100.64.0.0/10'
+  if (id === 'p-foto') {
+    // Compose: Web, Worker, Postgres; Fotos-Volume geteilt, Daten der Datenbank im eigenen Volume
+    const access = [way('public', false, null), way('tailnet', true, tailCidr), way('lan', true, lanCidr)]
+    const hosts = [host('fotoalbum.int.example.ch', { headers: 5, service: 'svc:web' }), nip('fotoalbum', 'svc:web')]
+    const services = [
+      svc('web', { image: 'airlock/fotoalbum-web:a3f9c21d0be4', port: 8080, health: 'healthy', version: 'a3f9c21d0be4', web: true, usage: { cpu: 0.04, memMb: 160 }, volumes: ['vol:fotos'] }),
+      svc('worker', { image: 'ghcr.io/example/fotoalbum-worker:1.4', version: '1.4', usage: { cpu: 0.04, memMb: 96 }, volumes: ['vol:fotos'] }),
+      svc('db', { image: 'postgres:16-alpine', port: 5432, version: '16-alpine', database: 'postgres', usage: { cpu: 0.01, memMb: 220 }, volumes: ['vol:pgdata'] }),
+    ]
+    return {
+      kind: 'compose', access, hosts, services, main: 'svc:web', limits,
+      volumes: [
+        { id: 'vol:fotos', name: 'fotos', mountPath: '/srv/fotos', sizeBytes: null, usedBy: ['svc:web', 'svc:worker'], paths: { 'svc:web': '/srv/fotos', 'svc:worker': '/data' } },
+        { id: 'vol:pgdata', name: 'pgdata', mountPath: '/var/lib/postgresql/data', sizeBytes: null, usedBy: ['svc:db'], paths: { 'svc:db': '/var/lib/postgresql/data' } },
+      ],
+      edges: [
+        ...routeEdges(access, hosts, true),
+        { from: 'svc:web', to: 'svc:db', on: true, via: 'depends_on' },
+        { from: 'svc:worker', to: 'svc:db', on: true, via: 'depends_on' },
+        { from: 'svc:web', to: 'vol:fotos', on: true, via: 'mount' },
+        { from: 'svc:worker', to: 'vol:fotos', on: true, via: 'mount' },
+        { from: 'svc:db', to: 'vol:pgdata', on: true, via: 'mount' },
+      ],
+    }
+  }
+  if (p.runtimeKind === 'static') {
+    // Statische Seite: Caddy liefert aus; Vereinsseite öffentlich pausiert, nur im Tailnet
+    const pub = p.routes.find((r) => r.target === 'public')
+    const internal = p.routes.find((r) => r.target !== 'public')!
+    const ways = (internal.targets ?? [internal.target]) as ('tailnet' | 'lan')[]
+    const access = [
+      way('public', Boolean(pub) && !pub?.pausedAt, pub ? (pub.accessProtected ? 'Cloudflare Access' : 'Cloudflare Tunnel') : null, Boolean(pub?.pausedAt)),
+      way('tailnet', ways.includes('tailnet'), tailCidr), way('lan', ways.includes('lan'), lanCidr),
+    ]
+    const s = `svc:${p.slug}`
+    const hosts = [
+      ...(pub ? [host(pub.hostname, { ways: ['public'], tls: 'cloudflare', paused: Boolean(pub.pausedAt), accessProtected: Boolean(pub.accessProtected), headers: 3, service: s })] : []),
+      host(internal.hostname, { ways, headers: 3, service: s }),
+    ]
+    return {
+      kind: 'static', access, hosts, main: s, limits, volumes: [],
+      services: [svc(p.slug, { state: 'static', version: p.activeDeployment?.version ?? null, web: true })],
+      edges: routeEdges(access, hosts, true),
+    }
+  }
+  // Ein Container (Image oder Dockerfile)
+  const failed = id === 'p-wetter'
+  const stopped = p.desiredState !== 'running'
+  const pub = p.routes.find((r) => r.target === 'public')
+  const internal = p.routes.find((r) => r.target !== 'public')!
+  const s = `svc:${p.slug}`
+  const access = [
+    way('public', Boolean(pub) && !pub?.pausedAt, pub ? (pub.accessProtected ? 'Cloudflare Access' : 'Cloudflare Tunnel') : null, Boolean(pub?.pausedAt)),
+    way('tailnet', true, tailCidr), way('lan', true, lanCidr),
+  ]
+  const hosts = [
+    ...(pub ? [host(pub.hostname, { ways: ['public'], tls: 'cloudflare', accessProtected: Boolean(pub.accessProtected), headers: 4, service: s })] : []),
+    host(internal.hostname, { service: s }),
+    nip(p.slug, s),
+  ]
+  const image = (p.source as { image?: string } | null)?.image ?? null
+  const withData = id === 'p-haushalt'
+  return {
+    kind: p.runtimeKind, access, hosts, main: s, limits,
+    services: [svc(p.slug, {
+      image, port: p.port, web: true,
+      version: p.runtimeKind === 'dockerfile' ? p.activeDeployment?.version ?? null : image?.split(':').at(-1) ?? null,
+      state: failed ? 'exited' : stopped ? 'stopped' : 'running', exitCode: failed ? 1 : null,
+      usage: failed || stopped ? null : { cpu: 0.12, memMb: 318 },
+      volumes: withData ? ['vol:haushalt-daten'] : [],
+    })],
+    volumes: withData ? [{ id: 'vol:haushalt-daten', name: 'haushalt-daten', mountPath: '/data', sizeBytes: null, usedBy: [s], paths: { [s]: '/data' } }] : [],
+    edges: [...routeEdges(access, hosts, !failed && !stopped), ...(withData ? [{ from: s, to: 'vol:haushalt-daten', on: true, via: 'mount' as const }] : [])],
+  }
+}
+
 export const appLogs = [
   '2026-11-09T12:58:01Z GET /api/albums 200 12ms',
   '2026-11-09T12:58:04Z GET /api/albums/41/photos?page=2 200 38ms',
@@ -881,6 +990,8 @@ export function logLines(id: string, service: string | null): import('@airlock/s
   const compose = id === 'p-foto'
   // Wetterstation: in der Zeitspanne still (leerer Zustand)
   if (id === 'p-wetter') return { lines: [], services: [], hint: null }
+  // Notizen ist gestoppt: kein laufender Container (wie der Server)
+  if (id === 'p-notizen') return { lines: [], services: [], hint: 'Kein laufender Container – es gibt noch keine Ausgabe.' }
   const rows: [number, string | null, string][] = [
     [14 * MIN, 'db', 'LOG:  database system is ready to accept connections'],
     [14 * MIN - 2_000, 'web', 'Server listening at http://0.0.0.0:8080'],

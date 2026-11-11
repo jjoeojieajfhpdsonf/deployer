@@ -21,8 +21,8 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
 const repo = resolve(webRoot, '../..')
 
-/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen */
-const PORT = 5199
+/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen. SHOOT_PORT=… für parallele Worktrees */
+const PORT = Number(process.env.SHOOT_PORT) || 5199
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -61,6 +61,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
     return { body: { deployment: d, log: d?.status === 'failed' ? fx.logForFailure(d.errorMessage, d.id) : fx.deployLog } }
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/topology$/))) return { body: { topology: fx.topology(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/log-lines$/))) return { body: fx.logLines(m[1]!, u.searchParams.get('service')) }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
@@ -164,6 +165,27 @@ const shots: Shot[] = [
       await pg.waitForTimeout(300)
     },
   },
+  // Reiter «Aufbau»: Compose mit Datenbank und Volumes (Internet aus: Umriss «Veröffentlichen →»), Einzelcontainer
+  // öffentlich mit Access, statische Seite öffentlich pausiert, gestoppter Container (nicht öffentlich),
+  // gewählter Host, unter 1100 px (Seitenkarte unten) und unter 700 px (Liste statt Fläche)
+  { group: 'aufbau', name: 'aufbau', path: `/projekte/${P}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-einzelcontainer', path: `/projekte/${L}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-statisch', path: `/projekte/${Z}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-nicht-oeffentlich', path: '/projekte/p-notizen?tab=aufbau' },
+  {
+    group: 'aufbau', name: 'aufbau-host', path: `/projekte/${P}?tab=aufbau`, full: false,
+    prepare: async (pg) => { await pg.locator('.topo-node[data-node="host:fotoalbum.int.example.ch"]').click(); await pg.waitForTimeout(200) },
+  },
+  {
+    group: 'aufbau', name: 'aufbau-schmal', path: `/projekte/${P}?tab=aufbau`,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 1000, height: 900 }); await pg.waitForTimeout(300) },
+  },
+  {
+    group: 'aufbau', name: 'aufbau-sehr-schmal', path: `/projekte/${P}?tab=aufbau`,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 680, height: 900 }); await pg.waitForTimeout(300) },
+  },
+  // Ergebnisbilder neben der Vorlage (docs/design-cal/aufbau/umgesetzt-*.png): erster Bildschirm wie die Vorlage
+  { group: 'aufbau-umgesetzt', name: 'umgesetzt', path: `/projekte/${P}?tab=aufbau`, full: false },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand

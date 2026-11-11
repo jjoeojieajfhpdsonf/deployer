@@ -524,7 +524,8 @@ button, .button {
 button:hover:not(:disabled), .button:hover { background: var(--inset); border-color: var(--line-strong); text-decoration: none; }
 button:disabled, button:disabled:hover { background: var(--surface-2); border-color: transparent; color: var(--faint); box-shadow: none; cursor: not-allowed; }
 /* Druck: Rückmeldung, 160 ms – nur Buttons mit Fläche */
-button:active:not(:disabled):not(.link-button):not(.tab):not([role='menuitem']):not([role='menuitemradio']):not([role='tab']),
+/* Nicht die Knoten im Reiter «Aufbau»: die Linien hängen an ihrer gemessenen Lage */
+button:active:not(:disabled):not(.link-button):not(.tab):not([role='menuitem']):not([role='menuitemradio']):not([role='tab']):not(.topo-node),
 a.button:active { transform: scale(0.97); }
 
 .button-primary, button.button-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); box-shadow: var(--sh-btn-primary); }
@@ -2193,6 +2194,144 @@ kbd + kbd { margin-left: 4px; }
 .design-static + .design-static { margin-top: var(--sp-3); }
 .design-static-dialog { position: static; display: block; width: 100%; max-width: 440px; }
 .design-ring { width: 96px; }
+
+/* --- Projekt › Aufbau: Fläche mit Knoten in vier Spalten, Seitenkarte ---------------- */
+
+.topo { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--sp-4); align-items: start; }
+.topo-card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--sh-card); min-width: 0; }
+.topo-main { position: relative; overflow: hidden; }
+.topo-skeleton { padding: var(--sp-5); }
+.topo-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: 58px; padding: 0 22px; border-bottom: 1px solid var(--line); }
+.topo-head h2 { font-size: var(--fs-16); }
+.topo-head .muted { font-size: var(--fs-13); }
+
+/* Fläche: eingelassener Grund mit Punktraster, darüber Spaltenköpfe und Knoten */
+.topo-canvas {
+  padding: 18px 22px 64px;
+  background: var(--inset) radial-gradient(var(--line-strong) 1.1px, transparent 1.3px) 0 0 / 20px 20px;
+}
+.topo-cols-head, .topo-body { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 34px; }
+.topo-col-head { min-width: 0; }
+.topo-col-head h3 { font-size: var(--fs-12); font-weight: 500; line-height: 1.4; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.topo-col-head span { display: block; margin-top: 2px; font-size: var(--fs-12); color: var(--muted); }
+.topo-body { position: relative; margin-top: var(--sp-6); min-height: max(360px, calc(var(--topo-rows, 3) * 112px)); }
+.topo-col { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: space-evenly; gap: var(--sp-6); min-width: 0; }
+.topo-col-empty { margin: 0; padding: var(--sp-3); border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-12); color: var(--muted); text-align: center; }
+
+/* Linien: Haarlinie in der Farbe der Feldrahmen (≥ 3:1), aus = gestrichelt */
+.topo-edges { position: absolute; inset: 0; z-index: 0; overflow: visible; pointer-events: none; }
+.topo-edge path { fill: none; stroke: var(--field-line); stroke-width: 1.5; }
+.topo-edge circle { fill: var(--field-line); }
+.topo-edge-off path { stroke-dasharray: 5 5; opacity: 0.7; }
+
+/* Knoten: Karte wie die übrigen (Ring + weicher Schatten), gewählt mit Ring in Tinte */
+button.topo-node, .topo-node {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 0;
+  padding: 11px 13px;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--sh-card);
+  color: var(--ink);
+  text-align: left;
+  white-space: normal;
+  font-size: var(--fs-14);
+}
+button.topo-node:hover:not(:disabled) { background: var(--surface); border: none; box-shadow: var(--sh-card-hover); }
+button.topo-node.topo-node-selected, button.topo-node.topo-node-selected:hover:not(:disabled) { box-shadow: 0 0 0 2px var(--ink), var(--sh-card); }
+.topo-node.topo-node-off, button.topo-node.topo-node-off:hover:not(:disabled) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+button.topo-node.topo-node-off.topo-node-selected { box-shadow: inset 0 0 0 1.5px var(--line-strong), 0 0 0 2px var(--ink); }
+.topo-node-top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.topo-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-dim); }
+.topo-node-off .topo-icon { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.topo-node-text { display: grid; min-width: 0; }
+.topo-node-title, .topo-node-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo-node-title { font-weight: 600; line-height: 1.35; }
+.topo-node-sub { font-size: var(--fs-12); line-height: 1.4; color: var(--muted); }
+.topo-node-meta { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); font-size: var(--fs-12); color: var(--muted); }
+.topo-node-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Der Zustand links geht vor: rechts (Version, CPU) wird zuerst gekürzt */
+.topo-node-meta > span:last-child { flex-shrink: 6; }
+.topo-node-action { display: block; }
+.topo-mono { font-family: var(--mono); font-size: var(--fs-12); color: var(--ink-dim); }
+button.topo-link { min-height: 0; padding: 0; border: none; background: none; box-shadow: none; font-size: var(--fs-13); font-weight: 500; color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+button.topo-link:hover:not(:disabled) { background: none; border: none; text-decoration-color: currentColor; }
+
+/* Zustand: Punkt UND Wort (nie nur Farbe) */
+.topo-state { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.topo-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.topo-tone-ok { color: var(--ok); }
+.topo-tone-warn { color: var(--warn); }
+.topo-tone-bad { color: var(--bad); }
+.topo-tone-info { color: var(--info); }
+.topo-tone-neutral { color: var(--muted); }
+.topo-tone-neutral .topo-dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.topo-node-meta .topo-state { color: var(--muted); }
+.topo-node-meta .topo-state.topo-tone-ok .topo-dot { background: var(--ok); }
+.topo-node-meta .topo-state.topo-tone-warn { color: var(--warn); }
+.topo-node-meta .topo-state.topo-tone-bad { color: var(--bad); }
+.topo-node-meta .topo-state.topo-tone-info .topo-dot { background: var(--info); }
+
+.topo-legend { position: absolute; left: 22px; bottom: 16px; z-index: 2; display: flex; flex-wrap: wrap; gap: 18px; padding: 7px 12px; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-12); color: var(--muted); }
+.topo-legend-line { display: inline-block; width: 22px; height: 0; margin-right: 6px; border-top: 2px solid var(--field-line); vertical-align: 3px; }
+.topo-legend-off { border-top-style: dashed; opacity: 0.7; }
+
+/* Liste unter 700 px: Spalten untereinander, Knoten volle Breite */
+.topo-list { display: grid; gap: var(--sp-6); padding: 18px 22px 72px; background: var(--inset); }
+.topo-list-group { display: grid; gap: var(--sp-3); }
+
+/* Seitenkarte */
+.topo-side { padding: 22px; }
+.topo-side-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-3); min-width: 0; }
+/* Lange Namen umbrechen erst, wenn ein Wort allein nicht passt; die Pille rückt sonst in die nächste Zeile */
+.topo-side-head h2 { max-width: 100%; font-size: var(--fs-18); overflow-wrap: break-word; }
+.topo-side-sub { margin: var(--sp-1) 0 0; font-size: var(--fs-13); color: var(--muted); overflow-wrap: anywhere; }
+.topo-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 26px; padding: 0 10px 0 9px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-13); font-weight: 500; white-space: nowrap; }
+.topo-pill.topo-tone-ok { background: var(--ok-bg); }
+.topo-pill.topo-tone-warn { background: var(--warn-bg); }
+.topo-pill.topo-tone-bad { background: var(--bad-bg); }
+.topo-pill.topo-tone-info { background: var(--info-bg); }
+.topo-side-label { margin: 22px 0 var(--sp-2); font-size: var(--fs-13); font-weight: 400; color: var(--muted); }
+.topo-side-text { margin: 0; font-size: var(--fs-13); color: var(--ink-dim); }
+.topo-side-note { margin: var(--sp-2) 0 0; font-size: var(--fs-12); color: var(--muted); }
+.topo-side-rows { display: grid; }
+.topo-side-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 9px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-14); }
+.topo-side-row:last-of-type { border-bottom: none; }
+.topo-side-row > div { min-width: 0; }
+.topo-side-row small { display: block; font-size: var(--fs-12); color: var(--muted); overflow-wrap: anywhere; }
+.topo-side-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-1); font-size: var(--fs-13); }
+.topo-side-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: 18px 0 0; font-size: var(--fs-13); }
+.topo-side-dl dt { color: var(--muted); }
+.topo-side-dl dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.topo-bars { display: grid; gap: var(--sp-3); }
+.topo-bar-head { display: flex; justify-content: space-between; gap: var(--sp-2); margin-bottom: 5px; font-size: var(--fs-13); }
+.topo-bar-head strong { font-weight: 500; color: var(--ink); }
+.topo-bar-track { height: 6px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
+.topo-bar-fill { display: block; height: 100%; border-radius: var(--r-pill); background: var(--ink); }
+.topo-bar-fill.tone-warn { background: var(--warn); }
+.topo-bar-fill.tone-bad { background: var(--bad); }
+.topo-log { padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); font: 400 var(--fs-12)/1.85 var(--mono); color: var(--ink-dim); }
+.topo-log-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo-log-level { font-weight: 600; }
+.topo-side-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: 18px; }
+.topo-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.topo-confirm .confirm-note { flex-basis: 100%; }
+
+/* Unter 1100 px: Seitenkarte unter der Fläche */
+@media (max-width: 1100px) {
+  .topo { grid-template-columns: minmax(0, 1fr); }
+}
+/* Schmal: weniger Abstand zwischen den Spalten, damit die Knoten lesbar bleiben */
+@media (max-width: 1000px) {
+  .topo-cols-head, .topo-body { column-gap: 28px; }
+  .topo-canvas { padding-left: 16px; padding-right: 16px; }
+}
 
 /* --- Schmalere Fenster (Desktop-Werkzeug; nur sinnvolle Umbrüche) -------------------- */
 

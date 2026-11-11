@@ -36,8 +36,11 @@ const HEADER_SHORT: Record<string, string> = {
 
 export function ProjectSettings({
   p, env, onDeleted, onManageHeaders, deleteRequested, onDeleteShown, envRequest, onEnvShown,
-  containerRequest, onContainerShown, onContainerSaved, onDeploy, deploying,
+  containerRequest, onContainerShown, onContainerSaved, onDeploy, deploying, publishRequested, onPublishShown,
 }: {
+  /** «Veröffentlichen →» im Reiter «Aufbau»: Karte «Veröffentlichung» mit offenem Ablauf */
+  publishRequested?: boolean
+  onPublishShown?: () => void
   /** Fehlerbox «Hinzufügen»: Variable mit diesem Namen vorbelegen und den Wert fokussieren */
   envRequest?: string | null
   onEnvShown?: () => void
@@ -101,7 +104,7 @@ export function ProjectSettings({
         </ul>
       </nav>
       <div className="set-sections">
-        <Publication p={p} />
+        <Publication p={p} request={publishRequested} onShown={onPublishShown} />
         <Reachability p={p} />
         <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
         {hasContainer && (

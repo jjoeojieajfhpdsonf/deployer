@@ -62,13 +62,30 @@ function StatePill({ s }: { s: PublicStatusDto }) {
  * Alles ist sofort wirksam; der Fortschritt steht in der Karte, ein Toast
  * bietet «Rückgängig».
  */
-export function Publication({ p }: { p: ProjectDto }) {
+export function Publication({ p, request, onShown }: {
+  p: ProjectDto
+  /** «Veröffentlichen →» aus dem Reiter «Aufbau»: zur Karte und den Ablauf öffnen (Name, Access) */
+  request?: boolean
+  onShown?: () => void
+}) {
   const q = useQuery({ queryKey: ['public', p.id], queryFn: () => api.publicStatus(p.id), refetchInterval: poll })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const actions = usePublicActions(p)
   const titleId = useId()
   const s = q.data
   const defaultZone = domains.data?.domains.find((d) => d.isDefault)?.name ?? null
+  const [openRequest, setOpenRequest] = useState(false)
+  const loaded = Boolean(s)
+  useEffect(() => {
+    if (!request || !s) return
+    const card = document.getElementById('set-veroeffentlichung')
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    card?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    // Privat und möglich: gleich den Ablauf öffnen (Namensfeld fokussiert); sonst zur Karte mit ihrer Erklärung
+    if (s.state === 'private' && s.publishable.ok) setOpenRequest(true)
+    else card?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+    onShown?.()
+  }, [request, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="set-card publication" id="set-veroeffentlichung" aria-labelledby={titleId}>
@@ -80,7 +97,7 @@ export function Publication({ p }: { p: ProjectDto }) {
 
       {s && (
         <>
-          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
+          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} openRequest={openRequest} onOpened={() => setOpenRequest(false)} />}
           {s.state === 'live' && <LiveState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
           {s.state === 'paused' && <PausedState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
 
@@ -202,7 +219,10 @@ function InternalNote({ s }: { s: PublicStatusDto }) {
 
 /* --- Privat ------------------------------------------------------------------------ */
 
-function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string }) {
+function PrivateState({ p, s, actions, defaultZone, titleId, openRequest, onOpened }: {
+  p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string
+  openRequest?: boolean; onOpened?: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [name, setName] = useState('')
@@ -214,6 +234,12 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
     // Erst prüfen, dann fragen – bestätigt wird nur, was auch gehen kann.
     if (v.validateAll()) setConfirming(true)
   }
+  // «Veröffentlichen →» im Reiter «Aufbau»: wie ein Klick auf «Veröffentlichen» (Namensfeld offen und fokussiert)
+  useEffect(() => {
+    if (!openRequest) return
+    if (!open) start()
+    onOpened?.()
+  }, [openRequest]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Was nur der Server prüfen kann (Zone des Kontos, belegt, fremder DNS-Eintrag), steht am Namensfeld.
   const err = actions.error

@@ -9,9 +9,11 @@ import type {
   LogLinesDto,
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  TopologyDto,
 } from '@airlock/shared'
 
 export type {
+  TopologyDto,
   ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
   HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
@@ -211,6 +213,8 @@ export const api = {
   listDeployments: (id: string) => call<{ deployments: DeploymentDto[] }>(`/projects/${id}/deployments`),
   getDeployment: (id: string) => call<{ deployment: DeploymentDto; log: string }>(`/deployments/${id}`),
   health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),
+  /** Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten und die Linien dazwischen */
+  topology: (id: string) => call<{ topology: TopologyDto }>(`/projects/${id}/topology`),
   /** Adresse vom Server aus prüfen (http-Adressen auf einer https-Seite) */
   addressCheck: (id: string, url: string) => call<AddressCheckDto>(`/projects/${id}/address-check?url=${encodeURIComponent(url)}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),
