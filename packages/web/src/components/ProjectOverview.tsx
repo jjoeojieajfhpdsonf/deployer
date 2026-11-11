@@ -44,29 +44,34 @@ export function ProjectOverview({
   onToggleKeep: () => void
   keepBusy?: boolean
 }) {
-  const running = p.desiredState === 'running' && Boolean(p.activeDeployment)
+  // Einzige Quelle: der Zustand vom Server (p.state). Die Gesundheitsabfrage liefert nur
+  // Einzelheiten (Exit-Code, Messwerte), entscheidet aber nichts.
+  const st = p.state.key
   const health = useProjectHealth(p)
   const h = health.data
-  const containerDown = Boolean(running && h?.container && !h.container.running)
-  const deployFailed = p.lastDeployment?.status === 'failed'
+  const live = st === 'running' || st === 'failed_old_running' || st === 'paused'
+  const deployFailed = p.lastDeployment?.status === 'failed' && (st === 'failed_old_running' || (st === 'down' && !p.activeDeployment))
+  const containerDown = st === 'down' && Boolean(p.activeDeployment)
 
   return (
     <div className="overview">
       {deployFailed && p.lastDeployment && (
-        <DeployFailure p={p} dep={p.lastDeployment} stillRunning={running && !containerDown} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
+        <DeployFailure p={p} dep={p.lastDeployment} stillRunning={st === 'failed_old_running'} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
       )}
-      {!deployFailed && containerDown && h?.container && (
-        <ContainerDown projectId={p.id} exitCode={h.container.exitCode} missing={Boolean(h.container.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
+      {containerDown && (
+        <ContainerDown projectId={p.id} exitCode={h?.container?.exitCode ?? null} missing={Boolean(h?.container?.missing)} onTab={onTab} onDeploy={onDeploy} deploying={deploying} />
       )}
 
       <div className="overview-grid">
         <div className="overview-main">
-          {running && !containerDown && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
-          {!running && !deployFailed && (
+          {live && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
+          {(st === 'stopped' || (st === 'down' && !deployFailed && !containerDown) || st === 'deploying') && (
             <section className="panel panel-pad ov-section">
               <h2 className="ov-title">Zustand</h2>
               <p className="muted ov-empty">
-                {p.status === 'stopped' ? 'Gestoppt. Die Adressen antworten erst wieder nach «Starten».' : 'Noch nichts deployt. «Neu deployen» startet die erste Fassung.'}
+                {st === 'stopped' ? 'Gestoppt. Die Adressen antworten erst wieder nach «Starten».'
+                  : st === 'deploying' ? 'Ein Deploy läuft; der Fortschritt steht oben bei «Vorgänge».'
+                  : 'Noch nichts deployt. «Neu deployen» startet die erste Fassung.'}
               </p>
             </section>
           )}

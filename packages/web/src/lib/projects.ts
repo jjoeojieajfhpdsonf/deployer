@@ -20,7 +20,8 @@ export type Attention = { reason: string; tone: 'bad' | 'warn' }
 
 /** Braucht das Projekt Aufmerksamkeit? Und warum – für Filter und Hinweise. */
 export function attention(p: ProjectDto): Attention | null {
-  if (p.status === 'failed' || p.lastDeployment?.status === 'failed') return { reason: 'Deploy fehlgeschlagen', tone: 'bad' }
+  if (deployFailedState(p)) return { reason: 'Deploy fehlgeschlagen', tone: 'bad' }
+  if (p.state.key === 'down') return { reason: 'nichts läuft', tone: 'bad' }
   if (p.security && p.security.open.critical > 0) return { reason: `${p.security.open.critical} kritische Befunde`, tone: 'bad' }
   if (p.security && p.security.open.high > 0) return { reason: `${p.security.open.high} hohe Befunde`, tone: 'warn' }
   const left = ageMs(p.expiresAt)
@@ -34,15 +35,12 @@ export const isPublic = (p: ProjectDto) => p.routes.some((r) => r.target === 'pu
 export const hasPublicName = (p: ProjectDto) => p.routes.some((r) => r.target === 'public')
 
 /**
- * Laufzustand getrennt vom Ergebnis des letzten Deploys (Critique P1): Ist
- * ein Deploy gescheitert, läuft die vorherige Fassung meist weiter. Dann
- * heisst der Zustand «läuft», und der Fehlschlag steht als eigene Zeile.
+ * Zustand kommt fertig vom Server (p.state, UI-Qualität 1). Hilfen darauf:
+ * läuft etwas (auch wenn der neueste Deploy scheiterte oder öffentlich pausiert)?
  */
-export function runtimeStatus(p: ProjectDto): { status: ProjectDto['status']; deployFailed: boolean } {
-  const deployFailed = p.lastDeployment?.status === 'failed'
-  if (p.status === 'failed' && p.activeDeployment && p.desiredState === 'running') return { status: 'running', deployFailed: true }
-  return { status: p.status, deployFailed }
-}
+export const isLive = (p: ProjectDto) => p.state.key === 'running' || p.state.key === 'failed_old_running' || p.state.key === 'paused'
+/** Gescheiterter Deploy, der Aufmerksamkeit braucht (alte Fassung läuft weiter oder gar nichts) */
+export const deployFailedState = (p: ProjectDto) => p.state.key === 'failed_old_running' || (p.state.key === 'down' && p.lastDeployment?.status === 'failed')
 
 /** Reihenfolge nach Dringlichkeit: Fehler, kritisch, hoch, bald ablaufend, Rest nach Name. */
 export function urgency(p: ProjectDto): number {

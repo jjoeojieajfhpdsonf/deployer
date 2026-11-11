@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { publicStateOf, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
+import { publicStateOf, sumCounts, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api } from '../api.js'
@@ -11,7 +11,7 @@ import { RowMenu } from '../components/RowMenu.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
-import { useProjects, attention, isPublic, runtimeStatus, urgency } from '../lib/projects.js'
+import { useProjects, attention, deployFailedState, isLive, isPublic, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 import { ageMs, fmtDateTime } from '../lib/dates.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -50,7 +50,7 @@ export function Projects() {
   const list = projects.data?.projects ?? []
   const counts = useMemo(() => ({
     alle: list.length,
-    laufen: list.filter((p) => p.status === 'running').length,
+    laufen: list.filter(isLive).length,
     aufmerksamkeit: list.filter((p) => attention(p)).length,
   }), [list])
   // Bei wenigen Projekten sagt der Filter nichts, was das Raster nicht schon zeigt
@@ -60,7 +60,7 @@ export function Projects() {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
     return list
-      .filter((p) => view === 'alle' || (view === 'laufen' ? p.status === 'running' : attention(p)))
+      .filter((p) => view === 'alle' || (view === 'laufen' ? isLive(p) : attention(p)))
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.routes.some((r) => r.hostname.includes(q)))
       // Dringendes zuerst, dann nach Name
       .sort((a, b) => urgency(b) - urgency(a) || a.name.localeCompare(b.name, 'de-CH'))
@@ -73,7 +73,7 @@ export function Projects() {
   const showNew = view === 'alle' && !query.trim() && free > 0
   const [chatGuide, setChatGuide] = useState(false)
 
-  const failed = list.filter((p) => p.lastDeployment?.status === 'failed')
+  const failed = list.filter(deployFailedState)
 
   return (
     <section className="page">
@@ -170,10 +170,12 @@ export function Projects() {
 /* --- Kennzahlen ----------------------------------------------------------------- */
 
 function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto | undefined }) {
-  const running = list.filter((p) => runtimeStatus(p).status === 'running').length
-  const deploying = list.filter((p) => p.status === 'deploying').length
-  const failedCount = list.filter((p) => runtimeStatus(p).status === 'failed' || p.lastDeployment?.status === 'failed').length
-  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => list.reduce((n, p) => n + (p.security?.open[k] ?? 0), 0)
+  // Zählung aus p.state (gleiche Quelle wie Pillen und Karten)
+  const running = list.filter(isLive).length
+  const deploying = list.filter((p) => p.state.key === 'deploying').length
+  const failedCount = list.filter((p) => p.state.key === 'failed_old_running' || p.state.key === 'down').length
+  const all = sumCounts(list.map((p) => p.security?.open))
+  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => all[k]
   const crit = sum('critical')
   const high = sum('high')
   const rest = sum('medium') + sum('low')
@@ -416,16 +418,16 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
   const d = p.lastDeployment
   const version = shortVersion(d?.version ?? p.activeDeployment?.version)
   const src = sourceLine(p)
-  const rt = runtimeStatus(p)
+  const bad = p.state.key === 'failed_old_running' || p.state.key === 'down'
   return (
-    <li className={`pcard${rt.deployFailed || rt.status === 'failed' ? ' pcard-bad' : ''}`}>
+    <li className={`pcard${bad ? ' pcard-bad' : ''}`}>
       <div className="pcard-head">
         <div className="pcard-title">
           {/* Der Name ist der Link; ::after macht die ganze Karte klickbar */}
           <h3><Link className="pcard-link" to={`/projekte/${p.id}`}>{p.name}</Link></h3>
           {host ? <span className="pcard-host" title={host}>{host}</span> : <span className="pcard-host">keine Adresse</span>}
         </div>
-        <StatusBadge status={rt.status} />
+        <StatusBadge state={p.state} />
       </div>
 
       <div className="pcard-state">
@@ -497,18 +499,16 @@ function StatusSub({ p }: { p: ProjectDto }) {
       </>
     )
   }
-  if (runtimeStatus(p).deployFailed) {
+  // Unterzeile aus derselben Quelle wie die Pille (p.state); «läuft» braucht keine
+  if (p.state.key === 'failed_old_running') {
     return (
       <div className="cell-sub">
-        <span className="deploy-failed">✕ Deploy fehlgeschlagen</span>
-        {p.activeDeployment ? ` · ${shortVersion(p.activeDeployment.version)} läuft` : ' · nichts aktiv'}
+        {p.state.detail ? <span className="deploy-failed">{p.state.detail}</span> : null}
+        {p.activeDeployment ? `${p.state.detail ? ' · ' : ''}${shortVersion(p.activeDeployment.version)} läuft` : null}
       </div>
     )
   }
-  // Läuft es, sagen Badge und Zeile «Letzter Deploy» schon alles (Ablauf bei Chat-Projekten: Zeile «Quelle»)
-  if (p.status === 'running') return null
-  if (p.status === 'stopped') return <div className="cell-sub">gestoppt</div>
-  return <div className="cell-sub">noch nicht deployt</div>
+  return p.state.detail ? <div className="cell-sub">{p.state.detail}</div> : null
 }
 
 function SecurityCell({ p }: { p: ProjectDto }) {

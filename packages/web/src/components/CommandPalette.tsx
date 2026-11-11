@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { publicStateOf, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
-import { useProjects, runtimeStatus } from '../lib/projects.js'
+import { useProjects, isLive } from '../lib/projects.js'
 import { usePublicActions } from '../lib/public.js'
 import { notifyOk } from '../lib/feedback.js'
 import { isScanRunning } from '../lib/activities.js'
@@ -130,7 +130,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         run: () => { onClose(); deploy.mutate(p) },
       })
       const scanning = isScanRunning(p) || (scan.isPending && scan.variables?.id === p.id)
-      const stopped = runtimeStatus(p).status !== 'running' && p.runtimeKind !== 'static'
+      const stopped = !isLive(p) && p.runtimeKind !== 'static'
       out.push({
         id: `act:scan:${p.id}`, group: 'Aktionen', label: `Scan starten · ${p.name}`, hint: p.slug, words: 'security prüfen',
         blocked: scanning ? 'Scan läuft schon' : stopped ? 'Projekt läuft nicht' : undefined,

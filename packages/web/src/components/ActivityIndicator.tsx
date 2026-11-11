@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CfStatusDto } from '@airlock/shared'
+import { openTotal, type CfStatusDto } from '@airlock/shared'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useActivities, type RunningActivity } from '../lib/activities.js'
@@ -123,7 +123,7 @@ function useFinishedToasts(list: RunningActivity[]) {
         const s = p.security
         if (s.status === 'failed') notifyError(`Scan gescheitert · ${p.name}`, new Error('Der Scan ist abgebrochen.'), { id: key, action: { label: 'Ansehen', onClick: () => navigate(`/projekte/${p.id}?tab=security`) } })
         else if (s.status === 'done') {
-          const open = s.open.critical + s.open.high + s.open.medium + s.open.low
+          const open = openTotal(s.open)
           notifyOk(`Scan fertig · ${p.name}`, {
             id: key,
             description: `${s.grade ? `Note ${s.grade} · ` : ''}${open === 0 ? 'keine offenen Befunde' : open === 1 ? '1 offener Befund' : `${open} offene Befunde`}`,

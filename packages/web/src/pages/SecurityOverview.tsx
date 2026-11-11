@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { ProjectDto } from '@airlock/shared'
+import { sumCounts, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'
@@ -22,7 +22,8 @@ export function SecurityOverview() {
     return -((o?.critical ?? 0) * 1e6 + (o?.high ?? 0) * 1e4 + (o?.medium ?? 0) * 100 + (o?.low ?? 0)) + (p.security.score ?? 0) / 1000
   }
   const sorted = useMemo(() => [...list].sort((a, b) => rank(a) - rank(b)), [list])
-  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => list.reduce((n, p) => n + (p.security?.open[k] ?? 0), 0)
+  const all = sumCounts(list.map((p) => p.security?.open))
+  const sum = (k: 'critical' | 'high' | 'medium' | 'low') => all[k]
   const scanned = list.filter((p) => p.security?.grade).length
 
   const scan = useMutation({

@@ -19,7 +19,7 @@ import { score, grade, fingerprint, dedupe, bySeverity, publishable, type Findin
 import { trivyImage, trivySource, headerCheck, headerCheckViaCaddy, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { probeTargetFor } from '../domain/routes.js'
-import type { HeaderRecheckDto } from '@airlock/shared'
+import { countOpenFindings, type HeaderRecheckDto } from '@airlock/shared'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
 
@@ -618,8 +618,8 @@ export async function scanReport(runId: string): Promise<ScanReport> {
   if (!run) throw notFound('Scan')
   const f = (await db.select().from(schema.findings).where(eq(schema.findings.scanRunId, runId))).sort(bySeverity)
   const open = f.filter((x) => x.status === 'open')
-  const counts = { critical: 0, high: 0, medium: 0, low: 0 } as Record<Severity, number>
-  for (const x of open) counts[x.severity]++
+  // Eine Funktion für «offen» (shared), dieselbe wie in der Projektübersicht und der Oberfläche
+  const counts: Record<Severity, number> = countOpenFindings(f)
   const owner = run.projectId ? eq(schema.scanRuns.projectId, run.projectId) : run.externalTargetId ? eq(schema.scanRuns.externalTargetId, run.externalTargetId) : null
   const previous = owner
     ? (await db.select({ score: schema.scanRuns.score }).from(schema.scanRuns)

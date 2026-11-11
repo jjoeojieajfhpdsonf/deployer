@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, sourceTypesSupported, RESERVED_SLUGS, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { containerSnapshot } from '../jobs/monitor.js'
 import { isOwnImage } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
 import { dropArtifactDir } from '../deploy/workdir.js'
@@ -23,6 +24,9 @@ type Row = typeof schema.projects.$inferSelect
 
 export async function toDto(r: Row): Promise<ProjectDto> {
   const active = await activeDeployment(r.id)
+  const routes = await routeDtosFor(r.id, r.slug)
+  const activeDto = active ? toDeploymentDto(active) : null
+  const last = await lastDeploymentDto(r.id)
   return {
     id: r.id,
     name: r.name,
@@ -38,8 +42,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     memoryLimitMb: r.memoryLimitMb,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    routes: await routeDtosFor(r.id, r.slug),
-    activeDeployment: active ? toDeploymentDto(active) : null,
+    routes,
+    activeDeployment: activeDto,
     runsAsRoot: null,
     // M3
     runtimeKind: effectiveKind(r.sourceType, active?.artifact),
@@ -48,9 +52,11 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     expiresAt: expiresAt(r, chatExpiryDays())?.toISOString() ?? null,
     expiryDays: r.sourceType === 'files' ? chatExpiryDays() : null,
     security: await securitySummary(r.id),
-    lastDeployment: await lastDeploymentDto(r.id),
+    lastDeployment: last,
     // Stand vom letzten Blick auf Docker (Abgleich, Deploy); kein Docker-Aufruf je DTO
     legacyContainers: docker.legacySnapshot().slugs.has(r.slug),
+    // Einzige Quelle für den Zustand (UI-Qualität 1); Container aus der Monitor-Runde
+    state: projectState({ status: r.status, desiredState: r.desiredState, activeDeployment: activeDto, lastDeployment: last, routes, container: containerSnapshot(r.id) }),
   }
 }
 
@@ -75,14 +81,13 @@ async function securitySummary(projectId: string): Promise<ProjectDto['security'
   const done = latest.status === 'done'
     ? latest
     : (await db.select().from(schema.scanRuns).where(and(eq(schema.scanRuns.projectId, projectId), eq(schema.scanRuns.status, 'done'))).orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
-  const open = { critical: 0, high: 0, medium: 0, low: 0 }
-  if (done) {
-    const f = await db
-      .select({ severity: schema.findings.severity })
+  // Dieselbe Zählung wie der Scan-Bericht (countOpenFindings, shared)
+  const open = done
+    ? countOpenFindings(await db
+      .select({ severity: schema.findings.severity, status: schema.findings.status })
       .from(schema.findings)
-      .where(and(eq(schema.findings.scanRunId, done.id), eq(schema.findings.status, 'open')))
-    for (const x of f) open[x.severity]++
-  }
+      .where(eq(schema.findings.scanRunId, done.id)))
+    : { critical: 0, high: 0, medium: 0, low: 0 }
   return {
     scanId: latest.id,
     status: latest.status,

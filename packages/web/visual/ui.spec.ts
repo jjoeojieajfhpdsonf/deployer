@@ -18,6 +18,8 @@ for (const theme of ['hell', 'dunkel'] as const) {
         const page = await ctx.newPage()
         await page.clock.setFixedTime(FIXED_NOW)
         await openShot(page, s, VISUAL_PORT)
+        // Scroll-Spy der Sprungnavigation (Einstellungen) setzt den aktiven Eintrag kurz nach dem Laden
+        await page.waitForTimeout(300)
         const file = `${name}-${theme}.png`
         if (s.el) await expect(page.locator(s.el).first()).toHaveScreenshot(file)
         else await expect(page).toHaveScreenshot(file, { fullPage: s.full !== false })

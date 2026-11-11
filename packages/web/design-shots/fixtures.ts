@@ -8,7 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
 } from '@airlock/shared'
-import { fixPrompt } from '@airlock/shared'
+import { countOpenFindings, fixPrompt, projectState } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -42,7 +42,12 @@ function dep(projectId: string, n: number, over: Partial<DeploymentDto> = {}): D
 }
 
 type P = Partial<ProjectDto> & { id: string; name: string; slug: string }
+/** Zustand wie auf dem Server berechnet (projectState), damit Pille, Liste und Fehlerbox stimmen */
 function project(p: P): ProjectDto {
+  const raw = projectRaw(p)
+  return { ...raw, state: p.state ?? projectState({ ...raw, container: null }) }
+}
+function projectRaw(p: P): Omit<ProjectDto, 'state'> {
   const active = dep(p.id, 0, { status: 'active', isActive: true, canRollback: false, startedAt: ago(2 * HOUR), finishedAt: ago(2 * HOUR - 38_000), durationMs: 38_000 })
   return {
     sourceType: 'image',
@@ -280,7 +285,12 @@ export function deployments(id: string): DeploymentDto[] {
       dep(id, 1, { version: '9be20c4d7f11', ...at(9 * DAY, 52), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Alben teilen per Link' }),
     ]
   }
+  // Stimmig mit dem Projekt: ein neuerer, gescheiterter Deploy steht an seiner zeitlichen Stelle oben
+  const newer = p.lastDeployment && p.lastDeployment.id !== active.id
+    ? [{ ...p.lastDeployment, seq: 6, reason: { kind: 'code' as const, detail: 'Sensor-Intervall einstellbar' }, actor: 'mcp:claude-code-mac', message: 'Sensor-Intervall einstellbar' }]
+    : []
   return [
+    ...newer,
     { ...active, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel' },
     dep(id, 4, { version: same, ...at(9 * HOUR, 37), seq: 4, reason: { kind: 'paused' }, actor: 'token:backup-skript', canRollback: true }),
     dep(id, 3, { version: '9be20c4d7f11', ...at(2 * DAY, 41), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 3, reason: { kind: 'code', detail: 'Abhängigkeiten aktualisiert' }, actor: 'mcp:claude-code-mac' }),
@@ -359,7 +369,9 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
   const p = allProjects.find((x) => x.id === id)
   if (!p?.security) return null
   if (id === runningScanProjectId && !onlyDone) return runningScan(p)
-  const f = id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
+  const f = findingsFor(id)
+  // Befunde je Werkzeug, damit Stufen-Anzeige und Befundliste übereinstimmen
+  const by = (tool: string) => f.filter((x) => x.tool === tool).length
   const isStatic = p.runtimeKind === 'static'
   const startedAt = new Date(new Date(p.security.finishedAt ?? ago(0)).getTime() - 5 * MIN - 4_000).toISOString()
   const previous: Record<string, number> = { 'p-hallo': 90, 'p-foto': 100, 'p-kontoauszug': 41 }
@@ -372,26 +384,37 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
       nextScheduledAt: new Date(Date.parse(startedAt) + 7 * DAY).toISOString(),
       stages: isStatic ? {
         'trivy-image': { ran: false, state: 'skipped', note: 'kein Image, statische Seite', checks: CHECKS.trivyImage },
-        'trivy-source': { ran: true, state: 'done', findings: 0, checks: CHECKS.trivySource, durationMs: 12_000 },
-        headers: { ran: true, state: 'done', findings: 1, checks: CHECKS.headers, durationMs: 900 },
-        'zap-baseline': { ran: true, state: 'done', findings: 0, checks: CHECKS.zap, durationMs: 98_000 },
-        nuclei: { ran: true, state: 'done', findings: 0, checks: CHECKS.nuclei, durationMs: 41_000 },
+        'trivy-source': { ran: true, state: 'done', findings: by('trivy'), checks: CHECKS.trivySource, durationMs: 12_000 },
+        headers: { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, durationMs: 900 },
+        'zap-baseline': { ran: true, state: 'done', findings: by('zap'), checks: CHECKS.zap, durationMs: 98_000 },
+        nuclei: { ran: true, state: 'done', findings: by('nuclei'), checks: CHECKS.nuclei, durationMs: 41_000 },
       } : {
-        'trivy-image': { ran: true, state: 'done', findings: 4, checks: CHECKS.trivyImage, durationMs: 98_000 },
+        'trivy-image': { ran: true, state: 'done', findings: by('trivy'), checks: CHECKS.trivyImage, durationMs: 98_000 },
         'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
         // M8: Header über Caddy geprüft
         headers: id === securityProjectId
-          ? { ran: true, state: 'done', findings: 4, checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_200 }
-          : { ran: true, state: 'done', findings: 0, checks: CHECKS.headers, durationMs: 1_200 },
-        'zap-baseline': { ran: true, state: 'done', findings: 2, checks: CHECKS.zap, durationMs: 142_000 },
-        nuclei: { ran: true, state: 'done', findings: 1, checks: CHECKS.nuclei, durationMs: 61_000 },
+          ? { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_200 }
+          : { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, durationMs: 1_200 },
+        'zap-baseline': { ran: true, state: 'done', findings: by('zap'), checks: CHECKS.zap, durationMs: 142_000 },
+        nuclei: { ran: true, state: 'done', findings: by('nuclei'), checks: CHECKS.nuclei, durationMs: 61_000 },
         testssl: { ran: false, state: 'skipped', note: 'TLS endet zentral bei Caddy, siehe Systemseite' },
       },
     },
-    counts: p.security.open,
+    // Wie auf dem Server: dieselbe Zählung wie in der Projektübersicht
+    counts: countOpenFindings(f),
     top: f.filter((x) => x.status === 'open').slice(0, 3).map(({ id: fid, severity, title, location, fix }) => ({ id: fid, severity, title, location, fix })),
     findings: f,
   }
+}
+
+/** Befunde des letzten abgeschlossenen Scans je Projekt */
+function findingsFor(id: string): FindingDto[] {
+  return id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
+}
+
+// Stimmig wie auf dem Server: Die Kurzform am Projekt (security.open) zählt dieselben Befunde wie der Bericht
+for (const p of allProjects) {
+  if (p.security) p.security = { ...p.security, open: countOpenFindings(findingsFor(p.id)) }
 }
 
 function runningScan(p: ProjectDto): ScanReportDto {

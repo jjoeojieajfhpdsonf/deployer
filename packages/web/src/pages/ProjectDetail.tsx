@@ -16,7 +16,8 @@ import { DeployList, useDeployments } from '../components/DeployList.js'
 import { SiteAccess } from '../components/SiteAccess.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
-import { runtimeStatus, isPublic } from '../lib/projects.js'
+import { isLive, isPublic } from '../lib/projects.js'
+import { openTotal } from '@airlock/shared'
 import { EmptyState, ErrorState, Loading, SkLog, SkProjectDetail, SkRows } from '../components/States.js'
 
 const IconGear = () => (
@@ -108,12 +109,8 @@ export function ProjectDetail() {
   const p = q.data!.project
   const env = q.data!.env
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
-  const dbRt = runtimeStatus(p)
-  // Der Container fehlt oder ist beendet, obwohl er laufen sollte: dann zählt das, nicht die Datenbank
-  const down = Boolean(health.data?.container && !health.data.container.running)
-  const rt = down && dbRt.status === 'running' ? { status: 'failed' as const, deployFailed: dbRt.deployFailed } : dbRt
   const isStatic = p.runtimeKind === 'static'
-  const openFindings = p.security ? Object.values(p.security.open).reduce((a, b) => a + b, 0) : 0
+  const openFindings = openTotal(p.security?.open)
   const deployCount = deployList.data?.deployments[0]?.seq ?? deployList.data?.deployments.length
   const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn'; countLabel?: string; live?: boolean }> = {
     uebersicht: { label: 'Übersicht' },
@@ -128,11 +125,11 @@ export function ProjectDetail() {
     <section className="page page-project">
       <PageHead
         crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
-        title={<><h1>{p.name}</h1><StatusBadge status={rt.status} /><PublicPillFor p={p} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
+        title={<><h1>{p.name}</h1><StatusBadge state={p.state} /><PublicPillFor p={p} /></>}
         actions={
           <>
             {/* Sichtbar nur das Häufige; alles Weitere im «⋯»-Menü (Rückfragen dort, wie in der Projektkarte) */}
-            {url && rt.status === 'running' && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
+            {url && isLive(p) && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
             <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
               Neu deployen
             </button>

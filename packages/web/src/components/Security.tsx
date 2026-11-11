@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ScanReportDto, type FindingDto } from '../api.js'
-import { acceptFindingSchema, type ScanStageDto } from '@airlock/shared'
+import { acceptFindingSchema, SCAN_STAGE_LABEL, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
@@ -21,15 +21,8 @@ type Sev = FindingDto['severity']
 const SEVERITIES: Sev[] = ['critical', 'high', 'medium', 'low']
 export const SEVERITY_LABEL: Record<Sev, string> = { critical: 'kritisch', high: 'hoch', medium: 'mittel', low: 'niedrig' }
 
-const STAGE_LABEL: Record<string, string> = {
-  'trivy-image': 'Image (Trivy)',
-  'trivy-source': 'Quellcode (Trivy)',
-  headers: 'Security-Header',
-  'zap-baseline': 'OWASP ZAP (passiv)',
-  'zap-full': 'OWASP ZAP (aktiv)',
-  nuclei: 'Offene Dateien (Nuclei)',
-  testssl: 'TLS (testssl.sh)',
-}
+// Einheitliche Stufennamen (shared), gleich in Karte, Reiter, Fortschritt und MCP
+const STAGE_LABEL = SCAN_STAGE_LABEL
 /** Welches Werkzeug die Befunde einer Stufe liefert */
 const STAGE_TOOL: [RegExp, string][] = [[/^trivy-/, 'trivy'], [/^headers$/, 'header-check'], [/^zap-/, 'zap'], [/^nuclei$/, 'nuclei'], [/^testssl$/, 'testssl']]
 /** Reihenfolge wie in der Pipeline */

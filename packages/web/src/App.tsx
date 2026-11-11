@@ -3,6 +3,7 @@ import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Route, Routes, Navigate, Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary.js'
+import { openUrgent, sumCounts } from '@airlock/shared'
 import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
 import { ActivityIndicator } from './components/ActivityIndicator.js'
@@ -127,8 +128,9 @@ function Rail() {
   const system = useSystem()
   const list = projects.data?.projects ?? []
   // Zähler «Security»: offene kritische und hohe Befunde über alle Projekte
-  const critical = list.reduce((n, p) => n + (p.security?.open.critical ?? 0), 0)
-  const urgent = list.reduce((n, p) => n + (p.security ? p.security.open.critical + p.security.open.high : 0), 0)
+  const all = sumCounts(list.map((p) => p.security?.open))
+  const critical = all.critical
+  const urgent = openUrgent(all)
   // Klick aufs Icon klappt die Seitenleiste ein und aus; gemerkt pro Browser.
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const toggle = () => {

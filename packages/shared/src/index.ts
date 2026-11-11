@@ -612,6 +612,113 @@ export interface ProjectDto {
    * deployer-Zeit (alte Labels und Namen). «Neu erstellen» ersetzt sie.
    */
   legacyContainers: boolean
+  /**
+   * UI-Qualität 1: Zustand fertig berechnet (einzige Quelle für Pille,
+   * Unterzeile, Fehlerbox und Deployments-Liste). Siehe projectState().
+   */
+  state: ProjectStateDto
+}
+
+/* --- Stufen des Scans: ein Name überall (Oberfläche, Fortschritt, MCP) ---------------- */
+
+export const SCAN_STAGE_LABEL: Record<string, string> = {
+  'trivy-image': 'Abhängigkeiten & Image (Trivy)',
+  'trivy-source': 'Eigener Code',
+  headers: 'Security-Header',
+  'zap-baseline': 'Webseite passiv (ZAP)',
+  'zap-full': 'Webseite aktiv (ZAP)',
+  nuclei: 'Offene Dateien & Panels (Nuclei)',
+  testssl: 'TLS',
+}
+/** Name einer Stufe; «trivy-image nginx:1» → Name der Grundstufe */
+export const scanStageLabel = (key: string): string => SCAN_STAGE_LABEL[key.split(' ')[0]!] ?? key
+
+/* --- Befunde zählen: eine Funktion für «offen» --------------------------------------- */
+
+export type SeverityCounts = Record<'critical' | 'high' | 'medium' | 'low', number>
+
+/**
+ * Offene Befunde nach Schwere – «offen» heisst: weder akzeptiert noch behoben.
+ * Grundlage für jede Zahl in der Oberfläche (Kopf, Zähler-Pillen,
+ * Reiter-Badge, Seitenleiste, Projektkarte) und für die Kurzform am Projekt.
+ */
+export function countOpenFindings(findings: readonly { status: string; severity: string }[]): SeverityCounts {
+  const c: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+  for (const f of findings) if (f.status === 'open' && f.severity in c) c[f.severity as keyof SeverityCounts]++
+  return c
+}
+/** Alle offenen Befunde */
+export const openTotal = (c: SeverityCounts | null | undefined): number => (c ? c.critical + c.high + c.medium + c.low : 0)
+/** Offene kritische und hohe Befunde (Badge der Seitenleiste) */
+export const openUrgent = (c: SeverityCounts | null | undefined): number => (c ? c.critical + c.high : 0)
+/** Summe über mehrere Projekte */
+export function sumCounts(list: readonly (SeverityCounts | null | undefined)[]): SeverityCounts {
+  const c: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+  for (const x of list) if (x) for (const k of Object.keys(c) as (keyof SeverityCounts)[]) c[k] += x[k]
+  return c
+}
+
+/* --- Projektzustand: eine Quelle ------------------------------------------------- */
+
+export const projectStateKeys = ['deploying', 'stopped', 'paused', 'failed_old_running', 'running', 'down'] as const
+export type ProjectStateKey = (typeof projectStateKeys)[number]
+
+export interface ProjectStateDto {
+  key: ProjectStateKey
+  /** Wort für die Pille */
+  label: string
+  /** Ton der Pille (immer mit Wort, nie nur Farbe) */
+  tone: 'ok' | 'warn' | 'bad' | 'info' | 'neutral'
+  /** Unterzeile in einem Satz; null, wenn die Pille alles sagt */
+  detail: string | null
+}
+
+const STATE_TEXT: Record<ProjectStateKey, { label: string; tone: ProjectStateDto['tone'] }> = {
+  running: { label: 'läuft', tone: 'ok' },
+  failed_old_running: { label: 'neue Version gescheitert, alte läuft weiter', tone: 'warn' },
+  stopped: { label: 'gestoppt', tone: 'neutral' },
+  paused: { label: 'pausiert', tone: 'warn' },
+  deploying: { label: 'deployt gerade', tone: 'info' },
+  down: { label: 'nichts läuft', tone: 'bad' },
+}
+
+/** Läuft gerade ein Deploy (Schritt vor «aktiv»)? */
+const DEPLOY_RUNNING = new Set(['pending', 'pulling', 'starting', 'healthchecking'])
+
+/**
+ * Der Zustand eines Projekts, in dieser Reihenfolge entschieden:
+ *   deployt gerade → gestoppt (gewollt) → nichts läuft (Container weg/beendet
+ *   oder keine aktive Fassung) → pausiert (öffentlich pausiert, intern läuft
+ *   es) → neue Version gescheitert, alte läuft weiter → läuft.
+ * container: letzter bekannter Zustand vom Server (Monitor); null = unbekannt
+ * oder ohne Container (statische Seite).
+ */
+export function projectState(p: {
+  status: ProjectStatus
+  desiredState: DesiredState
+  activeDeployment: { id: string } | null
+  lastDeployment: { id: string; status: DeploymentStatus; errorMessage?: string | null } | null
+  routes: { target: string; pausedAt?: string | null }[]
+  container?: { running: boolean; missing?: boolean; exitCode?: number | null } | null
+}): ProjectStateDto {
+  const make = (key: ProjectStateKey, detail: string | null): ProjectStateDto => ({ key, ...STATE_TEXT[key], detail })
+  const last = p.lastDeployment
+  if (p.status === 'deploying' || (last && DEPLOY_RUNNING.has(last.status))) return make('deploying', null)
+  if (p.desiredState === 'stopped') return make('stopped', 'Gestoppt – die Adressen antworten nicht, bis du es wieder startest.')
+  if (!p.activeDeployment) {
+    return make('down', last?.status === 'failed' ? 'Der erste Deploy ist gescheitert; es gibt noch keine laufende Fassung.' : 'Es gibt noch keine laufende Fassung.')
+  }
+  if (p.container && !p.container.running) {
+    return make('down', p.container.missing
+      ? 'Der Container der aktiven Fassung fehlt.'
+      : `Der Container hat sich beendet${p.container.exitCode != null ? ` (Exit-Code ${p.container.exitCode})` : ''}.`)
+  }
+  const failedNewer = last?.status === 'failed' && last.id !== p.activeDeployment.id
+  if (p.routes.some((r) => r.target === 'public' && r.pausedAt)) {
+    return make('paused', failedNewer ? 'Öffentlich pausiert; intern läuft die alte Fassung, der letzte Deploy ist gescheitert.' : 'Öffentlich pausiert; intern läuft es weiter.')
+  }
+  if (failedNewer) return make('failed_old_running', last?.errorMessage ?? null)
+  return make('running', null)
 }
 
 export interface FindingDto {

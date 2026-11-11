@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from 'react'
-import type { ResourceSample } from '@airlock/shared'
+import { projectState, type ResourceSample } from '@airlock/shared'
 import { PageHead } from '../components/PageHead.js'
 import { StatusBadge } from '../components/Status.js'
 import { PublicPill } from '../components/Publication.js'
@@ -84,7 +84,15 @@ function Catalog() {
 
       <Block title="Pillen und Zähler">
         <div className="design-row">
-          <StatusBadge status="running" /><StatusBadge status="deploying" /><StatusBadge status="failed" /><StatusBadge status="stopped" />
+          {/* Alle Zustände aus projectState() (shared) */}
+          {(['running', 'failed_old_running', 'paused', 'deploying', 'stopped', 'down'] as const).map((k) => {
+            const s = projectState({
+              status: k === 'deploying' ? 'deploying' : 'running', desiredState: k === 'stopped' ? 'stopped' : 'running',
+              activeDeployment: k === 'down' ? null : { id: 'a' }, lastDeployment: k === 'failed_old_running' ? { id: 'b', status: 'failed' } : null,
+              routes: k === 'paused' ? [{ target: 'public', pausedAt: 'x' }] : [], container: null,
+            })
+            return <StatusBadge key={k} state={s} />
+          })}
         </div>
         <div className="design-row">
           <PublicPill state="live" /><PublicPill state="paused" /><PublicPill state="private" />

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CspAnalysisDto, FindingDto, ProjectDto, ScanReportDto, ScanStageDto } from '@airlock/shared'
-import { headerFixFor } from '@airlock/shared'
+import { countOpenFindings, headerFixFor, openTotal, scanStageLabel } from '@airlock/shared'
 import { api } from '../api.js'
 import { relativeTime, inTime } from '../lib/format.js'
 import { fmtDateTime } from '../lib/dates.js'
@@ -22,9 +22,7 @@ const SEVS: Sev[] = ['critical', 'high', 'medium', 'low']
 const VERDICT: Record<string, string> = { A: 'Gut geschützt', B: 'Solide', C: 'Verbesserungsbedarf', D: 'Handlungsbedarf' }
 
 /** Kurze Namen der Stufen für die Fusszeile */
-const STAGE_SHORT: Record<string, string> = {
-  headers: 'Header', 'zap-baseline': 'ZAP', 'zap-full': 'ZAP aktiv', nuclei: 'Nuclei', 'trivy-source': 'Quellcode', 'trivy-image': 'Image', testssl: 'TLS',
-}
+// Stufennamen einheitlich aus shared (SCAN_STAGE_LABEL), wie im Reiter Security und im MCP
 const STAGE_ORDER = ['headers', 'zap-baseline', 'zap-full', 'nuclei', 'trivy-source', 'trivy-image', 'testssl']
 
 /** Grund einer übersprungenen Stufe, kurz: «statisch», «kein Quellcode» */
@@ -116,7 +114,7 @@ function StageFoot({ stages }: { stages: Record<string, ScanStageDto> }) {
     <ul className="sc-stages" aria-label="Stufen des Scans">
       {keys.map((k) => {
         const s = stages[k]!
-        const name = STAGE_SHORT[k.split(' ')[0]!] ?? k
+        const name = scanStageLabel(k)
         const failed = s.failed || s.state === 'failed' || s.state === 'timeout'
         if (s.ran && !failed) return <li key={k} className="sc-stage sc-stage-ok"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>{name}</li>
         if (failed) return <li key={k} className="sc-stage sc-stage-bad" title={s.note}>✕ {name} <span>(fehlgeschlagen)</span></li>
@@ -142,7 +140,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
   })
   const open = (report?.findings ?? []).filter((f) => f.status === 'open')
   const top = [...open].sort((a, b) => SEVS.indexOf(a.severity) - SEVS.indexOf(b.severity)).slice(0, 2)
-  const total = open.length
+  const total = openTotal(countOpenFindings(report?.findings ?? []))
 
   const head = (
     <div className="ov-head">

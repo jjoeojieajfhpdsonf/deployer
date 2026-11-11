@@ -117,6 +117,12 @@ describe('Parser gegen echte Ausgaben', () => {
     assert.ok(f.every((x) => !/<p>/.test(x.fix)), 'HTML entfernt')
   })
 
+  test('ZAP: alles, was der Header-Check prüft, kommt nur von dort (auch gemischte Inhalte)', () => {
+    const alert = (pluginid: string, name: string) => ({ pluginid, name, riskcode: '2', desc: '', solution: '', instances: [{ uri: 'https://x' }] })
+    const doc = { site: [{ '@name': 'https://x', alerts: [alert('10040', 'Secure Pages Include Mixed Content'), alert('10038', 'CSP Header Not Set'), alert('10202', 'Absence of Anti-CSRF Tokens')] }] }
+    assert.deepEqual(parseZap(doc).map((x) => x.title), ['Absence of Anti-CSRF Tokens'])
+  })
+
   test('Nuclei: .env und .git/config, ähnliche Vorlagen zusammengefasst, Info weg', () => {
     const f = parseNuclei(fx('nuclei.jsonl'))
     assert.equal(f.length, 2)
