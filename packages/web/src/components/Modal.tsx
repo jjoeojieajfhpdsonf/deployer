@@ -7,7 +7,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
  * CSS-Selektor im Dialog (sonst das erste Feld bzw. der erste Knopf).
  * `busy` verhindert das Schliessen, solange etwas läuft.
  */
-export function Modal({ open, onClose, labelledBy, describedBy, initialFocus, busy, wide, children }: {
+export function Modal({ open, onClose, labelledBy, describedBy, initialFocus, busy, wide, full, children }: {
   open: boolean
   onClose: () => void
   labelledBy: string
@@ -15,6 +15,8 @@ export function Modal({ open, onClose, labelledBy, describedBy, initialFocus, bu
   initialFocus?: string
   busy?: boolean
   wide?: boolean
+  /** Fast das ganze Fenster (Aufbau vergrössert) */
+  full?: boolean
   children: ReactNode
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -39,7 +41,7 @@ export function Modal({ open, onClose, labelledBy, describedBy, initialFocus, bu
   return (
     <dialog
       ref={ref}
-      className={wide ? 'dialog dialog-wide' : 'dialog'}
+      className={full ? 'dialog dialog-full' : wide ? 'dialog dialog-wide' : 'dialog'}
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       onCancel={(e) => {

@@ -9,8 +9,9 @@ export const VISUAL_SCENES = [
   'login', 'shell-profilmenue', 'win95-freigeschaltet',
   // Projekte
   'projekte', 'projekt-uebersicht',
-  // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px)
-  'aufbau', 'aufbau-einzelcontainer', 'aufbau-statisch', 'aufbau-nicht-oeffentlich', 'aufbau-host', 'aufbau-schmal', 'aufbau-sehr-schmal',
+  // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
+  // grosser Bildschirm (Seite bis 1440 px), vergrössert (Dialog übers ganze Fenster)
+  'aufbau', 'aufbau-einzelcontainer', 'aufbau-statisch', 'aufbau-nicht-oeffentlich', 'aufbau-host', 'aufbau-schmal', 'aufbau-sehr-schmal', 'aufbau-breit', 'aufbau-vergroessert',
   'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
   // Öffentliche Adressen: Name · Domain, Vorschau, Prüfung (frei, fremder DNS-Eintrag, apex mit Worker, Neues Projekt)

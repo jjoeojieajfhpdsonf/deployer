@@ -10,7 +10,8 @@ import { useInternalReach } from './Reachability.js'
 import { Switch } from './Switch.js'
 import { InlineConfirm } from './Confirm.js'
 import { ErrorState, Loading, Sk, SkLines } from './States.js'
-import { IconExternal, IconGlobe, IconPause } from './Icons.js'
+import { IconExpand, IconExternal, IconGlobe, IconPause } from './Icons.js'
+import { Modal } from './Modal.js'
 
 /**
  * Reiter «Aufbau»: eine Fläche mit vier festen Spalten – Zugang, Eingang,
@@ -350,7 +351,9 @@ export function Topology(props: TopologyProps) {
   })
   const narrow = useMedia('(max-width: 700px)')
   const [picked, setPicked] = useState<string | null>(null)
+  const [full, setFull] = useState(false)
   const titleId = useId()
+  const fullTitleId = useId()
   const t = q.data?.topology
 
   const layout = useMemo(() => {
@@ -378,23 +381,53 @@ export function Topology(props: TopologyProps) {
   const current = selected ? layout.byId.get(selected) ?? null : null
   const counts = [plural(t.services.length, 'Dienst', 'Dienste'), t.volumes.length ? plural(t.volumes.length, 'Volume', 'Volumes') : null].filter(Boolean).join(' · ')
 
+  const legend = (
+    <div className="topo-legend">
+      {!narrow && <span><i className="topo-legend-line" aria-hidden="true" />verbunden</span>}
+      {!narrow && <span><i className="topo-legend-line topo-legend-off" aria-hidden="true" />aus</span>}
+      <span>Knoten wählen zeigt Details</span>
+    </div>
+  )
+
   return (
     <div className="tab-panel topo">
       <section className="topo-card topo-main" aria-labelledby={titleId}>
         <div className="topo-head">
           <h2 id={titleId}>Aufbau</h2>
-          <span className="muted num">{counts}</span>
+          <span className="topo-head-end">
+            <span className="muted num">{counts}</span>
+            {!narrow && (
+              <button type="button" className="button-small" onClick={() => setFull(true)}>
+                <IconExpand size={14} />Vergrössern
+              </button>
+            )}
+          </span>
         </div>
         {narrow
           ? <List t={t} cols={layout.cols} selected={selected} onSelect={setPicked} />
           : <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} />}
-        <div className="topo-legend">
-          {!narrow && <span><i className="topo-legend-line" aria-hidden="true" />verbunden</span>}
-          {!narrow && <span><i className="topo-legend-line topo-legend-off" aria-hidden="true" />aus</span>}
-          <span>Knoten wählen zeigt Details</span>
-        </div>
+        {legend}
       </section>
       {current && <Side {...props} t={t} x={current} onSelect={setPicked} />}
+      {/* Ganzes Fenster: dieselbe Fläche und Seitenkarte, gewählter Knoten bleibt gewählt; Esc schliesst */}
+      {!narrow && (
+        <Modal open={full} onClose={() => setFull(false)} labelledBy={fullTitleId} initialFocus=".topo-full-close" full>
+          <div className="topo-full-head">
+            <h2 id={fullTitleId}>Aufbau · {p.name}</h2>
+            <span className="topo-head-end">
+              <span className="muted num">{counts}</span>
+              <button type="button" className="button-small topo-full-close" onClick={() => setFull(false)}>Schliessen</button>
+            </span>
+          </div>
+          <div className="topo topo-full">
+            <section className="topo-card topo-main" aria-labelledby={fullTitleId}>
+              <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} />
+              {legend}
+            </section>
+            {current && <Side {...props} t={t} x={current} onSelect={setPicked} />}
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

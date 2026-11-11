@@ -465,6 +465,9 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 
 .main { min-width: 0; padding: calc(var(--sp-6) + env(safe-area-inset-top, 0px)) var(--gutter) 96px var(--sp-4); }
 .page { max-width: var(--content); margin: 0 auto; }
+/* Projektseite: auf grossen Bildschirmen bis 1440 px (Aufbau, Logs, Tabellen brauchen den Platz).
+   Die Kopfzeile wächst mit, damit ihre Kanten bündig mit der Seite bleiben; ab 1200 px Fensterinhalt unverändert. */
+.main:has(.page-project) { --content: 1440px; }
 .page-narrow > * { max-width: 760px; }
 .page-medium > * { max-width: 1040px; }
 .page-narrow > .state { max-width: 760px; }
@@ -833,7 +836,9 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
  * Reiter: unterstrichen statt Kapsel. Hover nur Textfarbe (eine Stufe
  * dunkler, nie so dunkel wie aktiv), kein Gewicht – nie zwei Reiter «aktiv».
  */
-.tabs { display: flex; align-items: stretch; gap: var(--sp-6); margin: 0 0 var(--sp-8); border-bottom: 1px solid var(--line); max-width: 100%; overflow-x: auto; }
+/* overflow-x: auto macht auch die Höhe scrollbar; die Reiter ragen 1 px hinunter (margin-bottom: -1px) –
+   ohne overflow-y: hidden zeigt macOS mit «Rollbalken immer einblenden» rechts einen senkrechten Balken */
+.tabs { display: flex; align-items: stretch; gap: var(--sp-6); margin: 0 0 var(--sp-8); border-bottom: 1px solid var(--line); max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .tab {
   position: relative; display: inline-flex; align-items: center; gap: var(--sp-2);
   min-height: 44px; padding: 0 2px; margin-bottom: -1px;
@@ -2354,6 +2359,20 @@ kbd + kbd { margin-left: 4px; }
 .topo-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: 58px; padding: 0 22px; border-bottom: 1px solid var(--line); }
 .topo-head h2 { font-size: var(--fs-16); }
 .topo-head .muted { font-size: var(--fs-13); }
+.topo-head-end { display: flex; align-items: center; gap: var(--sp-4); }
+
+/* Vergrössert: Dialog über fast das ganze Fenster, Fläche füllt die Höhe, Seitenkarte rechts */
+.dialog.dialog-full { width: calc(100vw - 32px); max-width: none; height: calc(100vh - 32px); max-height: none; background: var(--bg); }
+.dialog-full .dialog-body { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--sp-4); height: 100%; padding: var(--sp-5); }
+.topo-full-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); }
+.dialog-full .topo-full-head h2 { margin: 0; font-size: var(--fs-18); }
+.topo.topo-full { align-items: stretch; min-height: 0; overflow: auto; }
+.topo-full .topo-main { display: flex; flex-direction: column; }
+.topo-full .topo-canvas { flex: 1; display: flex; flex-direction: column; }
+/* Hier soll alles lesbar sein: «Eingang» trägt die langen Adressen und bekommt mehr Breite; Knoten mittig in der Höhe */
+.topo-full .topo-cols-head, .topo-full .topo-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1fr); }
+.topo-full .topo-body { margin-block: auto; }
+.topo-full .topo-side { align-self: start; position: sticky; top: 0; }
 
 /* Fläche: eingelassener Grund mit Punktraster, darüber Spaltenköpfe und Knoten */
 .topo-canvas {

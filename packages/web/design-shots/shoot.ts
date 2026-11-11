@@ -261,6 +261,20 @@ const shots: Shot[] = [
     group: 'aufbau', name: 'aufbau-sehr-schmal', path: `/projekte/${P}?tab=aufbau`,
     prepare: async (pg) => { await pg.setViewportSize({ width: 680, height: 900 }); await pg.waitForTimeout(300) },
   },
+  // Grosser Bildschirm: Projektseite bis 1440 px breit, Kopfzeile bündig mit
+  {
+    group: 'aufbau', name: 'aufbau-breit', path: `/projekte/${P}?tab=aufbau`, full: false,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 1920, height: 1080 }); await pg.waitForTimeout(300) },
+  },
+  // «Vergrössern»: Aufbau im Dialog über fast das ganze Fenster
+  {
+    group: 'aufbau', name: 'aufbau-vergroessert', path: `/projekte/${P}?tab=aufbau`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Vergrössern' }).click()
+      await pg.locator('.dialog-full .topo-node').first().waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
   // Ergebnisbilder neben der Vorlage (docs/design-cal/aufbau/umgesetzt-*.png): erster Bildschirm wie die Vorlage
   { group: 'aufbau-umgesetzt', name: 'umgesetzt', path: `/projekte/${P}?tab=aufbau`, full: false },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },

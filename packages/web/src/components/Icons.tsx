@@ -8,6 +8,10 @@ export const IconSearch = ({ size, className }: P) => (
 export const IconDownload = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /></svg>
 )
+/** Vergrössern: zwei Pfeile in die Ecken (Aufbau im ganzen Fenster) */
+export const IconExpand = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" /></svg>
+)
 export const IconPlus = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>
 )
