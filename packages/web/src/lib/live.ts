@@ -43,6 +43,7 @@ export type ServerEvent =
   | { type: 'audit'; action: string; targetType: string | null; targetId: string | null }
   | { type: 'cert' }
   | { type: 'public'; projectId: string }
+  | { type: 'traffic'; projectIds: string[] }
   | { type: 'session_ended' }
 
 type Key = unknown[]
@@ -65,6 +66,9 @@ export function affected(e: ServerEvent): Key[] {
     }
     case 'cert':
       return [['cloudflare'], ['domains']]
+    // Etappe 3: neue Besucher-Zähler gespeichert (höchstens einmal pro Minute)
+    case 'traffic':
+      return [['traffic-today'], ...e.projectIds.map((id) => ['traffic', id])]
     case 'public':
       return [['projects'], ...forProject(e.projectId, 'project', 'public', 'public-progress', 'topology')]
     case 'audit': {

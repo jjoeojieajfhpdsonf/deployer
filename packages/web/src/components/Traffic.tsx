@@ -6,7 +6,7 @@ import {
   type TrafficDevice, type TrafficPointDto, type TrafficRange, type TrafficRowDto, type TrafficSummaryDto, type TrafficWay, type ProjectDto,
 } from '@airlock/shared'
 import { api } from '../api.js'
-import { FALLBACK_MS } from '../lib/live.js'
+import { poll } from '../lib/live.js'
 import { fmtDate, fmtDayMonth, fmtTime, fmtWeekday } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, Sk, SkRows } from './States.js'
 
@@ -32,8 +32,9 @@ export function useTraffic(projectId: string, range: TrafficRange, way: TrafficW
     queryKey: ['traffic', projectId, range, way],
     queryFn: () => api.traffic(projectId, range, way),
     enabled,
-    // Zähler kommen einmal pro Minute in die Datenbank – öfter fragen bringt nichts
-    refetchInterval: FALLBACK_MS,
+    // Zähler kommen einmal pro Minute in die Datenbank; danach meldet der Ereignisstrom «traffic»
+    // (lib/live.ts). Polling nur als Rückfall ohne Strom.
+    refetchInterval: poll,
     placeholderData: (prev) => prev,
   })
 }
@@ -340,7 +341,7 @@ export function TrafficTab({ p, onAccessLog }: { p: ProjectDto; onAccessLog?: ()
         Aufbewahrung 13 Monate. Länder von Cloudflare; Tailnet ohne Gerätenamen.
         {s.source.cityDb && <> Städte: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> (CC BY 4.0, Stand {s.source.cityDb}).</>}
         {!s.source.cityDb && wayHasInternet && <CityDbButton />}
-        {onAccessLog && <> <button type="button" className="link-button" onClick={onAccessLog}>Einzelne Aufrufe im Reiter «Zugriffe»</button></>}
+        {onAccessLog && <>{!s.source.cityDb && wayHasInternet ? ' · ' : ' '}<button type="button" className="link-button" onClick={onAccessLog}>Einzelne Aufrufe im Reiter «Zugriffe»</button></>}
       </p>
     </div>
   )
@@ -372,5 +373,5 @@ function CityDbButton() {
 
 /** Projektliste: «214 Aufrufe heute» – nur wenn Airlock mitzählt */
 export function useTrafficToday() {
-  return useQuery({ queryKey: ['traffic-today'], queryFn: () => api.trafficToday(), refetchInterval: FALLBACK_MS, retry: false })
+  return useQuery({ queryKey: ['traffic-today'], queryFn: () => api.trafficToday(), refetchInterval: poll, retry: false })
 }

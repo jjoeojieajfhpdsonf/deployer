@@ -7,7 +7,7 @@ import { db, getSetting, schema, setSetting } from '../db/index.js'
 import { effectiveKind } from '../domain/deployments.js'
 import { aliasesForHost } from '../domain/routes.js'
 import { displayTimeZone } from '../domain/pause-page.js'
-import { subscribe } from '../lib/events.js'
+import { publish, subscribe } from '../lib/events.js'
 import { log } from '../lib/log.js'
 import { VISITS_LOG_FILE } from '../drivers/caddy-config.js'
 import { TrafficAggregator } from './aggregate.js'
@@ -113,6 +113,9 @@ async function flush(): Promise<void> {
     throw err
   }
   if (tail?.position) await setSetting(POS_KEY, JSON.stringify(tail.position))
+  // Oberfläche lädt Besucherzahlen nach (statt sie jede Minute abzufragen)
+  const ids = [...new Set(rows.filter((r) => !r.bot).map((r) => r.projectId))]
+  if (ids.length) publish({ type: 'traffic', projectIds: ids })
 }
 
 let started = false

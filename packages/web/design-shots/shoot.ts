@@ -856,6 +856,12 @@ const shots: Shot[] = [
   },
   { group: 'besucher', name: 'projekt-uebersicht-besucher', path: `/projekte/${H}`, traffic: 'ok' },
   { group: 'besucher', name: 'projekte-besucher', path: '/projekte', traffic: 'ok' },
+  // Ergebnisbilder der Etappe (docs/design-cal/analytics/umgesetzt-*.png)
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher', path: `/projekte/${H}?tab=besucher`, traffic: 'ok' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher-staedte', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-uebersicht', path: `/projekte/${H}`, traffic: 'ok', full: false },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-projekte', path: '/projekte', traffic: 'ok', full: false },
   { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
   { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
   {
