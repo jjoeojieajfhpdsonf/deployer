@@ -2,6 +2,7 @@ import { eq, or, asc, and, desc } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
+import { serverJob, type Scope, type ListScope, type EnvScope } from '../lib/scope.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
 import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type NamePreviewDto, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
@@ -13,7 +14,7 @@ import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.
 import { expiresAt } from '../jobs/expiry-rule.js'
 import { chatExpiryDays } from './expiry-settings.js'
 import { routeDtosFor, setRoutes, reconcileCaddy, urlsFor } from './routes.js'
-import { primaryHost, aliasHosts } from '../config.js'
+import { primaryHostIn, aliasHostsIn } from './environments.js'
 import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
 import { withFailure } from '../deploy/explain.js'
@@ -115,27 +116,49 @@ export async function touchActivity(id: string): Promise<void> {
     .where(and(eq(schema.projects.id, id), eq(schema.projects.sourceType, 'files')))
 }
 
-export async function listProjects(): Promise<ProjectDto[]> {
-  const rows = await db.select().from(schema.projects).orderBy(asc(schema.projects.name))
+/** M9: Projekte einer Umgebung (oder aller, für einen benannten Server-Job). */
+export async function listProjects(scope: ListScope): Promise<ProjectDto[]> {
+  const rows = await listProjectRows(scope)
   return Promise.all(rows.map(toDto))
 }
 
-/** Nimmt UUID oder Slug – die UI arbeitet mit IDs, Skripte lieber mit Slugs. */
-export async function findProject(idOrSlug: string): Promise<Row> {
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug)
+export async function listProjectRows(scope: ListScope): Promise<Row[]> {
+  return db.select().from(schema.projects)
+    .where(scope.kind === 'env' ? eq(schema.projects.environmentId, scope.envId) : undefined)
+    .orderBy(asc(schema.projects.name))
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Nimmt UUID oder Slug – die UI arbeitet mit IDs, Skripte lieber mit Slugs.
+ * M9: Ein Projekt einer anderen Umgebung als der des Scopes ist «nicht
+ * gefunden», mit derselben Meldung und derselben Abfrage wie ein unbekanntes.
+ */
+export async function findProject(scope: Scope, idOrSlug: string): Promise<Row> {
+  const byKey = UUID_RE.test(idOrSlug) ? or(eq(schema.projects.id, idOrSlug), eq(schema.projects.slug, idOrSlug)) : eq(schema.projects.slug, idOrSlug)
   const rows = await db
     .select()
     .from(schema.projects)
-    .where(isUuid ? or(eq(schema.projects.id, idOrSlug), eq(schema.projects.slug, idOrSlug)) : eq(schema.projects.slug, idOrSlug))
+    .where(scope.kind === 'env' ? and(byKey, eq(schema.projects.environmentId, scope.envId)) : byKey)
     .limit(1)
   const row = rows[0]
   if (!row) throw notFound('Projekt')
   return row
 }
 
+/**
+ * Ohne Umgebung: nur für Server-Jobs und für Code, der eine schon geprüfte
+ * Projekt-ID weiterreicht (Deploy-Ablauf, Scan, Caddy-Abgleich). Nie mit
+ * einer Eingabe von aussen aufrufen.
+ */
+export async function findProjectForServerJob(idOrSlug: string): Promise<Row> {
+  return findProject(serverJob('intern'), idOrSlug)
+}
+
 /* --- Schreiben ------------------------------------------------------------ */
 
-async function freeSlug(wanted: string): Promise<string> {
+async function freeSlug(wanted: string, envId: string): Promise<string> {
   const taken = new Set([
     ...RESERVED_SLUGS,
     ...(await db.select({ slug: schema.projects.slug }).from(schema.projects)).map((r) => r.slug),
@@ -143,7 +166,7 @@ async function freeSlug(wanted: string): Promise<string> {
   // UI-Qualität 5: auch belegte Adressen zählen (über MCP kann ein Projekt eine fremde Subdomain tragen);
   // sonst scheiterte setRoutes nach dem Anlegen mit 409 und liesse ein halbes Projekt zurück
   const hosts = new Set((await db.select({ hostname: schema.routes.hostname }).from(schema.routes)).map((r) => r.hostname))
-  const free = (s: string) => !taken.has(s) && !hosts.has(primaryHost(s))
+  const free = (s: string) => !taken.has(s) && !hosts.has(primaryHostIn(envId, s))
   if (free(wanted)) return wanted
   for (let i = 2; i < 100; i++) {
     const candidate = `${wanted.slice(0, 37)}-${i}`
@@ -156,22 +179,31 @@ async function freeSlug(wanted: string): Promise<string> {
  * UI-Qualität 5: Vorschau für «Neues Projekt» – welcher Kurzname und welche
  * Adresse entstehen, und ist der gewünschte Kurzname schon belegt (dann gibt
  * es «-2» usw., wie beim Anlegen). Ändert nichts.
+ * M9: Adresse in der Umgebung des Scopes. Slugs sind serverweit eindeutig;
+ * ein Projekt einer anderen Umgebung wird nicht mit Namen genannt (nur
+ * «Adresse belegt»), wie «nicht gefunden statt verboten».
  */
-export async function previewName(name: string): Promise<NamePreviewDto> {
+export async function previewName(scope: EnvScope, name: string): Promise<NamePreviewDto> {
   // slugify fällt bei Namen ohne Buchstaben auf «projekt» zurück – genau wie beim Anlegen
   const wanted = slugify(name)
-  const owner = (await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.slug, wanted)).limit(1))[0] ?? null
+  const row = (await db.select({ id: schema.projects.id, name: schema.projects.name, env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.slug, wanted)).limit(1))[0]
+  const owner = row && row.env === scope.envId ? { id: row.id, name: row.name } : null
   const reserved = (RESERVED_SLUGS as readonly string[]).includes(wanted)
   // Dieselbe Funktion wie createProject: Vorschau und Anlegen wählen denselben Kurznamen
-  const slug = await freeSlug(wanted).catch(() => '')
-  const host = slug ? primaryHost(slug) : null
-  // Weder Kurzname noch reserviert, aber trotzdem ausgewichen: die Adresse ist schon belegt
+  const slug = await freeSlug(wanted, scope.envId).catch(() => '')
+  const host = slug ? primaryHostIn(scope.envId, slug) : null
+  // Weder Kurzname (dieser Umgebung) noch reserviert, aber trotzdem ausgewichen: die Adresse ist schon belegt
   const hostTaken = !owner && !reserved && slug !== '' && slug !== wanted
-  return { wanted, slug, takenBy: owner, reserved, hostTaken, host, urls: host ? urlsFor(host, aliasHosts(slug)) : [] }
+  return { wanted, slug, takenBy: owner, reserved, hostTaken, host, urls: host ? urlsFor(host, aliasHostsIn(scope.envId, slug), scope.envId) : [] }
 }
 
-export async function createProject(input: CreateProjectInput, actor: string): Promise<Row> {
-  const slug = input.slug ? input.slug : await freeSlug(slugify(input.name))
+/**
+ * Neues Projekt in der Umgebung des Scopes. Slugs sind serverweit eindeutig
+ * (SPEC, Entscheidung 3): ein belegter Slug einer anderen Umgebung ergibt
+ * «schon vergeben» – das verrät nur den Namen, keinen Inhalt.
+ */
+export async function createProject(scope: EnvScope, input: CreateProjectInput, actor: string): Promise<Row> {
+  const slug = input.slug ? input.slug : await freeSlug(slugify(input.name), scope.envId)
   if (input.slug) {
     const existing = await db.select().from(schema.projects).where(eq(schema.projects.slug, slug)).limit(1)
     if (existing.length) throw conflict(`Der Slug "${slug}" ist schon vergeben`)
@@ -191,6 +223,7 @@ export async function createProject(input: CreateProjectInput, actor: string): P
       keep: input.keep,
       status: 'created',
       desiredState: 'stopped',
+      environmentId: scope.envId,
     })
     .returning()
     .catch((err: unknown) => {
@@ -257,8 +290,8 @@ export async function setDesiredState(id: string, desired: Row['desiredState']):
  * Stoppt und entfernt alles, was zum Projekt gehoert: Container, Netz, Routen,
  * Seitenordner. Abnahmekriterium: hinterlaesst keinen Rest.
  */
-export async function deleteProject(id: string, actor: string, purgeVolumes = false): Promise<void> {
-  const project = await findProject(id)
+export async function deleteProject(scope: Scope, id: string, actor: string, purgeVolumes = false): Promise<void> {
+  const project = await findProject(scope, id)
 
   // 0. M5: zuerst die öffentliche Seite schliessen – CNAME, Access-App und
   //    Tunnel-Regel bei Cloudflare. Scheitert das, wird gemeldet, aber

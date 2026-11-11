@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
+import { useEnvPath } from '../lib/env.js'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
 import { confirmLeave, hasUnsaved } from '../lib/unsaved.js'
@@ -36,6 +37,7 @@ export function ProjectDetail() {
   const { id = '' } = useParams()
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
   // Reihenfolge nach Wichtigkeit; Einstellungen rechts abgesetzt
   const TABS: Tab[] = ['uebersicht', 'security', 'deployments', 'logs', 'einstellungen']
@@ -116,7 +118,7 @@ export function ProjectDetail() {
   if (!q.data && q.isError && !(q.error instanceof ApiError && q.error.status === 404)) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Projekt' }]} title="Projekt" />
+        <PageHead crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: 'Projekt' }]} title="Projekt" />
         <ErrorState what="Das Projekt" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
       </section>
     )
@@ -125,10 +127,10 @@ export function ProjectDetail() {
   if (!q.data) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Nicht gefunden' }]} title="Projekt nicht gefunden" />
+        <PageHead crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: 'Nicht gefunden' }]} title="Projekt nicht gefunden" />
         <div className="state state-empty">
-          <p>Vielleicht wurde es gelöscht, oder die Adresse ist veraltet.</p>
-          <Link className="button" to="/projekte">Zu den Projekten</Link>
+          <p>Vielleicht wurde es gelöscht, in eine andere Umgebung verschoben, oder die Adresse ist veraltet.</p>
+          <Link className="button" to={ep('/projekte')}>Zu den Projekten</Link>
         </div>
       </section>
     )
@@ -155,7 +157,7 @@ export function ProjectDetail() {
   return (
     <section className="page page-project">
       <PageHead
-        crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: p.name }]}
+        crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: p.name }]}
         name={p.name}
         title={<><h1>{p.name}</h1><StatusBadge state={p.state} /><PublicPillFor p={p} /></>}
         actions={
@@ -271,7 +273,7 @@ export function ProjectDetail() {
         <ProjectSettings
           p={p}
           env={env}
-          onDeleted={() => navigate('/projekte')}
+          onDeleted={() => navigate(ep('/projekte'))}
           deleteRequested={deleteRequested}
           onDeleteShown={() => setDeleteRequested(false)}
           envRequest={envRequest}

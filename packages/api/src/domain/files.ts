@@ -9,6 +9,7 @@ import { badRequest } from '../lib/errors.js'
 import { localRepoPath } from '../deploy/sources/files.js'
 import { repoUrlPolicy } from './git-policy.js'
 import { findProject, createProject } from './projects.js'
+import type { Scope, EnvScope } from '../lib/scope.js'
 import { audit } from './audit.js'
 import { rm } from 'node:fs/promises'
 import type { CreateProjectInput } from '@airlock/shared'
@@ -30,9 +31,9 @@ function repoOf(project: Project): string {
  * Commit. Scheitert der Commit, wird das Projekt wieder entfernt – es bleibt
  * kein Projekt ohne Dateien zurück.
  */
-export async function createFilesProject(input: CreateProjectInput, actor: string): Promise<Project> {
+export async function createFilesProject(scope: EnvScope, input: CreateProjectInput, actor: string): Promise<Project> {
   decodeFiles(input.files ?? []) // wirft vor dem Anlegen bei ungültigen Pfaden oder zu viel Inhalt
-  const project = await createProject(input, actor)
+  const project = await createProject(scope, input, actor)
   try {
     await initProjectFiles(project, input.files ?? [], actor)
   } catch (err) {
@@ -40,7 +41,7 @@ export async function createFilesProject(input: CreateProjectInput, actor: strin
     await db.delete(schema.projects).where(eq(schema.projects.id, project.id))
     throw err
   }
-  return findProject(project.id)
+  return findProject(scope, project.id)
 }
 
 /** Erster Commit beim Anlegen. */
@@ -60,11 +61,12 @@ export async function initProjectFiles(project: Project, files: FileInput[], act
 
 /** Geänderte und gelöschte Dateien committen. Setzt die Ablauffrist zurück. */
 export async function updateProjectFiles(
+  scope: Scope,
   idOrSlug: string,
   o: { files?: FileInput[]; delete?: string[]; message: string },
   actor: string,
 ): Promise<{ commit: string; changed: boolean; project: Project }> {
-  const project = await findProject(idOrSlug)
+  const project = await findProject(scope, idOrSlug)
   const dir = repoOf(project)
   const write = decodeFiles(o.files ?? [])
   const remove = (o.delete ?? []).map(validateFilePath)
@@ -85,21 +87,21 @@ export async function updateProjectFiles(
   return { ...r, project }
 }
 
-export async function readProjectFiles(idOrSlug: string, paths?: string[]) {
-  const project = await findProject(idOrSlug)
+export async function readProjectFiles(scope: Scope, idOrSlug: string, paths?: string[]) {
+  const project = await findProject(scope, idOrSlug)
   const dir = repoOf(project)
   return { commit: await headCommit(dir), files: await readFiles(dir, paths) }
 }
 
-export async function listProjectFiles(idOrSlug: string): Promise<{ commit: string | null; files: RepoFile[] }> {
-  const project = await findProject(idOrSlug)
+export async function listProjectFiles(scope: Scope, idOrSlug: string): Promise<{ commit: string | null; files: RepoFile[] }> {
+  const project = await findProject(scope, idOrSlug)
   const dir = repoOf(project)
   const commit = await headCommit(dir)
   return { commit, files: commit ? await listFiles(dir) : [] }
 }
 
-export async function exportProjectZip(idOrSlug: string, actor: string): Promise<{ zip: Buffer; commit: string | null }> {
-  const project = await findProject(idOrSlug)
+export async function exportProjectZip(scope: Scope, idOrSlug: string, actor: string): Promise<{ zip: Buffer; commit: string | null }> {
+  const project = await findProject(scope, idOrSlug)
   const dir = repoOf(project)
   const zip = await archiveZip(dir)
   await audit({ actor, action: 'files.export', targetType: 'project', targetId: project.id, params: { format: 'zip', size: zip.length }, result: 'ok' })
@@ -108,11 +110,12 @@ export async function exportProjectZip(idOrSlug: string, actor: string): Promise
 
 /** Auf ein entferntes Repo schieben. Das Token wird nie geloggt. */
 export async function pushProjectRepo(
+  scope: Scope,
   idOrSlug: string,
   o: { url: string; branch?: string; token?: string },
   actor: string,
 ): Promise<{ displayUrl: string; commit: string | null }> {
-  const project = await findProject(idOrSlug)
+  const project = await findProject(scope, idOrSlug)
   const dir = repoOf(project)
   const r = await pushRepo({ dir, url: o.url, branch: o.branch ?? 'main', token: o.token, policy: await repoUrlPolicy() })
   await audit({

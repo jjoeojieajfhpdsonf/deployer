@@ -19,6 +19,7 @@ import { KeyFacts } from './KeyFacts.js'
 import { deployFailedState } from '../lib/projects.js'
 import { IconBad, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
+import { useEnvPath } from '../lib/env.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
@@ -488,6 +489,7 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
 const ACTIVITY_SHOWN = 5
 
 function Activity({ projectId }: { projectId: string }) {
+  const ep = useEnvPath()
   const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: poll })
   const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
   const shown = items.slice(0, ACTIVITY_SHOWN)
@@ -496,7 +498,7 @@ function Activity({ projectId }: { projectId: string }) {
     <section className="panel panel-pad ov-section" aria-labelledby="ov-act">
       <div className="ov-head">
         <h2 className="ov-title" id="ov-act">Aktivität</h2>
-        <Link to="/audit">Audit-Log</Link>
+        <Link to={ep('/audit')}>Audit-Log</Link>
       </div>
       {!a.data && a.isError ? <ErrorState compact what="Die Aktivität" error={a.error} retrying={a.isFetching} onRetry={() => void a.refetch()} />
         : !a.data ? <Loading label="Aktivität wird geladen"><SkRows n={3} card={false} /></Loading>

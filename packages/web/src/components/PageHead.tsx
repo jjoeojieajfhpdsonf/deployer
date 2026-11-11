@@ -39,7 +39,7 @@ export function Crumbs() {
   return (
     <nav className="crumbs" aria-label="Pfad">
       <ol>
-        <li><Link to="/projekte">{PRODUCT_NAME}</Link></li>
+        <li><Link to="/">{PRODUCT_NAME}</Link></li>
         {crumbs.map((c, i) => (
           <li key={i}>
             <span className="crumbs-sep" aria-hidden="true">›</span>

@@ -10,10 +10,9 @@ import { SetupSummary } from './Setup.js'
 import { NotificationSettings } from '../components/Notifications.js'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
-import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { GithubSetup } from '../components/GithubSetup.js'
-import { PausePageSettings } from '../components/PausePageSettings.js'
 import { ExpirySettings } from '../components/ExpirySettings.js'
+import { useEnvPath } from '../lib/env.js'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -21,21 +20,23 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export type SystemSection = 'uebersicht' | 'cloudflare' | 'veroeffentlichung' | 'benachrichtigungen' | 'github'
+export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github'
 
+/**
+ * M9: «Server» – was für alle Umgebungen gilt. Cloudflare & HTTPS und die
+ * Vorlage der Pause-Seite gehören zur Umgebung (Einstellungen der Umgebung).
+ */
 const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
-  { key: 'uebersicht', to: '/system', label: 'Übersicht' },
-  { key: 'cloudflare', to: '/system/cloudflare', label: 'Cloudflare & HTTPS' },
-  { key: 'veroeffentlichung', to: '/system/veroeffentlichung', label: 'Veröffentlichung' },
-  { key: 'benachrichtigungen', to: '/system/benachrichtigungen', label: 'Benachrichtigungen' },
+  { key: 'uebersicht', to: '/server', label: 'Übersicht' },
+  { key: 'benachrichtigungen', to: '/server/benachrichtigungen', label: 'Benachrichtigungen' },
   // M8, Etappe 3
-  { key: 'github', to: '/system/github', label: 'GitHub' },
+  { key: 'github', to: '/server/github', label: 'GitHub' },
 ]
 
 /**
- * System in drei Unterseiten statt einer langen Seite: Übersicht (Dienste,
- * Netz, Erreichbarkeit), Cloudflare & HTTPS (Assistent, Zertifikat, Tailnet),
- * Benachrichtigungen. Die Unternavigation ist die Reiter-Steuerung der App.
+ * Server in Unterseiten statt einer langen Seite: Übersicht (Dienste, Netz,
+ * Erreichbarkeit), Benachrichtigungen, GitHub. Die Unternavigation ist die
+ * Reiter-Steuerung der App.
  */
 export function System({ section = 'uebersicht' }: { section?: SystemSection }) {
   // Messwerte einmal pro Minute (wie die Seitenleiste); Änderungen kommen über den Ereignisstrom
@@ -81,31 +82,21 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'uebersicht' ? [{ label: 'System' }] : [{ label: 'System', to: '/system' }, { label: current.label }]}
-        title="System"
-        name={section === 'uebersicht' ? 'System' : current.label}
+        crumbs={section === 'uebersicht' ? [{ label: 'Server' }] : [{ label: 'Server', to: '/server' }, { label: current.label }]}
+        title="Server"
+        name={section === 'uebersicht' ? 'Server' : current.label}
       />
       <ScrollToHash ready={Boolean(s)} />
 
-      <nav className="tabs" aria-label="Bereiche von System">
+      <nav className="tabs" aria-label="Bereiche des Servers">
         {SECTIONS.map((x) => (
           <NavLink key={x.key} to={x.to} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={x.key === section ? 'page' : undefined}>
             {x.label}
           </NavLink>
         ))}
       </nav>
+      <p className="lede lede-tight">Gilt für alle Umgebungen. Domains, Zertifikate, Standards und Tokens stehen in den Einstellungen der jeweiligen Umgebung.</p>
 
-      {section === 'cloudflare' && (
-        <>
-          <p className="lede lede-tight">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
-          <CloudflareSetup />
-          {s.baseDomain && <TlsSection s={s} />}
-          {/* UI-Qualität 6: Domains gehören hierher (früher eigene Seite /domains) */}
-          <Domains />
-        </>
-      )}
-
-      {section === 'veroeffentlichung' && <PausePageSettings />}
       {section === 'benachrichtigungen' && <NotificationSettings />}
 
       {section === 'github' && <GithubSetup />}
@@ -116,8 +107,8 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   )
 }
 
-/** Sprung zu #abschnitt (z.B. /domains → /system/cloudflare#domains), sobald die Seite steht */
-function ScrollToHash({ ready }: { ready: boolean }) {
+/** Sprung zu #abschnitt (z.B. /domains → Einstellungen › Cloudflare & HTTPS #domains), sobald die Seite steht */
+export function ScrollToHash({ ready }: { ready: boolean }) {
   const { hash } = useLocation()
   // Erst springen, wenn alles darüber geladen ist (Cloudflare, Domains) – sonst schöbe es den Abschnitt weg
   const loading = useIsFetching()
@@ -138,21 +129,55 @@ function ScrollToHash({ ready }: { ready: boolean }) {
   return null
 }
 
+type ClientIps = NonNullable<SystemStatusDto['clientIps']>
+
+const SOURCE_TEXT: Record<'tailnet' | 'server', { title: string; hint: string }> = {
+  tailnet: {
+    title: 'Vermutlich aus dem Tailnet maskiert',
+    hint: 'Browser-Anfragen, deren Absender Tailscale als Subnet-Router auf das Docker-Gateway umschreibt. Abhilfe: docs/INSTALL.md, Abschnitt «Tailscale als Subnet-Router».',
+  },
+  server: {
+    title: 'Vom Server selbst',
+    hint: 'Werkzeuge ohne Browser-Kennung, z. B. curl auf dem Host oder ein Container, der den Namen über die Host-Ports anfragt. Eigene Prüfungen von Airlock sind schon herausgefiltert.',
+  },
+}
+
+/** Warnung mit Details: woher, welche Hosts, Beispiel-Pfade, letzte Zeit. */
+function GatewayWarning({ ci }: { ci: ClientIps }) {
+  return (
+    <div role="alert" className="banner banner-warn gateway-warning">
+      <p>
+        <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
+        In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} fremden Anfragen auf Airlock von{' '}
+        {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
+        {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
+        {ci.ownProbes > 0 ? <> Nicht mitgezählt: {ci.ownProbes} eigene Prüfungen von Airlock.</> : null}
+      </p>
+      {ci.groups.map((g) => (
+        <div key={g.source} className="gateway-group">
+          <p className="gateway-group-head">
+            <strong>{SOURCE_TEXT[g.source].title}</strong> · {g.count} {g.count === 1 ? 'Anfrage' : 'Anfragen'}
+            {g.blocked > 0 ? `, ${g.blocked} gesperrt` : ''} · zuletzt {fmtTime(g.last)}
+          </p>
+          <dl className="gateway-facts">
+            <dt>Hosts</dt><dd>{g.hosts.map((h, i) => <span key={h}>{i > 0 ? ', ' : ''}<code>{h}</code></span>)}</dd>
+            <dt>Pfade</dt><dd>{g.paths.map((p, i) => <span key={p}>{i > 0 ? ', ' : ''}<code>{p}</code></span>)}</dd>
+            <dt>Absender</dt><dd>{g.userAgents.join(', ')}</dd>
+          </dl>
+          <p className="gateway-hint">{SOURCE_TEXT[g.source].hint}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
+  const ep = useEnvPath()
   const ci = s.clientIps
   return (
     <>
-      {ci && ci.fromGateway > 0 && (
-        <div role="alert" className="banner banner-warn">
-          <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
-          In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} Anfragen auf Airlock von{' '}
-          {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
-          {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
-          Meist maskiert Tailscale als Subnet-Router den Verkehr aus dem Tailnet in die Docker-Netze; dann sperrt der
-          IP-Filter Zugriffe aus dem Tailnet. Abhilfe: <code>docs/INSTALL.md</code>, Abschnitt «Tailscale als Subnet-Router».
-          Anfragen vom Server selbst (z. B. <code>curl</code> auf localhost) erscheinen ebenfalls mit dieser Adresse.
-        </div>
-      )}
+      {/* Nur fremde Anfragen: eigene Prüfungen von Airlock («airlock-probe») zählen nie */}
+      {ci && ci.fromGateway > 0 && <GatewayWarning ci={ci} />}
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
           <strong>IP-Filter ist ausgeschaltet.</strong> Interne Hostnamen sind ohne
@@ -203,7 +228,7 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
       {s.hostsBlock === null ? (
         <p className="hint">
           Noch keine Basisdomain gesetzt: Projekte sind über ihre nip.io-Adresse erreichbar.
-          Eigene interne Namen mit Zertifikat gibt es unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link> –
+          Eigene interne Namen mit Zertifikat gibt es unter <Link to={ep('/einstellungen/cloudflare')}>Einstellungen → Cloudflare &amp; HTTPS</Link> –
           bestehende Projekte ziehen dann mit.
         </p>
       ) : (
@@ -228,45 +253,6 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
       )}
 
       <ExpirySettings />
-    </>
-  )
-}
-
-/** M4: Zertifikat, Tailnet-Eintrag, Anleitung für den lokalen DNS. */
-function TlsSection({ s }: { s: SystemStatusDto }) {
-  const [note, setNote] = useState<string | null>(null)
-  const tailnet = useMutation({
-    mutationFn: api.tailnetDns,
-    onSuccess: (r) => setNote(`✓ ${r.record.name} → ${r.record.content} (${r.record.action === 'unchanged' ? 'schon richtig' : r.record.action === 'created' ? 'angelegt' : 'aktualisiert'})`),
-  })
-  const t = s.tls
-  const c = t.cert
-  return (
-    <>
-      <h3>Namen auflösen</h3>
-      <ul className="check-list">
-        {t.mode === 'cloudflare' && c?.problem && (
-          <li className="check-fail">
-            <span className="check-name">Zertifikat *.{s.baseDomain}</span>
-            <span className="check-detail">{c.problem}</span>
-          </li>
-        )}
-        <li className={t.tailscaleIp ? 'check-ok' : 'check-none'}>
-          <span className="check-name">Tailnet</span>
-          <span className="check-detail">{t.tailscaleIp ? `*.${s.baseDomain} → ${t.tailscaleIp} (Cloudflare, nicht proxied)` : 'keine Tailscale-IP angegeben (Schritt 3, optional)'}</span>
-        </li>
-      </ul>
-      {t.tailscaleIp && (
-        <div className="form-actions">
-          <button onClick={() => { setNote(null); tailnet.mutate() }} disabled={tailnet.isPending}>Tailnet-Eintrag prüfen</button>
-        </div>
-      )}
-      {note && <p className="hint" role="status">{note}</p>}
-      <p className="hint">
-        <strong>Im Heimnetz:</strong> Der lokale DNS (Router, AdGuard oder Pi-hole) soll <code>*.{s.baseDomain}</code> auf{' '}
-        <code>{s.serverLanIp ?? '<LAN-IP des Servers>'}</code> zeigen lassen. Unterwegs löst Cloudflare
-        denselben Namen auf die Tailscale-IP auf.
-      </p>
     </>
   )
 }

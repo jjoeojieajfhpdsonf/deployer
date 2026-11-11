@@ -5,6 +5,7 @@ import { activeDeployment, effectiveKind } from './deployments.js'
 import { reconcileCaddy } from './routes.js'
 import { audit } from './audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
+import type { Scope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 import { badRequest } from '../lib/errors.js'
 import type { DeploymentDto } from '@airlock/shared'
@@ -16,10 +17,11 @@ import type { DeploymentDto } from '@airlock/shared'
  */
 
 export async function startProject(
+  scope: Scope,
   idOrSlug: string,
   actor: string,
 ): Promise<{ started: boolean; deployment?: DeploymentDto }> {
-  const project = await findProject(idOrSlug)
+  const project = await findProject(scope, idOrSlug)
   forgetContainer(project.id)
   await setDesiredState(project.id, 'running')
   // Ein Start von Hand ist Aktivität: sonst stoppte der Ablauf-Job ein
@@ -33,7 +35,7 @@ export async function startProject(
   // Statische Seiten haben keinen Container; es reicht die Route.
   if (kind === 'static') {
     if (!active) {
-      const deployment = await startDeploy(project.id, actor)
+      const deployment = await startDeploy(scope, project.id, actor)
       return { started: true, deployment }
     }
     await setStatus(project.id, 'running')
@@ -49,7 +51,7 @@ export async function startProject(
       (c) => c.labels[docker.LABEL_PROJECT] === project.slug && c.labels[docker.LABEL.composeService],
     )
     if (!active || services.length === 0) {
-      const deployment = await startDeploy(project.id, actor)
+      const deployment = await startDeploy(scope, project.id, actor)
       return { started: true, deployment }
     }
     for (const c of services) {
@@ -64,7 +66,7 @@ export async function startProject(
   // Kein Container mehr da (z.B. nach einem Aufräumen): neu deployen.
   const state = active?.containerId ? await docker.inspectContainer(active.containerId) : null
   if (!active || !state) {
-    const deployment = await startDeploy(project.id, actor)
+    const deployment = await startDeploy(scope, project.id, actor)
     return { started: true, deployment }
   }
 
@@ -81,20 +83,20 @@ export async function startProject(
  * Deploy). Statische Seiten haben keinen Container – dort gibt es nichts neu
  * zu starten (400). Im Audit stehen stop, start und restart.
  */
-export async function restartProject(idOrSlug: string, actor: string): Promise<{ started: boolean; deployment?: DeploymentDto }> {
-  const project = await findProject(idOrSlug)
+export async function restartProject(scope: Scope, idOrSlug: string, actor: string): Promise<{ started: boolean; deployment?: DeploymentDto }> {
+  const project = await findProject(scope, idOrSlug)
   const active = await activeDeployment(project.id)
   if (effectiveKind(project.sourceType, active?.artifact) === 'static') {
     throw badRequest('Statische Seiten laufen ohne Container – es gibt nichts neu zu starten')
   }
-  await stopProject(project.id, actor)
-  const r = await startProject(project.id, actor)
+  await stopProject(scope, project.id, actor)
+  const r = await startProject(scope, project.id, actor)
   await audit({ actor, action: 'project.restart', targetType: 'project', targetId: project.id, result: 'ok' })
   return r
 }
 
-export async function stopProject(idOrSlug: string, actor: string): Promise<void> {
-  const project = await findProject(idOrSlug)
+export async function stopProject(scope: Scope, idOrSlug: string, actor: string): Promise<void> {
+  const project = await findProject(scope, idOrSlug)
   forgetContainer(project.id)
   await setDesiredState(project.id, 'stopped')
 

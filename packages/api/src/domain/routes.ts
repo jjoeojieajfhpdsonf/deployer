@@ -1,7 +1,8 @@
-import { eq, and, ne, sql } from 'drizzle-orm'
+import { eq, and, ne, gt, sql } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { cf, config, net, primaryHost, aliasHosts, urlForHost } from '../config.js'
-import { caddyTlsOptions, tlsPhase } from './cloudflare-settings.js'
+import { config, net, primaryHost, aliasHosts } from '../config.js'
+import { caddyTlsOptionsAll, tlsPhases, cloudflareFor } from './cloudflare-settings.js'
+import { allEnvironments, defaultEnvironmentId, primaryHostIn, aliasHostsIn, urlForHostIn } from './environments.js'
 import * as caddy from '../drivers/caddy.js'
 import { needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
 import * as docker from '../drivers/docker.js'
@@ -28,17 +29,24 @@ import type { HeaderRuleSpec } from '../security/header-rules.js'
  * Namen beim Start neu ab.
  */
 
-/** Weitere Namen einer Route, aus ihrem gespeicherten Hostnamen abgeleitet. */
-export function aliasesForHost(hostname: string): string[] {
-  return aliasHosts(labelOf(hostname))
+/** Weitere Namen einer Route, aus ihrem gespeicherten Hostnamen abgeleitet (M9: in der Umgebung des Projekts). */
+export function aliasesForHost(hostname: string, envId: string = defaultEnvironmentId()): string[] {
+  return aliasHostsIn(envId, labelOf(hostname))
 }
 
-export function urlsFor(hostname: string, aliases: string[]): string[] {
-  // M4: https:// für Namen unter der Basisdomain, sobald TLS an ist.
-  return [hostname, ...aliases].map((h) => urlForHost(h))
+export function urlsFor(hostname: string, aliases: string[], envId: string = defaultEnvironmentId()): string[] {
+  // M4: https:// für Namen unter der Basisdomain, sobald TLS an ist (M9: Basis und Zertifikat der Umgebung).
+  return [hostname, ...aliases].map((h) => urlForHostIn(envId, h))
+}
+
+/** Umgebung eines Projekts (für Adressen). */
+async function envOfProject(projectId: string): Promise<string> {
+  const row = (await db.select({ env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]
+  return row?.env ?? defaultEnvironmentId()
 }
 
 export async function routeDtosFor(projectId: string, _slug: string): Promise<RouteDto[]> {
+  const envId = await envOfProject(projectId)
   const rows = await db.select().from(schema.routes).where(eq(schema.routes.projectId, projectId))
   // LAN und Tailnet teilen sich einen Namen (M4): eine Adresse, mehrere Ziele.
   const byHost = new Map<string, RouteDto>()
@@ -56,8 +64,8 @@ export async function routeDtosFor(projectId: string, _slug: string): Promise<Ro
       })
       continue
     }
-    const aliases = aliasesForHost(r.hostname)
-    byHost.set(r.hostname, { target: r.target, targets: [r.target], hostname: r.hostname, aliases, urls: urlsFor(r.hostname, aliases) })
+    const aliases = aliasesForHost(r.hostname, envId)
+    byHost.set(r.hostname, { target: r.target, targets: [r.target], hostname: r.hostname, aliases, urls: urlsFor(r.hostname, aliases, envId) })
   }
   return [...byHost.values()]
 }
@@ -79,13 +87,16 @@ export function cidrsForTargets(targets: string[], lanCidr: string, tailnetCidr:
  * neu ab. Ohne das behielten bestehende Projekte nach dem Setzen oder Aendern
  * der Basisdomain ihre alte Adresse. Laeuft beim Start vor dem Caddy-Abgleich.
  */
-export async function rehostRoutes(): Promise<number> {
-  const rows = await db.select().from(schema.routes)
+export async function rehostRoutes(envId?: string): Promise<number> {
+  // M9: jede Route nach der Basis der Umgebung ihres Projekts; mit envId nur diese Umgebung
+  const rows = await db.select({ id: schema.routes.id, target: schema.routes.target, hostname: schema.routes.hostname, env: schema.projects.environmentId })
+    .from(schema.routes).innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId))
+    .where(envId ? eq(schema.projects.environmentId, envId) : undefined)
   let changed = 0
   await db.transaction(async (tx) => {
     for (const r of rows) {
       if (r.target === 'public') continue // M5: frei gewaehlte oeffentliche Namen
-      const want = primaryHost(labelOf(r.hostname))
+      const want = primaryHostIn(r.env, labelOf(r.hostname))
       if (want === r.hostname) continue
       await tx.update(schema.routes).set({ hostname: want }).where(eq(schema.routes.id, r.id))
       changed++
@@ -101,7 +112,8 @@ export async function setRoutes(
   targets: RouteTarget[],
   subdomain?: string,
 ): Promise<void> {
-  const host = primaryHost(subdomain ?? slug)
+  // M9: interne Adresse unter der Basis der Umgebung des Projekts
+  const host = primaryHostIn(await envOfProject(projectId), subdomain ?? slug)
 
   await db.transaction(async (tx) => {
     // Seit Migration 0005 verhindert die Datenbank nicht mehr, dass zwei
@@ -127,6 +139,8 @@ export async function setRoutes(
 
 interface RouteRow {
   projectId: string
+  /** M9: Umgebung des Projekts (Aliase, Pause-Vorlage) */
+  environmentId: string
   slug: string
   hostname: string
   target: string
@@ -146,6 +160,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
   const rows = await db
     .select({
       projectId: schema.projects.id,
+      environmentId: schema.projects.environmentId,
       slug: schema.projects.slug,
       hostname: schema.routes.hostname,
       target: schema.routes.target,
@@ -178,6 +193,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       pausePage: r.pausePage ?? null,
       pauseBackAt: r.pauseBackAt?.toISOString() ?? null,
       projectId: r.projectId,
+      environmentId: r.environmentId,
       slug: r.slug,
       hostname: r.hostname,
       target: r.target as string,
@@ -209,10 +225,18 @@ export function siteRootFor(slug: string): string {
  * nicht läuft – dann gibt es keine öffentlichen Routen.
  */
 export async function cloudflaredCidrs(): Promise<string[]> {
-  if (!cf.tunnelId()) return []
-  const ip = await docker.containerIp(config.CLOUDFLARED_CONTAINER, config.TUNNEL_NETWORK)
-  return ip ? [`${ip}/32`] : []
+  // M9: ein cloudflared je Tunnel (einer pro Cloudflare-Konto)
+  const names = [...new Set(allEnvironments().map((e) => cloudflareFor(e.id)).filter((c) => c.tunnelId).map((c) => c.containerName))]
+  const out: string[] = []
+  for (const name of names) {
+    const ip = await docker.containerIp(name, config.TUNNEL_NETWORK).catch(() => null)
+    if (ip) out.push(`${ip}/32`)
+  }
+  return out.sort()
 }
+
+/** Gibt es irgendeinen Tunnel? */
+const anyTunnel = (): boolean => allEnvironments().some((e) => Boolean(cloudflareFor(e.id).tunnelId))
 
 /**
  * M8: Header-Regeln aller Projekte, je Projekt, mit dem Schlüssel der
@@ -224,9 +248,23 @@ async function headerRulesByProject(): Promise<Map<string, { rules: HeaderRuleSp
   const out = new Map<string, { rules: HeaderRuleSpec[]; cspReportKey: string | null }>()
   for (const r of all) {
     const e = out.get(r.projectId) ?? { rules: [], cspReportKey: null }
-    e.rules.push({ header: r.header, value: r.value, mode: r.mode })
+    // M9: «off» schaltet nur eine Vorlage ab, ist selbst keine Regel
+    if (r.mode !== 'off') e.rules.push({ header: r.header, value: r.value, mode: r.mode })
     if (r.reportKey) e.cspReportKey = r.reportKey
     out.set(r.projectId, e)
+  }
+  // M9: Header-Vorlagen der Umgebung gelten für jedes Projekt ohne eigene Regel (live geerbt)
+  const templates = await db.select().from(schema.headerRuleTemplates)
+  if (templates.length) {
+    const projects = await db.select({ id: schema.projects.id, env: schema.projects.environmentId }).from(schema.projects)
+    for (const p of projects) {
+      const own = all.filter((r) => r.projectId === p.id)
+      const inherit = templates.filter((t) => t.environmentId === p.env && !own.some((r) => r.header === t.header))
+      if (!inherit.length) continue
+      const e = out.get(p.id) ?? { rules: [], cspReportKey: null }
+      e.rules.push(...inherit.map((t) => ({ header: t.header, value: t.value, mode: t.mode })))
+      out.set(p.id, e)
+    }
   }
   return out
 }
@@ -243,7 +281,7 @@ export async function probeTargetFor(projectId: string): Promise<{ host: string;
   const pub = rows.find((r) => r.target === 'public')
   const row = internal ?? (pub && (await cloudflaredCidrs()).length ? pub : null)
   if (!row) return null
-  const url = `${urlForHost(row.hostname)}/`
+  const url = `${urlForHostIn(row.environmentId, row.hostname)}/`
   return { host: row.hostname, url, secure: url.startsWith('https:') }
 }
 
@@ -274,12 +312,13 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     // M5: öffentliche Namen nur über cloudflared (edge-Netz), ohne nip.io-Alias.
     const isPublic = r.target === 'public'
     if (isPublic && edgeCidrs.length === 0) continue
-    const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)]
+    const hosts = isPublic ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname, r.environmentId)]
     const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
     const h = headers.get(r.projectId)
     const extra = h ? { headers: h.rules, cspReportKey: h.cspReportKey } : {}
     if (r.paused) {
-      const page = effectivePausePage(await pausePageTemplate(), r.pausePage)
+      // M9: Vorlage der Umgebung des Projekts
+      const page = effectivePausePage(await pausePageTemplate(r.environmentId), r.pausePage)
       const pause = { page, backAt: r.pauseBackAt, timeZone: displayTimeZone() }
       // Code-Modus: als Datei ausliefern (siehe caddy-config.ts); scheitert das Schreiben, gilt das Formular
       const root = page.mode === 'code' && page.html
@@ -300,6 +339,21 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
         ...extra,
       })
     }
+  }
+
+  // M9: Nach dem Verschieben leitet die alte interne Adresse 30 Tage weiter
+  // (308, nur aus LAN und Tailnet – dieselben Netze wie interne Namen).
+  const now = new Date()
+  const redirects = await db.select().from(schema.routeRedirects).where(gt(schema.routeRedirects.until, now))
+  for (const rd of redirects) {
+    if (seen.has(rd.fromHost)) continue // der alte Name gehört inzwischen einem Projekt
+    const target = rd.projectId ? await envOfProject(rd.projectId) : defaultEnvironmentId()
+    specs.push({
+      hosts: [rd.fromHost],
+      kind: 'redirect',
+      redirectTo: urlForHostIn(target, rd.toHost),
+      cidrs: cidrsForTargets(['lan', 'tailnet'], net.lanCidr(), config.tailnetCidr),
+    })
   }
   return specs
 }
@@ -360,7 +414,7 @@ let lastCloudflaredCidrs = ''
 export function startCloudflaredWatch(): NodeJS.Timeout | null {
   // Läuft immer: der Tunnel kann jederzeit über die Oberfläche dazukommen
   const t = setInterval(() => {
-    if (!cf.tunnelId() && !lastCloudflaredCidrs) return
+    if (!anyTunnel() && !lastCloudflaredCidrs) return
     void cloudflaredCidrs().then((c) => {
       if (c.join(',') !== lastCloudflaredCidrs) {
         log.info('cloudflared hat eine neue Adresse; Caddy wird abgeglichen', { cidrs: c })
@@ -396,6 +450,7 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   const edge = await cloudflaredCidrs()
   lastCloudflaredCidrs = edge.join(',')
   const specs = await buildRouteSpecs(edge)
+  const tlsList = caddyTlsOptionsAll().map(({ envId: _envId, ...t }) => t)
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
@@ -403,8 +458,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       ipFilter: config.CADDY_IP_FILTER,
       cidrs: [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128'],
       adminSocket: config.CADDY_ADMIN_SOCKET,
-      // Datenbank (Cloudflare verbinden) oder alte Einrichtung über .env
-      tls: caddyTlsOptions(),
+      // M9: eine interne Basis je Umgebung (Datenbank); Standard-Umgebung auch alte Einrichtung über .env
+      tls: tlsList,
       // M5: nur wenn es öffentliche Routen geben kann
       trustedProxies: edge,
       // Zugriffs-Log für Airlock selbst (Systemseite: welche Absender sieht Caddy?)
@@ -418,18 +473,19 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
   const withTls = Boolean((build as { apps?: { tls?: unknown } }).apps?.tls)
   if (lastBuildHadTls && !withTls) {
-    log.warn('Caddy-Konfiguration ohne TLS (:443 und Wildcard-Policy fallen weg)', { tlsPhase: tlsPhase(), baseDomain: cf.baseDomain() })
+    log.warn('Caddy-Konfiguration ohne TLS (:443 und Wildcard-Policy fallen weg)', { basen: tlsPhases() })
   }
   lastBuildHadTls = withTls
   // Wechselt die CA für *.<basis> (z. B. altes Staging → Produktion), behält
   // Caddy sonst das gecachte Zertifikat der alten CA – auch nach einem
   // Neustart, weil autosave.json die alte CA wieder lädt. Zwischenschritt
   // ohne verwaltete Zertifikate leert den Cache; danach lädt Caddy aus dem
-  // Speicher der neuen CA oder bestellt dort.
+  // Speicher der neuen CA oder bestellt dort. M9: je Basis geprüft.
   const current = await caddy.getConfig().catch(() => null)
-  if (needsCacheEvict(current, build, cf.baseDomain())) {
+  const evict = tlsList.map((t) => t.baseDomain).filter((base) => needsCacheEvict(current, build, base))
+  if (evict.length) {
     await caddy.loadConfig(withoutCertificates(build))
-    log.info('Caddys Zertifikats-Cache für die Wildcard geleert (CA gewechselt)', { baseDomain: cf.baseDomain() })
+    log.info('Caddys Zertifikats-Cache für die Wildcard geleert (CA gewechselt)', { basen: evict })
     force = true
   }
   // force: das Token in der Datei hat sich geändert – Caddy liest es nur beim Laden

@@ -21,10 +21,11 @@ const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke:
 const IconOptional = IconSkipped
 const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 
+/* M9: Die Bausteine nutzt auch der Assistent «Umgebung anlegen» (pages/NewEnvironment.tsx). */
 /** skipped: bewusst ausgelassen (Tunnel) – neutral, kein Haken, kein Fehler (UI-Qualität 6) */
-type StepState = 'done' | 'current' | 'locked' | 'skipped'
+export type StepState = 'done' | 'current' | 'locked' | 'skipped'
 
-function Step({ n, title, state, summary, onEdit, children }: {
+export function Step({ n, title, state, summary, onEdit, children }: {
   n: number; title: string; state: StepState; summary?: React.ReactNode; onEdit?: () => void; children?: React.ReactNode
 }) {
   return (
@@ -163,7 +164,7 @@ export function CloudflareSetup() {
 
 /* --- 1 + 2: Token ----------------------------------------------------------------- */
 
-function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
+export function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
   s: CfStatusDto; replacing: boolean; onChecked: (c: CfTokenCheckDto | null) => void; onSaved: (s: CfStatusDto) => void; onCancel?: () => void
 }) {
   const [token, setToken] = useState('')
@@ -237,7 +238,7 @@ function TokenStep({ s, replacing, onChecked, onSaved, onCancel }: {
   )
 }
 
-function CheckResult({ check }: { check: CfTokenCheckDto }) {
+export function CheckResult({ check }: { check: CfTokenCheckDto }) {
   if (!check.valid) return <p className="cf-bad cf-check-msg"><IconBad /> {check.message}</p>
   return (
     <>
@@ -267,7 +268,7 @@ function PermissionSummary({ check }: { check: CfTokenCheckDto | null }) {
 
 /* --- 3: Domains ------------------------------------------------------------------- */
 
-function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: CfStatusDto) => void; onCancel?: () => void }) {
+export function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: CfStatusDto) => void; onCancel?: () => void }) {
   const zones = s.zones
   const current = s.baseDomain ? zones.find((z) => s.baseDomain === z.name || s.baseDomain!.endsWith(`.${z.name}`)) : undefined
   const [baseZone, setBaseZone] = useState(current?.name ?? zones[0]?.name ?? '')
@@ -345,7 +346,7 @@ function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved: (s: Cf
 
 /* --- 4: Tunnel -------------------------------------------------------------------- */
 
-function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
+export function TunnelStep({ onDone }: { onDone: (s: CfStatusDto) => void }) {
   // Fester Schlüssel: die Aktivitätsanzeige im Kopf zeigt den Vorgang, auch nach einem Seitenwechsel
   const run = useMutation({ mutationKey: [...MUTATION_TUNNEL], mutationFn: api.cloudflareTunnel, onSuccess: onDone, meta: { errorTitle: 'Tunnel nicht angelegt' } })
   const skip = useMutation({ mutationFn: api.cloudflareTunnelSkip, onSuccess: onDone })
@@ -373,7 +374,7 @@ function TunnelSkippedSummary({ onDone }: { onDone: (s: CfStatusDto) => void }) 
   )
 }
 
-function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void }) {
+export function TunnelSummary({ s, onChanged }: { s: CfStatusDto; onChanged: (s: CfStatusDto) => void }) {
   const restart = useMutation({ mutationFn: api.cloudflareTunnelRestart, onSuccess: onChanged })
   const t = s.tunnel
   if (!t) return null
@@ -444,7 +445,7 @@ const PHASES: { key: 'staging' | 'production' | 'done'; label: string }[] = [
   { key: 'done', label: 'HTTPS aktiv' },
 ]
 
-function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto) => void }) {
+export function TlsStep({ s, onStarted }: { s: CfStatusDto; onStarted: (s: CfStatusDto) => void }) {
   const start = useMutation({ mutationFn: api.cloudflareTls, onSuccess: onStarted })
   const phase = s.tls.phase
   const running = phase === 'staging' || phase === 'production'
@@ -507,7 +508,7 @@ function useUntil(until: Date | null): boolean {
   return ms > 0
 }
 
-function CertSummary({ s }: { s: CfStatusDto }) {
+export function CertSummary({ s }: { s: CfStatusDto }) {
   const c = s.tls.cert
   if (!c) return <>HTTPS aktiv für <code>*.{s.baseDomain}</code></>
   return <>Gültig bis {fmtDate(c.validTo)}{c.daysLeft !== null ? ` (${c.daysLeft} Tage)` : ''} · {c.issuer ?? 'Let\'s Encrypt'} · erneuert sich selbst</>

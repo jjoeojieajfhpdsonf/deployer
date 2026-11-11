@@ -29,9 +29,19 @@ const json = (route: Route, body: unknown, status = 200) =>
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
 function api(path: string, method: string, loggedIn: boolean, theme: 'light' | 'dark', count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
-  const p = u.pathname.replace(/^\/api\/v1/, '')
-  if (p === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
+  const full = u.pathname.replace(/^\/api\/v1/, '')
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
   let m: RegExpMatchArray | null
+  // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
+  if (full === '/environments') return { body: { environments: fx.environments } }
+  const envSlug = full.match(/^\/environments\/([^/]+)/)?.[1] ?? null
+  const p = envSlug ? full.replace(/^\/environments\/[^/]+/, '') || '/' : full
+  if (envSlug && p === '/') return { body: { environment: fx.environments.find((e) => e.slug === envSlug) } }
+  if (envSlug && p === '/cloudflare') return { body: envSlug === 'labor' ? fx.cloudflareLabor : fx.cloudflare }
+  if (envSlug && p === '/header-templates') return { body: { templates: fx.headerTemplates } }
+  if (envSlug && p === '/lan-dns') return { body: fx.lanDns }
+  if (envSlug === 'labor' && p === '/projects') return { body: { projects: [] } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/move$/)) && method === 'GET') return { body: { preview: fx.movePreview(m[1]!, u.searchParams.get('to') ?? 'verein') } }
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
   // UI-Qualität 8: neues Token (einmal sichtbar) – Beispielwert, kein echtes Token
   if (method === 'POST' && p === '/tokens') {
@@ -664,6 +674,36 @@ const shots: Shot[] = [
   },
   // Etappe 4: Komponenten-Übersicht
   { group: 'design', name: 'design-bausteine', path: '/design' },
+  /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
+  { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
+  { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
+  { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
+  {
+    group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Prüfen', exact: true }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'm9', name: 'm9-einstellungen-standards', path: '/u/example/einstellungen/standards' },
+  { group: 'm9', name: 'm9-umgebungen', path: '/umgebungen' },
+  {
+    group: 'm9', name: 'm9-umgebung-anlegen', path: '/umgebungen/neu',
+    prepare: async (pg) => { await pg.locator('#ne-name').fill('Verein Beispiel'); await pg.waitForTimeout(150) },
+  },
+  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung' },
+  {
+    group: 'm9', name: 'm9-verschieben', path: `/u/example/projekte/${Z}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('.move-select').selectOption('verein')
+      await pg.waitForTimeout(300)
+      await pg.getByRole('button', { name: 'Verschieben …' }).click()
+      await pg.waitForTimeout(200)
+      await pg.locator('.move-card').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
+  { group: 'm9', name: 'm9-server', path: '/server' },
+  { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -704,15 +744,18 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
         const url = new URL(route.request().url())
         if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
           if (url.pathname.startsWith('/api/')) {
+            // M9: Listen einer Umgebung (/environments/<slug>/projects …) zählen für die Sonderfälle der
+            // Szenen wie die alten Pfade ohne Umgebung (/api/v1/projects)
+            const path = url.pathname.replace(/^\/api\/v1\/environments\/[^/]+(?=\/)/, '/api/v1')
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
-            if (s.hang?.some((h) => url.pathname === h || `${route.request().method()} ${url.pathname}` === h)) return
+            if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
             if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, ...s.me })
-            if (s.scanRunning && url.pathname === '/api/v1/projects' && route.request().method() === 'GET') {
+            if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
             }
-            if (s.fail?.includes(url.pathname) || s.fail?.includes(`${route.request().method()} ${url.pathname}`)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
+            if (s.fail?.includes(path) || s.fail?.includes(`${route.request().method()} ${path}`)) return json(route, { error: { code: 'internal', message: 'Datenbank antwortet nicht (Zeitüberschreitung nach 5 s).' } }, 500)
             if (s.stageFailed && /\/scans\/latest$/.test(url.pathname)) {
               const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
               if (r.report) {
@@ -722,13 +765,13 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
               }
               return json(route, r)
             }
-            if (s.empty && url.pathname === '/api/v1/projects') return json(route, { projects: [] })
-            if (s.broken && url.pathname === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
+            if (s.empty && path === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.broken && path === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
-            if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
+            if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
-            if (s.cfDone && url.pathname === '/api/v1/system/cloudflare') return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
+            if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {

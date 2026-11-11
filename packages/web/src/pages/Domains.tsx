@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
+import { useEnvPath } from '../lib/env.js'
 import { useSystem } from '../components/ServerName.js'
 import { useProjects, isPublic } from '../lib/projects.js'
 import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/States.js'
@@ -11,6 +12,7 @@ import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/S
  * Projekte).
  */
 export function Domains() {
+  const ep = useEnvPath()
   const system = useSystem()
   const projects = useProjects()
   const s = system.data
@@ -52,7 +54,7 @@ export function Domains() {
           <span className="check-detail">
             {s?.tls.mode === 'cloudflare'
               ? s.tls.cert?.problem ?? (s.tls.cert?.daysLeft != null ? `Wildcard-Zertifikat, noch ${s.tls.cert.daysLeft} Tage gültig` : 'Wildcard-Zertifikat eingerichtet, Laufzeit noch nicht geprüft')
-              : <>aus – nur HTTP; einrichten unter <Link to="/system/cloudflare">Cloudflare &amp; HTTPS</Link></>}
+              : <>aus – nur HTTP; einrichten unter <Link to={ep('/einstellungen/cloudflare')}>Cloudflare &amp; HTTPS</Link></>}
           </span>
         </li>
         <li className={s?.tls.tailscaleIp ? 'check-ok' : 'check-none'}>
@@ -60,7 +62,7 @@ export function Domains() {
           <span className="check-detail">{s?.tls.tailscaleIp ? <>dieselben Namen unterwegs über <code>{s.tls.tailscaleIp}</code></> : 'nicht eingerichtet (TAILSCALE_IP)'}</span>
         </li>
       </ul>
-      <p className="hint">Einzelheiten und die Prüfung «löst dieses Gerät die Namen auf?» unter <Link to="/system">System › Übersicht</Link>.</p>
+      <p className="hint">Einzelheiten und die Prüfung «löst dieses Gerät die Namen auf?» unter <Link to="/server">Server › Übersicht</Link>.</p>
 
       <h3>Öffentlich</h3>
       {!configured ? (
@@ -126,7 +128,7 @@ export function Domains() {
                 const r = p.routes.find((x) => x.target === 'public')!
                 return (
                   <tr key={p.id}>
-                    <td className="cell-main"><Link to={`/projekte/${p.id}?tab=einstellungen`}>{p.name}</Link></td>
+                    <td className="cell-main"><Link to={ep(`/projekte/${p.id}?tab=einstellungen`)}>{p.name}</Link></td>
                     <td><a className="cell-url" href={r.urls[0]} target="_blank" rel="noreferrer">{r.hostname}</a></td>
                     <td>{r.accessProtected ? <span className="chip chip-strong">Cloudflare Access</span> : <span className="chip">offen</span>}</td>
                   </tr>

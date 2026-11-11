@@ -14,6 +14,7 @@ import { Publication, SetRow } from './Publication.js'
 import { Reachability } from './Reachability.js'
 import { useHeaderRules } from './HeaderFix.js'
 import { Switch } from './Switch.js'
+import { MoveProject } from './MoveProject.js'
 
 /**
  * Projekt → Einstellungen: Abschnitte als Karten mit kompakten Zeilen
@@ -52,6 +53,7 @@ export function ProjectSettings({
     { id: 'set-header', label: 'Security-Header' },
     ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
     { id: 'set-ablauf', label: 'Ablauf' },
+    { id: 'set-verschieben', label: 'Verschieben' },
     { id: 'set-gefahrenzone', label: 'Gefahrenzone', danger: true },
   ]
   const active = useActiveSection(sections.map((s) => s.id))
@@ -89,6 +91,10 @@ export function ProjectSettings({
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
         {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
         <Expiry p={p} />
+        {/* M9: in eine andere Umgebung verschieben */}
+        <section className="set-card" id="set-verschieben" aria-label="In andere Umgebung verschieben">
+          <MoveProject p={p} />
+        </section>
         <DangerZone p={p} onDeleted={onDeleted} requested={deleteRequested} onShown={onDeleteShown} />
       </div>
     </div>

@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { listScopeFor } from '../scope.js'
 import { statfs, readFile } from 'node:fs/promises'
 import { cpus, totalmem, freemem } from 'node:os'
 import { scanQueueLength } from '../../security/scan.js'
@@ -24,7 +25,9 @@ import type { SystemStatusDto } from '@airlock/shared'
 import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME } from '@airlock/shared'
 import {
   cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, skipTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
+  withCloudflareEnv,
 } from '../../domain/cloudflare-settings.js'
+import { resolveEnv } from '../../domain/environment-admin.js'
 
 async function check(name: string, fn: () => Promise<string>): Promise<{ name: string; ok: boolean; detail: string }> {
   try {
@@ -189,11 +192,13 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   // M4: Tailnet-Eintrag bei Cloudflare von Hand anstossen (nur mit Anmeldung, siehe auth.ts).
   app.post('/system/tailnet-dns', async (request) => {
-    if (!tailnetDnsConfigured()) {
-      throw badRequest('Tailnet-DNS braucht TLS_MODE=cloudflare, INTERNAL_BASE_DOMAIN und TAILSCALE_IP')
+    if (!(await tailnetDnsConfigured())) {
+      throw badRequest('Tailnet-DNS braucht eine Umgebung mit Basisdomain und Cloudflare-Token sowie die Tailscale-IP')
     }
     try {
-      return { record: await ensureTailnetDns(actorFor(request)) }
+      // M9: ein Eintrag je Umgebung; «record» bleibt der der Standard-Umgebung (erste)
+      const records = await ensureTailnetDns(actorFor(request))
+      return { record: records[0] ?? null, records }
     } catch (err) {
       if (err instanceof CloudflareError) throw new AppError('cloudflare', err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
       throw err
@@ -208,64 +213,72 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
   /* --- Cloudflare verbinden (nur mit Anmeldung, siehe auth.ts) ------------------ */
 
-  app.get('/system/cloudflare', async () => cloudflareStatus())
-
-  // Nur prüfen, nichts speichern (Schritt 2 sofort beim Einfügen)
-  app.post('/system/cloudflare/check', async (request) => {
-    const { token } = cfTokenSchema.parse(request.body)
-    return { check: await checkToken(token) }
-  })
-
-  app.put('/system/cloudflare/token', async (request) => {
-    const { token } = cfTokenSchema.parse(request.body)
-    return { check: await saveToken(token, actorFor(request)), status: await cloudflareStatus() }
-  })
-
-  app.put('/system/cloudflare/domains', async (request) => {
-    await saveDomains(cfDomainsSchema.parse(request.body), actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel', async (request) => {
-    await setupTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/skip', async (request) => {
-    await skipTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/restart', async (request) => {
-    await restartTunnel(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tunnel/update', async (request) => {
-    await updateCloudflared(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.post('/system/cloudflare/tls', async (request) => {
-    await startTls(actorFor(request))
-    return cloudflareStatus()
-  })
-
-  app.delete('/system/cloudflare', async (request) => {
-    await disconnect(actorFor(request))
-    return cloudflareStatus()
-  })
+  /*
+   * M9: dieselben Schritte je Umgebung unter /environments/:env/cloudflare;
+   * /system/cloudflare bleibt für die Standard-Umgebung (alte Oberfläche,
+   * Skripte). Beide nur mit Anmeldung (auth.ts).
+   */
+  const cfRoutes = (prefix: string, envOf: (r: FastifyRequest) => string | null) => {
+    const inEnv = <T>(r: FastifyRequest, fn: () => Promise<T>): Promise<T> => {
+      const envId = envOf(r)
+      return envId ? withCloudflareEnv(envId, fn) : fn()
+    }
+    app.get(prefix, async (r) => inEnv(r, cloudflareStatus))
+    // Nur prüfen, nichts speichern (Schritt 2 sofort beim Einfügen)
+    app.post(`${prefix}/check`, async (r) => {
+      const { token } = cfTokenSchema.parse(r.body)
+      return { check: await checkToken(token) }
+    })
+    app.put(`${prefix}/token`, async (r) => inEnv(r, async () => {
+      const { token } = cfTokenSchema.parse(r.body)
+      return { check: await saveToken(token, actorFor(r)), status: await cloudflareStatus() }
+    }))
+    app.put(`${prefix}/domains`, async (r) => inEnv(r, async () => {
+      await saveDomains(cfDomainsSchema.parse(r.body), actorFor(r))
+      return cloudflareStatus()
+    }))
+    const step = (path: string, fn: (actor: string) => Promise<void>) =>
+      app.post(`${prefix}${path}`, async (r) => inEnv(r, async () => {
+        await fn(actorFor(r))
+        return cloudflareStatus()
+      }))
+    step('/tunnel', setupTunnel)
+    step('/tunnel/skip', skipTunnel)
+    step('/tunnel/restart', restartTunnel)
+    step('/tunnel/update', updateCloudflared)
+    step('/tls', startTls)
+    app.delete(prefix, async (r) => inEnv(r, async () => {
+      await disconnect(actorFor(r))
+      return cloudflareStatus()
+    }))
+  }
+  cfRoutes('/system/cloudflare', () => null)
+  cfRoutes('/environments/:env/cloudflare', (r) => resolveEnv((r.params as { env: string }).env).id)
 
   /* --- M5: Domains und Cloudflare --------------------------------------------- */
 
-  app.get('/domains', async () => ({ domains: await listDomains(), publicEnabled: publicEnabled() }))
+  // M9: Zonen der Umgebung (Pfad /environments/:env/domains oder ?environment=)
+  const listZones = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
+    return { domains: await listDomains(scope), publicEnabled: publicEnabled(scope.envId) }
+  }
+  app.get('/domains', listZones)
+  app.get('/environments/:env/domains', listZones)
 
-  app.post('/domains/sync', async () => ({ domains: await syncDomains() }))
+  const sync = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
+    return { domains: await syncDomains(undefined, scope.envId) }
+  }
+  app.post('/domains/sync', sync)
+  app.post('/environments/:env/domains/sync', sync)
 
-  app.put('/domains/default', async (request) => {
+  const setDefault = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
     const { name } = z.object({ name: z.string().min(3).max(253) }).parse(request.body)
-    return { domains: await setDefaultDomain(name, actorFor(request)) }
-  })
+    return { domains: await setDefaultDomain(scope, name, actorFor(request)) }
+  }
+  app.put('/domains/default', setDefault)
+  app.put('/environments/:env/domains/default', setDefault)
 
   // Tunnel-Ingress aus der Datenbank neu setzen (nur mit Anmeldung, siehe auth.ts).
   app.post('/system/cloudflare-sync', async () => {
@@ -281,15 +294,19 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     )
   })
 
-  app.get<{ Querystring: { limit?: string; before?: string; action?: string; targetId?: string } }>(
-    '/audit',
-    async (request) => ({
-      events: await listAudit({
-        limit: request.query.limit ? Number(request.query.limit) : undefined,
-        before: request.query.before,
-        action: request.query.action,
-        targetId: request.query.targetId,
+  // M9: Einträge der Umgebung plus Server-Ereignisse
+  type AuditQuery = { limit?: string; before?: string; action?: string; targetId?: string }
+  const auditList = async (request: FastifyRequest) => {
+    const q = request.query as AuditQuery
+    return {
+      events: await listAudit(listScopeFor(request), {
+        limit: q.limit ? Number(q.limit) : undefined,
+        before: q.before,
+        action: q.action,
+        targetId: q.targetId,
       }),
-    }),
-  )
+    }
+  }
+  app.get('/audit', auditList)
+  app.get('/environments/:env/audit', auditList)
 }

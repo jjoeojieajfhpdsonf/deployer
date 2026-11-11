@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useGuardedNavigate } from '../lib/unsaved.js'
+import { useEnv, useEnvPath } from '../lib/env.js'
 import { publicStateOf, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useProjects, isLive } from '../lib/projects.js'
@@ -32,21 +33,24 @@ interface Item {
   run: () => void
 }
 
-const PAGES: { label: string; to: string; words?: string }[] = [
-  { label: 'Projekte', to: '/projekte', words: 'übersicht start' },
-  { label: 'Neues Projekt', to: '/projekte/neu', words: 'anlegen erstellen' },
-  { label: 'Security', to: '/security', words: 'sicherheit befunde scan' },
+/** env: Pfad in der gewählten Umgebung (M9: /u/<umgebung>/…); sonst gilt er für alle Umgebungen */
+const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
+  { label: 'Projekte', to: '/projekte', env: true, words: 'übersicht start' },
+  { label: 'Neues Projekt', to: '/projekte/neu', env: true, words: 'anlegen erstellen' },
+  { label: 'Security', to: '/security', env: true, words: 'sicherheit befunde scan' },
   // UI-Qualität 6: neue Orte (die alten Adressen leiten ebenfalls weiter)
-  { label: 'Domains', to: '/system/cloudflare#domains', words: 'zonen system cloudflare' },
-  { label: 'Externe Ziele', to: '/security/extern', words: 'extern domain security' },
-  { label: 'Tokens', to: '/tokens', words: 'mcp claude schlüssel' },
-  { label: 'Audit-Log', to: '/audit', words: 'audit protokoll aktivität' },
-  { label: 'System', to: '/system', words: 'server dienste netz' },
+  { label: 'Externe Ziele', to: '/security/extern', env: true, words: 'extern domain security' },
+  { label: 'Audit-Log', to: '/audit', env: true, words: 'audit protokoll aktivität' },
+  { label: 'Tokens', to: '/tokens', env: true, words: 'mcp claude schlüssel' },
+  { label: 'Einstellungen', to: '/einstellungen', env: true, words: 'umgebung name kürzel' },
+  { label: 'Cloudflare & HTTPS', to: '/einstellungen/cloudflare', env: true, words: 'tunnel zertifikat https' },
+  { label: 'Domains', to: '/einstellungen/cloudflare#domains', env: true, words: 'zonen cloudflare' },
+  { label: 'Standards', to: '/einstellungen/standards', env: true, words: 'header access pause-seite vorlage veröffentlichung' },
+  { label: 'Umgebungen', to: '/umgebungen', words: 'umgebung wechseln anlegen' },
+  { label: 'Server', to: '/server', words: 'system dienste netz' },
+  { label: 'Benachrichtigungen', to: '/server/benachrichtigungen', words: 'ntfy e-mail' },
+  { label: 'GitHub', to: '/server/github', words: 'app repos' },
   { label: 'Einrichtung', to: '/einrichtung', words: 'assistent erster start' },
-  { label: 'Cloudflare & HTTPS', to: '/system/cloudflare', words: 'tunnel zertifikat https' },
-  { label: 'Veröffentlichung', to: '/system/veroeffentlichung', words: 'pause-seite vorlage' },
-  { label: 'Benachrichtigungen', to: '/system/benachrichtigungen', words: 'ntfy e-mail' },
-  { label: 'GitHub', to: '/system/github', words: 'app repos' },
   { label: 'Konto', to: '/konto', words: 'passwort profil' },
   { label: 'Bausteine', to: '/design', words: 'design komponenten' },
 ]
@@ -118,14 +122,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   // der native Dialog gibt den Fokus beim Schliessen an das vorherige Element (<body>) zurück
   const focusAfterClose = useRef(false)
   const go = (to: string) => { focusAfterClose.current = true; onClose(); void navigate(to) }
+  const ep = useEnvPath()
+  const { slug } = useEnv()
 
   const items = useMemo<Item[]>(() => {
     // Nur vollständige Projekte (kaputte Einträge legen die Palette nicht lahm)
     const list = (projects.data?.projects ?? []).filter((p) => p && typeof p.name === 'string' && Array.isArray(p.routes))
-    const out: Item[] = PAGES.map((pg) => ({ id: `page:${pg.to}`, group: 'Seiten', label: pg.label, hint: pg.to, words: pg.words, run: () => go(pg.to) }))
-    for (const p of list) out.push({ id: `proj:${p.id}`, group: 'Projekte', label: p.name, hint: p.slug, run: () => go(`/projekte/${p.id}`) })
-    out.push({ id: 'act:new', group: 'Aktionen', label: 'Neues Projekt anlegen', words: 'erstellen', run: () => go('/projekte/neu') })
-    out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go('/tokens?neu=1') })
+    const out: Item[] = PAGES.map((pg) => {
+      const to = pg.env ? ep(pg.to) : pg.to
+      return { id: `page:${pg.to}`, group: 'Seiten', label: pg.label, hint: to, words: pg.words, run: () => go(to) }
+    })
+    for (const p of list) out.push({ id: `proj:${p.id}`, group: 'Projekte', label: p.name, hint: p.slug, run: () => go(ep(`/projekte/${p.id}`)) })
+    out.push({ id: 'act:new', group: 'Aktionen', label: 'Neues Projekt anlegen', words: 'erstellen', run: () => go(ep('/projekte/neu')) })
+    out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go(ep('/tokens?neu=1')) })
     for (const p of list) {
       // Gleiche Sperren wie Projektkopf und Security-Übersicht
       const deploying = p.state.key === 'deploying' || (deploy.isPending && deploy.variables?.id === p.id)
@@ -147,7 +156,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
     return out
     // go/onClose ändern sich nicht in einer Weise, die die Liste betrifft
-  }, [projects.data, deploy.isPending, deploy.variables, scan.isPending, scan.variables])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ep hängt nur an der Umgebung (slug)
+  }, [projects.data, deploy.isPending, deploy.variables, scan.isPending, scan.variables, slug])
 
   // Gefiltert und je Gruppe begrenzt; ohne Suche nur Seiten und Projekte, Aktionen ab dem ersten Zeichen
   const groups = useMemo(() => {

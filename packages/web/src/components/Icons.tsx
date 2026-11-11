@@ -86,3 +86,7 @@ export const IconList = ({ size, className }: P) => (
 export const IconServer = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><rect x="2.5" y="2.5" width="11" height="4.5" rx="1" /><rect x="2.5" y="9" width="11" height="4.5" rx="1" /><path d="M5 4.75h.01M5 11.25h.01" /></svg>
 )
+/** M9: Einstellungen der Umgebung */
+export const IconSliders = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6" /><circle cx="10" cy="4.5" r="1.5" /><circle cx="6" cy="11.5" r="1.5" /></svg>
+)

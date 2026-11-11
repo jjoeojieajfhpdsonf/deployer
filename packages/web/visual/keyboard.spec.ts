@@ -157,9 +157,9 @@ test('Security: Reiter «Externe Ziele» per Tastatur, Adresse und Brotkrumen st
   await page.context().close()
 })
 
-test('/domains leitet weiter: System › Cloudflare & HTTPS, Fokus auf der Überschrift «Domains»', async ({ browser }) => {
+test('/domains leitet weiter: Einstellungen › Cloudflare & HTTPS der Umgebung, Fokus auf der Überschrift «Domains»', async ({ browser }) => {
   const page = await open(browser, 'domains')
-  await expect(page).toHaveURL(/\/system\/cloudflare#domains$/)
+  await expect(page).toHaveURL(/\/u\/example\/einstellungen\/cloudflare#domains$/)
   await expect.poll(async () => (await focused(page)).label).toBe('Domains')
   await page.context().close()
 })

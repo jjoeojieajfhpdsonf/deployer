@@ -348,6 +348,27 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-collapsed .rail-nav a { position: relative; justify-content: center; width: 44px; padding: 0; }
 .rail-collapsed .rail-count { position: absolute; top: 0; right: -2px; min-width: 18px; height: 18px; padding: 0 4px; font-size: var(--fs-12); }
 
+/* --- M9: Umschalter der Umgebung neben «Airlock», Server-Teil der Seitenleiste -------- */
+.env-sep { color: var(--faint); font-size: 20px; line-height: 1; margin: 0 -4px; }
+.env-switch { position: relative; }
+.env-trigger { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: 32px; padding: 0 6px 0 var(--sp-1); border: none; border-radius: var(--r-sm); background: transparent; box-shadow: none; color: var(--ink); cursor: pointer; }
+.env-trigger:hover:not(:disabled), .env-trigger[aria-expanded='true'] { background: var(--surface); box-shadow: var(--sh-card); }
+.env-trigger svg { color: var(--muted); }
+.env-mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--r-xs); background: var(--surface-2); box-shadow: var(--sh-ring); color: var(--ink-dim); font-size: var(--fs-12); font-weight: 600; letter-spacing: 0.02em; }
+.env-switch .menu-list { left: -4px; right: auto; width: 300px; transform-origin: top left; }
+.menu-list .env-item { min-height: 52px; padding: 6px var(--sp-3) 6px 10px; gap: 10px; }
+.env-item-text { display: grid; gap: 1px; min-width: 0; text-align: left; }
+.env-item-text strong { font-weight: 500; }
+.env-item-text > span { font-size: var(--fs-12); color: var(--muted); }
+.env-item-text .count-critical { color: var(--bad); font-weight: 500; }
+.env-row { display: inline-flex; align-items: center; gap: 10px; }
+.rail-nav-server { margin-top: calc(var(--sp-8) * -1 + var(--sp-5)); }
+.rail-divider { display: grid; gap: 1px; padding: var(--sp-3) var(--sp-3) var(--sp-2); border-top: 1px solid var(--line); font-size: var(--fs-13); font-weight: 500; color: var(--ink-dim); }
+.rail-divider-note { font-size: var(--fs-12); font-weight: 400; color: var(--muted); }
+.rail-collapsed .brand { flex-direction: column; gap: var(--sp-2); }
+.rail-collapsed .env-sep, .rail-collapsed .rail-divider span { display: none; }
+.rail-collapsed .rail-divider { padding: 0; width: 44px; }
+
 .rail-foot { margin-top: auto; padding: var(--sp-4) var(--sp-3) 0; display: grid; gap: var(--sp-1); font-size: var(--fs-13); color: var(--muted); }
 .rail-foot strong { color: var(--ink-dim); font-weight: 500; overflow-wrap: anywhere; }
 .rail-foot .link-button { justify-self: start; font-size: var(--fs-13); }
@@ -672,6 +693,14 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .banner { display: block; margin: 0 0 var(--sp-5); padding: 18px 22px; border-radius: var(--r-lg); color: var(--ink); max-width: none; }
 .banner-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
 .banner-warn strong { color: var(--warn); }
+/* Gateway-Warnung (System): Details je vermuteter Herkunft */
+.gateway-warning > p { margin: 0; }
+.gateway-group { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--warn-line); }
+.gateway-group-head { margin: 0 0 var(--sp-2); }
+.gateway-facts { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 4px var(--sp-3); margin: 0; font-size: var(--fs-13); }
+.gateway-facts dt { color: var(--muted); }
+.gateway-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.gateway-hint { margin: var(--sp-2) 0 0; font-size: var(--fs-13); color: var(--ink-dim); }
 .banner-info { background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--info-line); font-size: var(--fs-14); }
 .error { color: var(--bad); background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); padding: 10px 14px; border-radius: var(--r-md); margin: var(--sp-3) 0; max-width: none; overflow-wrap: anywhere; }
 .error-inline { color: var(--bad); }
@@ -1367,6 +1396,28 @@ pre.code-block { margin: var(--sp-2) 0 var(--sp-3); padding: var(--sp-3) 14px; f
 .danger-zone h2 { color: var(--bad); margin-bottom: var(--sp-2); }
 .danger-zone input:not([type='checkbox']) { max-width: 300px; margin: var(--sp-2) 0 var(--sp-1); }
 .danger-zone .choice { margin-bottom: 14px; }
+
+/* --- M9: Einstellungen der Umgebung, Verschieben ------------------------------------------ */
+.env-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); margin: 0 0 var(--sp-6); }
+.env-facts .stat { padding: var(--sp-5) var(--sp-6); }
+.env-facts .stat .label { font-size: var(--fs-13); color: var(--muted); }
+.env-facts .stat strong { font-size: var(--fs-16); font-weight: 600; overflow-wrap: anywhere; }
+.env-section-title { margin: var(--sp-8) 0 var(--sp-2); font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); }
+.env-section-title + .hint { margin-top: 0; }
+.lan-dns-line { margin: var(--sp-2) 0 var(--sp-4); }
+.lan-dns-line pre.code-block { max-width: 520px; }
+.input-short { max-width: 96px; text-transform: uppercase; }
+.badge-neutral { background: var(--surface-2); color: var(--ink-dim); }
+.access-defaults { margin-top: var(--sp-6); }
+.move-card { margin-top: var(--sp-8); }
+/* In den Projekteinstellungen ist die Karte schon der Abschnitt: kein zweiter Rahmen */
+.set-card > .move-card { margin: 0; box-shadow: none; border-radius: 0; }
+.move-select { max-width: 360px; }
+.move-title { margin: var(--sp-6) 0 var(--sp-2); }
+.move-list { box-shadow: var(--sh-ring); }
+.move-list li { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); }
+.move-header { display: block; }
+.move-actions { margin-top: var(--sp-5); }
 
 /* --- Prüflisten (System) --------------------------------------------------------------- */
 

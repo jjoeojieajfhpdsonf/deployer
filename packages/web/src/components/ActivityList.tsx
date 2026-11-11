@@ -4,6 +4,7 @@ import type { ProjectDto } from '@airlock/shared'
 import { byDay, type ActivityItem, type Category } from '../lib/activity.js'
 import { fmtDateTime, fmtTime } from '../lib/dates.js'
 import { Actor, IconSpark } from './Actor.js'
+import { useEnvPath } from '../lib/env.js'
 
 /**
  * Aktivität als Zeitleiste: Tagestrenner, Symbol nach Kategorie (eigene Form
@@ -45,6 +46,7 @@ export function ActivityList({
   emptyText?: string
 }) {
   const [open, setOpen] = useState<string | null>(null)
+  const ep = useEnvPath()
   if (items.length === 0) return <p className="muted ov-empty">{emptyText}</p>
   return (
     <div className="act">
@@ -63,7 +65,9 @@ export function ActivityList({
                   <div className="act-body">
                     <p className="act-title">{it.info.title}</p>
                     <p className="act-meta">
-                      {project && <Link className="act-project" to={`/projekte/${project.id}`}>{project.name}</Link>}
+                      {project && <Link className="act-project" to={ep(`/projekte/${project.id}`)}>{project.name}</Link>}
+                      {/* M9: Server-Ereignisse gelten für alle Umgebungen */}
+                      {it.events[0]?.server && <span className="act-sub" title="Server-Ereignis: gilt für alle Umgebungen">Server</span>}
                       <Actor actor={it.actor} />
                       {it.info.sub.map((s, i) => <span key={i} className="act-sub">{s}</span>)}
                       {it.info.chip && <span className={`act-chip act-chip-${it.info.chip.tone}`}>{it.info.chip.text}</span>}

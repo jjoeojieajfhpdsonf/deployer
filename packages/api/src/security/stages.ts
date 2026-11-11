@@ -13,6 +13,7 @@ import { parseTrivy, parseZap, parseNuclei, parseTestssl } from './parsers.js'
 import { checkHeaders } from './headers.js'
 import type { FindingInput } from './score.js'
 import { STAGE_INFO } from './progress.js'
+import { probeUa } from '../lib/probe-ua.js'
 import { missingLockfiles, detectJsLibs, depsSummary, sourceChecked } from './deps.js'
 
 /**
@@ -108,7 +109,7 @@ async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: strin
   let body = ''
   let res: Awaited<ReturnType<typeof request>>
   try {
-    res = await request(url, { method: 'GET', headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close' } })
+    res = await request(url, { method: 'GET', headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close', 'user-agent': probeUa('header') } })
     for await (const chunk of res.body) {
       body += (chunk as Buffer).toString('utf8')
       if (body.length > 1024 * 1024) break

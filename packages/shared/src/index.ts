@@ -869,7 +869,15 @@ export interface SystemStatusDto {
    * Docker-Gateway an (Tailscale als Subnet-Router, docs/INSTALL.md).
    * null: Log nicht lesbar.
    */
-  clientIps: { total: number; fromGateway: number; gatewayIps: string[]; gatewayOnly: boolean; blocked: number; since: string } | null
+  /**
+   * Absender der Anfragen auf Airlock (30 Minuten, Zugriffs-Log): nur fremde
+   * Anfragen; eigene Prüfungen («airlock-probe») stehen in ownProbes.
+   */
+  clientIps: {
+    total: number; fromGateway: number; gatewayIps: string[]; gatewayOnly: boolean; blocked: number; since: string
+    ownProbes: number
+    groups: { source: 'tailnet' | 'server'; count: number; blocked: number; hosts: string[]; paths: string[]; userAgents: string[]; last: string }[]
+  } | null
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
 }
@@ -897,7 +905,106 @@ export interface AuditEventDto {
   paramsMasked: unknown
   result: 'ok' | 'error'
   error: string | null
+  /** M9: Umgebung des Eintrags; null = Server-Ereignis (gilt für alle Umgebungen) */
+  environmentId: string | null
+  server: boolean
 }
+
+/* --- M9: Umgebungen ------------------------------------------------------- */
+
+export interface EnvironmentDto {
+  id: string
+  slug: string
+  name: string
+  /** Kürzel aus zwei Zeichen, im Umschalter neben dem Namen */
+  short: string
+  isDefault: boolean
+  /** Hauptzone, z. B. «jherren.com»; null = noch nicht gewählt */
+  zone: string | null
+  /** Interne Basis, z. B. «int.jherren.com» */
+  baseDomain: string | null
+  projects: number
+  /** Offene kritische Befunde (Zahl, im Umschalter mit Wort) */
+  critical: number
+  /** Präfix der internen Basis («int») */
+  internalPrefix: string
+  /** Cloudflare: Konto (Name) und ob es mit anderen Umgebungen geteilt ist */
+  account: { name: string | null; sharedWith: string[] } | null
+  /** Zertifikat der internen Basis */
+  tlsPhase: CfTlsPhase
+  accessDefault: boolean
+  accessEmails: string[]
+  notifyMuted: boolean
+  externalTargets: number
+}
+
+/** Slug einer Umgebung: steht in der Adresse /u/<slug>/… */
+export const environmentSlugSchema = z.string().trim().min(2, 'Mindestens 2 Zeichen').max(40, 'Höchstens 40 Zeichen')
+  .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, 'Nur Kleinbuchstaben, Ziffern und Bindestriche, nicht am Anfang oder Ende')
+
+export const createEnvironmentSchema = z.object({
+  name: z.string().trim().min(1, 'Name fehlt').max(60),
+  slug: environmentSlugSchema,
+  short: z.string().trim().min(1, 'Kürzel fehlt').max(2, 'Höchstens zwei Zeichen').regex(/^[A-Za-z0-9]+$/, 'Nur Buchstaben und Ziffern'),
+  /** Cloudflare-Token dieser Umgebung mitbenutzen (ID) */
+  shareAccountOf: z.string().uuid().nullable().optional(),
+  internalPrefix: z.string().trim().max(40).regex(/^[a-z0-9-]*(?:\.[a-z0-9-]+)*$/, 'Nur Kleinbuchstaben, Ziffern, Bindestriche und Punkte').default('int'),
+  /** Standards (Header-Vorlagen, Pause-Seite, Access) von dieser Umgebung übernehmen (ID) */
+  copyStandardsFrom: z.string().uuid().nullable().optional(),
+})
+export type CreateEnvironmentInput = z.infer<typeof createEnvironmentSchema>
+
+export const updateEnvironmentSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  short: z.string().trim().min(1).max(2).regex(/^[A-Za-z0-9]+$/).optional(),
+  accessDefault: z.boolean().optional(),
+  accessEmails: z.array(z.string().trim().email('Keine gültige E-Mail-Adresse')).max(20).optional(),
+  notifyMuted: z.boolean().optional(),
+  /** Zur Standard-Umgebung machen (Adresse der Oberfläche wandert mit) */
+  makeDefault: z.literal(true).optional(),
+  /** Assistent, Schritt 2: Cloudflare-Token dieser Umgebung mitbenutzen (nur solange noch kein eigenes da ist) */
+  shareAccountOf: z.string().uuid().optional(),
+})
+export type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentSchema>
+
+/** Header-Vorlage einer Umgebung (ohne CSP) */
+export interface HeaderTemplateDto {
+  header: HeaderKeyName
+  value: string
+  mode: 'enforce' | 'report-only'
+  /** Projekte der Umgebung, für die sie gilt (ohne eigene Regel, nicht abgeschaltet) */
+  appliesTo: number
+  projects: number
+  /** Projekte mit eigener Regel oder abgeschaltet */
+  overriddenBy: { project: string; mode: 'own' | 'off' }[]
+}
+/** Header, die eine Umgebung vorgeben kann (CSP bleibt pro Projekt) */
+export const templateHeaderKeys = ['x-content-type-options', 'referrer-policy', 'frame-ancestors', 'strict-transport-security'] as const
+export type HeaderKeyName = (typeof templateHeaderKeys)[number]
+
+/** Lokaler DNS: greift die Umschreibung *.<basis> → Server? */
+export interface LanDnsCheckDto {
+  baseDomain: string | null
+  /** Zeile zum Kopieren (AdGuard/Pi-hole/dnsmasq) */
+  line: string | null
+  expected: string | null
+  resolved: string[]
+  ok: boolean
+  detail: string
+}
+
+/** Vorschau «In andere Umgebung verschieben» (Tabelle aus der SPEC) */
+export interface MovePreviewDto {
+  from: { id: string; name: string; slug: string }
+  to: { id: string; name: string; slug: string }
+  internal: { from: string | null; to: string | null; redirectDays: number } | null
+  public: { hostname: string; paused: boolean; pendingRequest: boolean } | null
+  headers: { header: string; from: string | null; to: string | null }[]
+  tokensLosingAccess: string[]
+  blocked: string | null
+}
+
+export const moveProjectSchema = z.object({ to: z.string().min(1), confirm: z.literal(true, { message: 'Verschieben verlangt eine Bestätigung' }) })
 
 /* --- Cloudflare verbinden (Systemseite) ------------------------------------ */
 
@@ -1057,6 +1164,8 @@ export const uiPrefsSchema = z.object({
   setup: setupPrefsSchema.optional(),
   /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
   bellSeenAt: z.string().datetime().optional(),
+  /** M9: zuletzt gewählte Umgebung (Slug); alte Adressen ohne /u/… führen dorthin */
+  lastEnvironment: z.string().max(64).optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
 /** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */

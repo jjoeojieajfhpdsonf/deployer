@@ -1,10 +1,12 @@
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, sql, inArray } from 'drizzle-orm'
 import { db, schema, getSetting, setSetting } from '../db/index.js'
-import { cf as settings, config } from '../config.js'
+import { defaultEnvironmentId, defaultEnvironment, environmentById, allEnvironments } from './environments.js'
+import { cloudflareFor } from './cloudflare-settings.js'
+import { inEnvironment, serverJob, type EnvScope, type ListScope } from '../lib/scope.js'
+import { config } from '../config.js'
 import { RESERVED_SLUGS } from '@airlock/shared'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
-import { cloudflareClient } from './tailnet.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
 import { getPublicRequest, discardPublicRequest, markRequestFailed, toRequestDto, gateReason } from './public-requests.js'
 import { setProjectPause, pausePageTemplate } from './pause-page.js'
@@ -30,16 +32,48 @@ import { log } from '../lib/log.js'
 
 const MANAGED_HOSTS_KEY = 'tunnel_managed_hosts'
 
-export function publicEnabled(): boolean {
-  return Boolean(settings.accountId() && settings.tunnelId() && cloudflareClient())
+/**
+ * M9: Cloudflare-Zugang einer Umgebung – ihr Token, ihr Konto, der Tunnel
+ * des Kontos (einer pro Konto; Umgebungen mit demselben Konto teilen ihn).
+ */
+interface PubCtx {
+  envId: string
+  cf: Cloudflare
+  accountId: string
+  tunnelId: string
+  accessEmail: string | null
+  baseDomain: string | null
+  accountRowId: string | null
 }
 
-function client(): Cloudflare {
-  const cf = cloudflareClient()
-  if (!cf || !settings.accountId() || !settings.tunnelId()) {
-    throw new AppError('public_disabled', 'Öffentlich ist nicht eingerichtet: unter System › Cloudflare & HTTPS Token und Tunnel einrichten.', 400)
+function ctxFor(envId: string): PubCtx | null {
+  const c = cloudflareFor(envId)
+  if (!c.token || !c.accountId || !c.tunnelId) return null
+  return {
+    envId, cf: new Cloudflare({ token: c.token, base: config.CLOUDFLARE_API_BASE }),
+    accountId: c.accountId, tunnelId: c.tunnelId, accessEmail: c.accessEmail, baseDomain: c.baseDomain, accountRowId: c.accountRowId,
   }
-  return cf
+}
+
+function requireCtx(envId: string): PubCtx {
+  const c = ctxFor(envId)
+  if (!c) throw new AppError('public_disabled', 'Öffentlich ist in dieser Umgebung nicht eingerichtet: unter Einstellungen → Cloudflare & HTTPS Token und Tunnel einrichten.', 400)
+  return c
+}
+
+/** Kann diese Umgebung öffentlich schalten (Token, Konto, Tunnel)? Ohne Angabe: Standard-Umgebung. */
+export function publicEnabled(envId: string = defaultEnvironmentId()): boolean {
+  return ctxFor(envId) !== null
+}
+
+/** Client mit dem Token der Umgebung (Standard-Umgebung ohne Angabe). */
+function client(envId: string = defaultEnvironmentId()): Cloudflare {
+  return requireCtx(envId).cf
+}
+
+/** Umgebung eines Projekts (für Aufrufer, die nur id/slug haben). */
+async function envOfProject(projectId: string): Promise<string> {
+  return (await db.select({ env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]?.env ?? defaultEnvironmentId()
 }
 
 /** Fehler von Cloudflare als saubere API-Fehler. */
@@ -53,23 +87,33 @@ function wrap(err: unknown): never {
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
 
-/** Zonen des Kontos holen und in `domains` spiegeln. Die Standard-Wahl bleibt. */
-export async function syncDomains(cf = client()): Promise<DomainDto[]> {
+/**
+ * Zonen des Kontos holen und in `domains` spiegeln. Die Standard-Wahl bleibt.
+ * M9: Neue Zonen landen in der Umgebung envId (vorerst die Standard-Umgebung;
+ * Etappe 3: die Umgebung, deren Token abgeglichen wird); die Antwort ist die
+ * Liste dieser Umgebung.
+ */
+export async function syncDomains(cf?: Cloudflare, envId: string = defaultEnvironmentId()): Promise<DomainDto[]> {
+  const c = cf ?? client(envId)
   let zones: Zone[]
   try {
-    zones = await cf.listZones()
+    zones = await c.listZones()
   } catch (err) {
     wrap(err)
   }
+  // M9: Aufräumen nur unter den Zonen der Umgebungen mit demselben Konto –
+  // Zonen anderer Konten sieht dieses Token gar nicht.
+  const account = environmentById(envId)?.account?.id ?? null
+  const sameAccount = allEnvironments().filter((e) => e.id === envId || (account && e.account?.id === account)).map((e) => e.id)
   await db.transaction(async (tx) => {
     for (const z of zones) {
       await tx
         .insert(schema.domains)
-        .values({ cfZoneId: z.id, name: z.name.toLowerCase() })
+        .values({ cfZoneId: z.id, name: z.name.toLowerCase(), environmentId: envId })
         .onConflictDoUpdate({ target: schema.domains.cfZoneId, set: { name: z.name.toLowerCase() } })
     }
     const ids = zones.map((z) => z.id)
-    const existing = await tx.select().from(schema.domains)
+    const existing = await tx.select().from(schema.domains).where(inArray(schema.domains.environmentId, sameAccount))
     const used = (await tx.select({ hostname: schema.routes.hostname }).from(schema.routes).where(eq(schema.routes.target, 'public'))).map((r) => r.hostname)
     for (const d of existing) {
       if (ids.includes(d.cfZoneId)) continue
@@ -79,24 +123,27 @@ export async function syncDomains(cf = client()): Promise<DomainDto[]> {
       await tx.delete(schema.domains).where(eq(schema.domains.id, d.id))
     }
   })
-  return listDomains()
+  return listDomains(inEnvironment(envId))
 }
 
-export async function listDomains(): Promise<DomainDto[]> {
-  const rows = await db.select().from(schema.domains).orderBy(schema.domains.name)
+/** M9: Zonen einer Umgebung (oder aller, für Server-Jobs). */
+export async function listDomains(scope: ListScope): Promise<DomainDto[]> {
+  const rows = await db.select().from(schema.domains)
+    .where(scope.kind === 'env' ? eq(schema.domains.environmentId, scope.envId) : undefined)
+    .orderBy(schema.domains.name)
   return rows.map((d) => ({ id: d.id, name: d.name, zoneId: d.cfZoneId, isDefault: d.isDefault }))
 }
 
-export async function setDefaultDomain(name: string, actor: string): Promise<DomainDto[]> {
+export async function setDefaultDomain(scope: EnvScope, name: string, actor: string): Promise<DomainDto[]> {
   const n = name.trim().toLowerCase()
-  const row = (await db.select().from(schema.domains).where(eq(schema.domains.name, n)))[0]
-  if (!row) throw badRequest(`${n} ist keine Zone dieses Cloudflare-Kontos (Liste zuerst abgleichen)`)
+  const row = (await db.select().from(schema.domains).where(and(eq(schema.domains.name, n), eq(schema.domains.environmentId, scope.envId))))[0]
+  if (!row) throw badRequest(`${n} ist keine Zone dieser Umgebung (Liste zuerst abgleichen)`)
   await db.transaction(async (tx) => {
-    await tx.update(schema.domains).set({ isDefault: false }).where(eq(schema.domains.isDefault, true))
+    await tx.update(schema.domains).set({ isDefault: false }).where(and(eq(schema.domains.isDefault, true), eq(schema.domains.environmentId, scope.envId)))
     await tx.update(schema.domains).set({ isDefault: true }).where(eq(schema.domains.id, row.id))
   })
   await audit({ actor, action: 'domain.default', targetType: 'domain', targetId: row.id, params: { name: n }, result: 'ok' })
-  return listDomains()
+  return listDomains(scope)
 }
 
 /* --- Öffentlich schalten --------------------------------------------------------- */
@@ -112,7 +159,7 @@ export async function publicRoute(projectId: string) {
   return (await db.select().from(schema.routes).where(and(eq(schema.routes.projectId, projectId), eq(schema.routes.target, 'public'))))[0] ?? null
 }
 
-type Project = { id: string; slug: string; name: string }
+type Project = { id: string; slug: string; name: string; environmentId: string }
 type PublicRouteRow = NonNullable<Awaited<ReturnType<typeof publicRoute>>>
 
 export interface PublicPlan {
@@ -132,25 +179,31 @@ export interface PublicPlan {
  * Fehlen Name oder Access in der Eingabe, gilt der bisherige Stand.
  */
 export async function planPublic(project: Project, input: PublicInput): Promise<PublicPlan> {
-  const cf = client()
+  // M9: Token, Konto und Tunnel der Umgebung des Projekts
+  const ctx = requireCtx(project.environmentId)
+  const cf = ctx.cf
   await assertPublishable(project.id)
   try {
     const before = await publicRoute(project.id)
-    const domains = await listDomains().then((d) => (d.length ? d : syncDomains(cf)))
+    // M9: nur Zonen der Umgebung des Projekts; Standard-Domain ist ihre Hauptzone
+    const own = inEnvironment(project.environmentId)
+    const domains = await listDomains(own).then((d) => (d.length ? d : syncDomains(cf, project.environmentId)))
+    const mainZone = environmentById(project.environmentId)?.zoneName ?? null
     const nameGiven = Boolean(input.subdomain || input.hostname)
     const { hostname, zone } = resolvePublicHostname(
       nameGiven ? { subdomain: input.subdomain, hostname: input.hostname } : before ? { hostname: before.hostname } : { subdomain: project.slug },
       {
         zones: domains.map((d) => ({ id: d.zoneId, name: d.name })),
-        defaultZone: domains.find((d) => d.isDefault)?.name ?? null,
-        internalBaseDomain: settings.baseDomain(),
+        defaultZone: (mainZone && domains.some((d) => d.name === mainZone) ? mainZone : null) ?? domains.find((d) => d.isDefault)?.name ?? null,
+        internalBaseDomain: ctx.baseDomain,
         reservedLabels: RESERVED_SLUGS,
       },
     )
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
     if (clash.some((r) => r.projectId !== project.id)) throw conflict(`${hostname} ist schon von einem anderen Projekt belegt`)
-    const access = input.accessProtected ?? Boolean(before?.accessProtected)
-    if (access && !settings.accessEmail()) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (System › Cloudflare & HTTPS, Domains).')
+    // M9: ohne Angabe und ohne frühere Route gilt der Access-Standard der Umgebung
+    const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
+    if (access && !ctx.accessEmail) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (Einstellungen → Standards → Cloudflare Access).')
     return { project, hostname, zone, access, before }
   } catch (err) {
     wrap(err)
@@ -164,14 +217,15 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
  * bei Cloudflare neu angelegt hat.
  */
 export async function applyPublic(plan: PublicPlan, actor: string, progress?: Progress): Promise<{ hostname: string }> {
-  const cf = client()
+  const ctx = requireCtx(plan.project.environmentId)
+  const cf = ctx.cf
   const { project, hostname, zone, before } = plan
   const created: { recordId?: string; accessId?: string } = {}
   const sameName = before?.hostname === hostname
   try {
     // 1. DNS: CNAME proxied auf den Tunnel; fremde Einträge bleiben unangetastet.
     progress?.start('dns')
-    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(settings.tunnelId()!), proxied: true })
+    const rec = await upsertManagedRecord(cf, zone.id, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true })
     if (rec.action === 'created') created.recordId = rec.record.id
     progress?.set('dns', 'done', rec.action === 'created' ? `CNAME ${hostname} auf den Tunnel angelegt` : `CNAME ${hostname} zeigt auf den Tunnel`)
 
@@ -179,7 +233,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
     progress?.start('access')
     let accessAppId = sameName ? before.cfAccessAppId : null
     if (plan.access && !accessAppId) {
-      accessAppId = (await cf.createAccessApp(settings.accountId()!, { name: `Airlock: ${project.name}`, domain: hostname, email: settings.accessEmail()! })).id
+      accessAppId = (await cf.createAccessApp(ctx.accountId, { name: `Airlock: ${project.name}`, domain: hostname, email: ctx.accessEmail! })).id
       created.accessId = accessAppId
     }
 
@@ -200,15 +254,15 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
     created.accessId = undefined
 
     // 4. Access abgeschaltet: App weg (erst nach dem Speichern, dann ist der Stand konsistent)
-    if (!plan.access && accessAppId) await cf.deleteAccessApp(settings.accountId()!, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
+    if (!plan.access && accessAppId) await cf.deleteAccessApp(ctx.accountId, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
     progress?.set('access', 'done', plan.access ? 'Login per E-Mail-Code vorgeschaltet' : 'ohne Login')
 
     // 5. Alter Name (bei Umbenennung) aus DNS und Access entfernen
-    if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
+    if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, ctx.accountId, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
 
     // 6. Tunnel aus der Datenbank (Caddy gleicht der Aufrufer ab)
     progress?.start('tunnel')
-    await reconcileTunnel(cf)
+    await reconcileTunnelFor(ctx.envId)
     progress?.set('tunnel', 'done', `${hostname} → Caddy`)
 
     // Welcher Übergang: neu, umbenannt oder nur Access an/aus (Audit-Log)
@@ -218,7 +272,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
     return { hostname }
   } catch (err) {
     // Zurücknehmen, was dieser Aufruf neu angelegt hat (Review M5: sonst verwaist bei Cloudflare)
-    if (created.accessId) await cf.deleteAccessApp(settings.accountId()!, created.accessId).catch(() => {})
+    if (created.accessId) await cf.deleteAccessApp(ctx.accountId, created.accessId).catch(() => {})
     if (created.recordId) await cf.deleteRecord(zone.id, created.recordId).catch(() => {})
     wrap(err)
   }
@@ -233,12 +287,16 @@ export async function setPublic(project: Project, input: PublicInput, actor: str
 export async function removePublic(project: { id: string; slug: string }, actor: string, opts: { strict?: boolean; skipCaddy?: boolean; progress?: Progress } = {}): Promise<boolean> {
   const route = await publicRoute(project.id)
   if (!route) return false
-  const cf = cloudflareClient()
+  // M9: Token und Konto der Umgebung des Projekts
+  const envId = await envOfProject(project.id)
+  const c = cloudflareFor(envId)
+  const cf = c.token ? new Cloudflare({ token: c.token, base: config.CLOUDFLARE_API_BASE }) : null
+  const accountId = c.accountId
   const pr = opts.progress
   const problems: string[] = []
-  if (cf && settings.accountId()) {
+  if (cf && accountId) {
     pr?.start('dns')
-    await dropCloudflareObjects(cf, route, pr).catch((e) => {
+    await dropCloudflareObjects(cf, accountId, route, pr).catch((e) => {
       problems.push(String((e as Error).message))
       pr?.set(pr.dto.steps.find((s) => s.state === 'current')?.key ?? 'dns', 'warn', (e as Error).message)
     })
@@ -247,9 +305,9 @@ export async function removePublic(project: { id: string; slug: string }, actor:
     pr?.set('dns', 'warn', 'Kein Cloudflare-Token: der DNS-Eintrag bleibt stehen')
   }
   await db.delete(schema.routes).where(eq(schema.routes.id, route.id))
-  if (cf && settings.accountId() && settings.tunnelId()) {
+  if (cf && accountId && c.tunnelId) {
     pr?.start('tunnel')
-    await reconcileTunnel(cf).then(
+    await reconcileTunnelFor(envId).then(
       () => pr?.set('tunnel', 'done', `Regel für ${route.hostname} entfernt`),
       (e) => {
         problems.push(`Tunnel: ${(e as Error).message}`)
@@ -275,8 +333,8 @@ export async function removePublic(project: { id: string; slug: string }, actor:
   return true
 }
 
-async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }, pr?: Progress): Promise<void> {
-  const domains = await listDomains()
+async function dropCloudflareObjects(cf: Cloudflare, accountId: string, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }, pr?: Progress): Promise<void> {
+  const domains = await listDomains(serverJob('cloudflare-aufräumen'))
   const zone = domains.find((d) => route.hostname === d.name || route.hostname.endsWith(`.${d.name}`))
   if (route.cfDnsRecordId && !zone) throw new Error(`Zone von ${route.hostname} unbekannt; DNS-Eintrag bitte in Cloudflare von Hand entfernen`)
   if (route.cfDnsRecordId && zone) {
@@ -289,7 +347,7 @@ async function dropCloudflareObjects(cf: Cloudflare, route: { hostname: string; 
     pr?.set('dns', 'done', 'kein eigener Eintrag')
   }
   pr?.start('access')
-  if (route.cfAccessAppId) await cf.deleteAccessApp(settings.accountId()!, route.cfAccessAppId)
+  if (route.cfAccessAppId) await cf.deleteAccessApp(accountId, route.cfAccessAppId)
   pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Login-Schutz entfernt' : 'war nicht eingeschaltet')
 }
 
@@ -372,7 +430,7 @@ export function publishFlow(project: Project, input: PublicInput, actor: string)
   return (async () => {
     const before = await publicRoute(project.id)
     const op = before ? 'access' : 'publish'
-    const access = input.accessProtected ?? Boolean(before?.accessProtected)
+    const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     return withProgress(project.id, op, before?.hostname ?? null, stepsFor(op, { access }), async (pr) => {
       pr.start('check')
       const plan = await planPublic(project, input)
@@ -434,7 +492,7 @@ export function unpublishFlow(project: Project, actor: string): Promise<FlowResu
 /* --- Zustand für die Karte -------------------------------------------------------- */
 
 export async function publishability(projectId: string): Promise<PublicStatusDto['publishable']> {
-  if (!publicEnabled()) return { ok: false, why: 'disabled', reason: gateReason({ why: 'disabled' }) }
+  if (!publicEnabled(await envOfProject(projectId))) return { ok: false, why: 'disabled', reason: gateReason({ why: 'disabled' }) }
   try {
     await assertPublishable(projectId)
     return { ok: true }
@@ -495,7 +553,7 @@ export async function publicStatus(project: { id: string; slug: string }): Promi
   const [gate, req] = await Promise.all([publishability(project.id), getPublicRequest(project.id)])
   return {
     state: !route ? 'private' : route.pausedAt ? 'paused' : 'live',
-    enabled: publicEnabled(),
+    enabled: publicEnabled(await envOfProject(project.id)),
     hostname: route?.hostname ?? null,
     url: route ? `https://${route.hostname}` : null,
     since: route ? (route.pausedAt ?? route.createdAt).toISOString() : null,
@@ -521,64 +579,135 @@ let tunnelChain: Promise<unknown> = Promise.resolve()
  * Nacheinander wie der Caddy-Abgleich: zwei überlappende Läufe könnten sonst
  * einen eben gesetzten Namen mit einem älteren Stand überschreiben (Review M5).
  */
-export function reconcileTunnel(cf = client()): Promise<{ hosts: string[] }> {
-  const run = () => reconcileTunnelNow(cf)
+/** M9: Alle Tunnel abgleichen (einer pro Konto). Ein Fehler in einem Konto hält die anderen nicht auf. */
+export async function reconcileTunnel(): Promise<{ hosts: string[] }> {
+  const hosts: string[] = []
+  const errors: string[] = []
+  for (const envId of tunnelOwners()) {
+    await reconcileTunnelFor(envId).then((r) => hosts.push(...r.hosts), (e) => errors.push(String((e as Error).message)))
+  }
+  if (errors.length) throw new AppError('cloudflare', errors.join('; '), 502)
+  return { hosts }
+}
+
+/** Je Tunnel (Konto) eine Umgebung, über die er erreicht wird – die Standard-Umgebung zuerst. */
+function tunnelOwners(): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const e of allEnvironments()) {
+    const c = ctxFor(e.id)
+    if (!c || seen.has(c.tunnelId)) continue
+    seen.add(c.tunnelId)
+    out.push(e.id)
+  }
+  return out
+}
+
+/**
+ * Den Tunnel einer Umgebung abgleichen: Ingress-Regeln aus den öffentlichen
+ * Routen ALLER Umgebungen, die dasselbe Konto (also denselben Tunnel) nutzen.
+ */
+export function reconcileTunnelFor(envId: string): Promise<{ hosts: string[] }> {
+  const run = () => reconcileTunnelNow(requireCtx(envId))
   const next = tunnelChain.then(run, run)
   tunnelChain = next.catch(() => {})
   return next
 }
 
-async function reconcileTunnelNow(cf: Cloudflare): Promise<{ hosts: string[] }> {
-  const rows = await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(eq(schema.routes.target, 'public'))
-  const managedBefore: string[] = JSON.parse((await getSetting(MANAGED_HOSTS_KEY)) ?? '[]')
-  const current = await cf.getTunnelIngress(settings.accountId()!, settings.tunnelId()!)
-  const forbidden = settings.baseDomain() ? rows.map((r) => r.hostname).filter((h) => h.endsWith(`.${settings.baseDomain()}`)) : []
+/** Gespeicherte «eigene» Namen je Tunnel; der Tunnel der Standard-Umgebung behält den alten Schlüssel. */
+const managedKeyFor = (ctx: PubCtx) => (ctx.accountRowId && ctx.accountRowId !== defaultEnvironment().account?.id ? `${MANAGED_HOSTS_KEY}:${ctx.tunnelId}` : MANAGED_HOSTS_KEY)
+
+async function reconcileTunnelNow(ctx: PubCtx): Promise<{ hosts: string[] }> {
+  const sameTunnel = allEnvironments().filter((e) => ctxFor(e.id)?.tunnelId === ctx.tunnelId).map((e) => e.id)
+  const rows = await db.select({ hostname: schema.routes.hostname, env: schema.projects.environmentId }).from(schema.routes)
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId))
+    .where(and(eq(schema.routes.target, 'public'), inArray(schema.projects.environmentId, sameTunnel)))
+  const key = managedKeyFor(ctx)
+  const managedBefore: string[] = JSON.parse((await getSetting(key)) ?? '[]')
+  const current = await ctx.cf.getTunnelIngress(ctx.accountId, ctx.tunnelId)
+  // Kein öffentlicher Name unter einer internen Basis (Wildcard-Zertifikat, nur intern)
+  const bases = allEnvironments().map((e) => cloudflareFor(e.id).baseDomain).filter((b): b is string => Boolean(b))
+  const forbidden = rows.map((r) => r.hostname).filter((h) => bases.some((b) => h.endsWith(`.${b}`)))
   const { ingress, managed } = reconcileIngress(current, rows.map((r) => r.hostname), managedBefore, forbidden)
   if (JSON.stringify(ingress) !== JSON.stringify(current)) {
-    await cf.putTunnelIngress(settings.accountId()!, settings.tunnelId()!, ingress)
-    log.info('Tunnel-Ingress abgeglichen', { hosts: managed })
+    await ctx.cf.putTunnelIngress(ctx.accountId, ctx.tunnelId, ingress)
+    log.info('Tunnel-Ingress abgeglichen', { tunnel: ctx.tunnelId, hosts: managed })
   }
-  await setSetting(MANAGED_HOSTS_KEY, JSON.stringify(managed))
+  await setSetting(key, JSON.stringify(managed))
   return { hosts: managed }
 }
 
-let tunnelCache: { at: number; v: { status: string; connections: number } } | null = null
+const tunnelCache = new Map<string, { at: number; v: { status: string; connections: number } }>()
+const refreshing = new Map<string, Promise<{ status: string; connections: number }>>()
 
-/** Zustand des Tunnels, höchstens eine Minute alt (die Systemseite fragt alle 15 s). */
-export async function tunnelStatus(): Promise<{ status: string; connections: number } | null> {
-  if (!publicEnabled()) return null
-  // Veraltet: im Hintergrund neu holen und sofort den letzten Stand liefern –
-  // die Systemseite soll nie auf Cloudflare warten (Review M5).
-  if (!tunnelCache || Date.now() - tunnelCache.at >= 60_000) {
-    const refresh = refreshTunnelStatus()
-    if (!tunnelCache) return refresh
-  }
-  return tunnelCache!.v
+/** Zustand des Tunnels der Standard-Umgebung (Kompatibilität). */
+export function tunnelStatus(): Promise<{ status: string; connections: number } | null> {
+  return tunnelStatusFor(defaultEnvironmentId())
 }
 
-let refreshing: Promise<{ status: string; connections: number }> | null = null
-function refreshTunnelStatus(): Promise<{ status: string; connections: number }> {
-  refreshing ??= (async () => {
+/** Zustand des Tunnels einer Umgebung, höchstens eine Minute alt (die Seite fragt alle 15 s). */
+export async function tunnelStatusFor(envId: string): Promise<{ status: string; connections: number } | null> {
+  const ctx = ctxFor(envId)
+  if (!ctx) return null
+  // Veraltet: im Hintergrund neu holen und sofort den letzten Stand liefern –
+  // die Seite soll nie auf Cloudflare warten (Review M5).
+  const cached = tunnelCache.get(ctx.tunnelId)
+  if (!cached || Date.now() - cached.at >= 60_000) {
+    const refresh = refreshTunnelStatus(ctx)
+    if (!cached) return refresh
+  }
+  return cached!.v
+}
+
+function refreshTunnelStatus(ctx: PubCtx): Promise<{ status: string; connections: number }> {
+  const running = refreshing.get(ctx.tunnelId)
+  if (running) return running
+  const run = (async () => {
     let v: { status: string; connections: number }
     try {
-      v = await client().tunnelStatus(settings.accountId()!, settings.tunnelId()!)
+      v = await ctx.cf.tunnelStatus(ctx.accountId, ctx.tunnelId)
     } catch (err) {
       v = { status: `Fehler: ${(err as Error).message}`, connections: 0 }
     }
-    tunnelCache = { at: Date.now(), v }
-    refreshing = null
+    tunnelCache.set(ctx.tunnelId, { at: Date.now(), v })
+    refreshing.delete(ctx.tunnelId)
     return v
   })()
-  return refreshing
+  refreshing.set(ctx.tunnelId, run)
+  return run
 }
 
-/** Beim Start: Tunnel aus der Datenbank, im Hintergrund. */
+/** Beim Start: Zonen und Tunnel aus der Datenbank, je Umgebung bzw. Konto, im Hintergrund. */
 export async function reconcilePublicOnBoot(): Promise<void> {
-  if (!publicEnabled()) return
-  try {
-    await syncDomains()
-    await reconcileTunnel()
-  } catch (err) {
-    log.warn('Abgleich mit Cloudflare beim Start fehlgeschlagen', { err: (err as Error).message })
+  for (const envId of tunnelOwners()) {
+    try {
+      await syncDomains(client(envId), envId)
+      await reconcileTunnelFor(envId)
+    } catch (err) {
+      log.warn('Abgleich mit Cloudflare beim Start fehlgeschlagen', { umgebung: environmentById(envId)?.slug, err: (err as Error).message })
+    }
   }
+}
+
+/**
+ * M9: Zone desselben Kontos, die noch bei einer anderen Umgebung liegt, in
+ * diese Umgebung holen (Hauptzone wählen). Nicht, wenn sie dort Hauptzone ist
+ * oder ein öffentliches Projekt dort einen Namen in ihr trägt.
+ */
+export async function claimZone(envId: string, zoneName: string): Promise<void> {
+  const row = (await db.select().from(schema.domains).where(eq(schema.domains.name, zoneName)).limit(1))[0]
+  if (!row || row.environmentId === envId) return
+  const other = environmentById(row.environmentId)
+  const mine = environmentById(envId)
+  if (!other || !mine) return
+  if (other.account?.id !== mine.account?.id) throw conflict(`${zoneName} gehört zur Umgebung «${other.name}» mit einem anderen Cloudflare-Konto`)
+  if (other.zoneName === zoneName) throw conflict(`${zoneName} ist die Hauptzone der Umgebung «${other.name}»`)
+  const used = await db.select({ hostname: schema.routes.hostname }).from(schema.routes)
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId))
+    .where(and(eq(schema.routes.target, 'public'), eq(schema.projects.environmentId, row.environmentId)))
+  if (used.some((r) => r.hostname === zoneName || r.hostname.endsWith(`.${zoneName}`))) {
+    throw conflict(`In ${zoneName} sind noch öffentliche Projekte der Umgebung «${other.name}»`)
+  }
+  await db.update(schema.domains).set({ environmentId: envId }).where(eq(schema.domains.id, row.id))
+  await audit({ actor: 'system', action: 'domain.move', targetType: 'domain', targetId: row.id, environmentId: envId, params: { name: zoneName, from: other.slug, to: mine.slug }, result: 'ok' })
 }

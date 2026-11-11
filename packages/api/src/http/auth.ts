@@ -6,6 +6,7 @@ import { config } from '../config.js'
 import { unauthorized, AppError } from '../lib/errors.js'
 import { bearerFrom } from '../lib/tokens.js'
 import { verifyToken } from '../domain/tokens.js'
+import { inEnvironment, sessionScope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 
 export const SESSION_COOKIE = 'airlock_session'
@@ -180,6 +181,7 @@ export function registerAuthGuard(app: FastifyInstance): void {
   const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key'])
   app.decorateRequest('actor', '')
   app.decorateRequest('tokenId', null)
+  app.decorateRequest('scope', null as never)
   app.addHook('onRequest', async (request) => {
     // Entschieden wird am ROUTENMUSTER, das der Router gewählt hat – nie am
     // rohen Pfad. Der Router dekodiert Prozentkodierung: "/%61pi/v1/projects"
@@ -195,7 +197,7 @@ export function registerAuthGuard(app: FastifyInstance): void {
     if (bearer) {
       const identity = await verifyToken(bearer)
       if (!identity) throw unauthorized()
-      if (route.startsWith('/api/v1/tokens') || route.startsWith('/api/v1/auth/')) {
+      if (route.startsWith('/api/v1/tokens') || route.startsWith('/api/v1/environments/:env/tokens') || route.startsWith('/api/v1/auth/')) {
         throw new AppError('forbidden', 'Tokens lassen sich nur mit einer Anmeldung verwalten, nicht mit einem Token', 403)
       }
       // M6: ebenso die Benachrichtigungen – ein gestohlenes Token könnte sie
@@ -207,20 +209,36 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/github')) {
         throw new AppError('forbidden', 'Die GitHub-Verbindung lässt sich nur mit einer Anmeldung einrichten', 403)
       }
+      // M9: hosts-Block nennt die Namen aller Umgebungen – nur mit Anmeldung
+      if (route.startsWith('/api/v1/system/hosts')) {
+        throw new AppError('forbidden', 'Die hosts-Datei gibt es nur mit einer Anmeldung, nicht mit einem Token', 403)
+      }
+      // M9: Umgebungen verwalten (anlegen, ändern, Vorlagen, Cloudflare je Umgebung) nur mit
+      // Anmeldung. Ein Token liest seine Umgebung und legt darin Projekte und externe Ziele an.
+      if (route.startsWith('/api/v1/environments/:env/cloudflare')) {
+        throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)
+      }
+      const envWriteAllowed = route === '/api/v1/environments/:env/projects' || route === '/api/v1/environments/:env/external-targets'
+      if (route.startsWith('/api/v1/environments') && request.method !== 'GET' && !envWriteAllowed) {
+        throw new AppError('forbidden', 'Umgebungen lassen sich nur mit einer Anmeldung verwalten', 403)
+      }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {
         throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)
       }
       // M4/M5: DNS bei Cloudflare ändern nur mit Anmeldung.
-      if (route.startsWith('/api/v1/system/tailnet-dns') || (route.startsWith('/api/v1/domains') && request.method !== 'GET')) {
+      if (route.startsWith('/api/v1/system/tailnet-dns') || ((route.startsWith('/api/v1/domains') || route.startsWith('/api/v1/environments/:env/domains')) && request.method !== 'GET')) {
         throw new AppError('forbidden', 'DNS bei Cloudflare lässt sich nur mit einer Anmeldung ändern', 403)
       }
       request.actor = `token:${identity.name}`
       request.tokenId = identity.id
+      // M9: ein Token sieht nur seine Umgebung
+      request.scope = inEnvironment(identity.environmentId)
       return
     }
     if (!isLoggedIn(request)) throw unauthorized()
     request.actor = 'ui:joel'
+    request.scope = sessionScope()
   })
 }
 

@@ -226,6 +226,8 @@ export const CHROME_SCRIPT =
   ': > /tmp/chrome.log; for u in $CHECK_URLS; do echo "### PAGE $u" >> /tmp/chrome.log; ' +
   'chromium-browser --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run ' +
   '--proxy-server="$CHECK_PROXY" --proxy-bypass-list="<-loopback>" --enable-logging=stderr --log-level=0 ' +
+  // Kennung wie alle eigenen Prüfungen (lib/probe-ua.ts)
+  '--user-agent="airlock-probe (browser)" ' +
   '--virtual-time-budget=4000 --dump-dom "$u" > /dev/null 2>> /tmp/chrome.log; done'
 
 /**

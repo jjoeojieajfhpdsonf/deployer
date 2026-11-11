@@ -145,6 +145,11 @@ export async function checkNetwork(actor = 'system', o: { reconcile?: boolean } 
     await reconcileCaddy()
     log.info('Adressen und Caddy-Filter nachgezogen', { moved, lanCidr: net.lanCidr() })
   }
+  // M9: neue Tailscale-IP – Tailnet-Einträge aller Umgebungen nachziehen
+  if (changed && before.tailscaleIp !== next.tailscaleIp && next.tailscaleIp) {
+    const { ensureTailnetDnsOnBoot } = await import('./tailnet.js')
+    await ensureTailnetDnsOnBoot()
+  }
   return changed
 }
 

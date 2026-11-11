@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { chatExpiryDays } from '../domain/expiry-settings.js'
 import { stopProject } from '../domain/lifecycle.js'
+import { serverJob } from '../lib/scope.js'
 import { audit } from '../domain/audit.js'
 import { log } from '../lib/log.js'
 import { expiryDecision, expiresAt } from './expiry-rule.js'
@@ -34,7 +35,7 @@ export async function runExpiry(now = new Date()): Promise<{ warned: string[]; s
       await notify('expiry', { project: p.name, date: expiresAt(p, chatExpiryDays())?.toLocaleDateString('de-CH') ?? '' })
       warned.push(p.slug)
     } else if (decision === 'stop') {
-      await stopProject(p.id, 'system')
+      await stopProject(serverJob('ablauf'), p.id, 'system')
       await audit({
         actor: 'system', action: 'project.expired', targetType: 'project', targetId: p.id,
         params: { slug: p.slug, days: chatExpiryDays() }, result: 'ok',

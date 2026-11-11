@@ -12,8 +12,10 @@ export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 export interface RouteSpec {
   /** Kanonischer Hostname zuerst, danach Aliase (nip.io). */
   hosts: string[]
-  /** maintenance: öffentlich pausiert – Pause-Seite mit 503 */
-  kind: 'proxy' | 'files' | 'maintenance'
+  /** maintenance: öffentlich pausiert – Pause-Seite mit 503. redirect (M9): 308 auf redirectTo (alte Adresse nach dem Verschieben) */
+  kind: 'proxy' | 'files' | 'maintenance' | 'redirect'
+  /** Bei kind=redirect: Ziel ohne Pfad, z. B. «https://foto.int.example.ch»; der Pfad der Anfrage wird angehängt */
+  redirectTo?: string
   /** Bei kind=maintenance: Seite (Vorlage oder Projekt), «Voraussichtlich zurück», Zeitzone der Anzeige */
   pause?: {
     page: PausePage; backAt: string | null; timeZone?: string
@@ -65,8 +67,11 @@ export interface CaddyBuildOptions {
   /**
    * M4: HTTPS mit Wildcard-Zertifikat für *.<baseDomain> per DNS-01 bei
    * Cloudflare. null/fehlend = nur HTTP wie in M1-M3, M6.
+   * M9: eine Liste – eine interne Basis pro Umgebung, jede mit eigener
+   * Automatisierungsregel (CA, Token-Datei, Modus). Ein Fehler bei einer
+   * Basis berührt die anderen nicht.
    */
-  tls?: TlsOptions | null
+  tls?: TlsOptions | TlsOptions[] | null
   /**
    * M5: Netz, aus dem cloudflared kommt (airlock_tunnel). Nur von dort wird
    * die Besucher-IP aus CF-Connecting-IP übernommen (SPEC, wichtig für M7).
@@ -232,22 +237,29 @@ export function buildCaddyConfig(
   routes: RouteSpec[],
   opts: CaddyBuildOptions,
 ): Record<string, unknown> {
-  const tls = opts.tls ?? null
+  const tlsList: TlsOptions[] = opts.tls ? [opts.tls].flat() : []
   const remote = opts.ipFilter ? { remote_ip: { ranges: opts.cidrs } } : {}
   const remoteFor = (r: RouteSpec) => (opts.ipFilter ? { remote_ip: { ranges: r.cidrs ?? opts.cidrs } } : {})
 
+  /** Die Basis, deren Wildcard einen Namen abdeckt (null: keine). */
+  const tlsFor = (host: string): TlsOptions | null => tlsList.find((t) => coveredByWildcard(host, t.baseDomain)) ?? null
+
   // M8: HSTS nur, solange Caddy das Wildcard-Zertifikat der Produktions-CA
   // verwaltet. Fällt TLS zurück (Staging, Probelauf, aus), fällt HSTS mit.
-  const hstsAllowed = Boolean(tls && tls.acmeCa === 'production' && (tls.mode ?? 'wildcard') === 'wildcard')
+  // M9: je Basis – eine Umgebung im Probelauf nimmt den anderen HSTS nicht weg.
+  const hstsFor = (t: TlsOptions | null) => Boolean(t && t.acmeCa === 'production' && (t.mode ?? 'wildcard') === 'wildcard')
 
   /**
    * Handler einer Route. secure: Route auf :443 bzw. deren Abbild im
    * Probe-Server. probe: Abbild im Probe-Server – die App bekommt dort
    * X-Forwarded-Proto wie ein Besucher (sonst sähe sie «http» vom Socket).
    */
-  const handlersFor = (r: RouteSpec, secure: boolean, probe: boolean): Handler[] => {
+  const handlersFor = (r: RouteSpec, secure: boolean, probe: boolean, hstsAllowed = false): Handler[] => {
     const proxy: Handler = { handler: 'reverse_proxy', upstreams: [{ dial: r.upstream }] }
     if (probe) proxy.headers = { request: { set: { 'X-Forwarded-Proto': [secure ? 'https' : 'http'] } } }
+    if (r.kind === 'redirect') {
+      return [{ handler: 'static_response', status_code: 308, headers: { Location: [`${r.redirectTo}{http.request.uri}`] } }]
+    }
     const handle: Handler[] =
       r.kind === 'maintenance'
         ? maintenanceHandlers(r.pause, opts.now ?? Date.now())
@@ -266,8 +278,8 @@ export function buildCaddyConfig(
     return handle
   }
 
-  const toRoute = (r: RouteSpec, hosts: string[], secure: boolean): HttpRoute => {
-    return { match: [{ host: hosts, ...remoteFor(r) }], handle: handlersFor(r, secure, false), terminal: true }
+  const toRoute = (r: RouteSpec, hosts: string[], secure: boolean, hsts = false): HttpRoute => {
+    return { match: [{ host: hosts, ...remoteFor(r) }], handle: handlersFor(r, secure, false, hsts), terminal: true }
   }
 
   /**
@@ -305,20 +317,25 @@ export function buildCaddyConfig(
   const tlsRoutes: HttpRoute[] = []
   const probeRoutes: HttpRoute[] = []
   for (const r of routes) {
-    const secure = tls ? r.hosts.filter((h) => coveredByWildcard(h, tls.baseDomain)) : []
-    const plain = r.hosts.filter((h) => !secure.includes(h))
+    const plain = r.hosts.filter((h) => !tlsFor(h))
     if (plain.length) plainRoutes.push(...cspRoute(r, plain), toRoute(r, plain, false))
-    if (secure.length) tlsRoutes.push(...cspRoute(r, secure), toRoute(r, secure, true))
-    // Probe: je Name so, wie Besucher ihn sehen (HTTPS oder HTTP), ohne IP-Filter.
-    if (secure.length) probeRoutes.push({ match: [{ host: secure }], handle: handlersFor(r, true, true), terminal: true })
+    // M9: Namen unter verschiedenen Basen getrennt (HSTS je Basis)
+    for (const t of tlsList) {
+      const secure = r.hosts.filter((h) => tlsFor(h) === t)
+      if (!secure.length) continue
+      tlsRoutes.push(...cspRoute(r, secure), toRoute(r, secure, true, hstsFor(t)))
+      // Probe: je Name so, wie Besucher ihn sehen (HTTPS oder HTTP), ohne IP-Filter.
+      probeRoutes.push({ match: [{ host: secure }], handle: handlersFor(r, true, true, hstsFor(t)), terminal: true })
+    }
     if (plain.length) probeRoutes.push({ match: [{ host: plain }], handle: handlersFor(r, false, true), terminal: true })
   }
 
-  if (tls && tls.redirect !== false) {
+  for (const t of tlsList) {
+    if (t.redirect === false) continue
     // Wer einen internen Namen über HTTP anfragt, landet auf HTTPS. Eigene
     // Weiterleitung statt Caddys automatischer: die erfasste auch nip.io.
     plainRoutes.push({
-      match: [{ host: [`*.${tls.baseDomain}`], ...remote }],
+      match: [{ host: [`*.${t.baseDomain}`], ...remote }],
       handle: [{
         handler: 'static_response',
         status_code: 308,
@@ -399,12 +416,7 @@ export function buildCaddyConfig(
   }
   const apps: Record<string, unknown> = { http: { servers } }
 
-  if (tls) {
-    // Was Caddy verwaltet: das Wildcard-Zertifikat (Produktion), nur den
-    // Probe-Namen (Staging-Probelauf; nie ein Staging-Wildcard im Cache) oder
-    // nichts (Zwischenschritt, der Caddys Zertifikats-Cache für *.<basis> leert).
-    const mode = tls.mode ?? 'wildcard'
-    const subject = mode === 'probe' ? probeName(tls.baseDomain) : `*.${tls.baseDomain}`
+  if (tlsList.length) {
     servers.srv1 = {
       listen: [':443'],
       routes: [...tlsRoutes, ...forbidden(tlsHosts), catchAll],
@@ -415,28 +427,36 @@ export function buildCaddyConfig(
       // HTTP/3 bräuchte zusätzlich UDP :443; der IP-Filter ist dafür nicht geprüft.
       protocols: ['h1', 'h2'],
     }
-    apps.tls = mode === 'none' ? { certificates: { automate: [] } } : {
-      certificates: { automate: [subject] },
+    // Was Caddy je Basis verwaltet: das Wildcard-Zertifikat (Produktion), nur
+    // den Probe-Namen (Staging-Probelauf; nie ein Staging-Wildcard im Cache)
+    // oder nichts (Zwischenschritt, der Caddys Zertifikats-Cache für
+    // *.<basis> leert). M9: eine Regel pro Basis mit eigener CA und eigener
+    // Token-Datei – schlägt eine fehl, bleiben die anderen unberührt.
+    const managed = tlsList
+      .filter((t) => (t.mode ?? 'wildcard') !== 'none')
+      .map((t) => ({ t, subject: (t.mode ?? 'wildcard') === 'probe' ? probeName(t.baseDomain) : `*.${t.baseDomain}` }))
+    apps.tls = managed.length === 0 ? { certificates: { automate: [] } } : {
+      certificates: { automate: managed.map((m) => m.subject) },
       automation: {
-        policies: [{
+        policies: managed.map(({ t, subject }) => ({
           subjects: [subject],
           issuers: [{
             module: 'acme',
             // CA immer ausdrücklich, auch für Produktion: genau ein Issuer
             // (acme) mit fester URL – kein Rückfall auf Caddys Standard-Issuer
             // (Let's Encrypt + ZeroSSL), wenn die Liste leer wäre.
-            ca: tls.acmeCa === 'staging' ? ACME_STAGING : ACME_PRODUCTION,
-            ...(tls.email ? { email: tls.email } : {}),
+            ca: t.acmeCa === 'staging' ? ACME_STAGING : ACME_PRODUCTION,
+            ...(t.email ? { email: t.email } : {}),
             challenges: {
               dns: {
-                provider: { name: 'cloudflare', api_token: tokenPlaceholder(tls) },
+                provider: { name: 'cloudflare', api_token: tokenPlaceholder(t) },
                 // Nicht der lokale DNS: ein Split-Horizon (AdGuard mit *.int)
                 // beantwortete die _acme-challenge-Abfrage falsch.
                 resolvers: ['1.1.1.1', '1.0.0.1'],
               },
             },
           }],
-        }],
+        })),
       },
     }
   }

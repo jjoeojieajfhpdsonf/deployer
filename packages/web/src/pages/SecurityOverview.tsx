@@ -4,6 +4,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { ExternalTargets } from './ExternalTargets.js'
 import { sumCounts, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
+import { useEnvPath } from '../lib/env.js'
 import { PageHead } from '../components/PageHead.js'
 import { useProjects } from '../lib/projects.js'
 import { relativeTime } from '../lib/format.js'
@@ -14,18 +15,19 @@ import { EmptyState, ErrorState, Loading, SkRows, SkStats } from '../components/
  * Scan. Sortiert nach Dringlichkeit – oben, was zuerst angeschaut werden soll.
  */
 export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte' | 'extern' }) {
+  const ep = useEnvPath()
   // UI-Qualität 6: Externe Ziele als Reiter unter Security (/extern leitet hierher)
   const tabs = (
     <nav className="tabs" aria-label="Bereiche von Security">
-      <NavLink to="/security" end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'projekte' ? 'page' : undefined}>Projekte</NavLink>
-      <NavLink to="/security/extern" className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'extern' ? 'page' : undefined}>Externe Ziele</NavLink>
+      <NavLink to={ep('/security')} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'projekte' ? 'page' : undefined}>Projekte</NavLink>
+      <NavLink to={ep('/security/extern')} className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'extern' ? 'page' : undefined}>Externe Ziele</NavLink>
     </nav>
   )
   if (section === 'extern') {
     return (
       // Gleiche Breite wie der Reiter «Projekte» (kein Springen beim Wechsel)
       <section className="page">
-        <PageHead crumbs={[{ label: 'Security', to: '/security' }, { label: 'Externe Ziele' }]} title="Security" name="Externe Ziele" />
+        <PageHead crumbs={[{ label: 'Security', to: ep('/security') }, { label: 'Externe Ziele' }]} title="Security" name="Externe Ziele" />
         {tabs}
         <ExternalTargets />
       </section>
@@ -35,6 +37,7 @@ export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte
 }
 
 function ProjectsSecurity({ tabs }: { tabs: React.ReactNode }) {
+  const ep = useEnvPath()
   const qc = useQueryClient()
   const projects = useProjects()
   const list = projects.data?.projects ?? []
@@ -110,7 +113,7 @@ function ProjectsSecurity({ tabs }: { tabs: React.ReactNode }) {
                   const running = s?.status === 'running' || s?.status === 'queued'
                   return (
                     <tr key={p.id}>
-                      <td className="cell-main"><Link to={`/projekte/${p.id}?tab=security`}>{p.name}</Link></td>
+                      <td className="cell-main"><Link to={ep(`/projekte/${p.id}?tab=security`)}>{p.name}</Link></td>
                       <td>
                         {s?.grade
                           ? <div className="grade-cell"><span className={`grade grade-${s.grade}`}>{s.grade}</span>{s.score} / 100</div>

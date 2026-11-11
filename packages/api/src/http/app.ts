@@ -7,6 +7,8 @@ import { existsSync } from 'node:fs'
 import { config } from '../config.js'
 import { AppError } from '../lib/errors.js'
 import { registerAuthGuard, sessionSecret } from './auth.js'
+import { registerScopeGuard } from './scope.js'
+import { environmentRoutes } from './routes/environments.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -51,10 +53,13 @@ function serializeErr(raw: unknown): { [key: string]: unknown; type: string; mes
   }
 }
 
+/** Alle Routen der zuletzt gebauten App (M9: der Umgebungs-Test geht jede mit :id durch). */
+export const registeredRoutes: { method: string; url: string }[] = []
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
-      level: config.NODE_ENV === 'production' ? 'info' : 'debug',
+      level: config.NODE_ENV === 'production' ? 'info' : config.NODE_ENV === 'test' ? 'warn' : 'debug',
       // Fehler von Caddy, Cloudflare und cloudflared können Tokens enthalten
       serializers: { err: serializeErr },
     },
@@ -62,6 +67,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: false,
     // Eigene Zugriffszeile (unten): Polling auf debug, siehe request-log.ts
     disableRequestLogging: true,
+  })
+  registeredRoutes.length = 0
+  app.addHook('onRoute', (r) => {
+    for (const m of [r.method].flat()) registeredRoutes.push({ method: String(m), url: r.url })
   })
 
   app.addHook('onResponse', async (request, reply) => {
@@ -122,6 +131,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   registerAuthGuard(app)
+  // M9: Objekte einer fremden Umgebung sind «nicht gefunden», für jeden Pfad mit :id
+  registerScopeGuard(app)
 
   // M3: MCP mit eigener Token-Prüfung, ausserhalb von /api/v1.
   await app.register(mcpRoutes)
@@ -141,6 +152,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(systemRoutes)
       await api.register(uploadRoutes)
       await api.register(clientErrorRoutes)
+      // M9: Umgebungen
+      await api.register(environmentRoutes)
     },
     { prefix: '/api/v1' },
   )

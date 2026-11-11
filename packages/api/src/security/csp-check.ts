@@ -8,6 +8,7 @@ import * as docker from '../drivers/docker.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { aliasesForHost, probeTargetFor } from '../domain/routes.js'
 import { log } from '../lib/log.js'
+import { probeUa } from '../lib/probe-ua.js'
 import { runScanner, SCANNER_IMAGES } from './runner.js'
 import { analyzeHtml, mergeAnalyses, parseChromeCsp, countPageViews, CHROME_SCRIPT, type PageAnalysis } from './csp-analysis.js'
 
@@ -29,7 +30,7 @@ type Fetched = { status: number; headers: Record<string, string | string[]>; bod
 async function viaProbe(host: string, path: string, method: 'GET' | 'HEAD' = 'GET'): Promise<Fetched> {
   const agent = new Agent({ keepAliveTimeout: 1, pipelining: 0, connect: { socketPath: config.CADDY_PROBE_SOCKET } })
   try {
-    const res = await request(`http://${host}${path}`, { method, headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close', 'user-agent': 'airlock-csp-check' } })
+    const res = await request(`http://${host}${path}`, { method, headersTimeout: 10_000, bodyTimeout: 10_000, dispatcher: agent, headers: { connection: 'close', 'user-agent': probeUa('csp') } })
     const chunks: Buffer[] = []
     let size = 0
     for await (const c of res.body) {
@@ -47,8 +48,10 @@ async function viaProbe(host: string, path: string, method: 'GET' | 'HEAD' = 'GE
 
 /** Namen eines Projekts (alle Ziele, mit nip.io-Aliasen) – für Proxy und Zählung. */
 export async function projectHosts(projectId: string): Promise<string[]> {
-  const rows = await db.select({ hostname: schema.routes.hostname, target: schema.routes.target }).from(schema.routes).where(eq(schema.routes.projectId, projectId))
-  return [...new Set(rows.flatMap((r) => (r.target === 'public' ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)])))]
+  const rows = await db.select({ hostname: schema.routes.hostname, target: schema.routes.target, envId: schema.projects.environmentId })
+    .from(schema.routes).innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId)).where(eq(schema.routes.projectId, projectId))
+  // M9: Aliase nach der Umgebung des Projekts (eigene Basis)
+  return [...new Set(rows.flatMap((r) => (r.target === 'public' ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname, r.envId)])))]
 }
 
 const cache = new Map<string, { at: number; value: Omit<CspAnalysisDto, 'conflicts'> & { pageUrls: string[] } }>()

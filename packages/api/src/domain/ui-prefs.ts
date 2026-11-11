@@ -6,6 +6,9 @@ import { audit } from './audit.js'
  * Darstellung der Oberfläche (Hell/Dunkel/System), auf dem Server gespeichert,
  * damit die Wahl auf jedem Gerät gilt. Airlock hat genau ein Konto: «pro
  * Nutzer» heisst die Wahl dieses Kontos.
+ *
+ * M9: dazu die zuletzt gewählte Umgebung. Eine Änderung nur daran steht
+ * nicht im Audit (jeder Wechsel der Umgebung wäre sonst ein Eintrag).
  */
 const KEY = 'ui_prefs'
 export const DEFAULT_UI_PREFS: UiPrefs = { theme: 'system' }
@@ -23,6 +26,9 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
     // UI-Qualität 8: «Glocke gelesen bis» muss beim Lesen mitkommen, sonst ist nach jedem Neuladen alles wieder ungelesen
     const bell = uiPrefsSchema.shape.bellSeenAt.safeParse(obj?.bellSeenAt)
     if (bell.success && bell.data) out.bellSeenAt = bell.data
+    // M9: zuletzt gewählte Umgebung
+    const env = uiPrefsSchema.shape.lastEnvironment.safeParse(obj?.lastEnvironment)
+    if (env.success && env.data) out.lastEnvironment = env.data
     return out
   } catch {
     return DEFAULT_UI_PREFS
@@ -50,12 +56,16 @@ export function clampBellSeen(patch: UiPrefsPatch, now: Date): UiPrefsPatch {
   return { ...patch, bellSeenAt: now.toISOString() }
 }
 
+/** Teilweise ändern: fehlende Felder bleiben, wie sie sind. */
 export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs> {
   const patch = clampBellSeen(uiPrefsPatchSchema.parse(input), new Date())
-  const prefs = mergeUiPrefs(await getUiPrefs(), patch)
+  const before = await getUiPrefs()
+  const prefs = mergeUiPrefs(before, patch)
   await setSetting(KEY, JSON.stringify(prefs))
-  // «Glocke gelesen» ist keine Einstellung, die jemand im Audit-Log sucht (und erzeugte bei jedem Öffnen einen Eintrag)
-  const onlyBell = Object.keys(patch).every((k) => k === 'bellSeenAt')
-  if (!onlyBell) await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: prefs, result: 'ok' })
+  // Ins Audit nur ein Theme-Wechsel (M9); «Glocke gelesen», Einrichtung und
+  // zuletzt gewählte Umgebung sucht niemand im Audit-Log
+  if (patch.theme !== undefined && patch.theme !== before.theme) {
+    await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { theme: prefs.theme }, result: 'ok' })
+  }
   return prefs
 }

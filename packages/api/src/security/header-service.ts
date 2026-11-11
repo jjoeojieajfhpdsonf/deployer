@@ -8,9 +8,10 @@ import {
 import { analyzeProjectPages, browserCheck, viewsSince } from './csp-check.js'
 import { conflictsFor, conflictSummary, suggestWithAnalysis, readinessFrom, VIEWS_NEEDED } from './csp-analysis.js'
 import { db, schema } from '../db/index.js'
-import { findProject } from '../domain/projects.js'
+import { findProject, findProjectForServerJob } from '../domain/projects.js'
+import type { Scope } from '../lib/scope.js'
 import { probeTargetFor, reconcileCaddy } from '../domain/routes.js'
-import { caddyTlsOptions, tlsPhase } from '../domain/cloudflare-settings.js'
+import { caddyTlsOptions, tlsPhase, withCloudflareEnv } from '../domain/cloudflare-settings.js'
 import { audit } from '../domain/audit.js'
 import { AppError, badRequest, notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
@@ -28,10 +29,11 @@ type Row = typeof schema.headerRules.$inferSelect
 /** Höchstens so viele verschiedene CSP-Verstösse pro Projekt */
 export const MAX_VIOLATIONS = 300
 
-const toDto = (r: Row): HeaderRuleDto => ({
+const toDto = (r: Row & { mode: 'report-only' | 'enforce' }): HeaderRuleDto => ({
   header: r.header, value: r.value, mode: r.mode, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),
   ...(r.header === 'content-security-policy' ? { reportOnlySince: r.reportOnlySince?.toISOString() ?? null, check: r.checkResult ?? null } : {}),
 })
+const isOwnRule = (r: Row): r is Row & { mode: 'report-only' | 'enforce' } => r.mode !== 'off'
 
 /* --- CSP-Fix: Analyse, Freigabe zum Scharfschalten ------------------------------- */
 
@@ -77,12 +79,14 @@ function inlinePrompt(p: { name: string; slug: string }, findingId: string, summ
  * Projekt ist unter einem Namen der Basisdomain erreichbar.
  */
 export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; reason: string | null }> {
-  const tls = caddyTlsOptions()
-  if (!tls) return { ok: false, reason: 'HTTPS ist nicht eingerichtet (System › Cloudflare & HTTPS, Zertifikat).' }
+  // M9: Zertifikat der Umgebung des Projekts
+  const envId = (await db.select({ env: schema.projects.environmentId }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]?.env
+  const tls = envId ? withCloudflareEnv(envId, caddyTlsOptions) : null
+  if (!tls) return { ok: false, reason: 'HTTPS ist in dieser Umgebung nicht eingerichtet (Einstellungen → Cloudflare & HTTPS → Zertifikat).' }
   if (tls.acmeCa !== 'production' || (tls.mode ?? 'wildcard') !== 'wildcard') {
-    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter System › Cloudflare & HTTPS «HTTPS aktiv» steht.' }
+    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter Einstellungen → Cloudflare & HTTPS «HTTPS aktiv» steht.' }
   }
-  const phase = tlsPhase()
+  const phase = envId ? withCloudflareEnv(envId, tlsPhase) : null
   if (phase && phase !== 'done') return { ok: false, reason: `Die Zertifikats-Einrichtung ist noch nicht abgeschlossen (Phase «${phase}»).` }
   const probe = await probeTargetFor(projectId)
   if (!probe) return { ok: false, reason: 'Caddy bedient das Projekt gerade nicht (gestoppt oder ohne Adresse).' }
@@ -90,9 +94,15 @@ export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; r
   return { ok: true, reason: null }
 }
 
-export async function listHeaderRules(idOrSlug: string): Promise<HeaderRulesDto> {
-  const p = await findProject(idOrSlug)
-  const rules = await db.select().from(schema.headerRules).where(eq(schema.headerRules.projectId, p.id))
+export async function listHeaderRules(scope: Scope, idOrSlug: string): Promise<HeaderRulesDto> {
+  const p = await findProject(scope, idOrSlug)
+  const stored = await db.select().from(schema.headerRules).where(eq(schema.headerRules.projectId, p.id))
+  const rules = stored.filter(isOwnRule)
+  // M9: geerbte Vorlagen der Umgebung (ohne eigene Regel), abgeschaltete markiert
+  const templates = await db.select().from(schema.headerRuleTemplates).where(eq(schema.headerRuleTemplates.environmentId, p.environmentId))
+  const inherited = templates
+    .filter((t) => !rules.some((r) => r.header === t.header))
+    .map((t) => ({ header: t.header, value: t.value, mode: t.mode, disabled: stored.some((r) => r.header === t.header && r.mode === 'off') }))
   const violations = await db
     .select()
     .from(schema.cspViolations)
@@ -129,6 +139,7 @@ export async function listHeaderRules(idOrSlug: string): Promise<HeaderRulesDto>
   }
   return {
     rules: rules.map(toDto).sort((a, b) => a.header.localeCompare(b.header)),
+    inherited,
     hsts: await hstsReadiness(p.id),
     viaCaddy,
     csp: {
@@ -158,12 +169,13 @@ export interface SetHeaderInput {
  * und HSTS nur mit Bestätigung; HSTS nur, wenn TLS stabil läuft.
  */
 export async function setHeaderRule(
+  scope: Scope,
   idOrSlug: string,
   header: HeaderKey,
   input: SetHeaderInput,
   actor: string,
 ): Promise<{ rule: HeaderRuleDto; recheck: HeaderRecheckDto }> {
-  const p = await findProject(idOrSlug)
+  const p = await findProject(scope, idOrSlug)
   const existing = (await db.select().from(schema.headerRules).where(and(eq(schema.headerRules.projectId, p.id), eq(schema.headerRules.header, header))))[0]
   // HSTS kennt nur «scharf»; die anderen ausser CSP auch
   const mode: HeaderMode = header === 'content-security-policy' ? input.mode : 'enforce'
@@ -217,7 +229,7 @@ export async function setHeaderRule(
     // «Behoben» erst nach der Funktionsprüfung; die läuft im Hintergrund
     void runEnforceCheck(p.id, actor)
     return {
-      rule: toDto(saved),
+      rule: toDto({ ...saved, mode }),
       recheck: { ok: true, error: null, fixed: [], opened: [], score: null, grade: null, pending: 'Funktionsprüfung im Browser läuft; «behoben» erst danach. Findet sie Verstösse, geht die CSP automatisch auf Report-Only zurück.' },
     }
   }
@@ -225,7 +237,7 @@ export async function setHeaderRule(
     log.warn('Nachscan der Header gescheitert', { project: p.slug, err: String(err) })
     return { ok: false, error: 'Nachscan gescheitert', fixed: [], opened: [], score: null, grade: null } satisfies HeaderRecheckDto
   })
-  return { rule: toDto(saved), recheck }
+  return { rule: toDto({ ...saved, mode }), recheck }
 }
 
 /** Laufende Prüfungen (eine pro Projekt) – für Tests und die Oberfläche */
@@ -239,7 +251,8 @@ export const pendingCheck = (projectId: string) => checks.get(projectId) ?? null
  */
 export function runEnforceCheck(projectId: string, actor: string): Promise<CspCheckDto> {
   const run = (async (): Promise<CspCheckDto> => {
-    const p = await findProject(projectId)
+    // projectId kommt aus setHeaderRule, schon gegen die Umgebung geprüft
+    const p = await findProjectForServerJob(projectId)
     const pages = await analyzeProjectPages(p.id, { fresh: true })
     const r = await browserCheck(p.id, p.slug, pages.pageUrls)
     const at = new Date()
@@ -271,19 +284,19 @@ export function runEnforceCheck(projectId: string, actor: string): Promise<CspCh
  * Einfacher Rückweg: CSP scharf -> Report-Only; jede andere Regel (auch eine
  * CSP im Report-Only) wird entfernt.
  */
-export async function resetHeaderRule(idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto; result: 'report-only' | 'removed' }> {
-  const p = await findProject(idOrSlug)
+export async function resetHeaderRule(scope: Scope, idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto; result: 'report-only' | 'removed' }> {
+  const p = await findProject(scope, idOrSlug)
   const rule = (await db.select().from(schema.headerRules).where(and(eq(schema.headerRules.projectId, p.id), eq(schema.headerRules.header, header))))[0]
   if (!rule) throw notFound('Header-Regel')
   if (header === 'content-security-policy' && rule.mode === 'enforce') {
-    const r = await setHeaderRule(p.id, header, { mode: 'report-only' }, actor)
+    const r = await setHeaderRule(scope, p.id, header, { mode: 'report-only' }, actor)
     return { recheck: r.recheck, result: 'report-only' }
   }
-  return { ...(await removeHeaderRule(p.id, header, actor)), result: 'removed' }
+  return { ...(await removeHeaderRule(scope, p.id, header, actor)), result: 'removed' }
 }
 
-export async function removeHeaderRule(idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto }> {
-  const p = await findProject(idOrSlug)
+export async function removeHeaderRule(scope: Scope, idOrSlug: string, header: HeaderKey, actor: string): Promise<{ recheck: HeaderRecheckDto }> {
+  const p = await findProject(scope, idOrSlug)
   const gone = await db
     .delete(schema.headerRules)
     .where(and(eq(schema.headerRules.projectId, p.id), eq(schema.headerRules.header, header)))

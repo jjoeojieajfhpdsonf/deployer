@@ -41,17 +41,23 @@ const NONROOT_UID = 65532 // Benutzer im offiziellen Image
 
 export interface CloudflaredState { exists: boolean; running: boolean; restarting: boolean; ours: boolean; startedAt: string | null; image: string | null; networks: string[] }
 
-async function inspect(): Promise<{ Id: string; State: { Running: boolean; Restarting?: boolean; StartedAt: string }; Config: { Labels?: Record<string, string>; Image: string }; NetworkSettings?: { Networks?: Record<string, unknown> } } | null> {
+/*
+ * M9: ein cloudflared-Container pro Tunnel (ein Tunnel pro Cloudflare-Konto).
+ * Der Tunnel der Standard-Umgebung behält config.CLOUDFLARED_CONTAINER
+ * (airlock-cloudflared); weitere heissen airlock-cloudflared-<kurz-id>. Alle
+ * im Netz «tunnel», das nur Caddy erreicht.
+ */
+async function inspect(name: string): Promise<{ Id: string; State: { Running: boolean; Restarting?: boolean; StartedAt: string }; Config: { Labels?: Record<string, string>; Image: string }; NetworkSettings?: { Networks?: Record<string, unknown> } } | null> {
   try {
-    return (await docker.docker.getContainer(config.CLOUDFLARED_CONTAINER).inspect()) as never
+    return (await docker.docker.getContainer(name).inspect()) as never
   } catch (err) {
     if ((err as { statusCode?: number }).statusCode === 404) return null
     throw err
   }
 }
 
-export async function cloudflaredState(): Promise<CloudflaredState> {
-  const i = await inspect()
+export async function cloudflaredState(name = config.CLOUDFLARED_CONTAINER): Promise<CloudflaredState> {
+  const i = await inspect(name)
   if (!i) return { exists: false, running: false, restarting: false, ours: false, startedAt: null, image: null, networks: [] }
   return {
     exists: true,
@@ -78,21 +84,21 @@ function tokenArchive(token: string) {
  * Token hineinlegen, starten. Ein fremder Container gleichen Namens (aus
  * compose.public.yaml) bleibt unangetastet – dann Fehler mit Hinweis.
  */
-export async function startCloudflared(tunnelToken: string, image = config.CLOUDFLARED_IMAGE): Promise<void> {
-  const existing = await cloudflaredState()
+export async function startCloudflared(tunnelToken: string, image = config.CLOUDFLARED_IMAGE, name = config.CLOUDFLARED_CONTAINER): Promise<void> {
+  const existing = await cloudflaredState(name)
   if (existing.exists && !existing.ours) {
     throw new AppError(
       'cloudflared_foreign',
-      `Es läuft schon ein Container «${config.CLOUDFLARED_CONTAINER}», vermutlich aus compose.public.yaml. Stack ohne diese Datei neu starten, dann übernimmt Airlock.`,
+      `Es läuft schon ein Container «${name}», vermutlich aus compose.public.yaml. Stack ohne diese Datei neu starten, dann übernimmt Airlock.`,
       409,
     )
   }
-  if (existing.exists) await removeCloudflared()
+  if (existing.exists) await removeCloudflared(name)
   await stopLegacyCloudflared()
 
   await docker.pullImage(image)
   const c = await docker.docker.createContainer({
-    name: config.CLOUDFLARED_CONTAINER,
+    name,
     Image: image,
     Cmd: ['tunnel', '--no-autoupdate', 'run', '--token-file', `${TOKEN_DIR}/token`],
     Labels: { [SYSTEM_LABEL]: 'cloudflared' },
@@ -112,34 +118,34 @@ export async function startCloudflared(tunnelToken: string, image = config.CLOUD
   await c.start()
 }
 
-export async function removeCloudflared(): Promise<void> {
-  const s = await cloudflaredState()
+export async function removeCloudflared(name = config.CLOUDFLARED_CONTAINER): Promise<void> {
+  const s = await cloudflaredState(name)
   if (!s.exists || !s.ours) return
-  await docker.stopContainer(config.CLOUDFLARED_CONTAINER, 5).catch(() => {})
-  await docker.removeContainer(config.CLOUDFLARED_CONTAINER).catch(() => {})
+  await docker.stopContainer(name, 5).catch(() => {})
+  await docker.removeContainer(name).catch(() => {})
 }
 
 /** Beim Start von Airlock: eigener Container gestoppt? Wieder starten (Neustart-Regel greift sonst nur bei Docker). */
-export async function ensureCloudflaredRunning(tunnelToken: string, image = config.CLOUDFLARED_IMAGE): Promise<'running' | 'started' | 'created'> {
+export async function ensureCloudflaredRunning(tunnelToken: string, image = config.CLOUDFLARED_IMAGE, name = config.CLOUDFLARED_CONTAINER): Promise<'running' | 'started' | 'created'> {
   await stopLegacyCloudflared()
-  const s = await cloudflaredState()
+  const s = await cloudflaredState(name)
   // Ein älterer eigener Container im falschen Netz (vor «tunnel» im edge-Netz) wird neu angelegt
   if (s.exists && s.ours && s.networks.join() !== config.TUNNEL_NETWORK) {
-    await startCloudflared(tunnelToken, image)
+    await startCloudflared(tunnelToken, image, name)
     return 'created'
   }
   if (s.exists && s.ours && s.running) return 'running'
   if (s.exists && s.ours) {
-    await docker.startContainer(config.CLOUDFLARED_CONTAINER)
+    await docker.startContainer(name)
     return 'started'
   }
-  await startCloudflared(tunnelToken, image)
+  await startCloudflared(tunnelToken, image, name)
   return 'created'
 }
 
 /** Letzte Zeilen der Ausgabe, für die Fehlersuche auf der Systemseite. */
-export async function cloudflaredLogTail(lines = 20): Promise<string> {
-  return docker.getLogs(config.CLOUDFLARED_CONTAINER, { tail: lines }).catch(() => '')
+export async function cloudflaredLogTail(lines = 20, name = config.CLOUDFLARED_CONTAINER): Promise<string> {
+  return docker.getLogs(name, { tail: lines }).catch(() => '')
 }
 
 /* --- Version ------------------------------------------------------------------- */

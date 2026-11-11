@@ -7,6 +7,7 @@
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
 } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
@@ -705,7 +706,14 @@ export function audit(targetId?: string): AuditEventDto[] {
   return rows
     .filter((r) => !targetId || r[3] === targetId)
     .sort((a, b) => a[0] - b[0])
-    .map(([t, actor, action, tid, result, error, params], i) => ({ id: String(200 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: params ?? {}, result, error }))
+    .map(([t, actor, action, tid, result, error, params], i) => {
+      // M9: Anmeldungen sind Server-Ereignisse (in jeder Umgebung sichtbar, markiert)
+      const isServer = action.startsWith('auth.')
+      return {
+        id: String(200 - i), at: ago(t), actor, action, targetType: tid?.startsWith('p-') ? 'project' : 'system', targetId: tid, paramsMasked: params ?? {}, result, error,
+        environmentId: isServer ? null : 'env-example', server: isServer,
+      }
+    })
 }
 
 export const system: SystemStatusDto = {
@@ -728,7 +736,13 @@ export const system: SystemStatusDto = {
   scanQueue: 0,
   publicTunnel: { configured: false, status: null, connections: 0 },
   // Wie auf dem Server vor dem Fix: Tailnet-Anfragen kommen maskiert vom Docker-Gateway
-  clientIps: { total: 14, fromGateway: 9, gatewayIps: ['172.20.0.1'], gatewayOnly: false, blocked: 9, since: ago(30 * MIN) },
+  clientIps: {
+    total: 14, fromGateway: 9, gatewayIps: ['172.20.0.1'], gatewayOnly: false, blocked: 9, since: ago(30 * MIN), ownProbes: 31,
+    groups: [
+      { source: 'server', count: 6, blocked: 6, hosts: ['deployer.int.example.ch'], paths: ['GET /health', 'GET /api/v1/system/status'], userAgents: ['curl/8.5.0'], last: ago(2 * MIN) },
+      { source: 'tailnet', count: 3, blocked: 3, hosts: ['deployer.int.example.ch'], paths: ['GET /projekte', 'GET /api/v1/projects'], userAgents: ['Safari 18'], last: ago(9 * MIN) },
+    ],
+  },
   reachability: [
     { way: 'dns', label: `Interner Name (deployer.${BASE})`, url: `https://deployer.${BASE}/health` },
     { way: 'nipio', label: 'nip.io (100-88-41-12)', url: 'http://deployer.100-88-41-12.nip.io/health' },
@@ -887,4 +901,61 @@ export function env(id: string) {
         { key: 'TZ', isSecret: false, value: 'Europe/Zurich' },
       ]
     : []
+}
+
+/* --- M9: Umgebungen ------------------------------------------------------------------ */
+
+/** «example.ch» steht für die heutige Installation; «Verein» und «Labor» sind erfunden. */
+export const environments: EnvironmentDto[] = [
+  {
+    id: 'env-example', slug: 'example', name: 'example.ch', short: 'EX', isDefault: true, zone: 'example.ch', baseDomain: BASE,
+    projects: 7, critical: 1, internalPrefix: 'int', account: { name: 'Privat', sharedWith: ['Labor'] }, tlsPhase: 'done',
+    accessDefault: false, accessEmails: ['hallo@example.ch'], notifyMuted: false, externalTargets: 2,
+  },
+  {
+    id: 'env-verein', slug: 'verein', name: 'Verein', short: 'VB', isDefault: false, zone: 'verein-beispiel.ch', baseDomain: 'int.verein-beispiel.ch',
+    projects: 2, critical: 0, internalPrefix: 'int', account: { name: 'Vereinskonto', sharedWith: [] }, tlsPhase: 'done',
+    accessDefault: true, accessEmails: ['vorstand@verein-beispiel.ch'], notifyMuted: false, externalTargets: 0,
+  },
+  {
+    id: 'env-labor', slug: 'labor', name: 'Labor', short: 'LA', isDefault: false, zone: null, baseDomain: null,
+    projects: 0, critical: 0, internalPrefix: 'int', account: { name: 'Privat', sharedWith: ['example.ch'] }, tlsPhase: 'off',
+    accessDefault: false, accessEmails: [], notifyMuted: false, externalTargets: 0,
+  },
+]
+
+export const headerTemplates: HeaderTemplateDto[] = [
+  { header: 'x-content-type-options', value: 'nosniff', mode: 'enforce', appliesTo: 7, projects: 7, overriddenBy: [] },
+  { header: 'referrer-policy', value: 'strict-origin-when-cross-origin', mode: 'enforce', appliesTo: 6, projects: 7, overriddenBy: [{ project: 'Fotoalbum', mode: 'own' }] },
+  { header: 'frame-ancestors', value: "'self'", mode: 'enforce', appliesTo: 6, projects: 7, overriddenBy: [{ project: 'Vereinsseite', mode: 'off' }] },
+]
+
+export const lanDns: LanDnsCheckDto = {
+  baseDomain: BASE, line: `*.${BASE} → 192.168.1.20`, expected: '192.168.1.20', resolved: ['192.168.1.20'], ok: true,
+  detail: `Umschreibung greift: ${BASE} → 192.168.1.20`,
+}
+
+/** Labor im Assistenten: verbunden über das Token von example.ch, noch ohne Zone */
+export const cloudflareLabor: CfStatusDto = {
+  ...cloudflare,
+  // Nur die freie Zone des geteilten Kontos (example.ch ist Hauptzone von «example.ch»)
+  zones: [{ id: 'z3', name: 'example.dev', isDefault: false }],
+  baseDomain: null, defaultZone: null, tunnelSkipped: false, publicProjects: 0,
+  tls: { ...cloudflare.tls, enabled: false, phase: 'off', steps: [], startedAt: null },
+}
+
+export function movePreview(id: string, to: string): MovePreviewDto {
+  const p = allProjects.find((x) => x.id === id) ?? projects[0]!
+  const target = environments.find((e) => e.slug === to) ?? environments[1]!
+  const internal = p.routes.find((r) => r.target !== 'public')
+  const pub = p.routes.find((r) => r.target === 'public')
+  return {
+    from: { id: 'env-example', name: 'example.ch', slug: 'example' },
+    to: { id: target.id, name: target.name, slug: target.slug },
+    internal: internal ? { from: internal.hostname, to: `${p.slug}.${target.baseDomain}`, redirectDays: 30 } : null,
+    public: pub ? { hostname: pub.hostname, paused: Boolean(pub.pausedAt), pendingRequest: false } : null,
+    headers: [{ header: 'referrer-policy', from: 'strict-origin-when-cross-origin', to: 'no-referrer' }],
+    tokensLosingAccess: ['Claude Code Mac', 'Backup-Skript'],
+    blocked: null,
+  }
 }

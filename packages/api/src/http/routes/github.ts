@@ -72,7 +72,7 @@ export async function githubRoutes(app: FastifyInstance): Promise<void> {
   /** Auto-Deploy nach Merge pro Projekt (nur Git-Quellen). */
   app.put<{ Params: { id: string } }>('/projects/:id/auto-deploy', async (request) => {
     const { enabled } = z.object({ enabled: z.boolean() }).parse(request.body ?? {})
-    const p = await findProject(request.params.id)
+    const p = await findProject(request.scope, request.params.id)
     if (enabled && p.sourceType !== 'dockerfile' && p.sourceType !== 'compose') throw badRequest('Auto-Deploy gibt es nur für Projekte aus einem Git-Repo')
     if (enabled && !(p.sourceConfig as { repoUrl?: string }).repoUrl) throw badRequest('Das Projekt hat kein Git-Repo (Upload)')
     await db.update(schema.projects).set({ autoDeploy: enabled, updatedAt: new Date() }).where(eq(schema.projects.id, p.id))
@@ -81,7 +81,7 @@ export async function githubRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get<{ Params: { id: string } }>('/projects/:id/auto-deploy', async (request) => {
-    const p = await findProject(request.params.id)
+    const p = await findProject(request.scope, request.params.id)
     return {
       autoDeploy: p.autoDeploy,
       checkedAt: p.autoDeployCheckedAt?.toISOString() ?? null,

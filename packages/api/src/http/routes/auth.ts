@@ -45,6 +45,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       theme: prefs.theme,
       setup: prefs.setup ?? null,
       bellSeenAt: prefs.bellSeenAt ?? null,
+      lastEnvironment: prefs.lastEnvironment ?? null,
     }
   })
 

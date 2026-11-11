@@ -43,7 +43,7 @@ export function ProfileMenu({ me }: { me: MeDto }) {
     try {
       await api.logout()
     } finally {
-      navigate('/projekte')
+      navigate('/')
       await qc.invalidateQueries({ queryKey: ['me'] })
     }
   }

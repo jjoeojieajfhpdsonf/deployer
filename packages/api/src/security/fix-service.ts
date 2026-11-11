@@ -4,6 +4,10 @@ import { db, schema } from '../db/index.js'
 import type { FixChanges } from '../db/schema.js'
 import { config } from '../config.js'
 import { findProject } from '../domain/projects.js'
+import { serverJob, type Scope } from '../lib/scope.js'
+
+/** Fix-Abläufe arbeiten nach der Prüfung am Eingang mit der schon geprüften Projekt-ID. */
+const FIX_JOB = serverJob('fix-assistent')
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { resolveEnv } from '../domain/env.js'
 import { readProjectFiles, listProjectFiles, updateProjectFiles } from '../domain/files.js'
@@ -83,8 +87,8 @@ export async function imageHint(p: Project, f: Finding): Promise<ImageHintDto | 
 
 /* --- Hinweis und Auftrag (Oberfläche) -------------------------------------------- */
 
-export async function fixHint(idOrSlug: string, findingId: string): Promise<FixHintDto> {
-  const p = await findProject(idOrSlug)
+export async function fixHint(scope: Scope, idOrSlug: string, findingId: string): Promise<FixHintDto> {
+  const p = await findProject(scope, idOrSlug)
   const f = await findingOf(p.id, findingId)
   const way = await wayFor(p, f)
   const prompt = way === 'files' || way === 'github' || way === 'repo'
@@ -111,8 +115,8 @@ export interface FixContext {
   next: string
 }
 
-export async function getFixContext(idOrSlug: string, findingId: string): Promise<FixContext> {
-  const p = await findProject(idOrSlug)
+export async function getFixContext(scope: Scope, idOrSlug: string, findingId: string): Promise<FixContext> {
+  const p = await findProject(scope, idOrSlug)
   const f = await findingOf(p.id, findingId)
   const way = await wayFor(p, f)
   const base: FixContext = {
@@ -171,8 +175,8 @@ export interface RepoSource {
 }
 
 async function localSource(p: Project): Promise<RepoSource> {
-  const listing = await listProjectFiles(p.id)
-  return { commit: listing.commit, paths: listing.files.map((x) => x.path), read: async (paths) => (await readProjectFiles(p.id, paths)).files }
+  const listing = await listProjectFiles(FIX_JOB, p.id)
+  return { commit: listing.commit, paths: listing.files.map((x) => x.path), read: async (paths) => (await readProjectFiles(FIX_JOB, p.id, paths)).files }
 }
 
 /** Etappe 3: Dateien über die GitHub App. */
@@ -186,12 +190,13 @@ export function setGithubSource(fn: typeof githubSource): void {
 const MAX_EXPLANATION = 4000
 
 export async function proposeFix(
+  scope: Scope,
   idOrSlug: string,
   findingId: string,
   input: { files?: FileInput[]; delete?: string[]; explanation: string },
   actor: string,
 ): Promise<FixRequestDto> {
-  const p = await findProject(idOrSlug)
+  const p = await findProject(scope, idOrSlug)
   const f = await findingOf(p.id, findingId)
   if (f.status !== 'open') throw conflict(`Der Befund ist nicht mehr offen (${f.status === 'fixed' ? 'behoben' : 'akzeptiert'})`)
   const way = await wayFor(p, f)
@@ -212,11 +217,11 @@ export async function proposeFix(
   let diff = ''
   let baseCommit: string | null = null
   if (way === 'files') {
-    const listing = await listProjectFiles(p.id)
+    const listing = await listProjectFiles(FIX_JOB, p.id)
     baseCommit = listing.commit
     const existing = new Set(listing.files.map((x) => x.path))
     const touched = [...decoded.map((x) => x.path), ...remove].filter((x) => existing.has(x))
-    const old = new Map(touched.length ? (await readProjectFiles(p.id, touched)).files.map((x) => [x.path, x]) : [])
+    const old = new Map(touched.length ? (await readProjectFiles(FIX_JOB, p.id, touched)).files.map((x) => [x.path, x]) : [])
     const parts: string[] = []
     for (const x of decoded) {
       const before = old.get(x.path)
@@ -260,9 +265,13 @@ export function setPullRequestHook(fn: typeof openPullRequestHook): void {
   openPullRequestHook = fn
 }
 
-async function loadFix(projectId: string | null, fixId: string): Promise<FixRow> {
+async function loadFix(scope: Scope, projectId: string | null, fixId: string): Promise<FixRow> {
   const r = (await db.select().from(schema.fixRequests).where(eq(schema.fixRequests.id, fixId)).limit(1))[0]
   if (!r || (projectId && r.projectId !== projectId)) throw notFound('Vorschlag')
+  // M9: Vorschlag eines Projekts einer anderen Umgebung = unbekannt
+  await findProject(scope, r.projectId).catch(() => {
+    throw notFound('Vorschlag')
+  })
   return r
 }
 
@@ -270,22 +279,22 @@ async function loadFix(projectId: string | null, fixId: string): Promise<FixRow>
  * Vorschlag übernehmen: neue Version im lokalen Repo, Deploy (der Scan danach
  * bestätigt die Behebung). Nur auf dem Stand, auf dem der Vorschlag beruht.
  */
-export async function applyFix(fixId: string, actor: string, o: { projectId?: string } = {}): Promise<FixRequestDto> {
-  const fix = await loadFix(o.projectId ?? null, fixId)
+export async function applyFix(scope: Scope, fixId: string, actor: string, o: { projectId?: string } = {}): Promise<FixRequestDto> {
+  const fix = await loadFix(scope, o.projectId ?? null, fixId)
   if (fix.status !== 'proposed') throw conflict(`Der Vorschlag ist nicht mehr offen (Status «${fix.status}»)`)
   if (fix.way !== 'mcp' && fix.way !== 'api') throw badRequest('Dieser Vorschlag läuft über einen Pull Request')
-  const listing = await listProjectFiles(fix.projectId)
+  const listing = await listProjectFiles(FIX_JOB, fix.projectId)
   if (listing.commit !== fix.baseCommit) {
     await db.update(schema.fixRequests).set({ status: 'rejected', note: 'veraltet: die Dateien haben sich seit dem Vorschlag geändert', updatedAt: new Date() }).where(eq(schema.fixRequests.id, fix.id))
     throw new AppError('stale_fix', 'Die Dateien haben sich seit dem Vorschlag geändert. Bitte einen neuen Vorschlag anlegen lassen.', 409)
   }
   const files = (fix.changes.files ?? []).map((x) => ({ path: x.path, content: x.content, encoding: x.encoding }))
-  const r = await updateProjectFiles(fix.projectId, { files, delete: fix.changes.delete, message: `Fix: ${fix.findingTitle}` }, actor)
+  const r = await updateProjectFiles(FIX_JOB, fix.projectId, { files, delete: fix.changes.delete, message: `Fix: ${fix.findingTitle}` }, actor)
   let deploymentId: string | null = null
   let status: FixRow['status'] = 'applied'
   let note: string | null = 'Deploy läuft; der Scan danach bestätigt die Behebung.'
   try {
-    deploymentId = (await startDeploy(fix.projectId, actor)).id
+    deploymentId = (await startDeploy(FIX_JOB, fix.projectId, actor)).id
   } catch (err) {
     status = 'failed'
     note = `Commit ${r.commit.slice(0, 12)} angelegt, Deploy nicht gestartet: ${(err as Error).message.slice(0, 200)}`
@@ -296,16 +305,16 @@ export async function applyFix(fixId: string, actor: string, o: { projectId?: st
   return toFixDto(row)
 }
 
-export async function rejectFix(fixId: string, actor: string, o: { projectId?: string } = {}): Promise<FixRequestDto> {
-  const fix = await loadFix(o.projectId ?? null, fixId)
+export async function rejectFix(scope: Scope, fixId: string, actor: string, o: { projectId?: string } = {}): Promise<FixRequestDto> {
+  const fix = await loadFix(scope, o.projectId ?? null, fixId)
   if (fix.status !== 'proposed') throw conflict(`Der Vorschlag ist nicht mehr offen (Status «${fix.status}»)`)
   const row = (await db.update(schema.fixRequests).set({ status: 'rejected', note: 'verworfen', updatedAt: new Date() }).where(eq(schema.fixRequests.id, fix.id)).returning())[0]!
   await audit({ actor, action: 'fix.reject', targetType: 'project', targetId: fix.projectId, params: { fix: fix.id, title: fix.findingTitle }, result: 'ok' })
   return toFixDto(row)
 }
 
-export async function listFixRequests(idOrSlug: string, limit = 30): Promise<FixRequestDto[]> {
-  const p = await findProject(idOrSlug)
+export async function listFixRequests(scope: Scope, idOrSlug: string, limit = 30): Promise<FixRequestDto[]> {
+  const p = await findProject(scope, idOrSlug)
   const rows = await db.select().from(schema.fixRequests).where(eq(schema.fixRequests.projectId, p.id)).orderBy(desc(schema.fixRequests.createdAt)).limit(limit)
   // Scheiterte der Deploy nach dem Übernehmen, kommt kein Scan: hier nachtragen
   const waiting = rows.filter((r) => r.status === 'applied' && r.deploymentId)

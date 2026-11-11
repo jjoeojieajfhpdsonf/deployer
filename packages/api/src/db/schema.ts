@@ -2,7 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
-import type { ScanStageDto, PausePage, DeployReason, FailureExplanation } from '@airlock/shared'
+import type { ScanStageDto, PausePage, DeployReason, FailureExplanation, CfTlsPhase, CfTokenCheckDto } from '@airlock/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -39,6 +39,8 @@ export const projects = pgTable('projects', {
   // M8: Auto-Deploy nach Merge (Polling)
   autoDeploy: boolean('auto_deploy').notNull().default(false),
   autoDeployCheckedAt: timestamp('auto_deploy_checked_at', { withTimezone: true }),
+  // M9: Umgebung
+  environmentId: uuid('environment_id').notNull().references(() => environments.id),
 })
 
 export const apiTokens = pgTable('api_tokens', {
@@ -48,6 +50,8 @@ export const apiTokens = pgTable('api_tokens', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  // M9: Ein Token gehört zu genau einer Umgebung
+  environmentId: uuid('environment_id').notNull().references(() => environments.id),
 })
 
 export const deployments = pgTable(
@@ -160,8 +164,10 @@ export const auditEvents = pgTable(
     paramsMasked: jsonb('params_masked').notNull().default({}),
     result: auditResultEnum('result').notNull(),
     error: text('error'),
+    // M9: leer = Server-Ereignis
+    environmentId: uuid('environment_id').references(() => environments.id, { onDelete: 'set null' }),
   },
-  (t) => [index('audit_events_at').on(t.at)],
+  (t) => [index('audit_events_at').on(t.at), index('audit_events_environment').on(t.environmentId, t.at)],
 )
 
 export const uploads = pgTable('uploads', {
@@ -192,6 +198,8 @@ export const externalTargets = pgTable('external_targets', {
   lastCheckAt: timestamp('last_check_at', { withTimezone: true }),
   scanInterval: scanIntervalEnum('scan_interval').notNull().default('weekly'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // M9
+  environmentId: uuid('environment_id').notNull().references(() => environments.id),
 })
 
 /** Eine Stufe: siehe ScanStageDto (Zustand, Dauer, Fortschritt, Live-Ausgabe). */
@@ -249,8 +257,11 @@ export const domains = pgTable('domains', {
   id: uuid('id').primaryKey().defaultRandom(),
   cfZoneId: text('cf_zone_id').notNull().unique(),
   name: text('name').notNull().unique(),
+  /** Seit M9 nicht mehr gelesen: die Hauptzone steht in environments.zone_name */
   isDefault: boolean('is_default').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // M9: Eine Zone gehört genau einer Umgebung
+  environmentId: uuid('environment_id').notNull().references(() => environments.id),
 })
 
 /* --- M8: Fix-Assistent ------------------------------------------------------ */
@@ -260,7 +271,8 @@ export const headerRules = pgTable('header_rules', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   header: text('header').$type<import('@airlock/shared').HeaderKey>().notNull(),
   value: text('value').notNull(),
-  mode: text('mode').$type<'report-only' | 'enforce'>().notNull().default('enforce'),
+  /** M9: «off» schaltet eine Header-Vorlage der Umgebung für dieses Projekt ab */
+  mode: text('mode').$type<'report-only' | 'enforce' | 'off'>().notNull().default('enforce'),
   reportKey: text('report_key').unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -326,4 +338,83 @@ export const gitConnections = pgTable('git_connections', {
   webhookSecretEncrypted: bytea('webhook_secret_encrypted'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/* --- M9: Umgebungen (Migration 0015) ----------------------------------------- */
+
+/** Ein Cloudflare-Token; eine oder mehrere Umgebungen nutzen es. */
+export const cloudflareAccounts = pgTable('cloudflare_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cfAccountId: text('cf_account_id'),
+  name: text('name'),
+  tokenEnc: text('token_enc').notNull(),
+  tokenSavedAt: timestamp('token_saved_at', { withTimezone: true }),
+  lastCheck: jsonb('last_check').$type<CfTokenCheckDto>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Ein Tunnel pro Cloudflare-Konto, mit eigenem cloudflared-Container. */
+export const tunnels = pgTable('tunnels', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cloudflareAccountId: uuid('cloudflare_account_id').notNull().unique().references(() => cloudflareAccounts.id, { onDelete: 'cascade' }),
+  cfTunnelId: text('cf_tunnel_id').notNull(),
+  name: text('name').notNull(),
+  tokenEnc: text('token_enc').notNull(),
+  cloudflaredImage: text('cloudflared_image'),
+  containerName: text('container_name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Gespeicherter Stand der Zertifikats-Einrichtung (wie bisher app_settings.cloudflare.tls). */
+export interface StoredTlsState {
+  phase: CfTlsPhase
+  ca: 'production' | 'staging'
+  startedAt: string
+  steps: { at: string; text: string; tone: 'info' | 'ok' | 'bad' }[]
+  prodAttemptAt?: string
+  prodCert?: { validTo: string; issuer: string | null; seenAt: string; source: 'probe' | 'log' | 'storage'; trusted: boolean | null }
+}
+
+export const environments = pgTable('environments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  short: text('short').notNull(),
+  isDefault: boolean('is_default').notNull().default(false),
+  zoneName: text('zone_name'),
+  internalPrefix: text('internal_prefix').notNull().default('int'),
+  cloudflareAccountId: uuid('cloudflare_account_id').references(() => cloudflareAccounts.id, { onDelete: 'set null' }),
+  tlsState: jsonb('tls_state').$type<StoredTlsState>(),
+  tunnelSkipped: boolean('tunnel_skipped').notNull().default(false),
+  tailnetRecordId: text('tailnet_record_id'),
+  pausePage: jsonb('pause_page').$type<PausePage>(),
+  accessDefault: boolean('access_default').notNull().default(false),
+  accessEmails: text('access_emails').array().notNull().default([]),
+  acmeEmail: text('acme_email'),
+  notifyMuted: boolean('notify_muted').notNull().default(false),
+  legacyImportedAt: timestamp('legacy_imported_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const headerRuleTemplates = pgTable('header_rule_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environmentId: uuid('environment_id').notNull().references(() => environments.id, { onDelete: 'cascade' }),
+  header: text('header').$type<import('@airlock/shared').HeaderKey>().notNull(),
+  value: text('value').notNull(),
+  mode: text('mode').$type<'report-only' | 'enforce'>().notNull().default('enforce'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('header_rule_templates_env_header').on(t.environmentId, t.header)])
+
+export const routeRedirects = pgTable('route_redirects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environmentId: uuid('environment_id').references(() => environments.id, { onDelete: 'set null' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  fromHost: text('from_host').notNull().unique(),
+  toHost: text('to_host').notNull(),
+  until: timestamp('until', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

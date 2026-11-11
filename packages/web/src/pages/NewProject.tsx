@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useEnvPath } from '../lib/env.js'
 import { slugify, createProjectSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
 import { ChatSteps } from '../components/ChatSteps.js'
@@ -96,6 +97,7 @@ function NamePreview({ name, id }: { name: string; id: string }) {
 
 export function NewProject() {
   const navigate = useNavigate()
+  const ep = useEnvPath()
   const [params] = useSearchParams()
   const preset = PRESET[params.get('quelle') ?? '']
   const [kind, setKind] = useState<Kind>(preset?.kind ?? 'image')
@@ -175,7 +177,7 @@ export function NewProject() {
       const uploadId = usesUpload && file ? (await api.upload(file)).upload.id : undefined
       const { project, deployment } = await api.createProject(payload(uploadId))
       // UI-Qualität 5: auf der Projektseite läuft gleich der Fortschritt des ersten Deploys
-      navigate(`/projekte/${project.id}`, { state: deployment ? { watch: deployment.id } : undefined })
+      navigate(ep(`/projekte/${project.id}`), { state: deployment ? { watch: deployment.id } : undefined })
     } catch (err) {
       // Prüft die API anders als erwartet, landet ihre Meldung trotzdem am Feld.
       if (!form.setServerErrors(err)) setError(err instanceof ApiError ? err.message : (err as Error).message)
@@ -186,7 +188,7 @@ export function NewProject() {
 
   return (
     <section className="page page-narrow">
-      <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Neues Projekt' }]} title="Neues Projekt">
+      <PageHead crumbs={[{ label: 'Projekte', to: ep('/projekte') }, { label: 'Neues Projekt' }]} title="Neues Projekt">
         {/* Bei «Per Chat» steht dasselbe im Abschnitt darunter */}
         {kind !== 'chat' && <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>}
       </PageHead>

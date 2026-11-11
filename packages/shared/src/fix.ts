@@ -157,6 +157,11 @@ export interface CspViolationDto {
 
 export interface HeaderRulesDto {
   rules: HeaderRuleDto[]
+  /**
+   * M9: Header-Vorlagen der Umgebung, die für dieses Projekt gelten (keine
+   * eigene Regel); disabled = für dieses Projekt abgeschaltet.
+   */
+  inherited?: { header: HeaderKey; value: string; mode: HeaderMode; disabled: boolean }[]
   /** HSTS möglich? Sonst mit Begründung. */
   hsts: { ok: boolean; reason: string | null }
   /** Ob der Header-Check über Caddy gehen kann (Projekt hat eine Route) */

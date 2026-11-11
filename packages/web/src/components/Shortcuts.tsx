@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useGuardedNavigate } from '../lib/unsaved.js'
+import { useEnv } from '../lib/env.js'
 import { CommandPalette } from './CommandPalette.js'
 
 /**
@@ -38,6 +39,7 @@ const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(naviga
 export function Shortcuts() {
   // Mit Rückfrage bei ungespeicherten Änderungen (UI-Qualität 8)
   const navigate = useGuardedNavigate()
+  const { slug } = useEnv()
   const [palette, setPalette] = useState(false)
   const [help, setHelp] = useState(false)
   const pendingG = useRef<number | null>(null)
@@ -61,7 +63,8 @@ export function Shortcuts() {
         window.clearTimeout(pendingG.current)
         pendingG.current = null
         const to = GO[e.key.toLowerCase()]
-        if (to) { e.preventDefault(); void navigate(to) }
+        // M9: in der gewählten Umgebung
+        if (to) { e.preventDefault(); void navigate(`/u/${slug}${to}`) }
         return
       }
       if (e.key === 'g') {
@@ -83,7 +86,7 @@ export function Shortcuts() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [navigate])
+  }, [navigate, slug])
 
   return (
     <>
