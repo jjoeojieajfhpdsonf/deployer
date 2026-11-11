@@ -9,6 +9,8 @@
  * (Grösse eines Volumes, Backup), bleibt null bzw. fehlt.
  */
 
+import type { ServiceChangeDto, ServiceEditWay } from './services.js'
+
 export type TopologyWay = 'public' | 'tailnet' | 'lan'
 
 /** Datenbanken, an ihrem Image erkannt */
@@ -52,6 +54,8 @@ export interface TopologyHostDto {
   /** Problem des Zertifikats (abgelaufen, Probelauf …); null = in Ordnung oder unbekannt */
   tlsProblem: string | null
   accessProtected: boolean
+  /** Etappe 4: eigene interne Adresse eines Dienstes (x-airlock-internal, z. B. Adminer) – nie öffentlich */
+  internal?: boolean
   paused: boolean
   /** Dienst, an den Caddy weiterleitet (Id); null: keiner */
   service: string | null
@@ -116,6 +120,12 @@ export interface TopologyDto {
   main: string | null
   /** Grenzen je Container (bei Compose gelten sie für jeden Dienst) */
   limits: { cpu: number; memoryMb: number }
+  /**
+   * Etappe 4: Dienste hinzufügen und entfernen. way null: hier nicht möglich
+   * (reason sagt warum, z. B. GitHub-App fehlt); changes: laufende und
+   * gescheiterte Änderungen (gestrichelte Knoten «wird erstellt»).
+   */
+  edit?: { way: ServiceEditWay | null; reason: string | null; changes: ServiceChangeDto[]; webService: string | null }
 }
 
 const DB_RE = /^(postgres|mysql|mariadb|redis|mongo)(?:ql|db|-stack|-stack-server|db-community-server)?$/
