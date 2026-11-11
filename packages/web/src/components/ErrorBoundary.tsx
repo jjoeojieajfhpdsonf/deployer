@@ -8,7 +8,11 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
  * Meldung, gekürzter Stack, Komponentenpfad und Seitenpfad ohne Query.
  */
 
-type Props = { children: ReactNode; scope: 'app' | 'page'; resetKey?: string }
+/**
+ * scope «part»: Zusatz in der Shell (Befehlspalette, Aktivitätsanzeige). Ein
+ * Fehler dort wird gemeldet, der Teil fällt still weg – die Seite bleibt.
+ */
+type Props = { children: ReactNode; scope: 'app' | 'page' | 'part'; resetKey?: string }
 type State = { error: Error | null; componentStack: string | null; reported: boolean }
 
 /** Gemeldete Fehler pro Seitenaufruf begrenzen (eine Schleife flutet sonst das Log). */
@@ -52,6 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     const { error, componentStack } = this.state
     if (!error) return this.props.children
+    if (this.props.scope === 'part') return null
     const details = `${error.name}: ${error.message}${error.stack ? `\n\n${error.stack}` : ''}${componentStack ? `\n\nKomponenten:${componentStack}` : ''}`
     return (
       <section className={this.props.scope === 'app' ? 'crash crash-app' : 'crash'} role="alert" aria-labelledby="crash-h">

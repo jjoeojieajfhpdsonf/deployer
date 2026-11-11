@@ -29,7 +29,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 | 3 | Visuelle Regressionstests (`pnpm test:visual`, `test:visual:update`) | erledigt |
 | 4 | Komponenten-Übersicht `/design`, doppelte Varianten zusammenführen | erledigt; 4 Zeichen offen, Frage Nr. 4 |
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | erledigt; Wahl a/b offen, Frage Nr. 1 |
-| 6 | Befehlspalette und Tastatur | geplant |
+| 6 | Befehlspalette und Tastatur | erledigt; Browser-Konflikt offen, Frage Nr. 5 |
 | 7 | Erster Start, Login, Marke | geplant |
 | 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | geplant |
 | 9 | Handyansicht | **entfällt auf Wunsch** («Handy egal») |
@@ -192,6 +192,24 @@ Zusammengeführt bzw. entfernt:
 | Hinweiszeilen nach Aktionen (`.notice-ok`, eigene «✓ Gespeichert») | Projekte, Projektseite, Benachrichtigungen, Auto-Deploy | Toast (Etappe 2); Klasse `.notice-ok` entfernt |
 | Ladeanzeige `.state-loading` | Punkt + «Wird geladen…» | Skeletons (Etappe 1); Klasse entfernt |
 
+Nach dem Gutachten (mit Etappe 6 committet): weitere gleich gezeichnete Zeichen zusammengelegt
+(`IconFailed` = `IconBad`, `IconWaiting` = `IconPending`, `IconOptional`/`IconSkipped` → `IconSkipped`,
+Zeichen der Feldmeldung = `IconAlert`); roter Knopf deaktiviert im Dunkelmodus wieder lesbar
+(Dunkel-Regel nur noch für aktive Knöpfe); `--sh-ring` auch im Dunkel-Block; Übersicht ergänzt um
+Tabelle, Schalter (speichert, gesperrt), Rückfrage im Menü, `notice`, `error`; Spalten als
+`<section aria-labelledby>`, Hinweis per `aria-describedby`.
+
+Noch nicht zusammengeführt (abweichende Ausgabe oder Gestaltung, Teil von Frage Nr. 4):
+- Zahlen: `fmtBytes` (`KeyFacts.tsx`) gegen `formatBytes` (`System.tsx`); `fmtCpu` in `KeyFacts.tsx`
+  und `ProjectOverview.tsx` mit anderen Nachkommastellen; `ago()` der Leiste «Keine Verbindung»
+  gegen `relativeTime` («vor weniger als einer Minute» / «gerade eben»).
+- CSS mit gleicher Aufgabe: Warnhinweise (`.partial-note`, `.stale-bar`, `.banner-warn`,
+  `.menu-confirm`/`.confirm-note`, `.publication-note-warn`), Fehlerkästen (`.error`,
+  `.error-state-compact`, `.alert`, `.cf-ingress-warn`), Schwere (`.sev`, `.sev-chip`, `.sc-sev`),
+  Pillen (`.chip`, `.dl-pill`).
+- Schrift unter 12 px (`.ov-meter-foot`, `.sc-ring-score`, `.cf-tag` 11 px; `.actor-avatar`,
+  `.rail-count` 10 px): gehört zu Milestone B, Etappe 7 («nichts unter 12 px»).
+
 Offen, Frage Nr. 4: `IconWarn`, `IconCheck`, `IconUp`, `IconKey` gibt es je zweimal mit
 **verschiedener** Form; welche bleibt, ist eine Gestaltungsfrage. Offen, Frage Nr. 3: die
 Bestätigungen (23 Stellen mit eigenem Markup).
@@ -209,6 +227,28 @@ Abnahme:
 - ⌘K / Ctrl+K öffnet die Palette: Projekte und Seiten suchen, Aktionen (Neu deployen, Offline
   nehmen, Scan starten, Token erstellen) mit denselben Bestätigungen wie in der Oberfläche.
 - Kürzel `/`, `g p`, `g s`, `g a`, `?`; keine Kürzel, die Browser-Standards überschreiben.
+
+Umsetzung:
+- `components/CommandPalette.tsx`: modaler Dialog oben im Fenster, Suchfeld als Combobox mit
+  Liste (`aria-activedescendant`, ↑/↓/Enter, Esc). Gruppen Seiten (14), Projekte, Aktionen
+  (erscheinen ab dem ersten Zeichen): «Neu deployen · Projekt», «Scan starten · Projekt»,
+  «Offline nehmen · Projekt» (nur öffentliche), «Token erstellen» (öffnet Tokens mit Fokus im
+  Namensfeld, `?neu=1`), «Neues Projekt anlegen». Suche ohne Akzente, alle Wörter müssen vorkommen.
+- Rückfragen wie in der Oberfläche: Deploy und Scan haben dort keine Rückfrage → laufen sofort mit
+  Toast. «Offline nehmen» zeigt denselben Text und dieselben Knöpfe wie im «⋯»-Menü
+  («Ja, pausieren», «Ja, ganz offline nehmen», «Abbrechen»), Fokus auf «Abbrechen».
+- `components/Shortcuts.tsx`: ⌘K/Ctrl+K (auch aus Feldern), `/` (Suche der Seite über
+  `data-page-search`, sonst Palette – ersetzt das eigene «/» der Projektliste), `g p`/`g s`/`g a`
+  (1,2 s Zeitfenster), `?` (Übersicht aller Kürzel als Dialog). Einzeltasten nur ausserhalb von
+  Feldern, ohne ⌘/Ctrl/Alt und nicht bei offenem Dialog.
+- Konflikt im Auftrag (Ctrl+K und «/» sind in einigen Browsern belegt): umgesetzt wie verlangt,
+  offen, Frage Nr. 5.
+- Gefunden durch die visuellen Tests: Die Palette las kaputte Projektdaten ausserhalb der
+  Fehlergrenze der Seite und riss die ganze App in die Fehlerseite. Jetzt filtert sie unvollständige
+  Projekte, und Palette und Aktivitätsanzeige stehen in einer eigenen Fehlergrenze (`scope="part"`:
+  melden, still wegfallen). Die API nimmt `part` als Bereich an (Test).
+- Screenshots `docs/design-cal/ui-grundlagen/6-tastatur/`, visuelle Szenen `palette`,
+  `palette-offline`, `kuerzel`.
 
 ### Etappe 7 – Erster Start, Login, Marke
 

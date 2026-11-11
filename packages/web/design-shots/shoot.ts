@@ -492,6 +492,28 @@ const shots: Shot[] = [
       await pg.waitForTimeout(500)
     },
   },
+  // Etappe 6: Befehlspalette und Tastatur
+  {
+    group: 'tastatur', name: 'palette', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.keyboard.press('Control+k'); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'tastatur', name: 'palette-suche', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.keyboard.press('Control+k'); await pg.keyboard.type('haus'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(400) },
+  },
+  {
+    group: 'tastatur', name: 'palette-offline', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.keyboard.press('Control+k')
+      await pg.keyboard.type('offline haus')
+      await pg.keyboard.press('Enter')
+      await pg.waitForTimeout(400)
+    },
+  },
+  {
+    group: 'tastatur', name: 'kuerzel', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.locator('body').click({ position: { x: 5, y: 600 } }); await pg.keyboard.press('Shift+?'); await pg.waitForTimeout(400) },
+  },
   // Etappe 4: Komponenten-Übersicht
   { group: 'design', name: 'design-bausteine', path: '/design' },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
@@ -569,7 +591,11 @@ export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> 
       await page.goto(`http://localhost:${port}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
       // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
-      if (s.fail?.some((f) => f.startsWith('/'))) await page.locator('.error-state').first().waitFor({ timeout: 8000 })
+      if (s.fail?.some((f) => f.startsWith('/'))) {
+        await page.locator('.error-state').first().waitFor({ timeout: 8000 })
+        // Mehrere Abfragen scheitern unabhängig (je mit Wiederholversuch nach rund 1 s): alle abwarten
+        await page.locator('.error-state').nth(s.fail.filter((f) => f.startsWith('/')).length - 1).waitFor({ timeout: 8000 })
+      }
       await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(300)
       if (s.prepare) await s.prepare(page)

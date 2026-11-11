@@ -28,8 +28,8 @@ export function Design() {
         <p className="lede">Alle Bausteine der Oberfläche in Hell und Dunkel. Interne Seite, nur zum Nachschlagen.</p>
       </PageHead>
       <div className="design-cols">
-        <div className="design-col theme-light" aria-label="Hell"><p className="design-col-label">Hell</p><Catalog /></div>
-        <div className="design-col theme-dark" aria-label="Dunkel"><p className="design-col-label">Dunkel</p><Catalog /></div>
+        <section className="design-col theme-light" aria-labelledby="design-hell"><p className="design-col-label" id="design-hell">Hell</p><Catalog /></section>
+        <section className="design-col theme-dark" aria-labelledby="design-dunkel"><p className="design-col-label" id="design-dunkel">Dunkel</p><Catalog /></section>
       </div>
     </section>
   )
@@ -103,6 +103,17 @@ function Catalog() {
           <div className="set-head"><h2>Karte mit Zeilen</h2><span className="set-count">2 aktiv</span></div>
           <SetRow label="Bezeichnung"><strong className="set-strong">Wert</strong> <span className="muted">· Erklärung dazu</span></SetRow>
           <SetRow label={<span id={`${uid}-sw`}>Mit Schalter</span>} action={<Switch checked={on} onChange={setOn} labelledBy={`${uid}-sw`} />}><span className="muted">{on ? 'an' : 'aus'}</span></SetRow>
+          <SetRow label={<span id={`${uid}-sw2`}>Schalter speichert</span>} action={<Switch checked onChange={() => {}} labelledBy={`${uid}-sw2`} busy />}><span className="muted">busy</span></SetRow>
+          <SetRow label={<span id={`${uid}-sw3`}>Schalter gesperrt</span>} action={<Switch checked={false} onChange={() => {}} labelledBy={`${uid}-sw3`} disabled />}><span className="muted">deaktiviert</span></SetRow>
+        </div>
+        <div className="table-scroll design-gap">
+          <table className="table">
+            <thead><tr><th>Name</th><th>Zuletzt</th><th><span className="visually-hidden">Aktion</span></th></tr></thead>
+            <tbody>
+              <tr><td>Claude Desktop</td><td>vor 3 Min.</td><td className="row-actions"><button type="button" className="button-small">Widerrufen</button></td></tr>
+              <tr><td>CI</td><td className="muted">nie</td><td className="row-actions"><button type="button" className="button-small">Widerrufen</button></td></tr>
+            </tbody>
+          </table>
         </div>
       </Block>
 
@@ -142,6 +153,13 @@ function Catalog() {
             <button type="button" role="menuitem" className="menu-danger">Löschen …</button>
           </div>
         </div>
+        <div className="menu design-static">
+          <div className="menu-list" data-open="" role="menu" aria-label="Rückfrage im Menü">
+            <div className="menu-confirm"><IconWarn /><span>Rückfrage im Menü: was passiert, in einem Satz.</span></div>
+            <button type="button" role="menuitem" className="menu-danger-solid">Ja, stoppen</button>
+            <button type="button" role="menuitem">Abbrechen</button>
+          </div>
+        </div>
       </Block>
 
       <Block title="Dialog">
@@ -165,7 +183,7 @@ function Catalog() {
 
       <Block title="Formularfelder">
         <Field id={`${uid}-name`} label="Name" hint="Hinweis unter dem Feld.">
-          <input id={`${uid}-name`} defaultValue="hallo-welt" />
+          <input id={`${uid}-name`} defaultValue="hallo-welt" aria-describedby={`${uid}-name-hint`} />
         </Field>
         <Field id={`${uid}-port`} label="Port" error="Port zwischen 1 und 65535 angeben, z. B. 8080.">
           <input id={`${uid}-port`} defaultValue="99999" aria-invalid="true" aria-describedby={`${uid}-port-error`} />
@@ -191,13 +209,16 @@ function Catalog() {
 
       <Block title="Leer, Fehler, Teilweise, Hinweise">
         <EmptyState title="Noch nichts da" action={<button type="button">Nächster Schritt</button>}>Ein Satz, was hier erscheinen wird.</EmptyState>
-        <ErrorState what="Die Liste" error={new Error('Datenbank antwortet nicht.')} onRetry={() => {}} />
+        {/* Hier kompakt (role=status): ein Seitenfehler (role=alert) würde beim Laden der Übersicht angesagt */}
+        <ErrorState compact what="Die Liste" error={new Error('Datenbank antwortet nicht.')} onRetry={() => {}} />
         <ErrorState compact plural what="Die Einträge" error={new Error('Zeitüberschreitung nach 5 s.')} onRetry={() => {}} />
         <PartialNote onRetry={() => {}}>Ein Teil fehlt, der Rest ist vollständig.</PartialNote>
         <div className="stale-bar"><span className="stale-bar-icon" aria-hidden="true"><IconWarn size={16} /></span><p><strong>Keine Verbindung zum Server.</strong> Angezeigt ist der Stand vor 3 Min.</p><button type="button" className="button-small">Erneut versuchen</button></div>
         <div className="alert" role="note"><span className="alert-icon"><IconAlert /></span><div className="alert-body"><strong>Hinweis mit Aktion</strong><span>Erklärung in einem Satz.</span></div><div className="alert-actions"><button type="button">Aktion</button></div></div>
         <p className="banner banner-warn"><strong>Warnung:</strong> Banner über einer Seite.</p>
         <p className="banner banner-info">Info-Banner.</p>
+        <p className="notice notice-info">Hinweis in einer Zeile (notice).</p>
+        <p className="error" role="note">Fehlerzeile unter einem Formular (error).</p>
         <p className="hint">Hinweistext unter einem Bereich.</p>
       </Block>
 
@@ -210,8 +231,8 @@ function Catalog() {
       <Block title="Diagramme">
         <div className="design-ring"><Ring grade="B" score={84} /></div>
         <div className="ov-meters">
-          <Meter label="CPU" unit="CPU" limit={1} samples={samples} pick={(s) => s.cpu} fmt={(v) => v.toFixed(2)} />
-          <Meter label="RAM" unit="MB" limit={1024} samples={samples} pick={(s) => s.memMb} fmt={(v) => String(Math.round(v))} />
+          <Meter label="CPU" unit="CPU" limit={1} samples={samples} pick={(s) => s.cpu} fmt={(v) => v.toLocaleString('de-CH', { maximumFractionDigits: 2 })} />
+          <Meter label="RAM" unit="MB" limit={1024} samples={samples} pick={(s) => s.memMb} fmt={(v) => Math.round(v).toLocaleString('de-CH')} />
         </div>
       </Block>
     </div>

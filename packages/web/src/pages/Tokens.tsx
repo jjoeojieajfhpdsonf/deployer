@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ApiTokenDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
@@ -27,6 +28,13 @@ export function Tokens() {
   const mcpUrl = `${window.location.origin}/mcp`
 
   const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name }) })
+  // Aus der Befehlspalette («Token erstellen»): gleich ins Namensfeld
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    if (params.get('neu') === null) return
+    document.getElementById(form.idFor('name'))?.focus()
+    setParams({}, { replace: true })
+  }, [params, setParams, form])
   const create = useMutation({
     mutationFn: (n: string) => api.createToken(n),
     onSuccess: (r) => {

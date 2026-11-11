@@ -7,6 +7,7 @@ import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
 import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
+import { IconBad, IconPending, IconSkipped } from './Icons.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 
@@ -41,9 +42,9 @@ const TOOL_LABEL: Record<string, string> = { trivy: 'Trivy', 'header-check': 'He
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconClean = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m5.3 8.2 1.9 1.9 3.5-3.7" /></svg>
 const IconFound = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.7M8 11v.1" /></svg>
-const IconSkipped = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
-const IconFailed = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="m6 6 4 4M10 6l-4 4" /></svg>
-const IconWaiting = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
+// Gleich gezeichnet wie in Icons.tsx: dort nur einmal
+const IconFailed = IconBad
+const IconWaiting = IconPending
 const IconRunning = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" opacity=".35" /><path d="M8 1.8a6.2 6.2 0 0 1 6.2 6.2" /></svg>
 const IconTimeout = () => <svg {...svg}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8V8l2.2 1.6" /></svg>
 export const IconWarn = () => <svg {...svg}><path d="M7.1 2.6 1.6 12.2a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.6a1 1 0 0 0-1.8 0Z" /><path d="M8 6.2v3.1M8 11.4v.1" /></svg>

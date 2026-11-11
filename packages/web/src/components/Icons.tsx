@@ -25,6 +25,10 @@ export const IconBad = ({ size, className }: P) => (
 export const IconPending = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" strokeDasharray="2.4 2.4" /></svg>
 )
+/** Übersprungen / nicht nötig: Kreis mit Strich */
+export const IconSkipped = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6.2" /><path d="M5.2 8h5.6" /></svg>
+)
 export const IconMore =({ size, className }: P) => (
   // Gefüllte Punkte statt Linien der Länge 0,01: die wurden kaum 2 px gross und wirkten leer
   <svg {...base(size)} className={className}><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.35" /><circle cx="8" cy="8" r="1.35" /><circle cx="12.5" cy="8" r="1.35" /></g></svg>

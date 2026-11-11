@@ -29,19 +29,6 @@ export function Projects() {
   const [filter, setFilter] = useState<Filter>('alle')
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // «/» springt in die Suche (wie in vielen Werkzeugen), ausser beim Tippen.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) && !t.isContentEditable) {
-        e.preventDefault()
-        searchRef.current?.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [])
-
   // Ergebnis als Toast (ein Muster für die ganze App); Stoppen lässt sich rückgängig machen
   const act = useMutation({
     meta: { errorTitle: 'Aktion nicht ausgeführt' },
@@ -97,7 +84,7 @@ export function Projects() {
           <>
             <div className="search">
               <IconSearch />
-              <input ref={searchRef} type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input ref={searchRef} data-page-search type="search" aria-label="Projekte durchsuchen (Taste /)" placeholder="Suchen …  /" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <Link className="button button-primary" to="/projekte/neu"><IconPlus /> Neues Projekt</Link>
           </>

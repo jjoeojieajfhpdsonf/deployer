@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.js'
 import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
 import { ActivityIndicator } from './components/ActivityIndicator.js'
+import { Shortcuts } from './components/Shortcuts.js'
 import { api } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -74,11 +75,13 @@ export function App() {
         <div className="topbar">
           <Crumbs />
           <div className="topbar-actions">
-            <ActivityIndicator />
+            <ErrorBoundary scope="part"><ActivityIndicator /></ErrorBoundary>
             <ProfileMenu me={me.data} />
           </div>
         </div>
         <StaleBar />
+        {/* ⌘K, «/», «g p/s/a», «?» */}
+        <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
         <ErrorBoundary scope="page" resetKey={location.pathname}>
         <Routes>

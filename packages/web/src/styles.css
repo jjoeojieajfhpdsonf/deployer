@@ -165,6 +165,8 @@
   --claude: #ee9b76;
   --claude-bg: #2a1a13;
 
+  /* --sh-ring wiederholt, damit es in .theme-dark den dunklen Ring nimmt (sonst geerbt aus Hell) */
+  --sh-ring: inset 0 0 0 1px var(--ring);
   --sh-card: 0 0 0 1px var(--ring);
   --sh-card-hover: 0 0 0 1px rgba(255, 255, 255, 0.12);
   --sh-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 20px 40px -12px rgba(0, 0, 0, 0.7);
@@ -455,7 +457,8 @@ a.button:active { transform: scale(0.97); }
 .button-danger, button.button-danger { color: var(--bad); background: var(--surface); border-color: var(--line); }
 .button-danger:hover:not(:disabled) { background: var(--bad-bg); border-color: var(--bad-line); }
 .button-danger-solid, button.button-danger-solid { background: var(--bad); border-color: var(--bad); color: var(--primary-ink); }
-:is(:root[data-theme='dark'], .theme-dark) .button-danger-solid:not(.theme-light *) { color: var(--bg); }
+/* Nicht für deaktivierte: die haben grauen Grund, dunkle Schrift wäre unlesbar (≈1,1:1) */
+:is(:root[data-theme='dark'], .theme-dark) .button-danger-solid:not(:disabled):not(.theme-light *) { color: var(--bg); }
 .button-danger-solid:hover:not(:disabled) { filter: brightness(0.94); background: var(--bad); }
 /* Gefüllte Knöpfe sahen deaktiviert gleich aus wie aktiv (die Füllung gewann gegen button:disabled) */
 button.button-primary:disabled, button.button-danger-solid:disabled { background: var(--surface-2); border-color: transparent; color: var(--muted); box-shadow: none; filter: none; }
@@ -1846,6 +1849,46 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .cf-ingress-title { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; color: var(--bad); font-weight: 500; font-size: var(--fs-13); }
 .cf-ingress-warn ul { margin: 0; padding-left: 22px; font-size: var(--fs-13); color: var(--ink); display: grid; gap: 2px; }
 
+/* --- Befehlspalette und Tastaturkürzel ---------------------------------------------- */
+
+kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+  color: var(--ink-dim);
+  font-family: var(--font);
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+kbd + kbd { margin-left: 4px; }
+/* Oben verankert wie üblich bei Paletten: die Liste wächst nach unten, ohne dass das Feld springt */
+.dialog.palette { width: min(640px, calc(100vw - 32px)); margin-top: 12vh; padding: 0; overflow: hidden; }
+.palette-search { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--line); color: var(--muted); }
+.palette-search input { flex: 1; min-width: 0; height: 32px; padding: 0; border: none; background: transparent; box-shadow: none; font-size: var(--fs-16); color: var(--ink); }
+.palette-search input:focus, .palette-search input:focus-visible { outline: none; box-shadow: none; }
+.palette-list { list-style: none; margin: 0; padding: var(--sp-2); max-height: min(420px, 56vh); overflow-y: auto; }
+.palette-group { padding: var(--sp-3) var(--sp-3) var(--sp-1); font-size: var(--fs-12); font-weight: 600; color: var(--muted); }
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 9px var(--sp-3); border-radius: var(--r-sm); cursor: pointer; }
+.palette-item[aria-selected='true'] { background: var(--surface-2); }
+.palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: var(--fs-14); }
+.palette-hint { flex: none; color: var(--muted); font-size: var(--fs-13); }
+.palette-empty { padding: var(--sp-5) var(--sp-3); color: var(--muted); font-size: var(--fs-14); }
+.palette-foot { display: flex; align-items: center; gap: 6px; margin: 0; padding: 10px var(--sp-5); border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-12); max-width: none; }
+.palette-confirm { padding: var(--sp-6); }
+.palette-confirm-title { margin: 0 0 var(--sp-3); font-weight: 600; color: var(--ink); }
+.palette-confirm .menu-confirm { max-width: none; padding: 0; display: flex; gap: var(--sp-2); color: var(--ink-dim); font-size: var(--fs-14); }
+.palette-confirm .menu-confirm svg { flex: none; margin-top: 3px; color: var(--warn); }
+.palette-confirm-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-5); }
+.shortcut-list { display: grid; gap: var(--sp-3); margin: var(--sp-5) 0 0; }
+.shortcut-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: var(--sp-4); }
+.shortcut-list dt { display: flex; align-items: center; }
+.shortcut-list dd { margin: 0; color: var(--ink-dim); font-size: var(--fs-14); }
+
 /* --- Komponenten-Übersicht /design: Hell und Dunkel nebeneinander ---------------------- */
 
 .page-design { max-width: none; }
@@ -1863,6 +1906,7 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .design-icons > span { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); }
 /* Menü und Dialog stehen fest im Fluss statt schwebend */
 .design-static .menu-list { position: static; display: block; opacity: 1; transform: none; width: 240px; pointer-events: auto; }
+.design-static + .design-static { margin-top: var(--sp-3); }
 .design-static-dialog { position: static; display: block; width: 100%; max-width: 440px; }
 .design-ring { width: 96px; }
 
