@@ -10,6 +10,7 @@ import type {
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   TopologyDto,
+  TrafficSummaryDto, TrafficTodayDto, TrafficLiveEventDto, TrafficRange, TrafficWay,
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
   BackupRestoreDto, BackupRestorePreviewDto,
@@ -237,6 +238,10 @@ export const api = {
   health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),
   /** Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten und die Linien dazwischen */
   topology: (id: string) => call<{ topology: TopologyDto }>(`/projects/${id}/topology`),
+  /** Etappe 3: Besucher aus Caddys Zugriffs-Log (Zähler, ohne IP) */
+  traffic: (id: string, range: TrafficRange, way: TrafficWay | 'all' = 'all') => call<TrafficSummaryDto>(`/projects/${id}/traffic?range=${range}&way=${way}`),
+  /** Aufrufe heute je Projekt der Umgebung (Projektliste) */
+  trafficToday: () => call<TrafficTodayDto>(e('/traffic/today')),
   /** Adresse vom Server aus prüfen (http-Adressen auf einer https-Seite) */
   addressCheck: (id: string, url: string) => call<AddressCheckDto>(`/projects/${id}/address-check?url=${encodeURIComponent(url)}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),
@@ -383,6 +388,11 @@ export function subscribeLogs(projectId: string, o: { service: string | null; si
 }
 
 /** UI-Qualität 4: neue Zugriffe einer statischen Seite live */
+/** Etappe 3: jede Anfrage an ein Projekt live (Zeit, Zugang, Host, Dienst, Status, geblockt, Bot) */
+export function subscribeTraffic(projectId: string, onEvent: (e: TrafficLiveEventDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<TrafficLiveEventDto>(`/api/v1/projects/${projectId}/traffic/live`, onEvent, onState)
+}
+
 export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
   return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
 }

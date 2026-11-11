@@ -18,6 +18,7 @@ import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
 import { SiteAccess } from '../components/SiteAccess.js'
+import { TrafficTab } from '../components/Traffic.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { poll } from '../lib/live.js'
@@ -32,7 +33,7 @@ const IconGear = () => (
   </svg>
 )
 
-type Tab = 'uebersicht' | 'aufbau' | 'deployments' | 'logs' | 'security' | 'einstellungen'
+type Tab = 'uebersicht' | 'aufbau' | 'deployments' | 'logs' | 'besucher' | 'security' | 'einstellungen'
 
 export function ProjectDetail() {
   const { id = '' } = useParams()
@@ -40,8 +41,9 @@ export function ProjectDetail() {
   const navigate = useNavigate()
   const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
-  // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt
-  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'security', 'einstellungen']
+  // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt.
+  // Etappe 3: «Besucher» (Auswertung) gleich nach «Logs»/«Zugriffe» (einzelne Einträge)
+  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'besucher', 'security', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
@@ -188,6 +190,7 @@ export function ProjectDetail() {
     deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
     logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
+    besucher: { label: 'Besucher' },
     einstellungen: { label: 'Einstellungen' },
   }
 
@@ -325,6 +328,7 @@ export function ProjectDetail() {
           onService={(s) => setParams(s ? { tab: 'logs', dienst: s } : { tab: 'logs' }, { replace: true })}
         />
       ))}
+      {tab === 'besucher' && <TrafficTab p={p} onAccessLog={isStatic ? () => void setTab('logs') : undefined} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings

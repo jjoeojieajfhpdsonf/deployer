@@ -19,6 +19,7 @@ import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel
 import { ageMs, fmtDateTime } from '../lib/dates.js'
 import { notifyOk } from '../lib/feedback.js'
 import { EmptyState, ErrorState, Loading, SkProjectCards, SkRows, SkStats } from '../components/States.js'
+import { useTrafficToday } from '../components/Traffic.js'
 
 
 type Filter = 'alle' | 'laufen' | 'aufmerksamkeit'
@@ -52,6 +53,10 @@ export function Projects() {
   })
 
   const list = projects.data?.projects ?? []
+  // Etappe 3: «214 Aufrufe heute» – nur wenn Airlock das Zugriffs-Log liest und das Projekt eine Adresse hat
+  const today = useTrafficToday()
+  const viewsToday = (p: ProjectDto): number | null =>
+    today.data?.ingest === 'ok' && p.routes.length > 0 ? today.data.views[p.id] ?? 0 : null
   const counts = useMemo(() => ({
     alle: list.length,
     laufen: list.filter(isRunningOk).length,
@@ -149,7 +154,7 @@ export function Projects() {
             {/* Projekte als Karten im Raster (cal.com: Karten statt Tabelle) */}
             <ul className="pcards" aria-label="Projekte" ref={setGrid}>
               {shown.map((p) => (
-                <ProjectCard key={p.id} p={p} onAct={(what) => act.mutate({ id: p.id, what })} busy={act.isPending} />
+                <ProjectCard key={p.id} p={p} onAct={(what) => act.mutate({ id: p.id, what })} busy={act.isPending} viewsToday={viewsToday(p)} />
               ))}
               {showNew && <NewProjectCard span={free} onChat={() => setChatGuide(true)} />}
             </ul>
@@ -415,7 +420,7 @@ function Reach({ p, className }: { p: ProjectDto; className: string }) {
 
 /* --- Projekt-Karte (Prototyp «cal») ------------------------------------------------- */
 
-function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
+function ProjectCard({ p, onAct, busy, viewsToday }: { p: ProjectDto; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean; viewsToday: number | null }) {
   const ep = useEnvPath()
   const url = p.routes.find((r) => r.target !== 'public')?.urls[0] ?? p.routes[0]?.urls[0]
   const host = url?.replace(/^https?:\/\//, '')
@@ -459,6 +464,11 @@ function ProjectCard({ p, onAct, busy }: { p: ProjectDto; onAct: (what: 'deploy'
       </dl>
 
       <div className="pcard-foot">
+        {viewsToday !== null && (
+          <Link className="pcard-visits" to={ep(`/projekte/${p.id}?tab=besucher`)}>
+            <span className="num">{viewsToday.toLocaleString('de-CH')}</span> {viewsToday === 1 ? 'Aufruf' : 'Aufrufe'} heute
+          </Link>
+        )}
         <div className="pcard-actions">
           {url && <a className="button button-small" href={url} target="_blank" rel="noreferrer">Öffnen</a>}
           <ProjectMenu p={p} url={url} onAct={onAct} busy={busy} />

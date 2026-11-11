@@ -147,6 +147,12 @@ type Shot = {
   el?: string
   /** Erlaubte Pixelabweichung (visuelle Tests), wenn nur Kantenglättung schwankt – mit Begründung an der Szene */
   maxDiff?: number
+  /**
+   * Etappe 3: Besucher-Auswertung (GET /projects/:id/traffic, /traffic/today). Ohne Angabe
+   * antworten diese Pfade leer – die Oberfläche verhält sich dann wie «nicht eingerichtet»
+   * (keine Karte, keine Zahl in der Liste), die übrigen Szenen bleiben unverändert.
+   */
+  traffic?: fx.TrafficVariant
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -831,6 +837,25 @@ const shots: Shot[] = [
     group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
   },
+  // Etappe 3: Besucher – Reiter (öffentliche Seite mit Karte), mit Städten (DB-IP), nach Zugang getrennt,
+  // internes Projekt (ohne Länder), leer, wartet auf das Log, nicht eingerichtet; Wert per Tastatur;
+  // Karte in der Übersicht und «Aufrufe heute» in der Projektliste
+  { group: 'besucher', name: 'besucher', path: `/projekte/${H}?tab=besucher`, traffic: 'ok' },
+  { group: 'besucher', name: 'besucher-staedte', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  {
+    group: 'besucher', name: 'besucher-tailnet', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false,
+    prepare: async (pg) => { await pg.getByRole('group', { name: 'Nach Zugang trennen' }).getByRole('button', { name: /^Tailnet/ }).click(); await pg.waitForTimeout(250) },
+  },
+  { group: 'besucher', name: 'besucher-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
+  { group: 'besucher', name: 'besucher-leer', path: `/projekte/${H}?tab=besucher`, traffic: 'leer', full: false },
+  { group: 'besucher', name: 'besucher-wartet', path: `/projekte/${H}?tab=besucher`, traffic: 'wartet', full: false },
+  { group: 'besucher', name: 'besucher-aus', path: `/projekte/${H}?tab=besucher`, traffic: 'aus', full: false },
+  {
+    group: 'besucher', name: 'besucher-wert', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false, el: '.tr-page > .panel',
+    prepare: async (pg) => { await pg.locator('.tr-chart svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+  },
+  { group: 'besucher', name: 'projekt-uebersicht-besucher', path: `/projekte/${H}`, traffic: 'ok' },
+  { group: 'besucher', name: 'projekte-besucher', path: '/projekte', traffic: 'ok' },
   { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
   { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
   {
@@ -1075,6 +1100,16 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, url.pathname.endsWith('/example') ? { environment: list.find((e) => e.slug === 'example') } : { environments: list })
             }
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
+            // Etappe 3: Besucher
+            if (s.traffic) {
+              const tm = path.match(/^\/api\/v1\/projects\/([^/]+)\/traffic$/)
+              if (tm) {
+                const range = (url.searchParams.get('range') ?? '24h') as import('@airlock/shared').TrafficRange
+                const way = (url.searchParams.get('way') ?? 'all') as import('@airlock/shared').TrafficWay | 'all'
+                return json(route, fx.traffic(tm[1]!, range, way, s.traffic))
+              }
+              if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, ingest: 'off' } : fx.trafficToday)
+            }
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             // Meilenstein Backup: Server › Backup

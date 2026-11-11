@@ -180,6 +180,9 @@ function startCityDbJob(): void {
 
 /* --- Abfragen ---------------------------------------------------------------- */
 
+/** Liest Airlock das Zugriffs-Log? (ok, waiting: Datei fehlt noch, off: nicht eingerichtet) */
+export const trafficIngestState = (): TrafficSourceDto['ingest'] => state
+
 export async function trafficSource(projectId: string): Promise<TrafficSourceDto> {
   const oldest = await store.oldest(projectId)
   const mem = aggregator.peek(projectId).reduce<number | null>((m, r) => (m === null || r.hour < m ? r.hour : m), null)

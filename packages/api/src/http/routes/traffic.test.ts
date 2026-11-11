@@ -49,6 +49,7 @@ async function start(): Promise<string> {
       },
       visibleProjects: async () => new Set(['p1', 'p2']),
       today: async () => ({ p1: 214, p2: 0, fremd: 99 }),
+      ingestState: () => 'ok',
   }
   await app.register(trafficRoutes, { prefix: '/api/v1', heartbeatMs: 60_000, deps })
   await app.listen({ port: 0, host: '127.0.0.1' })
@@ -105,6 +106,6 @@ describe('Routen /projects/:id/traffic', () => {
 
   test('Aufrufe heute: nur Projekte, die die Anfrage sehen darf', async () => {
     const base = await start()
-    assert.deepEqual(await (await fetch(`${base}/api/v1/traffic/today`)).json(), { views: { p1: 214, p2: 0 } })
+    assert.deepEqual(await (await fetch(`${base}/api/v1/traffic/today`)).json(), { views: { p1: 214, p2: 0 }, ingest: 'ok' })
   })
 })

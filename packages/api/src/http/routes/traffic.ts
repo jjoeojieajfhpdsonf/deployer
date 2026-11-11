@@ -5,7 +5,7 @@ import { audit } from '../../domain/audit.js'
 import { badRequest } from '../../lib/errors.js'
 import { trackStream } from '../../lib/events.js'
 import { CITY_DB_SOURCE } from '../../traffic/geo.js'
-import { cityDb, onTrafficLive, trafficSummary, trafficToday } from '../../traffic/service.js'
+import { cityDb, onTrafficLive, trafficIngestState, trafficSummary, trafficToday } from '../../traffic/service.js'
 import { listScopeFor } from '../scope.js'
 
 interface IdParams {
@@ -20,9 +20,11 @@ export interface TrafficRouteDeps {
   /** IDs der Projekte, die die Anfrage sehen darf (Umgebung, Token) */
   visibleProjects: (request: FastifyRequest) => Promise<Set<string>>
   today: typeof trafficToday
+  ingestState: typeof trafficIngestState
 }
 
 const realDeps: TrafficRouteDeps = {
+  ingestState: trafficIngestState,
   findProject: (request, id) => findProject(request.scope, id),
   summary: trafficSummary,
   onLive: onTrafficLive,
@@ -85,7 +87,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
   const today = async (request: FastifyRequest): Promise<TrafficTodayDto> => {
     const ids = await d.visibleProjects(request)
     const all = await d.today()
-    return { views: Object.fromEntries(Object.entries(all).filter(([id]) => ids.has(id))) }
+    return { views: Object.fromEntries(Object.entries(all).filter(([id]) => ids.has(id))), ingest: d.ingestState() }
   }
   app.get('/traffic/today', today)
   app.get('/environments/:env/traffic/today', today)

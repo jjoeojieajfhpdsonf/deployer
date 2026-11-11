@@ -97,7 +97,10 @@ export interface TrafficSummaryDto {
 
 /** Aufrufe heute (seit Mitternacht Ortszeit) je Projekt-ID, für die Projektliste */
 export interface TrafficTodayDto {
+  /** Nur Projekte mit Aufrufen heute; fehlt eines, waren es 0 (sofern ingest 'ok') */
   views: Record<string, number>
+  /** Zählt Airlock überhaupt mit? Sonst zeigt die Liste keine Zahl (statt einer falschen 0) */
+  ingest: TrafficSourceDto['ingest']
 }
 
 /**

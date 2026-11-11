@@ -16,13 +16,14 @@ import { ActivityList } from './ActivityList.js'
 import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
+import { VisitorsCard } from './Traffic.js'
 import { KeyFacts } from './KeyFacts.js'
 import { deployFailedState } from '../lib/projects.js'
 import { IconBad, IconCheck, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 import { useEnvPath } from '../lib/env.js'
 
-type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
+type Tab = 'uebersicht' | 'deployments' | 'logs' | 'besucher' | 'security' | 'einstellungen'
 
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
 const IconCopy = () => <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" /></svg>
@@ -88,6 +89,8 @@ export function ProjectOverview({
               </p>
             </section>
           )}
+          {/* Etappe 3: Aufrufe und Besucher (fehlt ohne Adresse oder ohne Zugriffs-Log) */}
+          <VisitorsCard p={p} onOpen={() => onTab('besucher')} />
           <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />
           <SecurityCard p={p} onTab={onTab} />
           <Activity projectId={p.id} />

@@ -1820,6 +1820,10 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 /* Offenes Menü liegt über den Nachbarkarten (sonst schieben sich deren Pillen darüber) */
 .pcard:has(.menu-list[data-open], .menu-list.closing) { z-index: 10; }
 .pcard-actions { display: flex; gap: 6px; align-items: center; }
+/* Etappe 3: «214 Aufrufe heute» links im Fuss, führt zum Reiter «Besucher» */
+.pcard-visits { position: relative; z-index: 1; margin-right: auto; font-size: var(--fs-13); color: var(--muted); text-decoration: none; white-space: nowrap; }
+.pcard-visits .num { color: var(--ink); font-weight: 500; }
+.pcard-visits:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
 /* --- Projekt-Übersicht: Zustand statt Konfiguration ---------------------------------- */
 
@@ -1890,6 +1894,61 @@ form.failure-fix .form-actions { margin: 0; }
 .ov-meter-bad .ov-meter-dot { background: var(--bad); }
 .ov-meter-tip { position: absolute; top: -28px; transform: translateX(-50%); white-space: nowrap; font-size: var(--fs-12); padding: 2px var(--sp-2); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--sh-pop); color: var(--ink); pointer-events: none; font-variant-numeric: tabular-nums; }
 .ov-meter-foot { display: flex; justify-content: space-between; gap: var(--sp-2); margin-top: 6px; font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* --- Besucher (Etappe 3): Karte in der Übersicht und Reiter «Besucher» ----------------
+   Kurve wie der CPU/RAM-Verlauf (ov-meter-*), Besucher gestrichelt statt nur andersfarbig.
+   Karte: vier Stufen aus --ink über --surface-3 gemischt (keine eigenen Farben). */
+.tr-card-top { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-4); margin-bottom: var(--sp-4); }
+.tr-totals { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin: 0; }
+.tr-totals > div { display: grid; gap: 2px; }
+.tr-totals dt { font-size: var(--fs-13); color: var(--muted); }
+.tr-totals dd { margin: 0; font-family: var(--display); font-size: var(--fs-30); line-height: 1.1; letter-spacing: var(--track-display); color: var(--ink); }
+.tr-totals dd.muted { color: var(--muted); }
+.tr-totals-lg { margin: 0 0 var(--sp-6); }
+.tr-totals-lg dd { font-size: var(--fs-40); }
+.tr-head { flex-wrap: wrap; align-items: center; }
+.tr-controls { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.tr-chart { margin: 0; }
+.tr-chart-plot { position: relative; }
+.tr-chart-plot svg { display: block; width: 100%; height: var(--tr-h, 120px); overflow: visible; border-radius: var(--r-xs); }
+.tr-chart-plot svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+.tr-chart-visitors { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linejoin: round; }
+.tr-chart-max { position: absolute; top: 4px; left: 0; font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.tr-chart-tip-left { transform: translateX(-100%); }
+.tr-chart-legend { display: flex; gap: var(--sp-5); margin-top: var(--sp-2); font-size: var(--fs-12); color: var(--muted); }
+.tr-key { display: inline-block; width: 16px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--ink); }
+.tr-key-visitors { border-top: 2px dashed var(--muted); }
+.tr-page { display: grid; gap: var(--sp-4); }
+.tr-page > .panel + .panel { margin-top: 0; }
+.tr-page > .state-empty { margin: 0; }
+.tr-page .notice { margin: 0 0 var(--sp-5); }
+.tr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+.tr-table { table-layout: fixed; }
+.tr-table th, .tr-table td { padding-left: 0; padding-right: var(--sp-3); }
+.tr-table th:last-child, .tr-table td:last-child { padding-right: 0; }
+.tr-table th.num, .tr-table td.num { width: 84px; text-align: right; }
+.tr-key-cell { position: relative; }
+.tr-bar { position: absolute; left: 0; top: 5px; bottom: 5px; border-radius: var(--r-xs); background: var(--surface-2); }
+.tr-label { position: relative; display: block; padding-left: var(--sp-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-label code { font-family: var(--mono); font-size: var(--fs-13); background: none; padding: 0; }
+.tr-geo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: var(--sp-8); align-items: start; }
+.tr-map { margin: 0; }
+.tr-map svg { display: block; width: 100%; height: auto; }
+.tr-map-0 { --tr-c: var(--surface-3); }
+.tr-map-1 { --tr-c: color-mix(in srgb, var(--ink) 28%, var(--surface-3)); }
+.tr-map-2 { --tr-c: color-mix(in srgb, var(--ink) 50%, var(--surface-3)); }
+.tr-map-3 { --tr-c: color-mix(in srgb, var(--ink) 72%, var(--surface-3)); }
+.tr-map-4 { --tr-c: var(--ink); }
+.tr-map-c { fill: var(--tr-c); stroke: var(--surface); stroke-width: 0.3; }
+.tr-map-legend { display: flex; align-items: center; gap: 6px; margin-top: var(--sp-3); font-size: var(--fs-12); color: var(--muted); }
+.tr-map-swatch { display: inline-block; width: 16px; height: 10px; border-radius: 2px; background: var(--tr-c); }
+.tr-sub { margin: var(--sp-6) 0 var(--sp-2); font-size: var(--fs-16); font-weight: 600; }
+.tr-status-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.tr-status-list li { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); font-size: var(--fs-14); }
+.tr-source { margin-top: 0; max-width: none; }
+@media (max-width: 1100px) {
+  .tr-grid, .tr-geo { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* Auslöser (Deployments, Aktivität): Zeichen + Wort */
 .actor { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
