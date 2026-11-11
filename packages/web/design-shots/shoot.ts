@@ -381,7 +381,7 @@ const shots: Shot[] = [
     group: 'fehler', name: 'pauseseite-datum-ungueltig', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
-      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Einfach', exact: true }).click()
       const f = pg.locator('.pause-dialog input[type="datetime-local"]')
       // Ganz links (Tag) beginnen, dann Tag, Monat und ein sechsstelliges Jahr wie im Absturz
       await f.click({ position: { x: 14, y: 20 } })
@@ -417,14 +417,49 @@ const shots: Shot[] = [
     group: 'pauseseite', name: 'pauseseite-dialog-formular', path: `/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
-      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formular', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Einfach', exact: true }).click()
       await pg.waitForTimeout(300)
     },
   },
   {
-    // Vorlage: von Formular zu Code wechseln – das Codefeld beginnt mit dem HTML des Formulars
+    // Vorlage: von Einfach zu HTML wechseln – der Editor beginnt mit dem HTML der Felder
     group: 'pauseseite', name: 'pauseseite-vorlage-code', path: '/system/veroeffentlichung', full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Code', exact: true }).click(); await pg.waitForTimeout(250) },
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'HTML', exact: true }).click(); await pg.waitForTimeout(250) },
+  },
+  // Projektseite 7: Pause-Seiten-Editor (hallo-welt, live: Seite für das nächste Pausieren)
+  {
+    group: 'p7', name: '7-pause-einfach', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click(); await pg.waitForTimeout(350) },
+  },
+  {
+    group: 'p7', name: '7-pause-html', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'Formatieren' }).click()
+      await pg.waitForTimeout(350)
+    },
+  },
+  {
+    group: 'p7', name: '7-pause-html-verstoss', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.locator('.pause-dialog .cm-content').click()
+      await pg.keyboard.press('ControlOrMeta+End')
+      // Der Editor schliesst das Tag selbst
+      await pg.keyboard.type('\n<script src="https://cdn.example/x.js">')
+      await pg.waitForTimeout(350)
+    },
+  },
+  {
+    group: 'p7', name: '7-pause-html-vollbild', path: `/projekte/${H}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Anpassen', exact: true }).first().click()
+      await pg.locator('.pause-dialog').getByRole('button', { name: 'HTML', exact: true }).click()
+      await pg.getByRole('button', { name: 'Editor im Vollbild' }).click()
+      await pg.waitForTimeout(350)
+    },
   },
   { group: 'veroeffentlichung', name: 'veroeffentlichung-gesperrt', path: `/projekte/${S}?tab=einstellungen`, full: false },
   {

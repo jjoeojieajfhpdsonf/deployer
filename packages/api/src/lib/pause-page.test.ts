@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   renderMarkdown, renderPausePage, pauseHeaders, escapeHtml, pausePageSchema, pauseOptionsSchema, effectivePausePage,
-  DEFAULT_PAUSE_PAGE, PAUSE_CSP, forcePreviewScheme, type PausePage,
+  DEFAULT_PAUSE_PAGE, PAUSE_CSP, forcePreviewScheme, pauseHtmlProblems, type PausePage,
 } from '@airlock/shared'
 
 const page = (over: Partial<PausePage> = {}): PausePage => ({ ...DEFAULT_PAUSE_PAGE, ...over })
@@ -159,6 +159,19 @@ describe('Pause-Seite: Code-Modus', () => {
     assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html: '<p>nur ein Absatz</p>' })).success, false)
     assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html: `<html>${'x'.repeat(100_001)}</html>` })).success, false)
     assert.equal(pausePageSchema.safeParse(page({ mode: 'code', html })).success, true)
+  })
+
+  test('Prüfleiste: kein JavaScript, keine externen Quellen, mit Zeilenangabe', () => {
+    const doc = (body: string) => `<!doctype html>\n<html lang="de">\n<head><style>p{color:red}</style></head>\n<body>${body}</body></html>`
+    assert.deepEqual(pauseHtmlProblems(doc('<p>Wartung</p><a href="https://status.example.ch">Status</a>')), [])
+    const bad = pauseHtmlProblems(doc('\n<script>x()</script>\n<img src="https://cdn.example/x.png" onload="y()">\n<div style="background:url(//e.x/a.png)"></div>'))
+    assert.deepEqual(bad.map((p) => [p.kind, p.line]), [['script', 5], ['script', 6], ['external', 6], ['external', 7]])
+    assert.equal(pauseHtmlProblems('<style>@import "x.css";</style>')[0]?.kind, 'external')
+    assert.equal(pauseHtmlProblems(`<html>${'x'.repeat(100_001)}</html>`)[0]?.kind, 'size')
+    // Schema: Speichern mit Skript wird abgelehnt, mit Zeile in der Meldung
+    const r = pausePageSchema.safeParse(page({ mode: 'code', html: doc('<script>x</script>') }))
+    assert.equal(r.success, false)
+    assert.match(r.success ? '' : r.error.issues[0]!.message, /^Zeile 4: <script>/)
   })
 
   test('Vorschau fest hell/dunkel: Media-Queries umgeschrieben', () => {

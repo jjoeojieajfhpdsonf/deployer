@@ -146,7 +146,7 @@ export function ProjectDetail() {
   const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn' | 'bad' | 'critical'; countLabel?: string; live?: boolean }> = {
     uebersicht: { label: 'Übersicht' },
     security: { label: 'Security', count: openFindings, tone: secTone, countLabel: openFindings === 1 ? '1 offener Befund' : `${openFindings} offene Befunde` },
-    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} Deployments` },
+    deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
     logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
     einstellungen: { label: 'Einstellungen' },

@@ -26,6 +26,48 @@ const httpsUrl = z.string().trim().max(500)
 /** Höchstgrösse des eigenen HTML (Code-Modus). */
 export const PAUSE_HTML_MAX = 100_000
 
+/** Grösse in Bytes (UTF-8), ohne TextEncoder (das Paket läuft in Browser und Node ohne DOM-Typen) */
+export function utf8Length(s: string): number {
+  let n = 0
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4
+  }
+  return n
+}
+
+export interface PauseHtmlProblem {
+  kind: 'script' | 'external' | 'size'
+  /** 1-basiert; bei «size» die letzte Zeile */
+  line: number
+  message: string
+}
+
+/**
+ * Prüfung des eigenen HTML (Prüfleiste im Editor, Schema): kein JavaScript
+ * (script, on…-Attribute, javascript:-Adressen) und keine externen Quellen
+ * (src/srcset/Stylesheets/url()/@import von http(s) oder //). Links mit
+ * <a href> sind erlaubt: sie laden nichts. Unter der CSP der Pause-Seite
+ * liefe beides ohnehin nicht – die Prüfung sagt es vor dem Speichern.
+ */
+export function pauseHtmlProblems(html: string): PauseHtmlProblem[] {
+  const out: PauseHtmlProblem[] = []
+  const lineAt = (i: number) => html.slice(0, i).split('\n').length
+  const add = (kind: PauseHtmlProblem['kind'], i: number, message: string) => {
+    if (out.length < 20) out.push({ kind, line: lineAt(i), message })
+  }
+  for (const m of html.matchAll(/<script\b/gi)) add('script', m.index!, '<script> – JavaScript läuft auf der Pause-Seite nicht')
+  for (const m of html.matchAll(/<[a-z][^>]*?\son[a-z]+\s*=/gi)) add('script', m.index!, 'Ereignis-Attribut (on…) – JavaScript läuft nicht')
+  for (const m of html.matchAll(/(?:href|src|action)\s*=\s*["']?\s*javascript:/gi)) add('script', m.index!, 'javascript:-Adresse')
+  for (const m of html.matchAll(/\s(?:src|srcset|poster|data)\s*=\s*["']?\s*(?:https?:)?\/\//gi)) add('external', m.index!, 'externe Quelle (src) – nicht erlaubt, Bilder als Inline-SVG')
+  for (const m of html.matchAll(/<link\b[^>]*href\s*=\s*["']?\s*(?:https?:)?\/\//gi)) add('external', m.index!, 'externes Stylesheet oder Schrift')
+  for (const m of html.matchAll(/url\(\s*["']?\s*(?:https?:)?\/\//gi)) add('external', m.index!, 'externe Datei in url()')
+  for (const m of html.matchAll(/@import\b/gi)) add('external', m.index!, '@import lädt von aussen')
+  const bytes = utf8Length(html)
+  if (bytes > PAUSE_HTML_MAX) add('size', html.length, `${Math.ceil(bytes / 1000)} KB – höchstens ${PAUSE_HTML_MAX / 1000} KB`)
+  return out.sort((a, b) => a.line - b.line)
+}
+
 /**
  * Vorlage bzw. Überschreibung pro Projekt (ohne «Voraussichtlich zurück»).
  * mode form: aus den Feldern gebaut (Markdown, alles escaped). mode code:
@@ -48,7 +90,11 @@ export const pausePageSchema = z.object({
   if (v.linkUrl && !v.linkText) ctx.addIssue({ code: 'custom', path: ['linkText'], message: 'Zur Adresse fehlt der Linktext' })
   if (v.mode === 'code') {
     if (!v.html?.trim()) ctx.addIssue({ code: 'custom', path: ['html'], message: 'HTML fehlt' })
-    else if (!/<html[\s>]/i.test(v.html)) ctx.addIssue({ code: 'custom', path: ['html'], message: 'Ein ganzes Dokument mit <html> erwartet, z. B. aus «Aus Formular übernehmen»' })
+    else if (!/<html[\s>]/i.test(v.html)) ctx.addIssue({ code: 'custom', path: ['html'], message: 'Ein ganzes Dokument mit <html> erwartet, z. B. aus «Vorlage»' })
+    else {
+      const p = pauseHtmlProblems(v.html).find((x) => x.kind !== 'size')
+      if (p) ctx.addIssue({ code: 'custom', path: ['html'], message: `Zeile ${p.line}: ${p.message}` })
+    }
   }
 })
 export type PausePage = z.infer<typeof pausePageSchema>

@@ -409,7 +409,8 @@ function PausePageRow({ p, s, paused }: { p: ProjectDto; s: PublicStatusDto; pau
       «{(s.pause.page ?? s.pause.template).title}» <span className="muted">· {pageKind(s.pause.page)}{paused && s.pause.backAt ? ` · zurück ${when(s.pause.backAt)}` : ''}</span>
       <PausePageDialog open={open} title={`Pause-Seite für «${p.name}»`} initial={s.pause.page} template={s.pause.template} initialBackAt={s.pause.backAt}
         withBackAt={paused} saveLabel={paused ? 'Speichern – wirkt sofort' : 'Speichern'}
-        note={paused ? undefined : 'Besucher sehen diese Seite erst, wenn das Projekt pausiert ist.'}
+        note={paused ? undefined : 'erscheint erst beim Pausieren'}
+        hostname={s.hostname}
         saving={save.isPending} error={save.isError ? (save.error as Error).message : null}
         onCancel={() => { setOpen(false); save.reset() }} onSave={(r) => save.mutate(r)} />
     </SetRow>
@@ -457,7 +458,7 @@ export function OfflineConfirm({ s, name, busy, onCancel, onGo, only }: {
       {mode === 'pause' && (
         <>
           <PausePageSummary page={draft.page} template={s.pause.template} backAt={draft.backAt} onEdit={() => setDialog(true)} />
-          <PausePageDialog open={dialog} title={`Pause-Seite für «${name}»`} initial={draft.page} template={s.pause.template} initialBackAt={draft.backAt}
+          <PausePageDialog open={dialog} title={`Pause-Seite für «${name}»`} initial={draft.page} template={s.pause.template} initialBackAt={draft.backAt} hostname={s.hostname}
             saveLabel="Übernehmen" onCancel={() => setDialog(false)} onSave={(r) => { setDraft(r); setDialog(false) }} />
         </>
       )}
