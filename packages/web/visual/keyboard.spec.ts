@@ -40,6 +40,19 @@ test('Profilmenü: öffnen, Pfeiltasten, Esc gibt den Fokus zurück', async ({ b
   await page.context().close()
 })
 
+test('Umschalter der Umgebung: Name im Knopf, Enter öffnet, Esc gibt den Fokus zurück', async ({ browser }) => {
+  const page = await open(browser, 'm9-umschalter-domain')
+  const trigger = page.getByRole('button', { name: 'Umgebung: VB Verein, verein-beispiel.ch – wechseln' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menu', { name: 'Umgebungen' })).toBeVisible()
+  expect((await focused(page)).role).toMatch(/menuitem/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Umgebungen' })).toBeHidden()
+  await expect(trigger).toBeFocused()
+  await page.context().close()
+})
+
 test('Zeilenmenü einer Projektkarte: Enter öffnet, Esc schliesst', async ({ browser }) => {
   const page = await open(browser, 'projekte')
   const trigger = page.getByRole('button', { name: 'Aktionen für Haushaltsbuch' })

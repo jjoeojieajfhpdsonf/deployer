@@ -101,7 +101,11 @@ export function App() {
       <Rail />
       <main className="main">
         <div className="topbar">
-          <Crumbs />
+          {/* M9: Umschalter links in der Kopfzeile – in der Seitenleiste fehlte der Platz für Name und Domain */}
+          <div className="topbar-start">
+            <EnvSwitcher />
+            <Crumbs />
+          </div>
           <div className="topbar-actions">
             <ErrorBoundary scope="part"><ActivityIndicator /></ErrorBoundary>
             <ErrorBoundary scope="part"><Bell me={me.data?.loggedIn ? me.data : lastMe.current!} /></ErrorBoundary>
@@ -281,8 +285,6 @@ function Rail() {
         </button>
         {/* Antwort 6: Bildmarke (Doppeltor) vor dem Namen; Einklappen bleibt der Knopf daneben */}
         <Link to={env ? ep('/projekte') : '/'} className="brand-name"><Logo size={20} className="brand-logo" />Airlock</Link>
-        <span className="env-sep" aria-hidden="true">/</span>
-        <EnvSwitcher />
       </div>
       <nav className="rail-nav" id="rail-nav" aria-label={env ? `Umgebung ${env.name}` : 'Hauptnavigation'}>
         {items.map((it) => (

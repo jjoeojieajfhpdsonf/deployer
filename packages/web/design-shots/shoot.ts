@@ -127,6 +127,8 @@ type Shot = {
   legacy?: boolean
   /** Projekt patchen (GET /projects/:id), z. B. Ablauf in 5 Tagen */
   patch?: Partial<import('@airlock/shared').ProjectDto>
+  /** M9: Standard-Umgebung «example» patchen (z. B. sehr langer Name für den Umschalter) */
+  envPatch?: Partial<import('@airlock/shared').EnvironmentDto>
   prepare?: (page: Page) => Promise<void>
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
@@ -750,6 +752,17 @@ const shots: Shot[] = [
   /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
   { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
   { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
+  // Umschalter in der Kopfzeile: Domain hinter dem Namen (Verein), sehr langer Name endet mit «…»
+  { group: 'm9', name: 'm9-umschalter-domain', path: '/u/verein/projekte', el: '.topbar' },
+  {
+    group: 'm9', name: 'm9-umschalter-lang', path: `/u/example/projekte/${P}`, el: '.topbar',
+    envPatch: { name: 'Gemeinnütziger Verein Beispielhausen', short: 'GV', zone: 'verein-beispielhausen.ch' },
+  },
+  // Unter 860 px: nur Kürzel und Pfeil
+  {
+    group: 'm9', name: 'm9-umschalter-schmal', path: `/u/example/projekte/${P}`, full: false,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 800, height: 900 }); await pg.waitForTimeout(250) },
+  },
   { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
   {
     group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
@@ -841,6 +854,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             if (s.empty && path === '/api/v1/projects') return json(route, { projects: [] })
             if (s.broken && path === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
+            if (s.envPatch && route.request().method() === 'GET' && /^\/api\/v1\/environments(\/example)?$/.test(url.pathname)) {
+              const list = fx.environments.map((e) => (e.slug === 'example' ? { ...e, ...s.envPatch } : e))
+              return json(route, url.pathname.endsWith('/example') ? { environment: list.find((e) => e.slug === 'example') } : { environments: list })
+            }
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))

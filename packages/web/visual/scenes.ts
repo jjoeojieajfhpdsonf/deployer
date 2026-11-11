@@ -29,7 +29,7 @@ export const VISUAL_SCENES = [
   // Erster Start (Etappe 7)
   'einrichtung', 'einrichtung-uebersprungen', 'einrichtung-system',
   // M9: Umgebungen (Umschalter, Einstellungen, anlegen, verschieben, Server)
-  'm9-projekte', 'm9-umschalter', 'm9-einstellungen', 'm9-einstellungen-cloudflare', 'm9-einstellungen-standards',
+  'm9-projekte', 'm9-umschalter', 'm9-umschalter-domain', 'm9-umschalter-lang', 'm9-umschalter-schmal', 'm9-einstellungen', 'm9-einstellungen-cloudflare', 'm9-einstellungen-standards',
   'm9-umgebungen', 'm9-umgebung-anlegen', 'm9-einrichtung', 'm9-verschieben', 'm9-audit', 'm9-server', 'm9-tokens',
 ] as const
 
