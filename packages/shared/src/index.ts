@@ -1146,8 +1146,11 @@ export const addExternalTargetSchema = z.object({ hostname: externalHostnameSche
 
 /* --- Darstellung (Profilmenü) -------------------------------------------- */
 
-/** system: folgt prefers-color-scheme des Geräts */
-export const themePrefs = ['light', 'dark', 'system'] as const
+/**
+ * system: folgt prefers-color-scheme des Geräts. win95: verstecktes Spass-Theme,
+ * erst nach der Freischaltung wählbar (win95Unlocked; 7× auf die Version oder Konami-Code).
+ */
+export const themePrefs = ['light', 'dark', 'system', 'win95'] as const
 export type ThemePref = (typeof themePrefs)[number]
 /** Schritte des Einrichtungs-Assistenten (erster Start), in dieser Reihenfolge */
 export const setupSteps = ['passwort', 'cloudflare', 'adressen', 'zertifikat', 'projekt'] as const
@@ -1160,7 +1163,9 @@ export const setupPrefsSchema = z.object({
 })
 export type SetupPrefs = z.infer<typeof setupPrefsSchema>
 export const uiPrefsSchema = z.object({
-  theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }),
+  theme: z.enum(themePrefs, { message: 'Hell, Dunkel, Wie das Gerät oder Windows 95' }),
+  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet (bleibt freigeschaltet) */
+  win95Unlocked: z.boolean().optional(),
   setup: setupPrefsSchema.optional(),
   /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
   bellSeenAt: z.string().datetime().optional(),

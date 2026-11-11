@@ -43,6 +43,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
       theme: prefs.theme,
+      win95Unlocked: prefs.win95Unlocked ?? false,
       setup: prefs.setup ?? null,
       bellSeenAt: prefs.bellSeenAt ?? null,
       lastEnvironment: prefs.lastEnvironment ?? null,

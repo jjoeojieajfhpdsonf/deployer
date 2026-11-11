@@ -1,6 +1,7 @@
 import { uiPrefsPatchSchema, uiPrefsSchema, type UiPrefs, type UiPrefsPatch } from '@airlock/shared'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
+import { badRequest } from '../lib/errors.js'
 
 /**
  * Darstellung der Oberfläche (Hell/Dunkel/System), auf dem Server gespeichert,
@@ -21,7 +22,10 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
     // Feld für Feld: Ein kaputter Stand der Einrichtung kostet nicht die Wahl der Darstellung
     const theme = uiPrefsSchema.shape.theme.safeParse(obj?.theme)
     const setup = uiPrefsSchema.shape.setup.safeParse(obj?.setup)
-    const out: UiPrefs = { theme: theme.success ? theme.data : DEFAULT_UI_PREFS.theme }
+    const unlocked = obj?.win95Unlocked === true
+    // «Windows 95» nur mit Freischaltung; sonst gilt der Standard
+    const out: UiPrefs = { theme: theme.success && (theme.data !== 'win95' || unlocked) ? theme.data : DEFAULT_UI_PREFS.theme }
+    if (unlocked) out.win95Unlocked = true
     if (setup.success && setup.data) out.setup = setup.data
     // UI-Qualität 8: «Glocke gelesen bis» muss beim Lesen mitkommen, sonst ist nach jedem Neuladen alles wieder ungelesen
     const bell = uiPrefsSchema.shape.bellSeenAt.safeParse(obj?.bellSeenAt)
@@ -44,7 +48,12 @@ export async function getUiPrefs(): Promise<UiPrefs> {
  * Stand der Einrichtung nicht löschen (und umgekehrt).
  */
 export function mergeUiPrefs(current: UiPrefs, patch: UiPrefsPatch): UiPrefs {
-  return uiPrefsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })
+  const merged = uiPrefsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })
+  // Die Freischaltung bleibt: «false» nimmt sie nicht zurück (und fällt aus dem Stand)
+  if (current.win95Unlocked) merged.win95Unlocked = true
+  else if (!merged.win95Unlocked) delete merged.win95Unlocked
+  if (merged.theme === 'win95' && !merged.win95Unlocked) throw badRequest('«Windows 95» ist noch nicht freigeschaltet.')
+  return merged
 }
 
 /**
@@ -66,6 +75,9 @@ export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs
   // zuletzt gewählte Umgebung sucht niemand im Audit-Log
   if (patch.theme !== undefined && patch.theme !== before.theme) {
     await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { theme: prefs.theme }, result: 'ok' })
+  }
+  if (prefs.win95Unlocked && !before.win95Unlocked) {
+    await audit({ actor, action: 'ui.win95_unlocked', targetType: 'system', targetId: 'ui', params: {}, result: 'ok' })
   }
   return prefs
 }
