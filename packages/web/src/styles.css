@@ -205,6 +205,91 @@
   color-scheme: dark;
 }
 
+/*
+ * Verstecktes Spass-Theme «Windows 95» (freizuschalten: 7× auf die Version
+ * oder Konami-Code). Nur Tokens hier; Fenster, Bevel, Startmenü und
+ * Taskleiste im Zusatz-Block am Ende der Datei. Grund des Desktops ist
+ * --desktop (Teal); die Fenster stehen in Grau, Text darauf in Schwarz.
+ * Nur Systemschriften. Kontraste geprüft mit docs/design-cal/contrast.mjs.
+ */
+:root[data-theme='win95'], .theme-win95 {
+  --desktop: #008080;
+  --bg: #c0c0c0;
+  --surface: #c0c0c0;
+  --surface-2: #d4d4d4;
+  --surface-3: #ffffff;      /* eingelassen: Fortschritt, Listen */
+  --inset: #ffffff;          /* Felder */
+  --code: #ffffff;
+  --hover: rgba(0, 0, 0, 0.06);
+  --scrim: rgba(0, 0, 0, 0.18);
+
+  --line: #808080;
+  --line-strong: #808080;
+  --ring: rgba(0, 0, 0, 0);
+  --field-line: #404040;
+  --field-line-hover: #000000;
+  --focus-ring: rgba(0, 0, 0, 0);
+
+  --ink: #000000;
+  --ink-dim: #1a1a1a;
+  --muted: #3c3c3c;
+  --faint: #808080;
+  --primary: #000080;
+  --primary-ink: #ffffff;
+  --primary-hover: #0000a0;
+  --primary-highlight: rgba(255, 255, 255, 0);
+
+  --ok: #005400;
+  --warn: #604000;
+  --bad: #800000;
+  --info: #000080;
+  --ok-bg: #dcecdc;
+  --warn-bg: #f0e6c8;
+  --bad-bg: #f2dcdc;
+  --info-bg: #dcdcf2;
+  --ok-line: rgba(0, 84, 0, 0.35);
+  --warn-line: rgba(96, 64, 0, 0.35);
+  --bad-line: rgba(128, 0, 0, 0.35);
+  --info-line: rgba(0, 0, 128, 0.35);
+  --claude: #8a3a10;
+  --claude-bg: #f0e0d4;
+
+  /* Erhaben (Fenster, Knöpfe, Menüs): hell oben links, dunkel unten rechts, 2 px */
+  --w95-raised: inset -1px -1px 0 #000000, inset 1px 1px 0 #dfdfdf, inset -2px -2px 0 #808080, inset 2px 2px 0 #ffffff;
+  /* Eingelassen (Felder, gedrückte Knöpfe): umgekehrt */
+  --w95-sunken: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff, inset 2px 2px 0 #000000, inset -2px -2px 0 #dfdfdf;
+  --sh-ring: none;
+  --sh-card: var(--w95-raised);
+  --sh-card-hover: var(--w95-raised);
+  --sh-pop: var(--w95-raised);
+  --sh-btn: var(--w95-raised);
+  --sh-btn-primary: 0 0 0 1px #000000, var(--w95-raised);
+
+  --font: 'MS Sans Serif', Tahoma, Geneva, sans-serif;
+  --display: 'MS Sans Serif', Tahoma, Geneva, sans-serif;
+  --mono: 'Courier New', Courier, monospace;
+  --fs-12: 12px;
+  --fs-13: 12px;
+  --fs-14: 13px;
+  --fs-15: 13px;
+  --fs-16: 13px;
+  --fs-18: 13px;
+  --fs-24: 13px;
+  --fs-30: 16px;
+  --fs-40: 18px;
+  --fs-44: 18px;
+  --track-display: 0;
+
+  --r-xs: 0;
+  --r-sm: 0;
+  --r: 0;
+  --r-md: 0;
+  --r-lg: 0;
+  --r-pill: 0;
+
+  color-scheme: light;
+}
+
 /* --- Grundlagen ------------------------------------------------------------- */
 
 * { box-sizing: border-box; }
@@ -2157,9 +2242,16 @@ kbd + kbd { margin-left: 4px; }
 /* --- Komponenten-Übersicht /design: Hell und Dunkel nebeneinander ---------------------- */
 
 .page-design { max-width: none; }
-.design-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.design-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
 /* Jede Spalte trägt ihre eigenen Tokens (.theme-light/.theme-dark) und damit eigenen Grund */
-.design-col { padding: var(--sp-6); border-radius: var(--r-lg); background: var(--bg); color: var(--ink); box-shadow: var(--sh-ring); min-width: 0; }
+.design-col { padding: var(--sp-6); border-radius: var(--r-lg); background: var(--bg); color: var(--ink); box-shadow: var(--sh-ring); min-width: 0; font-family: var(--font); font-size: var(--fs-14); }
+/* Drei Spalten (Hell, Dunkel, Windows 95): schmaler als die echte Seite – Zeilen und Kennzahlen rücken zusammen */
+.design-col { padding: var(--sp-4); container-type: inline-size; }
+@container (max-width: 420px) {
+  .set-row { grid-template-columns: 110px minmax(0, 1fr) auto; gap: var(--sp-2); padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .set-row-value { overflow-wrap: normal; }
+  .design-stats .stat-value { font-size: var(--fs-30); overflow-wrap: normal; }
+}
 .design-col-label { margin: 0 0 var(--sp-4); font-size: var(--fs-13); font-weight: 600; color: var(--muted); }
 .design-catalog { display: grid; gap: var(--sp-10); }
 .design-block { display: grid; gap: var(--sp-3); min-width: 0; }
@@ -2208,4 +2300,241 @@ kbd + kbd { margin-left: 4px; }
     transition: opacity 80ms ease !important;
     transition: opacity 80ms ease, display 80ms allow-discrete !important;
   }
+}
+
+/* ==========================================================================
+ * Windows 95 – Zusatz-Block (nur dieses Theme)
+ *
+ * Farben, Radien, Schatten und Schrift kommen aus dem Token-Block oben. Hier
+ * nur, was Tokens nicht können: Karten als Fenster mit Titelleiste, die
+ * klassische 2-px-Bevel-Kante an Knöpfen und Feldern, die Seitenleiste als
+ * Startmenü, die Taskleiste. Bedienung und Markup bleiben gleich; die
+ * Fenster-Knöpfe sind ein Hintergrundbild (Deko, für Screenreader unsichtbar).
+ * ========================================================================== */
+
+:root[data-theme='win95'] {
+  /* Titelleiste: Verlauf wie das Original; weisse Schrift nur im linken Teil (≥ 4.5:1, contrast.mjs) */
+  --w95-title: linear-gradient(90deg, #000080, #1084d0);
+  --w95-title-mid: #0a4fb0;  /* Farbe bei 60 % – so weit reicht der Titeltext höchstens */
+  --w95-buttons: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='14' shape-rendering='crispEdges'%3E%3Cdefs%3E%3Cg id='b'%3E%3Crect width='16' height='14' fill='%23c0c0c0'/%3E%3Crect width='15' height='1' fill='%23fff'/%3E%3Crect width='1' height='13' fill='%23fff'/%3E%3Crect y='13' width='16' height='1'/%3E%3Crect x='15' width='1' height='14'/%3E%3Crect x='1' y='1' width='13' height='1' fill='%23dfdfdf'/%3E%3Crect x='1' y='1' width='1' height='11' fill='%23dfdfdf'/%3E%3Crect x='1' y='12' width='14' height='1' fill='%23808080'/%3E%3Crect x='14' y='1' width='1' height='12' fill='%23808080'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23b'/%3E%3Cuse href='%23b' x='16'/%3E%3Cuse href='%23b' x='34'/%3E%3Crect x='4' y='9' width='6' height='2'/%3E%3Cpath d='M19.5 2.5h8v8h-8z' fill='none' stroke='%23000'/%3E%3Crect x='19' y='2' width='9' height='2'/%3E%3Cpath d='M38 3.5l7 7M45 3.5l-7 7' stroke='%23000' stroke-width='1.6' shape-rendering='auto'/%3E%3C/svg%3E");
+  --w95-logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='14' shape-rendering='crispEdges'%3E%3Crect x='1' y='1' width='6' height='5' fill='%23e8341c'/%3E%3Crect x='8' y='1' width='6' height='5' fill='%2300a32e'/%3E%3Crect x='1' y='7' width='6' height='5' fill='%230a4fd8'/%3E%3Crect x='8' y='7' width='6' height='5' fill='%23ffc20e'/%3E%3C/svg%3E");
+}
+.theme-win95 { --w95-title: linear-gradient(90deg, #000080, #1084d0); }
+
+/* --- Desktop, Hauptfenster, Startmenü, Taskleiste (nur die ganze Seite) --- */
+
+:root[data-theme='win95'] body { background: var(--desktop); letter-spacing: 0; -webkit-font-smoothing: auto; }
+:root[data-theme='win95'] ::selection { background: #000080; color: #ffffff; }
+:root[data-theme='win95'] .shell { min-height: calc(100vh - 30px); padding-bottom: 30px; }
+:root[data-theme='win95'] .login { background: var(--desktop); }
+
+/* Seitenleiste als Startmenü: grau, erhaben, links das senkrechte Band */
+:root[data-theme='win95'] .rail {
+  height: calc(100vh - 30px);
+  padding-left: 40px;
+  background: var(--surface);
+  box-shadow: var(--w95-raised);
+}
+:root[data-theme='win95'] .rail::before {
+  content: 'Airlock 95' / '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 26px;
+  padding: 10px 0;
+  background: linear-gradient(0deg, #000080, #1084d0);
+  color: #c0c0c0;
+  font: 700 20px/26px var(--font);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  pointer-events: none;
+}
+:root[data-theme='win95'] .rail-collapsed { padding-left: 34px; }
+:root[data-theme='win95'] .rail-collapsed::before { width: 20px; font-size: 14px; line-height: 20px; }
+:root[data-theme='win95'] .rail-nav a { border-radius: 0; }
+:root[data-theme='win95'] .rail-nav a:hover,
+:root[data-theme='win95'] .rail-nav a.active { background: var(--primary); color: var(--primary-ink); }
+:root[data-theme='win95'] .rail-nav a:hover .rail-item svg,
+:root[data-theme='win95'] .rail-nav a.active .rail-item svg { color: var(--primary-ink); }
+:root[data-theme='win95'] .rail-divider { border-top-color: #808080; box-shadow: inset 0 1px 0 #ffffff; }
+:root[data-theme='win95'] .brand-name { font-weight: 700; }
+:root[data-theme='win95'] .rail-version { cursor: default; user-select: none; }
+
+/* Inhalt als ein grosses Fenster «Airlock» auf dem Desktop */
+:root[data-theme='win95'] .main {
+  position: relative;
+  margin: 8px 8px 8px 12px;
+  padding: 34px 24px 32px;
+  background: var(--surface);
+  box-shadow: var(--w95-raised);
+}
+:root[data-theme='win95'] .main::before {
+  content: 'Airlock' / '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  height: 20px;
+  padding-left: 8px;
+  background: var(--w95-title);
+  color: #ffffff;
+  font: 700 13px/20px var(--font);
+  pointer-events: none;
+}
+:root[data-theme='win95'] .main::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 50px;
+  height: 14px;
+  background: var(--w95-buttons);
+  pointer-events: none;
+}
+:root[data-theme='win95'] .topbar { margin-bottom: var(--sp-4); }
+
+/* Taskleiste: nur in diesem Theme gerendert (Win95.tsx, aria-hidden) */
+.w95-taskbar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 2px 3px;
+  background: #c0c0c0;
+  box-shadow: inset 0 1px 0 #dfdfdf, inset 0 2px 0 #ffffff;
+  color: #000000;
+  font: 12px/1 var(--font);
+  user-select: none;
+}
+.w95-start,
+.w95-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  box-shadow: inset -1px -1px 0 #000000, inset 1px 1px 0 #dfdfdf, inset -2px -2px 0 #808080, inset 2px 2px 0 #ffffff;
+}
+.w95-start { font-weight: 700; }
+.w95-logo { width: 16px; height: 14px; background: var(--w95-logo); }
+/* Laufendes Programm: gedrückt */
+.w95-task { min-width: 150px; margin-left: 4px; background: #dfdfdf; box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 #ffffff, inset 2px 2px 0 #808080, inset -2px -2px 0 #dfdfdf; font-weight: 700; }
+.w95-tray { margin-left: auto; height: 22px; padding: 0 10px; display: inline-flex; align-items: center; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+
+/* Meldungen über der Taskleiste */
+:root[data-theme='win95'] [data-sonner-toaster][data-y-position='bottom'] { margin-bottom: 30px; }
+:root[data-theme='win95'] [data-sonner-toaster] { --border-radius: 0; }
+
+/* --- Fenster, Knöpfe, Felder (auch in der Spalte «Windows 95» unter /design) --- */
+
+@scope (:root[data-theme='win95'], .theme-win95) to (.theme-light, .theme-dark) {
+  h1, h2, .page > h2, .section-head h2 { font-weight: 700; }
+  .ov-title, .bento-text, .stat-value, .dialog-body h2 { font-weight: 700; }
+
+  /* Karten als Fenster: Titelleiste oben, Fenster-Knöpfe rechts (Deko) */
+  :is(.panel, .stat, .pcard, .set-card, .bento-card, .sk-card, .gh-step, .login-form, .dialog):not(.login-form-dialog) { position: relative; }
+  :is(.panel, .stat, .pcard, .set-card, .bento-card, .sk-card, .gh-step, .login-form, .dialog):not(.login-form-dialog)::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    right: 3px;
+    height: 18px;
+    background: var(--w95-title);
+    pointer-events: none;
+  }
+  :is(.panel, .stat, .pcard, .set-card, .bento-card, .sk-card, .gh-step, .login-form, .dialog):not(.login-form-dialog)::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 50px;
+    height: 14px;
+    background: var(--w95-buttons);
+    pointer-events: none;
+  }
+  .panel, .set-card, .dialog { padding-top: 22px; }
+  .panel-pad, .ov-section { padding: 32px 14px 14px; }
+  .stat, .pcard, .bento-card, .sk-card, .gh-step { padding: 30px 12px 12px; }
+  .login-form { padding: 32px 16px 16px; }
+
+  /* Überschrift der Karte wandert in die Titelleiste (weiss, fett, höchstens 60 % breit) */
+  :is(.ov-head .ov-title, .ov-section > .ov-title, .set-head h2, .panel-head h2, .stat .label, .dialog-body > h2:first-child) {
+    position: absolute;
+    z-index: 1;
+    top: 3px;
+    left: 9px;
+    max-width: 60%;
+    height: 18px;
+    margin: 0;
+    overflow: hidden;
+    color: #ffffff;
+    font: 700 12px/18px var(--font);
+    letter-spacing: 0;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .set-head { min-height: 40px; padding: var(--sp-2) 14px; border-bottom-color: #808080; }
+  .ov-head:not(:has(> :not(.ov-title))) { margin-bottom: 0; }
+  /* Titel steht in der Leiste; die Aktion der Karte («Alle 6», «Verlauf») bleibt rechts */
+  .ov-head { justify-content: flex-end; margin-bottom: var(--sp-3); }
+  .stat-value { margin-top: 4px; }
+
+  /* Listen und Tabellen: weiss und eingelassen, Spaltenköpfe als Knöpfe */
+  .table-scroll { background: #ffffff; box-shadow: var(--w95-sunken); padding: 2px; }
+  .table th { background: var(--surface); box-shadow: var(--w95-raised); color: var(--ink); font-weight: 400; padding: 3px 8px; }
+
+  /* Knöpfe: grau, 2-px-Bevel, beim Drücken umgekehrt; Fokus als gepunkteter Rahmen innen */
+  button, .button {
+    min-height: 26px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--w95-raised);
+    font: 400 var(--fs-14)/18px var(--font);
+    letter-spacing: 0;
+    transition: none;
+  }
+  button:hover:not(:disabled), .button:hover { background: var(--surface); }
+  button:active:not(:disabled):not(.link-button):not(.tab):not([role='menuitem']):not([role='menuitemradio']):not([role='tab']),
+  a.button:active { transform: translate(1px, 1px); box-shadow: var(--w95-sunken); }
+  button:disabled, button:disabled:hover { background: var(--surface); color: #808080; text-shadow: 1px 1px 0 #ffffff; box-shadow: var(--w95-raised); }
+  .button-primary, button.button-primary { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: var(--sh-btn-primary); }
+  .button-primary:hover:not(:disabled), a.button-primary:hover { background: var(--surface); }
+  .button-danger, button.button-danger { background: var(--surface); }
+  .button-danger:hover:not(:disabled) { background: var(--surface); }
+  button:focus-visible, .button:focus-visible { outline: 1px dotted #000000; outline-offset: -5px; }
+  .segmented { padding: 2px; background: var(--surface); box-shadow: var(--w95-sunken); }
+  .segmented button { min-height: 24px; border-radius: 0; box-shadow: none; color: var(--ink); }
+  .segmented button[aria-pressed='true'] { background: #dfdfdf; box-shadow: var(--w95-sunken); }
+
+  /* Felder: weiss, eingelassen */
+  /* :where hält die Spezifität bei «input» – besondere Felder (Suche mit Symbol) behalten ihr Polster */
+  input:where(:not([type='checkbox'], [type='radio'], [type='range'])), select, textarea {
+    min-height: 26px;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: var(--w95-sunken);
+    font: var(--fs-14)/1.3 var(--font);
+  }
+  input:focus, select:focus, textarea:focus { box-shadow: var(--w95-sunken); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1px dotted #000000; outline-offset: -4px; }
+  .search input { padding-left: 28px; box-shadow: var(--w95-sunken); }
+  .search svg { left: 8px; color: var(--ink); }
+
+  /* Menüs: erhaben, Auswahl blau hinterlegt */
+  .menu-list { padding: 3px; border-radius: 0; }
+  .menu-list button, .menu-list a { border-radius: 0; box-shadow: none; }
+  .menu-list button:hover:not(:disabled), .menu-list a:hover,
+  .menu-list button:focus-visible, .menu-list a:focus-visible { background: var(--primary); color: var(--primary-ink); outline: none; }
+  .menu-list button:hover .menu-check, .menu-list button:focus-visible .menu-check { color: var(--primary-ink); }
 }
