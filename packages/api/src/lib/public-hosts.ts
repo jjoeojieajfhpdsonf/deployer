@@ -25,7 +25,7 @@ export function resolvePublicHostname(
   let host: string
   if (input.hostname) host = input.hostname.trim().toLowerCase().replace(/\.$/, '')
   else if (input.subdomain) {
-    if (!o.defaultZone) throw new PublicHostError('Keine Standard-Domain gesetzt; bitte einen vollen Hostnamen angeben oder unter Domains eine Standard-Domain wählen')
+    if (!o.defaultZone) throw new PublicHostError('Keine Standard-Domain gesetzt; bitte einen vollen Hostnamen angeben oder unter System › Cloudflare & HTTPS eine Standard-Domain wählen')
     host = `${input.subdomain.trim().toLowerCase()}.${o.defaultZone}`
   } else throw new PublicHostError('Für "public" braucht es eine Subdomain oder einen Hostnamen')
 

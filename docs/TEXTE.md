@@ -139,3 +139,29 @@ gebracht (z. B. immer «Audit-Log», immer «Umgebungsvariablen», immer «Rollb
 **Zustände**
 - Nie nur Farbe: Punkt oder Zeichen **und** Wort («läuft», «fehlgeschlagen», «kritisch»).
 - Leerzustände nennen den nächsten Schritt («Projekt anlegen», «Suche leeren»).
+
+## Farbregel (UI-Qualität 7)
+
+Farbe trägt Bedeutung, nie allein: immer zusammen mit einem Wort oder einer Zahl mit Wort.
+
+| Farbe | Bedeutung | Wo |
+|---|---|---|
+| Rot (`--bad`) | etwas ist kaputt oder gefährlich | Deploy gescheitert, nichts läuft, kritische und hohe Befunde, Fehlermeldungen, Löschen |
+| Gelb (`--warn`) | Aufmerksamkeit, aber nichts kaputt | mittlere Befunde, Warnungen im Log, bald ablaufend, pausiert |
+| Grün (`--ok`) | in Ordnung | läuft, gesund, erreichbar, keine offenen Befunde |
+| Blau (`--info`) | läuft gerade / Hinweis | deployt gerade, Scan läuft, Hinweise |
+| Grau (`--ink-dim`, `--muted`) | neutral | niedrige Befunde, übersprungen, gestoppt, nicht deployt |
+
+**Schweregrade** haben je eine eigene Form, nicht nur eine eigene Farbe – die Reihenfolge ist
+auch ohne Farbe lesbar:
+
+| Stufe | Darstellung |
+|---|---|
+| kritisch | gefüllt rot, Schrift in der Grundfarbe, fett |
+| hoch | rot getönt, rote Schrift |
+| mittel | gelb getönt, gelbe Schrift |
+| niedrig | neutral grau |
+
+Immer mit dem Wort («kritisch», «hoch», «mittel», «niedrig»). Die Bausteine zeigt `/design`.
+
+**Schriftgrössen** kommen nur aus der Skala (`--fs-12` … `--fs-44`); nichts unter 12 px.

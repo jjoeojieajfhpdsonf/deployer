@@ -37,7 +37,7 @@ export function publicEnabled(): boolean {
 function client(): Cloudflare {
   const cf = cloudflareClient()
   if (!cf || !settings.accountId() || !settings.tunnelId()) {
-    throw new AppError('public_disabled', 'Öffentlich ist nicht eingerichtet: unter System «Cloudflare verbinden» Token und Tunnel einrichten.', 400)
+    throw new AppError('public_disabled', 'Öffentlich ist nicht eingerichtet: unter System › Cloudflare & HTTPS Token und Tunnel einrichten.', 400)
   }
   return cf
 }
@@ -150,7 +150,7 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     const clash = await db.select().from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
     if (clash.some((r) => r.projectId !== project.id)) throw conflict(`${hostname} ist schon von einem anderen Projekt belegt`)
     const access = input.accessProtected ?? Boolean(before?.accessProtected)
-    if (access && !settings.accessEmail()) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (System → Cloudflare → Domains).')
+    if (access && !settings.accessEmail()) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (System › Cloudflare & HTTPS, Domains).')
     return { project, hostname, zone, access, before }
   } catch (err) {
     wrap(err)

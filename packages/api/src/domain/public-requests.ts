@@ -39,7 +39,7 @@ export function gateReason(g: { why: 'no_scan' | 'scan_running' | 'critical' | '
     case 'no_scan':
       return 'Noch kein abgeschlossener Scan – er startet nach dem ersten erfolgreichen Deploy.'
     case 'disabled':
-      return 'Öffentlich ist nicht eingerichtet: unter System → Cloudflare & HTTPS den Tunnel einrichten.'
+      return 'Öffentlich ist nicht eingerichtet: unter System › Cloudflare & HTTPS den Tunnel einrichten.'
   }
 }
 

@@ -56,6 +56,7 @@ export function CloudflareSetup() {
   const [editing, setEditing] = useState<'token' | 'domains' | null>(null)
   const [check, setCheck] = useState<CfTokenCheckDto | null>(null)
   const [showSetup, setShowSetup] = useState(false)
+  const [fromSummary, setFromSummary] = useState(false)
   const set = (s: CfStatusDto) => {
     qc.setQueryData(['cloudflare'], s)
     void qc.invalidateQueries({ queryKey: ['system'] })
@@ -79,13 +80,24 @@ export function CloudflareSetup() {
 
   // UI-Qualität 6: nach der Einrichtung eine Zusammenfassung statt der fünf Schritte
   const complete = ui && hasToken && hasDomains && (hasTunnel || tunnelSkipped) && tlsDone && !editing
+  // Umschalten ersetzt den Inhalt: Fokus auf das Gegenstück (sonst fiele er auf <body>)
+  const toggle = (setup: boolean) => {
+    setShowSetup(setup)
+    requestAnimationFrame(() => document.getElementById(setup ? 'cf-show-summary' : 'cf-summary-h')?.focus())
+  }
+  // «Token ersetzen» aus der Zusammenfassung: nach Speichern oder Abbrechen dorthin zurück
+  const backFromToken = () => {
+    if (!fromSummary) return
+    setFromSummary(false)
+    toggle(false)
+  }
   if (complete && !showSetup) {
     return (
       <div className="cf">
         <section className="cf-summary panel panel-pad" aria-labelledby="cf-summary-h">
           <div className="cf-summary-head">
-            <h3 id="cf-summary-h" className="cf-step-title" aria-level={2}><IconOk /> Cloudflare ist eingerichtet</h3>
-            <button type="button" className="button-small" aria-expanded={false} onClick={() => setShowSetup(true)}>Einrichtung anzeigen</button>
+            <h3 id="cf-summary-h" className="cf-step-title" aria-level={2} tabIndex={-1}><IconOk /> Cloudflare ist eingerichtet</h3>
+            <button type="button" className="button-small" onClick={() => toggle(true)}>Einrichtung anzeigen</button>
           </div>
           <dl className="cf-summary-rows">
             <dt>Token</dt>
@@ -100,7 +112,7 @@ export function CloudflareSetup() {
             <dd><CertSummary s={s} /></dd>
           </dl>
         </section>
-        <Manage s={s} onChanged={set} onReplaceToken={() => { setShowSetup(true); setCheck(null); setEditing('token'); requestAnimationFrame(() => document.getElementById('f-token')?.focus()) }} />
+        <Manage s={s} onChanged={set} onReplaceToken={() => { setFromSummary(true); setShowSetup(true); setCheck(null); setEditing('token'); requestAnimationFrame(() => document.getElementById('f-token')?.focus()) }} />
       </div>
     )
   }
@@ -109,7 +121,7 @@ export function CloudflareSetup() {
     <div className="cf">
       {complete && (
         <div className="cf-summary-head cf-summary-back">
-          <button type="button" className="button-small" aria-expanded onClick={() => setShowSetup(false)}>Zusammenfassung zeigen</button>
+          <button type="button" id="cf-show-summary" className="button-small" onClick={() => toggle(false)}>Zusammenfassung anzeigen</button>
         </div>
       )}
       {s.source === 'env' && (
@@ -122,7 +134,7 @@ export function CloudflareSetup() {
       <ol className="cf-steps">
         <Step n={1} title="Token einfügen" state={tokenState} onEdit={() => { setCheck(null); setEditing('token') }}
           summary={<>API-Token gespeichert {s.token.savedAt ? relativeTime(s.token.savedAt) : ''} · Konto {s.account?.name ?? s.account?.id}</>}>
-          <TokenStep s={s} replacing={hasToken} onChecked={setCheck} onSaved={(st2) => { set(st2); setCheck(null); setEditing(null) }} onCancel={hasToken ? () => { setCheck(null); setEditing(null) } : undefined} />
+          <TokenStep s={s} replacing={hasToken} onChecked={setCheck} onSaved={(st2) => { set(st2); setCheck(null); setEditing(null); backFromToken() }} onCancel={hasToken ? () => { setCheck(null); setEditing(null); backFromToken() } : undefined} />
         </Step>
 
         <Step n={2} title="Token prüfen" state={checkState} summary={<PermissionSummary check={s.token.lastCheck} />}>

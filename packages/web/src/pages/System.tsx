@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { FALLBACK_MS } from '../lib/live.js'
 import { Domains } from './Domains.js'
@@ -119,17 +119,22 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 /** Sprung zu #abschnitt (z.B. /domains → /system/cloudflare#domains), sobald die Seite steht */
 function ScrollToHash({ ready }: { ready: boolean }) {
   const { hash } = useLocation()
+  // Erst springen, wenn alles darüber geladen ist (Cloudflare, Domains) – sonst schöbe es den Abschnitt weg
+  const loading = useIsFetching()
+  const done = useRef<string | null>(null)
   useEffect(() => {
-    if (!ready || !hash) return
+    if (!ready || !hash || loading > 0 || done.current === hash) return
     const t = setTimeout(() => {
       const el = document.getElementById(hash.slice(1))
       if (!el) return
+      done.current = hash
       el.scrollIntoView({ block: 'start' })
-      el.querySelector<HTMLElement>('h2')?.setAttribute('tabindex', '-1')
-      el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+      const h = el.querySelector<HTMLElement>('h2')
+      h?.setAttribute('tabindex', '-1')
+      h?.focus({ preventScroll: true })
     }, 50)
     return () => clearTimeout(t)
-  }, [ready, hash])
+  }, [ready, hash, loading])
   return null
 }
 

@@ -149,9 +149,11 @@ function Rail() {
   }
 
   // Zahl sichtbar (aria-hidden), Bedeutung als Text: auch im eingeklappten Zustand Teil des Namens
-  const urgentText = urgent > 0 ? `${urgent} offene kritische oder hohe Befunde${critical ? `, davon ${critical} kritisch` : ''}` : undefined
+  const urgentText = urgent > 0
+    ? `${urgent} ${urgent === 1 ? 'offener kritischer oder hoher Befund' : 'offene kritische oder hohe Befunde'}${critical && urgent > 1 ? `, davon ${critical} kritisch` : ''}`
+    : undefined
   const items: { to: string; label: string; icon: ReactNode; count?: ReactNode; countText?: string }[] = [
-    { to: '/projekte', label: 'Projekte', icon: <IconProjects />, count: projects.data ? <span className="rail-count" aria-hidden="true">{list.length}</span> : null, countText: projects.data ? `${list.length} Projekte` : undefined },
+    { to: '/projekte', label: 'Projekte', icon: <IconProjects />, count: projects.data ? <span className="rail-count" aria-hidden="true">{list.length}</span> : null, countText: projects.data ? `${list.length} ${list.length === 1 ? 'Projekt' : 'Projekte'}` : undefined },
     {
       to: '/security', label: 'Security', icon: <IconShield />,
       // Zahl = offene kritische + hohe Befunde; bei 0 keine Zahl. Tooltip und Name sagen, was sie zählt
@@ -190,11 +192,10 @@ function Rail() {
       </nav>
       {/* Unten fixiert: «Server <Name> · Version <x>» */}
       <div className="rail-foot">
-        <span>
-          {/* Umbruch nur zwischen den beiden Teilen, nie mitten in «Version 0.9.0» */}
-          <span className="nowrap">Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />} ·</span>{' '}
-          <span className="nowrap">Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
-        </span>
+        {/* Zwei Zeilen mit Absicht: «Server … · Version …» passt bei 192 px nicht in eine Zeile,
+            und ein Punkt am Zeilenende hinge in der Luft */}
+        <span>Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />}</span>
+        <span className="nowrap">Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
       </div>
     </aside>
   )

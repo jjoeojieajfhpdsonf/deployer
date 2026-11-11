@@ -23,7 +23,8 @@ export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte
   )
   if (section === 'extern') {
     return (
-      <section className="page page-medium">
+      // Gleiche Breite wie der Reiter «Projekte» (kein Springen beim Wechsel)
+      <section className="page">
         <PageHead crumbs={[{ label: 'Security', to: '/security' }, { label: 'Externe Ziele' }]} title="Security" name="Externe Ziele" />
         {tabs}
         <ExternalTargets />

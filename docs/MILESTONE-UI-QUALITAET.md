@@ -295,11 +295,25 @@ Umsetzung:
   (Strich statt Haken, kein Fehler), auch in den Schritten.
 - Brotkrumen erst ab der zweiten Ebene, mit echten Namen (Projektname statt Kurzname) und
   klickbaren Vorgängern, Wurzel «Airlock» (statt des Servernamens), Trennzeichen «›».
-- Fusszeile der Seitenleiste in einer Zeile «Server heimserver · Version 0.9.0» (bricht nur
-  zwischen den Teilen um), unten fixiert wie bisher.
+- Fusszeile der Seitenleiste unten fixiert wie bisher (zur Zeilenaufteilung siehe Befunde).
 - Szenen: `system-cloudflare-fertig` neu; `externe-ziele` und `domains` zeigen die Weiterleitungen.
   Zwei Szenen der Projekteinstellungen mit höherer Pixel-Toleranz (schwankende Kantenglättung der
   klebenden Sprungnavigation, sichtbar gleich).
+
+Befunde aus dem Gutachten (behoben):
+- Cloudflare: Umschalten Zusammenfassung ↔ Einrichtung setzt den Fokus auf das Gegenstück (nicht
+  mehr auf <body>); «Token ersetzen» aus der Zusammenfassung führt nach Speichern oder Abbrechen
+  dorthin zurück. Gleiches Verb: «Einrichtung anzeigen» / «Zusammenfassung anzeigen».
+- Sprung zu `#domains` erst, wenn alles darüber geladen ist, mit Abstand oben.
+- Badge-Text in der Einzahl («1 offener kritischer oder hoher Befund», «1 Projekt»).
+- Fusszeile der Seitenleiste: «Server … · Version …» passt bei 192 px nicht in eine Zeile; jetzt
+  bewusst zwei Zeilen ohne hängenden Punkt.
+- Meldungen des Servers nennen den neuen Ort «System › Cloudflare & HTTPS» (Standard-Domain,
+  Tailnet, HSTS, Öffentlich, Access).
+- Eingeklappte Seitenleiste: Zähler 12 px statt 10 px.
+- Beide Security-Reiter gleich breit.
+- Tastaturtests: Reiter «Externe Ziele», Weiterleitung `/domains` mit Fokus auf «Domains»,
+  Umschalten der Cloudflare-Zusammenfassung, «Token ersetzen» und zurück, Kürzel «g s».
 
 ### 7 – Schweregrade und Farbregeln
 - Eigene Darstellung je Stufe (kritisch gefüllt, hoch getönt Fehlerfarbe, mittel getönt Warnfarbe,

@@ -31,8 +31,8 @@ export function tailnetDnsConfigured(): boolean {
 export async function ensureTailnetDns(actor: string, cf = cloudflareClient()): Promise<TailnetDnsResult> {
   const base = settings.baseDomain()
   const ip = net.tailscaleIp()
-  if (!base || !ip) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (System → Cloudflare)', 400)
-  if (!cf) throw new CloudflareError('Kein Cloudflare-Token (System → Cloudflare verbinden)', 400)
+  if (!base || !ip) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (System › Cloudflare & HTTPS)', 400)
+  if (!cf) throw new CloudflareError('Kein Cloudflare-Token (System › Cloudflare & HTTPS, Token einfügen)', 400)
   return ensureWildcardRecord(cf, base, ip, actor)
 }
 

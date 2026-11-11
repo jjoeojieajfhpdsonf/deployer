@@ -144,3 +144,51 @@ test('Fokus ist überall sichtbar (Tab durch den Kopf)', async ({ browser }) => 
   }
   await page.context().close()
 })
+
+/* --- UI-Qualität 6: neue Orte ------------------------------------------------------- */
+
+test('Security: Reiter «Externe Ziele» per Tastatur, Adresse und Brotkrumen stimmen', async ({ browser }) => {
+  const page = await open(browser, 'security-global')
+  await page.getByRole('link', { name: 'Externe Ziele' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/security\/extern$/)
+  await expect(page.getByRole('link', { name: 'Externe Ziele' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Pfad' })).toContainText('Airlock›Security›Externe Ziele')
+  await page.context().close()
+})
+
+test('/domains leitet weiter: System › Cloudflare & HTTPS, Fokus auf der Überschrift «Domains»', async ({ browser }) => {
+  const page = await open(browser, 'domains')
+  await expect(page).toHaveURL(/\/system\/cloudflare#domains$/)
+  await expect.poll(async () => (await focused(page)).label).toBe('Domains')
+  await page.context().close()
+})
+
+test('Cloudflare: Zusammenfassung ↔ Einrichtung, der Fokus bleibt nie auf <body>', async ({ browser }) => {
+  const page = await open(browser, 'system-cloudflare-fertig')
+  await page.getByRole('button', { name: 'Einrichtung anzeigen' }).focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await focused(page)).label).toBe('Zusammenfassung anzeigen')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await focused(page)).label).toMatch(/Cloudflare ist eingerichtet/)
+  await page.context().close()
+})
+
+test('Cloudflare: «Token ersetzen» aus der Zusammenfassung fokussiert das Feld, «Abbrechen» führt zurück', async ({ browser }) => {
+  const page = await open(browser, 'system-cloudflare-fertig')
+  await page.getByRole('button', { name: 'Token ersetzen' }).click()
+  await expect.poll(async () => (await focused(page)).tag).toBe('INPUT')
+  await page.getByRole('button', { name: 'Abbrechen' }).click()
+  await expect(page.getByRole('heading', { name: /Cloudflare ist eingerichtet/ })).toBeVisible()
+  await expect.poll(async () => (await focused(page)).label).toMatch(/Cloudflare ist eingerichtet/)
+  await page.context().close()
+})
+
+test('Kürzel «g s» führt zu Security', async ({ browser }) => {
+  const page = await open(browser, 'projekte')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('g')
+  await page.keyboard.press('s')
+  await expect(page).toHaveURL(/\/security$/)
+  await page.context().close()
+})

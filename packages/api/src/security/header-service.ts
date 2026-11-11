@@ -78,9 +78,9 @@ function inlinePrompt(p: { name: string; slug: string }, findingId: string, summ
  */
 export async function hstsReadiness(projectId: string): Promise<{ ok: boolean; reason: string | null }> {
   const tls = caddyTlsOptions()
-  if (!tls) return { ok: false, reason: 'HTTPS ist nicht eingerichtet (System → Cloudflare → Zertifikat).' }
+  if (!tls) return { ok: false, reason: 'HTTPS ist nicht eingerichtet (System › Cloudflare & HTTPS, Zertifikat).' }
   if (tls.acmeCa !== 'production' || (tls.mode ?? 'wildcard') !== 'wildcard') {
-    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter System → Cloudflare «HTTPS aktiv» steht.' }
+    return { ok: false, reason: 'Das Zertifikat ist noch im Probelauf. HSTS erst, wenn unter System › Cloudflare & HTTPS «HTTPS aktiv» steht.' }
   }
   const phase = tlsPhase()
   if (phase && phase !== 'done') return { ok: false, reason: `Die Zertifikats-Einrichtung ist noch nicht abgeschlossen (Phase «${phase}»).` }

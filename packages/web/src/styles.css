@@ -315,7 +315,7 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-collapsed .brand { padding: 0; justify-content: center; }
 .rail-collapsed .brand-name, .rail-collapsed .rail-label, .rail-collapsed .rail-foot { display: none; }
 .rail-collapsed .rail-nav a { position: relative; justify-content: center; width: 44px; padding: 0; }
-.rail-collapsed .rail-count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+.rail-collapsed .rail-count { position: absolute; top: 0; right: -2px; min-width: 18px; height: 18px; padding: 0 4px; font-size: var(--fs-12); }
 
 .rail-foot { margin-top: auto; padding: var(--sp-4) var(--sp-3) 0; display: grid; gap: var(--sp-1); font-size: var(--fs-13); color: var(--muted); }
 .rail-foot strong { color: var(--ink-dim); font-weight: 500; overflow-wrap: anywhere; }
@@ -1843,7 +1843,7 @@ form.failure-fix .form-actions { margin: 0; }
 .cf-summary-rows { display: grid; grid-template-columns: 10ch minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: 0; font-size: var(--fs-14); }
 .cf-summary-rows dt { color: var(--muted); }
 .cf-summary-rows dd { margin: 0; color: var(--ink); }
-.domains-section { margin-top: var(--sp-8); }
+.domains-section { margin-top: var(--sp-8); scroll-margin-top: var(--sp-6); }
 .domains-section > h3 { margin: var(--sp-5) 0 var(--sp-2); }
 .domains-section h4 { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-14); }
 .cf-step-done .cf-step-n svg { width: 20px; height: 20px; }
