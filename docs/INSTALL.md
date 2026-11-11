@@ -74,7 +74,7 @@ cp .env.example .env    # POSTGRES_PASSWORD und ADMIN_PASSWORD setzen
 docker compose up -d --build
 ```
 
-Bestehende Installation mit altem Namen deployer: Umzug siehe [RENAME.md](RENAME.md) (docs/RENAME.md).
+Bestehende Installation mit altem Namen deployer: Umzug siehe [RENAME.md](RENAME.md) (docs/RENAME.md). Neuer Server aus einem Backup: [RESTORE.md](RESTORE.md) – dort vor dem ersten `docker compose up` weiterlesen.
 
 In `.env` steht nur, was zum Starten nötig ist. `SERVER_LAN_IP` und `LAN_CIDR` bleiben leer bzw. beim Standard: auf Linux erkennt Airlock beide selbst (nur Docker Desktop auf dem Mac braucht sie).
 

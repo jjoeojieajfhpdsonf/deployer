@@ -1,13 +1,14 @@
 import { PRODUCT_NAME } from '@airlock/shared'
 
 /** Art eines laufenden Vorgangs (wie lib/activities.ts) */
-export type RunningKind = 'deploy' | 'scan' | 'cert' | 'tunnel'
+export type RunningKind = 'deploy' | 'scan' | 'cert' | 'tunnel' | 'backup'
 
 const RUNNING: Record<RunningKind, string> = {
   deploy: 'Deploy läuft',
   scan: 'Scan läuft',
   cert: 'Zertifikat wird geholt',
   tunnel: 'Tunnel wird eingerichtet',
+  backup: 'Backup läuft',
 }
 
 /**

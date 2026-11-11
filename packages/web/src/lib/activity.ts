@@ -172,6 +172,27 @@ const EVENTS: Record<string, Describe> = {
   'github.manifest': () => ({ title: 'GitHub App vorbereitet', category: 'config' }),
   'github.repos': () => ({ title: 'GitHub-Repos abgeglichen', category: 'config' }),
   'github.disconnect': () => ({ title: 'GitHub getrennt', category: 'danger' }),
+
+  // Backup (Server)
+  'backup.settings': () => ({ title: 'Backup-Einstellungen geändert', category: 'config' }),
+  'backup.test': (p) => ({ title: p.initialized ? 'Backup-Repository angelegt' : 'Backup-Verbindung getestet', category: 'config', sub: [str(p.target)] }),
+  'backup.run': (p, e) => ({
+    title: e.result === 'error' ? 'Backup fehlgeschlagen' : p.status === 'warning' ? 'Backup mit Hinweisen' : 'Backup gesichert',
+    category: p.status === 'warning' ? 'error' : 'config',
+    sub: [p.trigger === 'manual' ? 'von Hand' : 'nächtlich', took(num(p.durationMs)) ? `nach ${took(num(p.durationMs))}` : null],
+  }),
+  // «fehlt» im Titel: describeEvent hängt dann kein «– fehlgeschlagen» an
+  'backup.stale': () => ({ title: 'Erfolgreiches Backup fehlt seit über 48 Stunden', category: 'error' }),
+  // Etappe 4: Schlüssel der Secrets (nur Art und Prüfsumme, nie der Schlüssel)
+  'backup.key_export': (p) => ({ title: p.method === 'paper' ? 'Schlüssel der Secrets angezeigt (Papier)' : 'Schlüssel der Secrets exportiert (Datei)', category: 'danger', sub: [str(p.fingerprint)] }),
+  'backup.key_saved': (p) => ({ title: `Schlüssel als gesichert vermerkt (${p.method === 'paper' ? 'Papier' : 'Datei'})`, category: 'config' }),
+  // Etappe 5: Projekt aus einem Stand zurückgeholt (am Projekt, also auch in dessen Aktivität)
+  'backup.restore': (p, e) => ({
+    title: e.result === 'error' ? 'Wiederherstellen aus Backup' : 'Aus Backup wiederhergestellt',
+    category: e.result === 'error' ? 'error' : 'danger',
+    sub: [p.snapshot ? `Stand ${str(p.snapshot)}` : null, Array.isArray(p.restored) && p.restored.length ? (p.restored as string[]).join(', ') : null],
+  }),
+  'backup.key_verify': (p) => ({ title: p.matches ? 'Schlüssel-Datei geprüft: passt' : 'Schlüssel-Datei geprüft: anderer Schlüssel', category: p.matches ? 'config' : 'error' }),
 }
 
 /** MCP-Werkzeuge, falls ihr Aufruf allein steht */
@@ -182,6 +203,7 @@ const MCP_TOOL: Record<string, string> = {
   get_scan_report: 'Scan-Bericht gelesen', accept_finding: 'Befund akzeptiert', set_targets: 'Erreichbarkeit geändert',
   pause_public: 'Öffentlich pausiert', resume_public: 'Wieder öffentlich', unpublish: 'Offline genommen', set_security_header: 'Header gesetzt',
   propose_fix: 'Vorschlag gemacht', apply_fix: 'Vorschlag übernommen', get_fix_context: 'Befund gelesen', list_domains: 'Domains abgefragt',
+  get_backup_status: 'Backup-Stand abgefragt',
   add_external_target: 'Externes Ziel eingetragen', verify_external_target: 'Externes Ziel geprüft',
 }
 

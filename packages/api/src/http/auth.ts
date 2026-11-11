@@ -222,6 +222,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/environments') && request.method !== 'GET' && !envWriteAllowed) {
         throw new AppError('forbidden', 'Umgebungen lassen sich nur mit einer Anmeldung verwalten', 403)
       }
+      // Backup: Ziel, Zugangsdaten, Läufe – auch lesen nur mit Anmeldung. Ein Token könnte
+      // das Ziel sonst auf einen fremden Speicher umstellen und alle Daten abziehen.
+      if (route.startsWith('/api/v1/system/backup')) {
+        throw new AppError('forbidden', 'Das Backup lässt sich nur mit einer Anmeldung einrichten und auslösen, nicht mit einem API-Token', 403)
+      }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {
         throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)

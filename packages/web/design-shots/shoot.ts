@@ -112,6 +112,8 @@ type Shot = {
   githubConnected?: boolean
   /** Cloudflare fertig eingerichtet (Zertifikat ausgestellt): Zusammenfassung statt Schritte */
   cfDone?: boolean
+  /** Meilenstein Backup: Zustand von Server › Backup (Standard: eingerichtet, mit Läufen) */
+  backup?: fx.BackupVariant
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
   /** Antwort 7: Scan-Bericht mit einem ZAP-Befund zur CSP-Qualität (10055) */
@@ -161,7 +163,11 @@ const shots: Shot[] = [
       for (const k of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) await pg.keyboard.press(k)
       await pg.getByText('Windows 95 freigeschaltet').waitFor()
       // Die Pfeiltasten scrollen die Seite unterschiedlich weit (je nach Zeitpunkt): fest nach oben
-      await pg.evaluate(() => window.scrollTo(0, 0))
+      // Die Pfeiltasten lösen weiches Scrollen aus, das nach scrollTo noch weiterlaufen kann:
+      // warten, bis die Position zweimal hintereinander gleich ist, dann ohne Animation nach oben
+      await pg.waitForFunction(() => new Promise<boolean>((r) => { const y = window.scrollY; setTimeout(() => r(window.scrollY === y), 150) }))
+      await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+      await pg.waitForFunction(() => window.scrollY === 0)
       await pg.locator('.profile-trigger').click()
       await pg.waitForTimeout(250)
     },
@@ -443,6 +449,40 @@ const shots: Shot[] = [
   // M8, Etappe 3
   { group: 'github', name: 'system-github', path: '/system/github' },
   { group: 'github', name: 'system-github-verbunden', path: '/system/github?ok=installiert', githubConnected: true },
+  // Meilenstein Backup, Etappe 3: eingerichtet, noch nicht eingerichtet, über 48 h ohne Erfolg
+  { group: 'backup', name: 'system-backup', path: '/server/backup' },
+  { group: 'backup', name: 'system-backup-leer', path: '/server/backup', backup: 'leer' },
+  { group: 'backup', name: 'system-backup-veraltet', path: '/server/backup', backup: 'veraltet', full: false },
+  // Etappe 4: secrets.key getrennt sichern – Datei mit Passphrase, Papier mit QR
+  {
+    group: 'backup', name: 'backup-schluessel-datei', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Als Datei exportieren' }).click()
+      await pg.getByRole('dialog', { name: 'Schlüssel als Datei exportieren' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'backup', name: 'backup-schluessel-papier', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Papier-Anleitung' }).click()
+      await pg.getByLabel('Anmelde-Passwort').fill('beispiel')
+      await pg.getByRole('button', { name: 'Anzeigen' }).click()
+      await pg.getByRole('heading', { name: /^Schlüssel der Secrets · / }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  // Etappe 5: Projekt aus einem Stand zurückholen – Vorschau und Bestätigung (Slug eintippen)
+  {
+    group: 'backup', name: 'backup-wiederherstellen', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Projekt aus Stand 3f9c2a7b wiederherstellen' }).click()
+      await pg.getByRole('dialog').getByLabel('Projekt', { exact: true }).selectOption('fotoalbum')
+      await pg.getByRole('dialog').getByRole('table').waitFor()
+      await pg.getByRole('dialog').getByLabel(/Zur Bestätigung/).fill('fotoalbum')
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -976,6 +1016,13 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            // Meilenstein Backup: Server › Backup
+            if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
+            if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })
+            if (url.pathname === '/api/v1/system/backup/key/paper') return json(route, fx.backupKeyPaper)
+            if (url.pathname === '/api/v1/system/backup/restore/preview') {
+              return json(route, fx.backupRestorePreview(url.searchParams.get('snapshot') ?? '', url.searchParams.get('project') ?? ''))
+            }
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             if (s.cspQuality && url.pathname.endsWith(`/projects/${fx.securityProjectId}/scans/latest`)) {

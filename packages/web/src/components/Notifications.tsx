@@ -18,6 +18,8 @@ const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'expiry', label: 'Chat-Projekt läuft ab' },
   { key: 'gateway_warning', label: 'Anfragen über das Docker-Gateway' },
   { key: 'weekly_summary', label: 'Wochenübersicht' },
+  { key: 'backup_failed', label: 'Backup fehlgeschlagen' },
+  { key: 'backup_stale', label: 'Über 48 Stunden kein Backup' },
 ]
 
 /**

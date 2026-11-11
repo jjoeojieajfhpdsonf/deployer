@@ -8,6 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
+  BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
 } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
@@ -977,6 +978,8 @@ export const notifications: NotifySettingsDto = {
     infra_problem: { push: true, email: false },
     expiry: { push: false, email: false },
     weekly_summary: { push: false, email: false },
+    backup_failed: { push: true, email: true },
+    backup_stale: { push: true, email: true },
     gateway_warning: { push: false, email: false },
   },
 }
@@ -1129,3 +1132,114 @@ export function movePreview(id: string, to: string): MovePreviewDto {
     blocked: null,
   }
 }
+
+/* --- Meilenstein Backup: Server › Backup ------------------------------------------- */
+
+export type BackupVariant = 'ok' | 'leer' | 'veraltet'
+
+/** Ein Lauf heute Nacht um 03:30 (vor `h` Stunden) */
+function backupRun(id: string, h: number, patch: Partial<BackupRunDto> = {}): BackupRunDto {
+  const secs = patch.durationMs !== undefined && patch.durationMs !== null ? patch.durationMs / 1000 : 94
+  return {
+    id, trigger: 'schedule', actor: 'system', status: 'ok',
+    startedAt: ago(h * HOUR), finishedAt: new Date(Date.now() - h * HOUR + secs * 1000).toISOString(), durationMs: secs * 1000,
+    snapshotId: `${id}9f3c2a7b1e04d5c6a8b9`, bytesNew: 38_400_000, bytesTotal: 2_310_000_000, filesNew: 214, error: null, warnings: [],
+    ...patch,
+  }
+}
+
+const backupSettings: BackupSettingsDto = {
+  configured: true, enabled: true,
+  target: { kind: 's3', endpoint: 'https://s3.eu-central-003.backblazeb2.com', bucket: 'heimserver-backup', prefix: 'airlock', region: 'eu-central-003', hasAccessKey: true, hasSecretKey: true },
+  hasPassword: true, time: '03:30', timeZone: 'Europe/Zurich', retention: { daily: 7, weekly: 4, monthly: 6 },
+  projects: { fotoalbum: 'stop' }, repositoryCheckedAt: ago(9 * HOUR), lastCheckAt: ago(3 * DAY + 9 * HOUR),
+}
+
+const backupProjects = [
+  { slug: 'fotoalbum', name: 'Fotoalbum', environment: 'example.ch', sourceType: 'compose' },
+  { slug: 'hallo-welt', name: 'hallo-welt', environment: 'example.ch', sourceType: 'files' },
+  { slug: 'kontoauszug-reader', name: 'Kontoauszug-Reader', environment: 'example.ch', sourceType: 'compose' },
+  { slug: 'vereinsseite', name: 'Vereinsseite', environment: 'Verein', sourceType: 'files' },
+]
+
+/** Etappe 5: Vorschau eines Restores (Fotoalbum aus dem neuesten Stand) */
+export function backupRestorePreview(snapshot: string, project: string): BackupRestorePreviewDto {
+  const sn = backupSnapshots.find((s) => s.id === snapshot) ?? backupSnapshots[0]!
+  const p = backupProjects.find((x) => x.slug === project) ?? backupProjects[0]!
+  return {
+    snapshot: { id: sn.id, shortId: sn.shortId, time: sn.time },
+    project: { id: `p-${p.slug}`, slug: p.slug, name: p.name },
+    parts: p.sourceType === 'compose'
+      ? [{ kind: 'volume', name: 'db', files: 1_284, bytes: 412_000_000 }, { kind: 'volume', name: 'fotos', files: 18_032, bytes: 1_610_000_000 }]
+      : [{ kind: 'site', name: p.slug, files: 14, bytes: 220_000 }, { kind: 'repo', name: p.slug, files: 41, bytes: 96_000 }],
+    truncated: false,
+    runningContainers: p.sourceType === 'compose' ? 2 : 0,
+  }
+}
+
+/* Etappe 4: Beispielschlüssel (SHA-256 eines festen Texts, kein echter Schlüssel) mit QR-Code */
+const KEY_FP = '48b9 3c72 cbcd 952a'
+
+export const backupKeyPaper: BackupKeyPaperDto = {
+  key: '81EyJIF+4mh3B3VTk212SOgni4OEXGrY0h5FovCo8zU=', // allowlist-secret: Beispielwert für Screenshots
+  hex: ['f351', '3224', '817e', 'e268', '7707', '7553', '936d', '7648', 'e827', '8b83', '845c', '6ad8', 'd21e', '45a2', 'f0a8', 'f335'],
+  fingerprint: KEY_FP,
+  sha256: '48b93c72cbcd952ac496af32992e2b85c701706668e82b195f9b8138f867e4dd',
+  qr: [
+    '111111101100110111101011101111111', '100000101111110000100111001000001', '101110100110000011000111001011101', '101110101010001010001110101011101',
+    '101110100110001000001001001011101', '100000100100001001111110101000001', '111111101010101010101010101111111', '000000001011100001101011100000000',
+    '101101110001001001111001001001011', '111111010011101110101110001100101', '001010111100001011001001101010011', '000110010101011000100001001111010',
+    '010101100111000100100100010100100', '011000001111000011100010000101110', '011110101101111111100100111000010', '110101010110001010011100011000100',
+    '001011111100110100110011101000100', '001011011100011001000101001111001', '110111110111111111001010111001100', '010000010101011110001101010010011',
+    '001111110111100100111001110101111', '110111011011110101100100011001111', '000110111010011010100011011110001', '011011011110100010010011010101010',
+    '101010100101000101001011111110111', '000000001110011011011001100011111', '111111101100000010010011101011000', '100000101010000110010111100011101',
+    '101110100010011001001001111111001', '101110101001001001111101000011011', '101110101010000000110001001000000', '100000100010100111110010100010001',
+    '111111101010010101001111010000100',
+  ],
+  server: 'heimserver',
+  createdAt: ago(0),
+}
+
+export function backupStatus(v: BackupVariant): BackupStatusDto {
+  if (v === 'leer') {
+    return {
+      settings: { ...backupSettings, configured: false, target: null, hasPassword: false, projects: {}, repositoryCheckedAt: null, lastCheckAt: null },
+      projects: backupProjects, key: { fingerprint: KEY_FP, savedAt: null, method: null }, restore: null,
+      running: false, lastRun: null, lastSuccessAt: null, stale: false, nextRunAt: null, runs: [],
+    }
+  }
+  const runs = v === 'veraltet'
+    ? [
+        backupRun('r5', 9, { status: 'failed', snapshotId: null, bytesNew: null, bytesTotal: null, filesNew: null, durationMs: 31_000, error: 'Repository nicht erreichbar (Exit 1): Fatal: unable to open repository: dial tcp: lookup s3.eu-central-003.backblazeb2.com: no such host' }),
+        backupRun('r4', 33, { status: 'failed', snapshotId: null, bytesNew: null, bytesTotal: null, filesNew: null, durationMs: 30_000, error: 'Repository nicht erreichbar (Exit 1): Fatal: unable to open repository: dial tcp: i/o timeout' }),
+        backupRun('r3', 57),
+      ]
+    : [
+        backupRun('r5', 9, { warnings: ['fotoalbum: ein Deploy lief gerade – Volumes live statt gestoppt gesichert'], status: 'warning' }),
+        backupRun('r4', 33, { bytesNew: 12_900_000, durationMs: 81_000 }),
+        backupRun('r3', 57, { bytesNew: 41_200_000, durationMs: 102_000 }),
+        backupRun('r2', 70, { trigger: 'manual', actor: 'ui:joel', bytesNew: 1_880_000_000, bytesTotal: 2_290_000_000, durationMs: 742_000, filesNew: 18_312 }),
+      ]
+  const lastOk = runs.find((r) => r.status !== 'failed')!
+  return {
+    settings: backupSettings,
+    projects: backupProjects,
+    key: { fingerprint: KEY_FP, savedAt: ago(12 * DAY), method: 'file' },
+    restore: null,
+    running: false,
+    lastRun: runs[0]!,
+    lastSuccessAt: lastOk.finishedAt,
+    stale: v === 'veraltet',
+    nextRunAt: new Date(Date.now() + 15 * HOUR).toISOString(),
+    runs,
+  }
+}
+
+export const backupSnapshots: BackupSnapshotDto[] = [9, 33, 57, 70, 30 * 24].map((h, i) => ({
+  id: `${['3f9c2a7b', 'a81d0c55', '5be4f019', 'c0d7e2a6', '7e19b4d3'][i]}e04d5c6a8b9f3c2a7b1e04d5c6a8b9f3c2a7b1e04d5c6a8b9f3c2a`,
+  shortId: ['3f9c2a7b', 'a81d0c55', '5be4f019', 'c0d7e2a6', '7e19b4d3'][i]!,
+  time: ago(h * HOUR),
+  tags: ['airlock', 'airlock-0.1.0', 'env-example', ...(i < 2 ? ['env-verein'] : [])],
+  paths: ['/staging/db', '/staging/volumes', '/source/caddy_data', '/source/sites', '/source/data'],
+  bytesTotal: i === 4 ? 2_150_000_000 : 2_310_000_000 - i * 9_000_000,
+}))

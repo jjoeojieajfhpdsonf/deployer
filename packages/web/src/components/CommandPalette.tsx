@@ -50,6 +50,7 @@ const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
   { label: 'Server', to: '/server', words: 'system dienste netz' },
   { label: 'Benachrichtigungen', to: '/server/benachrichtigungen', words: 'ntfy e-mail' },
   { label: 'GitHub', to: '/server/github', words: 'app repos' },
+  { label: 'Backup', to: '/server/backup', words: 'sicherung restic wiederherstellen schlüssel' },
   { label: 'Einrichtung', to: '/einrichtung', words: 'assistent erster start' },
   { label: 'Konto', to: '/konto', words: 'passwort profil' },
   { label: 'Bausteine', to: '/design', words: 'design komponenten' },

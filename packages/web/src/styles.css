@@ -2097,6 +2097,38 @@ form.failure-fix .form-actions { margin: 0; }
 .expiry-form .field { margin: 0; width: 160px; }
 .expiry-saved { align-self: center; font-size: var(--fs-13); color: var(--ok); }
 
+/* Server → Backup (Meilenstein Backup) */
+.backup > section + section { margin-top: var(--sp-8); }
+.backup-facts { grid-template-columns: 220px minmax(0, 1fr); }
+.backup-facts code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.backup-table td { vertical-align: top; }
+.backup-table code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.backup-run-note { display: block; margin-top: var(--sp-1); max-width: 420px; font-size: var(--fs-13); color: var(--muted); overflow-wrap: anywhere; }
+.backup-test-error { margin-top: var(--sp-3); max-width: var(--measure); }
+.backup-kind { display: flex; flex-wrap: wrap; gap: 0 var(--sp-5); }
+.backup-form .backup-time { width: 120px; }
+.backup-retention { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--sp-4); }
+.dialog.dialog-wide { width: min(760px, calc(100vw - 32px)); }
+.restore-parts { margin-top: var(--sp-4); }
+.restore-parts th, .restore-parts td { padding: 10px 14px; }
+.restore-parts code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.restore-warning { margin: var(--sp-4) 0 var(--sp-2); }
+.backup code { font-family: var(--mono); font-weight: 400; }
+.key-paper-grid { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: var(--sp-5); align-items: start; margin-top: var(--sp-5); }
+.key-qr { display: block; width: 168px; height: 168px; border-radius: var(--r-sm); }
+.key-paper-facts { grid-template-columns: 96px minmax(0, 1fr); }
+.key-paper-code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-14); overflow-wrap: anywhere; }
+.key-paper .dialog-steps code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); overflow-wrap: anywhere; }
+/* Papier-Anleitung drucken: nur das Blatt, ohne Oberfläche und Dialograhmen. Papier ist
+   immer weiss – auch im dunklen Modus Schwarz auf Weiss, sonst ist es nicht lesbar */
+@media print {
+  body:has(.key-paper) * { visibility: hidden; }
+  body:has(.key-paper) .key-paper, body:has(.key-paper) .key-paper * { visibility: visible; }
+  body:has(.key-paper) .key-paper { position: fixed; inset: 0; padding: 24px; background: #fff; color: #000; }
+  body:has(.key-paper) .dialog { box-shadow: none; }
+  body:has(.key-paper) .dialog::backdrop { background: #fff; }
+}
+
 /* Ablauf eines Chat-Projekts: neutral, ab 7 Tagen vorher Warnfarbe */
 .kf-expiry { margin-top: var(--sp-5); padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }
 .kf-expiry-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }

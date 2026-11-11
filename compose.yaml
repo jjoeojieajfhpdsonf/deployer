@@ -52,6 +52,9 @@ services:
       # privileged (die Entitlement setzt die API hier nicht).
       BUILD: 1
       # Ausdruecklich aus:
+      # EXEC: der Proxy kann exec nicht auf einen Container beschraenken. Das
+      # Backup braucht es nicht: Airlock legt Auftraege in das Volume
+      # backup_jobs, der Backup-Container fuehrt sie selbst aus (backup/runner.sh).
       EXEC: 0
       SWARM: 0
       SECRETS: 0
@@ -153,6 +156,8 @@ services:
       # Caddys Zertifikatsspeicher: vorhandenes produktives Zertifikat erkennen,
       # Staging-Wildcards früherer Probeläufe löschen (CADDY_DATA_DIR)
       - caddy_data:/caddy-data
+      # Auftraege an den Backup-Container (BACKUP_JOBS_DIR, tmpfs)
+      - backup_jobs:/backup-jobs
     networks:
       internal: {}
       edge:
@@ -166,10 +171,63 @@ services:
       retries: 10
       start_period: 20s
 
+  backup:
+    # Backup (docs/MILESTONE-BACKUP.md): restic (gepinnt in backup/Dockerfile)
+    # und pg_dump. Eigener Dienst ohne exec: der Ausfuehrer (backup/runner.sh)
+    # holt Auftraege aus /jobs (Volume backup_jobs), fuehrt nur feste Vorgaenge
+    # aus (restic mit erlaubten Unterbefehlen, pg_dump, Staging leeren) und
+    # schreibt Ausgabe und Ergebnis zurueck. Zeitplan und Regeln bleiben in
+    # Airlock. Projekt-Container stoppen/starten und Projekt-Volumes ins
+    # Staging kopieren macht Airlock ueber den Socket-Proxy, nicht dieser Dienst.
+    image: airlock/backup:local
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    container_name: airlock-backup
+    # Feste Kennung: restic merkt sich den Host je Stand (Aufbewahrung, forget)
+    hostname: airlock-backup
+    # Reapt die Prozesse der Auftraege, leitet SIGTERM an den Ausfuehrer weiter
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # pg_dump ueber das interne Netz
+      PGHOST: postgres
+      PGUSER: airlock
+      PGDATABASE: airlock
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt (siehe .env.example)}
+    volumes:
+      # Gesichert wird nur gelesen. keys/ (secrets.key) liegt im Daten-Volume und
+      # wird per restic --exclude ausgeschlossen (backup/restic.ts, Test dazu):
+      # der Schluessel wird getrennt gesichert, nie im selben Backup.
+      - caddy_data:/source/caddy_data:ro
+      - sites:/source/sites:ro
+      - data:/source/data:ro
+      # Datenbank-Dump und Kopien der Projekt-Volumes (BACKUP_STAGING_VOLUME)
+      - backup_staging:/staging
+      # Auftraege von Airlock: <id>.job, Geheimnisse kurz in <id>.env (0600,
+      # nach dem Lesen geloescht), Ergebnis in <id>.result
+      - backup_jobs:/jobs
+      # Lokales Ziel: BACKUP_LOCAL_DIR=/pfad/auf/dem/server (auch ein NAS-Mount);
+      # ohne Angabe ein eigenes Volume. Im Ziel-Pfad der Oberflaeche: /target/…
+      - ${BACKUP_LOCAL_DIR:-backup_local}:/target
+    networks:
+      # Datenbank
+      - internal
+      # S3-Ziele (Backblaze B2, Cloudflare R2) brauchen den Weg nach draussen;
+      # internal hat keinen. Nur dieser Container haengt in diesem Netz.
+      - backup_egress
+
 networks:
   internal:
     name: airlock_internal
     internal: true
+  # Nur der Backup-Container: ausgehend zu S3, kein anderer Dienst darin
+  backup_egress:
+    name: airlock_backup_egress
   edge:
     name: airlock_edge
   # cloudflared (von Airlock gestartet) und Caddy. Nicht internal: cloudflared
@@ -187,3 +245,17 @@ volumes:
   caddy_secrets:
   sites:
   data:
+  # Backup: Staging (Name fest, Airlock haengt es in Wegwerf-Container fuer
+  # die Projekt-Volumes) und das Standard-Ziel ohne BACKUP_LOCAL_DIR
+  backup_staging:
+    name: airlock_backup_staging
+  # Auftraege zwischen Airlock und dem Backup-Container. tmpfs: die kurzlebige
+  # Datei mit Repository-Passwort und S3-Schluessel erreicht nie eine Platte
+  # und ist nach einem Neustart des Servers weg. Beide Dienste laufen als root.
+  backup_jobs:
+    name: airlock_backup_jobs
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=64m,mode=0700"
+  backup_local:

@@ -10,6 +10,9 @@ import type {
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   TopologyDto,
+  BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
+  BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
+  BackupRestoreDto, BackupRestorePreviewDto,
 } from '@airlock/shared'
 
 export type {
@@ -47,7 +50,7 @@ export interface ExternalTargetDto {
   txt: { name: string; value: string }
 }
 
-export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'gateway_warning'
+export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'backup_failed' | 'backup_stale' | 'gateway_warning'
 
 export interface NotifySettingsDto {
   ntfy: { url: string; topic: string; hasToken: boolean } | null
@@ -312,6 +315,22 @@ export const api = {
   cloudflareTunnelUpdate: () => call<CfStatusDto>(e('/cloudflare/tunnel/update'), { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>(e('/cloudflare/tls'), { method: 'POST' }),
   cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
+
+  /* Backup (serverweit, nur mit Anmeldung) */
+  backup: () => call<BackupStatusDto>('/system/backup'),
+  putBackupSettings: (input: unknown) => call<BackupSettingsDto>('/system/backup/settings', { method: 'PUT', body: body(input) }),
+  testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),
+  runBackup: () => call<{ run: BackupRunDto }>('/system/backup/run', { method: 'POST' }),
+  backupSnapshots: () => call<{ snapshots: BackupSnapshotDto[] }>('/system/backup/snapshots'),
+  /* Etappe 4: secrets.key getrennt sichern (Exporte nur mit dem Anmelde-Passwort) */
+  exportBackupKeyFile: (input: { password: string; passphrase: string }) => call<BackupKeyFileDto>('/system/backup/key/file', { method: 'POST', body: body(input) }),
+  exportBackupKeyPaper: (input: { password: string }) => call<BackupKeyPaperDto>('/system/backup/key/paper', { method: 'POST', body: body(input) }),
+  confirmBackupKey: (method: BackupKeyMethod) => call<{ key: BackupKeyStatusDto }>('/system/backup/key/confirm', { method: 'POST', body: body({ method }) }),
+  /* Etappe 5: ein Projekt aus einem Stand zurückholen */
+  backupRestorePreview: (snapshot: string, project: string) =>
+    call<BackupRestorePreviewDto>(`/system/backup/restore/preview?snapshot=${encodeURIComponent(snapshot)}&project=${encodeURIComponent(project)}`),
+  startBackupRestore: (input: { snapshot: string; project: string; confirm: string }) => call<{ restore: BackupRestoreDto }>('/system/backup/restore', { method: 'POST', body: body(input) }),
+  verifyBackupKey: (input: { file: string; passphrase: string }) => call<BackupKeyVerifyDto>('/system/backup/key/verify', { method: 'POST', body: body(input) }),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),
