@@ -129,6 +129,13 @@ const envSchema = z.object({
   CADDY_ACCESS_LOG_DIR: z.string().default('/var/log/airlock-access'),
   ACCESS_LOG_DIR: z.string().default('/caddy-access'),
 
+  // Etappe 5 «Statusseite»: Airlock schreibt die Seite je Umgebung nach
+  // STATUS_DIR/<umgebung>/ (Volume status_site); der Container airlock-status
+  // liefert sie nur lesend aus, Caddy leitet status.<hauptzone> dorthin.
+  // Leer = keine Ablage (Entwicklung ohne Compose): Airlock misst trotzdem.
+  STATUS_DIR: z.string().default(''),
+  STATUS_UPSTREAM: z.string().default('airlock-status:8080'),
+
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),
 })

@@ -381,6 +381,37 @@ export async function removePublic(project: { id: string; slug: string }, actor:
   return true
 }
 
+/* --- Etappe 5: Statusseite (status.<hauptzone>) -------------------------------------- */
+
+/**
+ * Name der Statusseite prüfen und den CNAME auf den Tunnel setzen – wie bei
+ * einem Projekt (proxied, fremde Einträge bleiben, Fehler mit klarem Satz).
+ * Kein Projekt darf den Namen tragen (reserviert, ältere Routen werden hier
+ * abgefangen). Der Tunnel-Abgleich nimmt den Namen danach selbst auf.
+ */
+export async function ensureStatusDns(envId: string, hostname: string): Promise<{ recordId: string }> {
+  const ctx = requireCtx(envId)
+  const clash = await db.select({ projectId: schema.routes.projectId }).from(schema.routes)
+    .where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, hostname)))
+  if (clash.length) throw conflict(`${hostname} ist schon die öffentliche Adresse eines Projekts. Zuerst dort eine andere Adresse wählen.`)
+  try {
+    const domains = await listDomains(inEnvironment(envId)).then((d) => (d.length ? d : syncDomains(ctx.cf, envId)))
+    const zone = domains.find((d) => hostname.endsWith(`.${d.name}`))
+    if (!zone) throw badRequest(`Die Zone zu ${hostname} gehört nicht zu dieser Umgebung`)
+    const rec = await upsertManagedRecord(ctx.cf, zone.zoneId, { type: 'CNAME', name: hostname, content: tunnelCname(ctx.tunnelId), proxied: true })
+    return { recordId: rec.record.id }
+  } catch (err) {
+    wrap(err)
+  }
+}
+
+/** CNAME der Statusseite entfernen (nur den eigenen) und den Tunnel abgleichen. */
+export async function removeStatusDns(envId: string, hostname: string, recordId: string | null): Promise<void> {
+  const ctx = ctxFor(envId)
+  if (!ctx) return
+  if (recordId) await dropCloudflareObjects(ctx.cf, ctx.accountId, { hostname, cfDnsRecordId: recordId, cfAccessAppId: null })
+}
+
 async function dropCloudflareObjects(cf: Cloudflare, accountId: string, route: { hostname: string; cfDnsRecordId: string | null; cfAccessAppId: string | null }, pr?: Progress): Promise<void> {
   const domains = await listDomains(serverJob('cloudflare-aufräumen'))
   const zone = domains.find((d) => route.hostname === d.name || route.hostname.endsWith(`.${d.name}`))
@@ -674,13 +705,17 @@ async function reconcileTunnelNow(ctx: PubCtx): Promise<{ hosts: string[] }> {
   const rows = await db.select({ hostname: schema.routes.hostname, env: schema.projects.environmentId }).from(schema.routes)
     .innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId))
     .where(and(eq(schema.routes.target, 'public'), inArray(schema.projects.environmentId, sameTunnel)))
+  // Etappe 5: Statusseiten der Umgebungen dieses Tunnels (status.<hauptzone> → Caddy → airlock-status)
+  const status = await db.select({ hostname: schema.statusPages.hostname }).from(schema.statusPages)
+    .where(and(eq(schema.statusPages.enabled, true), inArray(schema.statusPages.environmentId, sameTunnel)))
+  const wanted = [...rows.map((r) => r.hostname), ...status.map((s) => s.hostname).filter((h): h is string => Boolean(h))]
   const key = managedKeyFor(ctx)
   const managedBefore: string[] = JSON.parse((await getSetting(key)) ?? '[]')
   const current = await ctx.cf.getTunnelIngress(ctx.accountId, ctx.tunnelId)
   // Kein öffentlicher Name unter einer internen Basis (Wildcard-Zertifikat, nur intern)
   const bases = allEnvironments().map((e) => cloudflareFor(e.id).baseDomain).filter((b): b is string => Boolean(b))
-  const forbidden = rows.map((r) => r.hostname).filter((h) => bases.some((b) => h.endsWith(`.${b}`)))
-  const { ingress, managed } = reconcileIngress(current, rows.map((r) => r.hostname), managedBefore, forbidden)
+  const forbidden = wanted.filter((h) => bases.some((b) => h.endsWith(`.${b}`)))
+  const { ingress, managed } = reconcileIngress(current, wanted, managedBefore, forbidden)
   if (JSON.stringify(ingress) !== JSON.stringify(current)) {
     await ctx.cf.putTunnelIngress(ctx.accountId, ctx.tunnelId, ingress)
     log.info('Tunnel-Ingress abgeglichen', { tunnel: ctx.tunnelId, hosts: managed })

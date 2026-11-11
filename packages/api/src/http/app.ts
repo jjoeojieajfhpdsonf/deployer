@@ -11,6 +11,7 @@ import { registerScopeGuard } from './scope.js'
 import { environmentRoutes } from './routes/environments.js'
 import { trafficRoutes } from './routes/traffic.js'
 import { serviceRoutes } from './routes/services.js'
+import { statusRoutes } from './routes/status.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -163,6 +164,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(trafficRoutes)
       // Etappe 4: Dienst hinzufügen/entfernen (Aufbau)
       await api.register(serviceRoutes)
+      // Etappe 5: Statusseite (Einstellungen und Störungen je Umgebung)
+      await api.register(statusRoutes)
     },
     { prefix: '/api/v1' },
   )

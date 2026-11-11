@@ -12,6 +12,7 @@ import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startGatewayJob } from './jobs/gateway.js'
 import { startMonitorJob } from './jobs/monitor.js'
+import { startStatusJob } from './status/service.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
 import { loadExpirySetting } from './domain/expiry-settings.js'
 import { importLegacySettings } from './domain/environments.js'
@@ -98,6 +99,8 @@ async function main(): Promise<void> {
   await abandonUnfinishedScans()
   startSecurityJobs()
   startMonitorJob()
+  // Etappe 5: Statusseite – jede Minute messen, Störungen nach 5 Minuten, Dateien schreiben
+  startStatusJob()
   // M8: GitHub App im Fix-Assistenten, Auto-Deploy nach Merge (Polling)
   registerGithub()
   startAutoDeployJob()

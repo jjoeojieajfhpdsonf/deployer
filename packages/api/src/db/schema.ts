@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
-  numeric, bigserial, bigint, uniqueIndex, index, customType, smallint, primaryKey,
+  numeric, bigserial, bigint, uniqueIndex, index, customType, smallint, primaryKey, date,
 } from 'drizzle-orm/pg-core'
 import type { ScanStageDto, PausePage, DeployReason, FailureExplanation, CfTlsPhase, CfTokenCheckDto } from '@airlock/shared'
 
@@ -41,6 +41,8 @@ export const projects = pgTable('projects', {
   autoDeployCheckedAt: timestamp('auto_deploy_checked_at', { withTimezone: true }),
   // M9: Umgebung
   environmentId: uuid('environment_id').notNull().references(() => environments.id),
+  // Etappe 5: «Auf Statusseite zeigen»; null = Standard (öffentlich an, intern aus)
+  showOnStatus: boolean('show_on_status'),
 })
 
 export const apiTokens = pgTable('api_tokens', {
@@ -481,3 +483,43 @@ export const serviceChanges = pgTable('service_changes', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
 }, (t) => [index('service_changes_project_idx').on(t.projectId, t.createdAt)])
+
+/* --- Etappe 5: Statusseite (migrations/0021_status_page.sql) -------------------- */
+
+export const statusPages = pgTable('status_pages', {
+  environmentId: uuid('environment_id').primaryKey().references(() => environments.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  title: text('title').notNull().default('Status'),
+  hostname: text('hostname'),
+  cfDnsRecordId: text('cf_dns_record_id'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const statusDaily = pgTable('status_daily', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  day: date('day', { mode: 'string' }).notNull(),
+  upMinutes: integer('up_minutes').notNull().default(0),
+  downMinutes: integer('down_minutes').notNull().default(0),
+  pausedMinutes: integer('paused_minutes').notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.projectId, t.day] }), index('status_daily_day_idx').on(t.day)])
+
+export const statusIncidents = pgTable('status_incidents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environmentId: uuid('environment_id').notNull().references(() => environments.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  state: text('state').$type<import('@airlock/shared').IncidentState>().notNull(),
+  auto: boolean('auto').notNull().default(false),
+  projectIds: uuid('project_ids').array().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+}, (t) => [index('status_incidents_env_idx').on(t.environmentId, t.createdAt)])
+
+export const statusIncidentUpdates = pgTable('status_incident_updates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  incidentId: uuid('incident_id').notNull().references(() => statusIncidents.id, { onDelete: 'cascade' }),
+  state: text('state').$type<import('@airlock/shared').IncidentState>().notNull(),
+  body: text('body').notNull(),
+  actor: text('actor').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('status_incident_updates_idx').on(t.incidentId, t.createdAt)])

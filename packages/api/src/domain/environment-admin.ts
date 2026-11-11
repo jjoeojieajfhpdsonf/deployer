@@ -151,6 +151,13 @@ export async function deleteEnvironment(key: string, actor: string): Promise<voi
   const targets = await db.select({ hostname: schema.externalTargets.hostname }).from(schema.externalTargets).where(eq(schema.externalTargets.environmentId, env.id))
   if (targets.length) throw conflict(`Die Umgebung hat noch externe Ziele (${targets.map((t) => t.hostname).join(', ')}).`)
 
+  // Etappe 5: Statusseite ausschalten (CNAME, Tunnel-Regel, Dateien), solange das Token noch da ist
+  const statusOn = await db.select({ on: schema.statusPages.enabled }).from(schema.statusPages).where(eq(schema.statusPages.environmentId, env.id))
+  if (statusOn[0]?.on) {
+    const { setStatusSettings } = await import('../status/service.js')
+    await setStatusSettings(env.id, { enabled: false }, actor).catch((err) => log.warn('Statusseite nicht ausgeschaltet', { umgebung: env.slug, err: String(err) }))
+  }
+
   const cs = await import('./cloudflare-settings.js')
   const c = cs.cloudflareFor(env.id)
   if (c.token && c.baseDomain) {

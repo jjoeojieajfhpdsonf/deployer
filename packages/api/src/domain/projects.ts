@@ -43,6 +43,7 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     status: r.status,
     desiredState: r.desiredState,
     keep: r.keep,
+    showOnStatus: r.showOnStatus,
     cpuLimit: Number(r.cpuLimit),
     memoryLimitMb: r.memoryLimitMb,
     createdAt: r.createdAt.toISOString(),
@@ -256,6 +257,7 @@ export async function updateProject(
     cpuLimit: number
     memoryLimitMb: number
     keep: boolean
+    showOnStatus: boolean | null
     source: Source
   }>,
 ): Promise<Row> {
@@ -266,6 +268,7 @@ export async function updateProject(
   if (patch.cpuLimit !== undefined) values.cpuLimit = String(patch.cpuLimit)
   if (patch.memoryLimitMb !== undefined) values.memoryLimitMb = patch.memoryLimitMb
   if (patch.keep !== undefined) values.keep = patch.keep
+  if (patch.showOnStatus !== undefined) values.showOnStatus = patch.showOnStatus
   if (patch.source !== undefined) {
     values.source_config = undefined
     values.sourceConfig = patch.source

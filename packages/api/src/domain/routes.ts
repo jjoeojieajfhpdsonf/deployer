@@ -16,6 +16,7 @@ import { pausePageTemplate, displayTimeZone, writePauseFile } from './pause-page
 import type { HeaderRuleSpec } from '../security/header-rules.js'
 import { internalServiceRoutes, type InternalServiceRoute } from '../lib/internal-routes.js'
 import { composeWebContainer } from '../lib/compose.js'
+import { statusRouteSpec } from '../status/route.js'
 
 /**
  * Hostnamen und Caddy-Abgleich.
@@ -374,6 +375,21 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
       cidrs: cidrsForTargets(ir.targets, net.lanCidr(), config.tailnetCidr),
       ...(h ? { headers: h.rules } : {}),
     })
+  }
+
+  // Etappe 5: Statusseiten (status.<hauptzone>), nur über den Tunnel, Inhalt aus dem Container airlock-status
+  if (edgeCidrs.length) {
+    const pages = await db.select().from(schema.statusPages).where(eq(schema.statusPages.enabled, true))
+    const templates = pages.length ? await db.select().from(schema.headerRuleTemplates) : []
+    for (const sp of pages) {
+      const env = allEnvironments().find((e) => e.id === sp.environmentId)
+      if (!env || !sp.hostname || seen.has(sp.hostname)) continue
+      const spec = statusRouteSpec({
+        hostname: sp.hostname, dir: env.slug, upstream: config.STATUS_UPSTREAM, edgeCidrs,
+        templates: templates.filter((t) => t.environmentId === env.id),
+      })
+      if (spec) { seen.add(sp.hostname); specs.push(spec) }
+    }
   }
 
   // M9: Nach dem Verschieben leitet die alte interne Adresse 30 Tage weiter

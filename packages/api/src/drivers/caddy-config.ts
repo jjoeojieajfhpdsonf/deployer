@@ -13,7 +13,13 @@ export interface RouteSpec {
   /** Kanonischer Hostname zuerst, danach Aliase (nip.io). */
   hosts: string[]
   /** maintenance: öffentlich pausiert – Pause-Seite mit 503. redirect (M9): 308 auf redirectTo (alte Adresse nach dem Verschieben) */
-  kind: 'proxy' | 'files' | 'maintenance' | 'redirect'
+  kind: 'proxy' | 'files' | 'maintenance' | 'redirect' | 'status'
+  /**
+   * Etappe 5, kind=status: Ordner der Umgebung im Container airlock-status
+   * (upstream). Caddy schreibt den Pfad auf /<ordner>/… um und gibt die
+   * Anfrage an den Container – der nur Dateien ausliefert.
+   */
+  statusDir?: string
   /** Bei kind=redirect: Ziel ohne Pfad, z. B. «https://foto.int.example.ch»; der Pfad der Anfrage wird angehängt */
   redirectTo?: string
   /** Bei kind=maintenance: Seite (Vorlage oder Projekt), «Voraussichtlich zurück», Zeitzone der Anzeige */
@@ -237,6 +243,20 @@ function maintenanceHandlers(pause: RouteSpec['pause'], now: number): Handler[] 
   }]
 }
 
+/**
+ * Etappe 5: Statusseite. Nur GET/HEAD-taugliche Dateien aus dem Ordner der
+ * Umgebung; kurze Cache-Zeit (die Seite ändert sich jede Minute), kein
+ * Besucher-Log. Die Security-Header setzt handlersFor davor wie bei Projekten.
+ */
+function statusHandlers(r: RouteSpec, proxy: Handler): Handler[] {
+  const dir = (r.statusDir ?? '').replace(/[^a-z0-9-]/g, '')
+  return [
+    { handler: 'headers', response: { set: { 'Cache-Control': ['public, max-age=30'] } } },
+    { handler: 'rewrite', uri: `/${dir}{http.request.uri.path}` },
+    proxy,
+  ]
+}
+
 /** Dateiname der Pause-Seite im Code-Modus (unter <sites>/_pause/<slug>/). */
 export const PAUSE_FILE = 'index.html'
 type HttpRoute = {
@@ -284,7 +304,9 @@ export function buildCaddyConfig(
       return [{ handler: 'static_response', status_code: 308, headers: { Location: [`${r.redirectTo}{http.request.uri}`] } }]
     }
     const handle: Handler[] =
-      r.kind === 'maintenance'
+      r.kind === 'status'
+        ? statusHandlers(r, proxy)
+        : r.kind === 'maintenance'
         ? maintenanceHandlers(r.pause, opts.now ?? Date.now())
         : r.kind === 'proxy'
         ? [proxy]

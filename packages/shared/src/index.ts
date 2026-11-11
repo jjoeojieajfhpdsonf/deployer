@@ -31,7 +31,8 @@ export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan', 'name-preview'
  * Öffentliche Adressen: Namen, die in keiner Zone vergeben werden – die
  * Kurznamen oben, dazu «int» (interne Basis) und «acme-probe» (Zertifikatsprobe).
  */
-export const RESERVED_PUBLIC_LABELS = [...RESERVED_SLUGS, 'int', 'acme-probe'] as const
+// Etappe 5: «status» ist die Statusseite der Umgebung (status.<hauptzone>)
+export const RESERVED_PUBLIC_LABELS = [...RESERVED_SLUGS, 'int', 'acme-probe', 'status'] as const
 
 /**
  * Rein: Eingabe für den Namen einer öffentlichen Adresse beim Tippen
@@ -428,6 +429,8 @@ export const updateProjectSchema = z.object({
   cpuLimit: cpuLimitSchema.optional(),
   memoryLimitMb: memoryLimitSchema.optional(),
   keep: z.boolean().optional(),
+  /** Etappe 5: «Auf Statusseite zeigen»; null = Standard (öffentlich an, intern aus) */
+  showOnStatus: z.boolean().nullable().optional(),
   source: sourceSchema.optional(),
 }).superRefine((v, ctx) => {
   if (!v.source) return
@@ -708,6 +711,12 @@ export interface ProjectDto {
   updatedAt: string
   routes: RouteDto[]
   activeDeployment: DeploymentDto | null
+  /**
+   * Etappe 5: «Auf Statusseite zeigen» – ausdrücklich gesetzt (true/false) oder
+   * null = Standard (öffentlich an, intern aus; showsOnStatusPage). Fehlt bei
+   * älteren Antworten.
+   */
+  showOnStatus?: boolean | null
   /** Läuft der Container als root? Nur Hinweis, kein Fehler (siehe Plan). */
   runsAsRoot: boolean | null
   /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). */
@@ -1430,3 +1439,5 @@ export * from './topology.js'
 export * from './traffic.js'
 /* Etappe 4: Dienst hinzufügen und entfernen (Aufbau) */
 export * from './services.js'
+/* Etappe 5: öffentliche Statusseite (Daten, Renderer für Seite und RSS) */
+export * from './status.js'
