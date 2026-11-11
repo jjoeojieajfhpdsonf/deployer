@@ -160,6 +160,22 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.locator('.shell > .main > .w95-caption .w95-cap-max').click(); await pg.waitForTimeout(150) },
   },
   {
+    // Taskleisten-Knopf «Airlock»: ganze App minimiert, Taskleiste bleibt (sie liegt ausserhalb des Hauptfensters)
+    group: 'win95', name: 'win95-app-minimiert', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.locator('.w95-taskbar .w95-task').first().click(); await pg.waitForTimeout(150) },
+  },
+  {
+    // Hin und zurück: zweiter Klick holt die App wieder (Bild = normale Projekte-Seite)
+    group: 'win95', name: 'win95-app-zurueck', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      const btn = pg.locator('.w95-taskbar .w95-task').first()
+      await btn.click()
+      await pg.locator('.shell > .main').waitFor({ state: 'hidden' })
+      await btn.click()
+      await pg.locator('.shell > .main').waitFor({ state: 'visible' })
+    },
+  },
+  {
     group: 'win95', name: 'win95-startmenue', path: '/projekte', full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Start', exact: true }).click(); await pg.waitForTimeout(250) },
   },

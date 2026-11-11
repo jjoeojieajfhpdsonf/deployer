@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.js'
@@ -167,7 +168,9 @@ export function Taskbar() {
   const all = [...entries.values()].sort((a, b) => a.id - b.id)
   const open = all.filter((e) => e.win.state === 'min' || e.win.state === 'max')
   const closed = all.filter((e) => e.win.state === 'closed')
-  return (
+  // Direkt in <body>: Die Taskleiste darf nicht mit dem Hauptfenster verschwinden, wenn es minimiert ist
+  return createPortal(
+    <>
     <div className="w95-taskbar" role="region" aria-label="Taskleiste">
       <StartMenu closed={closed} />
       <button
@@ -195,6 +198,15 @@ export function Taskbar() {
       <span className="w95-tray num" aria-hidden="true">{now}</span>
       <QuitDialog />
     </div>
+    {/* App minimiert: das echte <main> ist weg; der Desktop ist dann der Hauptbereich (Screenreader) */}
+    {mainWin.state === 'min' && (
+      <main className="w95-desktop">
+        <h1 className="sr-only">Airlock ist minimiert</h1>
+        <p className="sr-only">Mit dem Knopf «Airlock» in der Taskleiste wiederherstellen.</p>
+      </main>
+    )}
+    </>,
+    document.body,
   )
 }
 
