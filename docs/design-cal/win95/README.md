@@ -40,6 +40,7 @@ Markup und Tastatur bleiben wie in Hell und Dunkel.
 | ✕ am Fenster «Airlock» | Dialog «Airlock beenden»: neu starten (lädt die Seite neu) oder abmelden. «Herunterfahren» steht gesperrt in der Liste – Airlock läuft auf dem Server weiter |
 | Taskleiste | Start, «Airlock», minimierte und maximierte Fenster (aktive gedrückt), Uhr; Klick auf ein offenes Fenster minimiert es |
 | Start | Startmenü nach oben: Projekte, Security, Audit, Einstellungen, Server, Konto, geschlossene Fenster wieder öffnen, Beenden … |
+| Desktop-Symbole links | homeserver (Server), Security, Audit-Log, Papierkorb – Klick wählt aus, Doppelklick oder Enter öffnet. Der Papierkorb ist voll, sobald Karten geschlossen sind; Öffnen stellt sie wieder her |
 
 Wie im Original sind die Fenster-Knöpfe Mausbedienung (nicht im Tab-Lauf, für Screenreader
 unsichtbar). Per Tastatur bleibt alles erreichbar: Die Taskleiste hat echte Knöpfe (minimierte

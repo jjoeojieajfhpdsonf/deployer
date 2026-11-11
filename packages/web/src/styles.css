@@ -2677,6 +2677,34 @@ button.topo-link:hover:not(:disabled) { background: none; border: none; text-dec
 :root[data-theme='win95'] .shell[data-w95-main='max'] > .main { margin: 0; min-height: calc(100vh - 30px); }
 :root[data-theme='win95'] .shell[data-w95-main='min'] > :is(.rail, .main) { display: none; }
 
+/* Desktop-Symbole links (homeserver, Security, Audit-Log, Papierkorb): Platz frei halten */
+:root[data-theme='win95'] .shell { padding-left: 92px; }
+:root[data-theme='win95'] .shell[data-w95-main='max'] { padding-left: 0; }
+:root:has(.shell[data-w95-main='max']) .w95-desktop-icons { display: none; }
+.w95-desktop-icons { position: fixed; z-index: 1; top: 10px; left: 4px; width: 84px; display: grid; gap: 18px; justify-items: center; }
+:root[data-theme='win95'] .w95-desktop-icons .w95-icon {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 84px;
+  min-height: 0;
+  padding: 2px;
+  background: none;
+  box-shadow: none;
+  color: #ffffff;
+  font: 12px/1.25 var(--font);
+  white-space: normal;
+  cursor: default;
+}
+:root[data-theme='win95'] .w95-desktop-icons button.w95-icon:active:not(:disabled) { transform: none; box-shadow: none; }
+:root[data-theme='win95'] .w95-desktop-icons .w95-icon:focus-visible { outline: none; }
+.w95-icon svg { width: 40px; height: 40px; }
+.w95-icon-label { padding: 1px 3px; text-align: center; }
+.w95-icon:focus-visible .w95-icon-label { outline: 1px dotted #ffffff; }
+/* Ausgewählt: Beschriftung blau hinterlegt, Symbol leicht abgedunkelt */
+.w95-icon[data-selected] .w95-icon-label { background: #000080; }
+.w95-icon[data-selected] svg { filter: brightness(0.6) sepia(1) hue-rotate(190deg) saturate(3); }
+
 /* Taskleiste: Start, Programme, Uhr (Win95Desktop.tsx) */
 .w95-taskbar {
   position: fixed;
