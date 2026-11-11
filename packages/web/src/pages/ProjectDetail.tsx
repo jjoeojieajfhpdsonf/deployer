@@ -46,6 +46,11 @@ export function ProjectDetail() {
   // UI-Qualität 5: direkt nach «Anlegen und deployen» läuft der Fortschritt des ersten Deploys
   const location = useLocation()
   const [watching, setWatching] = useState<string | null>(() => (location.state as { watch?: string } | null)?.watch ?? null)
+  // Einmal gelesen, dann aus dem Verlauf entfernen: sonst käme der Fortschritt nach Neuladen oder
+  // «Zurück» wieder (mit falscher Ansage für einen längst ersetzten Deploy)
+  useEffect(() => {
+    if ((location.state as { watch?: string } | null)?.watch) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [announce, setAnnounce] = useState('')
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)
@@ -212,9 +217,11 @@ export function ProjectDetail() {
           {watching && (
             <DeployProgress
               deploymentId={watching}
+              hasPrevious={Boolean(p.activeDeployment)}
               onFinished={(ok) => {
                 // Ende ansagen über die Region der Seite: der Fortschritt verschwindet gleich danach
-                setAnnounce(ok ? 'Deploy fertig. Der neue Stand ist live.' : 'Deploy fehlgeschlagen. Die vorherige Fassung läuft weiter.')
+                setAnnounce(ok ? 'Deploy fertig. Der neue Stand ist live.'
+                  : p.activeDeployment ? 'Deploy fehlgeschlagen. Die vorherige Fassung läuft weiter.' : 'Deploy fehlgeschlagen. Es läuft noch keine Fassung.')
                 setWatching(null)
                 void qc.invalidateQueries({ queryKey: ['project', id] })
               }}

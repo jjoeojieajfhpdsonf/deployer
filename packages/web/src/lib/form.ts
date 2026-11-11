@@ -129,7 +129,13 @@ export function useFormErrors<T>(opts: {
       'aria-invalid': err ? (true as const) : undefined,
       'aria-describedby': [err ? `${id}-error` : null, describedBy].filter(Boolean).join(' ') || undefined,
       onInput: () => { touched.current.add(name) },
-      onBlur: () => validateField(name),
+      // Geht der Fokus auf einen Knopf (Absenden, Abbrechen), nicht prüfen: die Meldung würde
+      // das Layout zwischen Drücken und Loslassen verschieben und den Klick verlieren lassen.
+      // Absenden prüft ohnehin alles.
+      onBlur: (ev: { relatedTarget: EventTarget | null }) => {
+        if (ev.relatedTarget instanceof Element && ev.relatedTarget.closest('button')) return
+        validateField(name)
+      },
     }
   }
 

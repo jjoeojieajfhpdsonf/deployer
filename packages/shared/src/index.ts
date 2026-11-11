@@ -24,7 +24,8 @@ export const UI_HOST_LABEL = 'deployer'
  * (sonst hätte ein Projekt sie überdeckt – Fehler aus M1), "airlock" ihre
  * künftige Adresse, "ext-scan" das Netz für Scans externer Ziele (M6).
  */
-export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan'] as const
+// 'name-preview': GET /projects/name-preview würde sonst ein Projekt dieses Namens verdecken
+export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan', 'name-preview'] as const
 
 export const slugSchema = z
   .string()
@@ -118,13 +119,22 @@ export const gitRefSchema = z
   .regex(/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/, 'Nur Buchstaben, Ziffern und . _ / -, nicht mit - beginnend, z.B. main oder v1.2.0')
   .refine((v) => !v.includes('..'), 'Zwei Punkte hintereinander sind nicht erlaubt, z.B. v1.2.0 statt v1..2')
 
-/** Pfad innerhalb eines Repos; ob er drin bleibt, prüft der Server am aufgelösten Pfad. */
-export const repoPathSchema = z
+/**
+ * Pfad innerhalb eines Repos; ob er drin bleibt, prüft der Server am aufgelösten Pfad.
+ * UI-Qualität 5: die Beispiele der Meldungen passen zum Feld (wie Platzhalter und Hinweis).
+ */
+const repoPath = (what: string, example: string) => z
   .string()
   .trim()
-  .min(1, 'Gib einen Pfad im Repo an, z.B. Dockerfile oder app/compose.yaml')
+  .min(1, `Gib ${what} an, z.B. ${example}`)
   .max(512, 'Höchstens 512 Zeichen')
-  .refine((v) => !v.includes('\0') && !v.startsWith('/') && !v.includes('\\'), 'Gib den Pfad relativ zum Repo an, ohne / am Anfang, z.B. docker/Dockerfile')
+  .refine((v) => !v.includes('\0') && !v.startsWith('/') && !v.includes('\\'), `Gib den Pfad relativ zum Repo an, ohne / am Anfang, z.B. ${example}`)
+
+export const repoPathSchema = repoPath('einen Pfad im Repo', 'docker/Dockerfile')
+const dockerfilePathSchema = repoPath('den Pfad des Dockerfiles', 'Dockerfile oder docker/Dockerfile')
+const contextPathSchema = repoPath('den Ordner, aus dem gebaut wird', '. (die Wurzel) oder app')
+const composePathSchema = repoPath('den Pfad der compose.yaml', 'compose.yaml oder app/compose.yaml')
+const outputDirSchema = repoPath('den Ausgabeordner', 'dist')
 
 export const staticSourceSchema = z.object({
   type: z.literal('static'),
@@ -134,15 +144,15 @@ export const staticSourceSchema = z.object({
   repoUrl: repoUrlSchema.optional(),
   ref: gitRefSchema.optional(),
   buildCommand: z.string().trim().min(1, 'Gib einen Befehl an, z.B. npm run build – oder lass das Feld leer').max(500, 'Höchstens 500 Zeichen').optional(),
-  outputDir: repoPathSchema.optional(),
+  outputDir: outputDirSchema.optional(),
 })
 
 export const dockerfileSourceSchema = z.object({
   type: z.literal('dockerfile'),
   repoUrl: repoUrlSchema,
   ref: gitRefSchema.optional(),
-  dockerfile: repoPathSchema.default('Dockerfile'),
-  context: repoPathSchema.default('.'),
+  dockerfile: dockerfilePathSchema.default('Dockerfile'),
+  context: contextPathSchema.default('.'),
 })
 
 export const COMPOSE_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/
@@ -152,7 +162,7 @@ export const composeSourceSchema = z.object({
   /** Entweder ein Repo ... */
   repoUrl: repoUrlSchema.optional(),
   ref: gitRefSchema.optional(),
-  composePath: repoPathSchema.default('compose.yaml'),
+  composePath: composePathSchema.default('compose.yaml'),
   /** ... oder eine hochgeladene compose.yaml. */
   uploadId: z.string().uuid().optional(),
   /** Dienst, der den Web-Verkehr bekommt. */
@@ -173,7 +183,7 @@ export const filesSourceSchema = z.object({
   webService: z.string().regex(COMPOSE_SERVICE_RE, 'Ungültiger Dienstname').optional(),
   /** Bei statischer Seite mit Build: Befehl (Standard "npm run build") und Ausgabe. */
   buildCommand: z.string().min(1).max(500).optional(),
-  outputDir: repoPathSchema.optional(),
+  outputDir: outputDirSchema.optional(),
 })
 
 export const fileInputSchema = z.object({
@@ -321,6 +331,8 @@ export interface NamePreviewDto {
   takenBy: { id: string; name: string } | null
   /** Für Airlock selbst reserviert */
   reserved: boolean
+  /** Die Adresse des gewünschten Kurznamens trägt schon ein anderes Projekt (eigene Subdomain) */
+  hostTaken?: boolean
   /** Interne Adresse (Tailnet/LAN) */
   host: string | null
   urls: string[]

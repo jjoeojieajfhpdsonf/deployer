@@ -257,6 +257,22 @@ Umsetzung:
 - Nach «Anlegen und deployen» zeigt die Projektseite gleich den Fortschritt des ersten Deploys.
 - Szenen: `neues-projekt-vorschau` (Kollision, Meldung beim Verlassen), `neues-projekt-chat`.
 
+Befunde aus dem Gutachten (behoben):
+- Der Fortschritt nach dem Anlegen kam nach Neuladen oder «Zurück» wieder (Router-Zustand im
+  Verlauf): wird nach dem Lesen entfernt. Beim ersten Deploy heisst es nicht mehr «die vorherige
+  Fassung läuft weiter», sondern «Es läuft noch keine Fassung». Der Fortschritt verbindet nicht mehr
+  bei jedem Rendern neu.
+- Prüfung beim Verlassen nicht, wenn der Fokus auf einen Knopf geht (die Meldung verschob sonst
+  den Knopf zwischen Drücken und Loslassen; Absenden prüft ohnehin alles).
+- Pfadfelder mit eigenen Beispielen in der Meldung (Dockerfile, Build-Kontext «.», compose.yaml,
+  Ausgabeordner «dist») statt einer Meldung für alle.
+- Kollision auch über belegte Adressen (eigene Subdomain eines anderen Projekts), in derselben
+  Funktion für Vorschau und Anlegen; gleichzeitiges Anlegen gibt eine verständliche Meldung (409).
+  «name-preview» ist als Kurzname reserviert.
+- Screenreader: die Vorschau ist keine Live-Region mehr; angesagt wird nur eine Kollision. Die
+  Vorschau zeigt keine Antwort zu einem alten Namen.
+- «Per Chat»: kein doppelter Einleitungssatz.
+
 ### 6 – Informationsarchitektur
 - Seitenleiste: Projekte, Security, Audit, System. Domains → System › Cloudflare & HTTPS, Externe
   Ziele → Reiter unter Security; `/domains` und `/extern` leiten weiter.

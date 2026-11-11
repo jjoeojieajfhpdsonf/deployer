@@ -140,10 +140,14 @@ async function freeSlug(wanted: string): Promise<string> {
     ...RESERVED_SLUGS,
     ...(await db.select({ slug: schema.projects.slug }).from(schema.projects)).map((r) => r.slug),
   ])
-  if (!taken.has(wanted)) return wanted
+  // UI-Qualität 5: auch belegte Adressen zählen (über MCP kann ein Projekt eine fremde Subdomain tragen);
+  // sonst scheiterte setRoutes nach dem Anlegen mit 409 und liesse ein halbes Projekt zurück
+  const hosts = new Set((await db.select({ hostname: schema.routes.hostname }).from(schema.routes)).map((r) => r.hostname))
+  const free = (s: string) => !taken.has(s) && !hosts.has(primaryHost(s))
+  if (free(wanted)) return wanted
   for (let i = 2; i < 100; i++) {
     const candidate = `${wanted.slice(0, 37)}-${i}`
-    if (!taken.has(candidate)) return candidate
+    if (free(candidate)) return candidate
   }
   throw conflict(`Kein freier Slug für "${wanted}" gefunden`)
 }
@@ -154,13 +158,16 @@ async function freeSlug(wanted: string): Promise<string> {
  * es «-2» usw., wie beim Anlegen). Ändert nichts.
  */
 export async function previewName(name: string): Promise<NamePreviewDto> {
+  // slugify fällt bei Namen ohne Buchstaben auf «projekt» zurück – genau wie beim Anlegen
   const wanted = slugify(name)
-  if (!wanted) return { wanted: '', slug: '', takenBy: null, reserved: false, host: null, urls: [] }
   const owner = (await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.slug, wanted)).limit(1))[0] ?? null
   const reserved = (RESERVED_SLUGS as readonly string[]).includes(wanted)
+  // Dieselbe Funktion wie createProject: Vorschau und Anlegen wählen denselben Kurznamen
   const slug = await freeSlug(wanted).catch(() => '')
   const host = slug ? primaryHost(slug) : null
-  return { wanted, slug, takenBy: owner, reserved, host, urls: host ? urlsFor(host, aliasHosts(slug)) : [] }
+  // Weder Kurzname noch reserviert, aber trotzdem ausgewichen: die Adresse ist schon belegt
+  const hostTaken = !owner && !reserved && slug !== '' && slug !== wanted
+  return { wanted, slug, takenBy: owner, reserved, hostTaken, host, urls: host ? urlsFor(host, aliasHosts(slug)) : [] }
 }
 
 export async function createProject(input: CreateProjectInput, actor: string): Promise<Row> {
@@ -186,6 +193,11 @@ export async function createProject(input: CreateProjectInput, actor: string): P
       desiredState: 'stopped',
     })
     .returning()
+    .catch((err: unknown) => {
+      // Gleichzeitig angelegt (z.B. von Claude), Kurzname inzwischen vergeben: verständlich statt «Interner Fehler»
+      if ((err as { code?: string }).code === '23505') throw conflict(`Der Kurzname «${slug}» wurde gerade vergeben – bitte noch einmal anlegen`)
+      throw err
+    })
 
   const project = inserted[0]!
   if (input.env.length) await replaceEnv(project.id, input.env)

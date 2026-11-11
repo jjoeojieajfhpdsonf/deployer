@@ -12,14 +12,20 @@ const STEPS = [
 export function DeployProgress({
   deploymentId,
   onFinished,
+  hasPrevious = true,
 }: {
   deploymentId: string
   onFinished?: (ok: boolean) => void
+  /** Läuft eine frühere Fassung weiter, wenn dieser Deploy scheitert? (nicht beim ersten Deploy) */
+  hasPrevious?: boolean
 }) {
   const [status, setStatus] = useState<string>('pending')
   const [lines, setLines] = useState<string[]>([])
   const [done, setDone] = useState<{ ok: boolean } | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
+  // Immer den aktuellen Rückruf, ohne neu zu verbinden (sonst begänne der Strom bei jedem Rendern neu)
+  const finished = useRef(onFinished)
+  finished.current = onFinished
 
   useEffect(() => {
     setLines([])
@@ -29,11 +35,11 @@ export function DeployProgress({
       if (e.type === 'status' && e.status) setStatus(e.status)
       if (e.type === 'done') {
         setDone({ ok: Boolean(e.ok) })
-        onFinished?.(Boolean(e.ok))
+        finished.current?.(Boolean(e.ok))
       }
     })
     return stop
-  }, [deploymentId, onFinished])
+  }, [deploymentId])
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
@@ -64,7 +70,7 @@ export function DeployProgress({
       </p>
       {failed && (
         <p role="alert" className="error">
-          Der Deploy ist fehlgeschlagen. Die vorherige Fassung läuft weiter.
+          {hasPrevious ? 'Der Deploy ist fehlgeschlagen. Die vorherige Fassung läuft weiter.' : 'Der Deploy ist fehlgeschlagen. Es läuft noch keine Fassung.'}
         </p>
       )}
 

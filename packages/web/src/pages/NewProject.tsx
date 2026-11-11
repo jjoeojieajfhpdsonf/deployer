@@ -46,33 +46,51 @@ function useNamePreview(name: string) {
   return useQuery({
     queryKey: ['name-preview', debounced],
     queryFn: () => api.namePreview(debounced),
-    enabled: debounced !== '' && slugify(debounced) !== '',
-    staleTime: 10_000,
+    // slugify fällt nie auf leer zurück («???» → «projekt», wie beim Anlegen); geprüft wird nur der leere Name
+    enabled: debounced !== '',
+    // Kurz frisch halten: ein anderes Projekt (z.B. von Claude) kann den Namen inzwischen belegen
+    staleTime: 2_000,
     placeholderData: (prev) => prev,
   })
 }
 
-/** Unter dem Namen: Kurzname, Adresse, und ob der Kurzname schon belegt ist */
+/**
+ * Unter dem Namen: Kurzname, Adresse, und ob der Kurzname schon belegt ist.
+ * Der Hinweis selbst ist keine Live-Region (er gehört per aria-describedby zum
+ * Feld); angesagt wird nur eine Kollision, in einer eigenen, immer
+ * vorhandenen Region.
+ */
 function NamePreview({ name, id }: { name: string; id: string }) {
   const q = useNamePreview(name)
-  const p = q.data?.preview
-  if (!name.trim() || !slugify(name)) return <p className="hint" id={id}>Frei wählbar; daraus entstehen Kurzname und Adresse.</p>
-  if (!p) return <p className="hint" id={id}>Kurzname <code>{slugify(name)}</code> …</p>
-  const url = p.urls[0]
+  // Solange die Antwort zum alten Namen gehört: nicht als Ergebnis zeigen
+  const p = q.isPlaceholderData || q.data?.preview.wanted !== slugify(name.trim()) ? null : q.data?.preview
+  const conflict = p && (p.takenBy || p.reserved || p.hostTaken)
+  const said = !p ? '' : p.reserved ? `Kurzname ${p.wanted} ist reserviert, das Projekt bekommt ${p.slug}.`
+    : p.takenBy ? `Kurzname ${p.wanted} hat schon ${p.takenBy.name}, das Projekt bekommt ${p.slug}.`
+    : p.hostTaken ? `Die Adresse von ${p.wanted} ist schon belegt, das Projekt bekommt ${p.slug}.` : ''
+  const url = p?.urls[0]
   return (
-    <div className="hint name-preview" id={id} role="status">
-      {p.takenBy || p.reserved ? (
-        <p>
-          <IconWarn /> {p.reserved
-            ? <>Der Kurzname <code>{p.wanted}</code> ist für Airlock reserviert.</>
-            : <>Den Kurznamen <code>{p.wanted}</code> hat schon <Link to={`/projekte/${p.takenBy!.id}`}>{p.takenBy!.name}</Link>.</>}
-          {' '}{p.slug ? <>Dieses Projekt bekommt <code>{p.slug}</code> – oder wähle einen anderen Namen.</> : 'Wähle einen anderen Namen.'}
-        </p>
-      ) : (
-        <p>Kurzname <code>{p.slug}</code></p>
-      )}
-      {url && <p>Adresse <code>{url.replace(/^https?:\/\//, '')}</code>{p.urls.length > 1 && <span className="muted"> · auch {p.urls.slice(1).map((u) => u.replace(/^https?:\/\//, '')).join(', ')}</span>}</p>}
-    </div>
+    <>
+      <p className="sr-only" role="status">{said}</p>
+      {!name.trim() ? <p className="hint" id={id}>Frei wählbar; daraus entstehen Kurzname und Adresse.</p>
+        : !p ? <p className="hint" id={id}>Kurzname <code>{slugify(name)}</code> …</p>
+        : (
+          <div className="hint name-preview" id={id}>
+            {conflict ? (
+              <p>
+                <IconWarn /> {p.reserved
+                  ? <>Der Kurzname <code>{p.wanted}</code> ist für Airlock reserviert.</>
+                  : p.takenBy ? <>Den Kurznamen <code>{p.wanted}</code> hat schon <Link to={`/projekte/${p.takenBy.id}`}>{p.takenBy.name}</Link>.</>
+                  : <>Die Adresse von <code>{p.wanted}</code> trägt schon ein anderes Projekt.</>}
+                {' '}{p.slug ? <>Dieses Projekt bekommt <code>{p.slug}</code> – oder wähle einen anderen Namen.</> : 'Wähle einen anderen Namen.'}
+              </p>
+            ) : (
+              <p>Kurzname <code>{p.slug}</code></p>
+            )}
+            {url && <p>Adresse <code>{url.replace(/^https?:\/\//, '')}</code>{p.urls.length > 1 && <span className="muted"> · auch {p.urls.slice(1).map((u) => u.replace(/^https?:\/\//, '')).join(', ')}</span>}</p>}
+          </div>
+        )}
+    </>
   )
 }
 
@@ -169,7 +187,8 @@ export function NewProject() {
   return (
     <section className="page page-narrow">
       <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Neues Projekt' }]} title="Neues Projekt">
-        <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>
+        {/* Bei «Per Chat» steht dasselbe im Abschnitt darunter */}
+        {kind !== 'chat' && <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>}
       </PageHead>
 
       <form onSubmit={submit} className="form" noValidate ref={form.formRef}>
