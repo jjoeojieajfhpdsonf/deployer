@@ -1,17 +1,18 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@airlock/shared'
+import { publicStateOf, splitPublicHost, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@airlock/shared'
 import { toast } from 'sonner'
 import { PausePageDialog, pageKind } from './PausePageEditor.js'
 import { api } from '../api.js'
 import { poll } from '../lib/live.js'
-import { useFormErrors } from '../lib/form.js'
+import { useEnv } from '../lib/env.js'
 import { useUnsaved } from '../lib/unsaved.js'
 import { usePublicActions } from '../lib/public.js'
+import { nameFromHost, type PublicName } from '../lib/public-name.js'
 import { relativeTime } from '../lib/format.js'
 import { ageMs, fmtDate, fmtDateTime, fmtDateTimeMedium, fmtTime, msOf, sameDay } from '../lib/dates.js'
 import { ErrorState, Loading, SkLines } from './States.js'
-import { Field } from './Field.js'
+import { PublicNameField, usePublicNameCheck } from './PublicNameField.js'
 import { IconExternal, IconGlobe, IconLock, IconPause, IconWarn } from './Icons.js'
 import { Switch } from './Switch.js'
 import { ConfirmDialog, InlineConfirm } from './Confirm.js'
@@ -68,7 +69,11 @@ export function Publication({ p }: { p: ProjectDto }) {
   const actions = usePublicActions(p)
   const titleId = useId()
   const s = q.data
-  const defaultZone = domains.data?.domains.find((d) => d.isDefault)?.name ?? null
+  const { env } = useEnv()
+  // Nur Zonen der aktuellen Umgebung; vorausgewählt ist ihre Hauptzone
+  const zones = domains.data?.domains.map((d) => d.name) ?? []
+  const defaultZone = (env?.zone && zones.includes(env.zone) ? env.zone : null) ?? domains.data?.domains.find((d) => d.isDefault)?.name ?? zones[0] ?? null
+  const z = { zones, defaultZone, loaded: domains.isSuccess }
 
   return (
     <section className="set-card publication" id="set-veroeffentlichung" aria-labelledby={titleId}>
@@ -80,9 +85,9 @@ export function Publication({ p }: { p: ProjectDto }) {
 
       {s && (
         <>
-          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
-          {s.state === 'live' && <LiveState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
-          {s.state === 'paused' && <PausedState p={p} s={s} actions={actions} defaultZone={defaultZone} titleId={titleId} />}
+          {s.state === 'private' && <PrivateState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
+          {s.state === 'live' && <LiveState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
+          {s.state === 'paused' && <PausedState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
 
           {/* Platz für eine vorgemerkte Öffentlich-Anfrage (etwa von MCP), die nach dem Scan wirksam wird */}
           {s.pendingRequest && <div className="set-row-block"><PendingRequest p={p} s={s} /></div>}
@@ -202,35 +207,46 @@ function InternalNote({ s }: { s: PublicStatusDto }) {
 
 /* --- Privat ------------------------------------------------------------------------ */
 
-function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string }) {
+type Zones = { zones: string[]; defaultZone: string | null; loaded: boolean }
+
+/** Name + Zone im Formular; die Zone folgt der Hauptzone, bis jemand eine wählt */
+function usePublicNameDraft(initial: () => PublicName, z: Zones) {
+  const [name, setName] = useState<PublicName>(initial)
+  const value = name.zone || !z.defaultZone ? name : { ...name, zone: z.defaultZone }
+  return [value, setName] as const
+}
+
+/** Fehler des Servers, die am Namensfeld stehen (Zone, belegt, fremder DNS-Eintrag) – nicht die der Schwelle */
+const nameError = (err: Actions['error']) =>
+  err && (err.status === 400 || err.status === 409) && !['not_publishable', 'public_disabled'].includes(err.code) && !/läuft schon/.test(err.message) ? err.message : null
+
+function PrivateState({ p, s, actions, z, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string }) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [name, setName] = useState('')
+  const [name, setName] = usePublicNameDraft(() => ({ label: p.slug, zone: '', apex: false }), z)
+  const [takeOver, setTakeOver] = useState(false)
   const [access, setAccess] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
   const blockedId = useId()
-  const v = useFormErrors({ schema: publicNameFormSchema, values: () => ({ name }) })
+  const inputId = `pub-name-${p.id}`
+  const result = usePublicNameCheck({ projectId: p.id, name, enabled: open && s.enabled, takeOver, canTakeOver: true })
+  const focusName = () => requestAnimationFrame(() => (document.getElementById(inputId) ?? document.getElementById(`${inputId}-status`))?.focus())
   const start = () => {
-    if (!open) { setOpen(true); requestAnimationFrame(() => document.getElementById(v.idFor('name'))?.focus()); return }
+    if (!open) { setOpen(true); focusName(); return }
     // Erst prüfen, dann fragen – bestätigt wird nur, was auch gehen kann.
-    if (v.validateAll()) setConfirming(true)
+    if (!result.host || result.blocking) { focusName(); return }
+    setConfirming(true)
   }
 
-  // Was nur der Server prüfen kann (Zone des Kontos, belegt, fremder DNS-Eintrag), steht am Namensfeld.
+  // Was die Prüfung beim Tippen nicht sah (etwa inzwischen belegt), steht nach dem Versuch am Namensfeld.
   const err = actions.error
   useEffect(() => {
-    if (err && (err.status === 400 || err.status === 409) && !['not_publishable', 'public_disabled'].includes(err.code) && !/läuft schon/.test(err.message)) {
-      setOpen(true)
-      v.setErrors({ name: err.message })
-      requestAnimationFrame(() => document.getElementById(v.idFor('name'))?.focus())
-    }
+    const m = nameError(err)
+    if (m) { setOpen(true); setServerError(m); focusName() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [err])
 
-  const target = (() => {
-    const n = name.trim().toLowerCase()
-    if (n.includes('.')) return n
-    return defaultZone ? `${n || p.slug}.${defaultZone}` : null
-  })()
+  const target = result.host
 
   return (
     <>
@@ -250,17 +266,12 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
 
       {open && s.enabled && (
         <div className="public-options set-row-block">
-          <Field id={v.idFor('name')} label="Öffentlicher Name" optional error={v.errors.name}
-            hint={<>Nur die Subdomain ({defaultZone ? <>wird zu <code>…{'.'}{defaultZone}</code></> : 'keine Standard-Domain gesetzt'}) oder ein voller Name in einer Zone des Kontos. Leer = <code>{p.slug}</code>.</>}>
-            <input
-              {...v.field('name', `${v.idFor('name')}-hint`)}
-              value={name}
-              placeholder={defaultZone ? `${p.slug}.${defaultZone}` : 'name.deinedomain.ch'}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(e) => { setName(e.target.value); setConfirming(false) }}
-            />
-          </Field>
+          {z.zones.length === 0
+            ? z.loaded && <p className="hint">Diese Umgebung hat noch keine Domain bei Cloudflare (Einstellungen → Cloudflare & HTTPS).</p>
+            : <PublicNameField inputId={inputId} label="Öffentliche Adresse" zones={z.zones} value={name} result={result}
+                onChange={(n) => { setName(n); setConfirming(false); setServerError(null) }}
+                takeOver={takeOver} onTakeOver={(b) => { setTakeOver(b); setConfirming(false) }} canTakeOver
+                error={serverError ?? undefined} placeholder={p.slug} />}
           <label className="choice">
             <input type="checkbox" checked={access} onChange={(e) => { setAccess(e.target.checked); setConfirming(false) }} />
             <span>Cloudflare Access <small>nur nach Anmeldung per E-Mail-Code</small></span>
@@ -275,13 +286,13 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
             Veröffentlichen
           </button>
         )}
-        {!confirming && <button onClick={() => { setOpen(false); v.reset() }} disabled={actions.pending}>Abbrechen</button>}
+        {!confirming && <button onClick={() => { setOpen(false); setServerError(null) }} disabled={actions.pending}>Abbrechen</button>}
         {confirming && (
           <InlineConfirm label="Veröffentlichen bestätigen" className="publication-confirm"
-            note={<span>«{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Anmeldung per E-Mail-Code' : ', ohne Anmeldung'}. <InternalNote s={s} /></span>}
+            note={<span>«{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Anmeldung per E-Mail-Code' : ', ohne Anmeldung'}.{takeOver && result.check?.existing ? <> Der bestehende Eintrag {result.check.existing.type} → {result.check.existing.content} wird ersetzt.</> : null} <InternalNote s={s} /></span>}
             confirmLabel="Ja, veröffentlichen" disabled={actions.pending}
             onCancel={() => setConfirming(false)}
-            onConfirm={() => { setConfirming(false); actions.run({ op: 'publish', name, access }) }} />
+            onConfirm={() => { setConfirming(false); actions.run({ op: 'publish', name: { ...name, takeOver }, access }) }} />
         )}
       </div>
       )}
@@ -291,27 +302,38 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
 
 /* --- Öffentlich -------------------------------------------------------------------- */
 
-/** Adresse mit «Ändern»: neuer Name (Subdomain oder voll), sofort wirksam, Toast mit «Rückgängig» */
-function AddressRow({ p, s, actions, paused, defaultZone }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; paused: boolean; defaultZone: string | null }) {
+/** Adresse mit «Ändern»: neuer Name + Zone, sofort wirksam, Toast mit «Rückgängig» */
+function AddressRow({ p, s, actions, paused, z }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; paused: boolean; z: Zones }) {
   const [editing, setEditing] = useState(false)
-  const [name, setName] = useState('')
-  const v = useFormErrors({ schema: publicNameFormSchema, values: () => ({ name }) })
+  const [name, setName] = usePublicNameDraft(() => ({ label: '', zone: '', apex: false }), z)
+  const [takeOver, setTakeOver] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const inputId = `pub-rename-${p.id}`
+  const before = nameFromHost(s.hostname, z.zones, z.defaultZone ?? '')
+  const result = usePublicNameCheck({ projectId: p.id, name, enabled: editing, takeOver, canTakeOver: true, current: s.hostname })
+  const focusName = (select = false) => requestAnimationFrame(() => {
+    const el = (document.getElementById(inputId) ?? document.getElementById(`${inputId}-status`)) as HTMLInputElement | null
+    el?.focus()
+    if (select) el?.select?.()
+  })
+  // Scheitert die Umbenennung am Namen, öffnet das Formular wieder mit der Meldung am Feld
+  const attempted = useRef<PublicName | null>(null)
   const err = actions.error
   useEffect(() => {
-    if (editing && err && (err.status === 400 || err.status === 409)) {
-      v.setErrors({ name: err.message })
-      requestAnimationFrame(() => document.getElementById(v.idFor('name'))?.focus())
-    }
+    if (actions.pending) return
+    const m = nameError(err)
+    if (m && attempted.current) { setName(attempted.current); setEditing(true); setServerError(m); focusName() }
+    attempted.current = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [err])
+  }, [err, actions.pending])
   const renaming = actions.pending && actions.current?.op === 'rename'
   // UI-Qualität 8: neue Adresse eingetippt, aber nicht übernommen → Rückfrage beim Verlassen
-  useUnsaved(editing && name.trim() !== (s.hostname ?? ''), 'neue öffentliche Adresse')
+  useUnsaved(editing && result.host !== s.hostname, 'neue öffentliche Adresse')
   return (
     <>
       <SetRow
         label="Adresse"
-        action={!editing ? <button type="button" className="button-small" onClick={() => { setEditing(true); setName(s.hostname ?? ''); requestAnimationFrame(() => (document.getElementById(v.idFor('name')) as HTMLInputElement | null)?.select()) }} disabled={actions.pending}>Ändern</button> : undefined}
+        action={!editing ? <button type="button" className="button-small" onClick={() => { setEditing(true); setName(before); setTakeOver(false); setServerError(null); focusName(true) }} disabled={actions.pending}>Ändern</button> : undefined}
       >
         <a href={s.url!} target="_blank" rel="noreferrer" className="publication-url">{s.hostname} <IconExternal /></a>
         {paused && <span className="muted"> · zeigt die Pause-Seite (HTTP 503)</span>}
@@ -322,19 +344,20 @@ function AddressRow({ p, s, actions, paused, defaultZone }: { p: ProjectDto; s: 
           noValidate
           onSubmit={(e) => {
             e.preventDefault()
-            if (!v.validateAll()) return
-            const n = name.trim().toLowerCase()
-            if (!n || n === s.hostname) { setEditing(false); return }
-            actions.run({ op: 'rename', name: n, access: s.accessProtected, before: s.hostname! })
+            if (result.same) { setEditing(false); return }
+            if (!result.host || result.blocking) { focusName(); return }
+            attempted.current = name
+            actions.run({ op: 'rename', name: { ...name, takeOver }, access: s.accessProtected, before: s.hostname && splitPublicHost(s.hostname, z.zones) ? before : s.hostname! })
             setEditing(false)
           }}
         >
-          <Field id={v.idFor('name')} label="Neue öffentliche Adresse" error={v.errors.name}
-            hint={<>Subdomain ({defaultZone ? <>wird zu <code>…{'.'}{defaultZone}</code></> : 'keine Standard-Domain gesetzt'}) oder ein voller Name in einer Zone des Kontos. Der alte Name wird frei.</>}>
-            <input {...v.field('name', `${v.idFor('name')}-hint`)} value={name} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />
-          </Field>
+          <PublicNameField inputId={inputId} label="Neue öffentliche Adresse" zones={z.zones} value={name} result={result}
+            onChange={(n) => { setName(n); setServerError(null) }}
+            takeOver={takeOver} onTakeOver={setTakeOver} canTakeOver
+            error={serverError ?? undefined} placeholder={p.slug}
+            hint="Der alte Name wird frei. Nur a–z, 0–9 und Bindestrich." />
           <div className="form-buttons">
-            <button type="button" onClick={() => { setEditing(false); v.reset() }}>Abbrechen</button>
+            <button type="button" onClick={() => { setEditing(false); setServerError(null) }}>Abbrechen</button>
             <button type="submit" className="button-primary" disabled={renaming} aria-busy={renaming || undefined}>Adresse ändern</button>
           </div>
         </form>
@@ -478,7 +501,7 @@ function UnpublishDialog({ open, s, name, onCancel, onConfirm, returnFocusTo }: 
   )
 }
 
-function LiveState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string }) {
+function LiveState({ p, s, actions, z, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string }) {
   const [offline, setOffline] = useState(false)
   return (
     <>
@@ -495,7 +518,7 @@ function LiveState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: 
             onGo={(m, opts) => { setOffline(false); actions.run(m === 'pause' ? { op: 'pause', opts } : { op: m }) }} />
         </div>
       )}
-      <AddressRow p={p} s={s} actions={actions} paused={false} defaultZone={defaultZone} />
+      <AddressRow p={p} s={s} actions={actions} paused={false} z={z} />
       <AccessRow s={s} actions={actions} />
       <PausePageRow p={p} s={s} paused={false} />
     </>
@@ -504,7 +527,7 @@ function LiveState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: 
 
 /* --- Pausiert ---------------------------------------------------------------------- */
 
-function PausedState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string }) {
+function PausedState({ p, s, actions, z, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string }) {
   const [offline, setOffline] = useState(false)
   const offlineBtn = useRef<HTMLButtonElement>(null)
   const blockedId = useId()
@@ -518,7 +541,7 @@ function PausedState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s
         </button>
       </Head>
       {!s.publishable.ok && <div className="set-row-block"><Blocked s={s} id={blockedId} /></div>}
-      <AddressRow p={p} s={s} actions={actions} paused defaultZone={defaultZone} />
+      <AddressRow p={p} s={s} actions={actions} paused z={z} />
       <AccessRow s={s} actions={actions} />
       <PausePageRow p={p} s={s} paused />
       <SetRow label="Ganz offline" action={<button ref={offlineBtn} type="button" className="button-small" onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen …</button>}>

@@ -345,6 +345,24 @@ export const publicHostnameSchema = z
   .max(253, 'Höchstens 253 Zeichen')
   .regex(/^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/, 'Nur Buchstaben, Ziffern, Bindestrich und Punkte, z.B. solar.deinedomain.ch')
 
+/** Name einer öffentlichen Adresse (ein Label vor der Zone), nach normalizePublicLabel */
+export const publicLabelSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^(?!-)[a-z0-9-]{1,63}(?<!-)$/, 'Nur a–z, 0–9 und Bindestrich, höchstens 63 Zeichen, z.B. solar')
+
+/**
+ * Öffentlich nach dem ersten Scan (Neues Projekt): Name und Zone getrennt,
+ * apex nur ausdrücklich. Wird als bestätigte Öffentlich-Anfrage vorgemerkt.
+ */
+export const createPublicSchema = z.object({
+  subdomain: publicLabelSchema.optional(),
+  zone: publicHostnameSchema.optional(),
+  apex: z.boolean().optional(),
+  accessProtected: z.boolean().optional(),
+})
+
 export const createProjectSchema = z
   .object({
     name: projectNameSchema,
@@ -362,6 +380,8 @@ export const createProjectSchema = z
     deploy: z.boolean().default(true),
     /** M3: Anfangsdateien bei Quelle files. Grenzen prüft der Server. */
     files: z.array(fileInputSchema).max(2000).optional(),
+    /** Nach dem ersten Scan ohne kritischen Befund öffentlich schalten (bestätigt beim Anlegen) */
+    public: createPublicSchema.optional(),
   })
   .superRefine((v, ctx) => {
     if (sourceNeedsPort(v.source.type) && v.port === undefined) {
@@ -538,13 +558,6 @@ export interface PublicStatusDto {
   /** Letzter oder laufender Übergang (nur im Speicher des Servers). */
   progress: PublicProgressDto | null
 }
-
-/** Name einer öffentlichen Adresse (ein Label vor der Zone), nach normalizePublicLabel */
-export const publicLabelSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^(?!-)[a-z0-9-]{1,63}(?<!-)$/, 'Nur a–z, 0–9 und Bindestrich, höchstens 63 Zeichen, z.B. solar')
 
 export const publishPublicSchema = z.object({
   publicSubdomain: publicLabelSchema.optional(),
@@ -1329,19 +1342,6 @@ export const emailSettingsSchema = z.object({
 export const notifySettingsFormSchema = z.object({
   ntfy: ntfySettingsSchema.nullable(),
   email: emailSettingsSchema.nullable(),
-})
-
-/**
- * Öffentlicher Name im Formular: leer (= Kurzname), nur Subdomain oder voller
- * Hostname – dieselben Regeln wie publicSubdomain/publicHostname der API.
- */
-export const publicNameFormSchema = z.object({
-  name: z.string().superRefine((raw, ctx) => {
-    const v = raw.trim().toLowerCase()
-    if (!v) return
-    const r = v.includes('.') ? publicHostnameSchema.safeParse(v) : slugSchema.safeParse(v)
-    if (!r.success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.error.issues[0]?.message ?? 'Ungültiger Name' })
-  }),
 })
 
 

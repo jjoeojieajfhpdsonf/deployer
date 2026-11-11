@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { api, ApiError, type PublicFlowResult } from '../api.js'
-import type { PauseOptions } from '@airlock/shared'
+import { api, ApiError, type PublicFlowResult, type PublishInput } from '../api.js'
+import { normalizePublicLabel, type PauseOptions } from '@airlock/shared'
+import { hostOf, type PublicName } from './public-name.js'
 
 /**
  * Übergänge der Veröffentlichung, gemeinsam für die Karte in den
@@ -10,8 +11,11 @@ import type { PauseOptions } from '@airlock/shared'
  * Toast und bietet 10 s lang «Rückgängig» an.
  */
 
+/** Neuer Name: Name + Zone (+ apex), fremden Eintrag nur mit takeOver ersetzen; oder voller Name (Rückgängig) */
+export type PublicTarget = (PublicName & { takeOver?: boolean }) | string
+
 export type PublicAction =
-  | { op: 'publish'; name?: string; access: boolean }
+  | { op: 'publish'; name?: PublicTarget; access: boolean }
   | { op: 'access'; access: boolean }
   /** opts: eigene Pause-Seite und «Voraussichtlich zurück» (fehlt: Vorlage) */
   | { op: 'pause'; opts?: PauseOptions }
@@ -19,28 +23,35 @@ export type PublicAction =
   | { op: 'unpublish' }
   /** Rückgängig von «ganz offline»: derselbe Name, derselbe Access */
   | { op: 'republish'; hostname: string; access: boolean }
-  /** Öffentliche Adresse ändern (Subdomain oder voller Name); before für «Rückgängig» */
-  | { op: 'rename'; name: string; access: boolean; before: string }
+  /** Öffentliche Adresse ändern; before (Name + Zone oder voller Name) für «Rückgängig» */
+  | { op: 'rename'; name: PublicTarget; access: boolean; before: PublicTarget }
 
 type Run = { action: PublicAction; undo?: boolean }
 
 export const UNDO_MS = 10_000
 
+/** Ziel als Felder für POST /public (Name und Zone getrennt) */
+function targetBody(t: PublicTarget): PublishInput {
+  if (typeof t === 'string') return { publicHostname: t }
+  return {
+    ...(t.apex ? { publicApex: true } : { publicSubdomain: normalizePublicLabel(t.label) }),
+    publicZone: t.zone,
+    ...(t.takeOver ? { takeOverDns: true } : {}),
+  }
+}
+
+/** Hostname eines Ziels (für Toasts) */
+export const targetHost = (t: PublicTarget): string => (typeof t === 'string' ? t : hostOf(t) ?? '')
+
 function call(id: string, a: PublicAction): Promise<PublicFlowResult & { removed?: { hostname: string; accessProtected: boolean } }> {
   switch (a.op) {
-    case 'publish': {
-      const name = a.name?.trim().toLowerCase()
-      return api.publish(id, name ? (name.includes('.') ? { publicHostname: name, accessProtected: a.access } : { publicSubdomain: name, accessProtected: a.access }) : { accessProtected: a.access })
-    }
+    case 'publish': return api.publish(id, { ...(a.name ? targetBody(a.name) : {}), accessProtected: a.access })
     case 'access': return api.publish(id, { accessProtected: a.access })
     case 'pause': return api.pausePublic(id, a.opts)
     case 'resume': return api.resumePublic(id)
     case 'unpublish': return api.unpublish(id)
     case 'republish': return api.publish(id, { publicHostname: a.hostname, accessProtected: a.access })
-    case 'rename': {
-      const name = a.name.trim().toLowerCase()
-      return api.publish(id, name.includes('.') ? { publicHostname: name, accessProtected: a.access } : { publicSubdomain: name, accessProtected: a.access })
-    }
+    case 'rename': return api.publish(id, { ...targetBody(a.name), accessProtected: a.access })
   }
 }
 
@@ -52,7 +63,7 @@ function inverse(a: PublicAction, r: Awaited<ReturnType<typeof call>>): PublicAc
     case 'pause': return r.changed ? { op: 'resume' } : null
     case 'resume': return r.changed ? { op: 'pause' } : null
     case 'unpublish': return r.removed ? { op: 'republish', hostname: r.removed.hostname, access: r.removed.accessProtected } : null
-    case 'rename': return r.hostname && r.hostname !== a.before ? { op: 'rename', name: a.before, access: a.access, before: r.hostname } : null
+    case 'rename': return r.hostname && r.hostname !== targetHost(a.before) ? { op: 'rename', name: a.before, access: a.access, before: r.hostname } : null
   }
 }
 
@@ -64,7 +75,7 @@ function message(name: string, a: PublicAction, r: Awaited<ReturnType<typeof cal
     case 'pause': return { title: `«${name}» ist pausiert`, description: `Unter ${host} erscheint eine Wartungsseite.` }
     case 'resume': return { title: `«${name}» ist wieder online`, description: `https://${host}` }
     case 'unpublish': return { title: `«${name}» ist nicht mehr öffentlich`, description: `${host} ist frei. Intern bleibt das Projekt erreichbar.` }
-    case 'rename': return { title: 'Öffentliche Adresse geändert', description: `https://${host} · ${a.before} ist frei.` }
+    case 'rename': return { title: 'Öffentliche Adresse geändert', description: `https://${host} · ${targetHost(a.before)} ist frei.` }
   }
 }
 

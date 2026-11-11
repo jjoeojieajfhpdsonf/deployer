@@ -4,7 +4,7 @@ import { publishPublicSchema, publicNameCheckQuerySchema, putInternalRoutesSchem
 import { setProjectPause, pausePageTemplate, setPausePageTemplate } from '../../domain/pause-page.js'
 import { findProject, toDto } from '../../domain/projects.js'
 import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
-import { publicStatus, publishFlow, pauseFlow, resumeFlow, unpublishFlow, applyApprovedRequest, checkPublicName } from '../../domain/public.js'
+import { publicStatus, publishFlow, pauseFlow, resumeFlow, unpublishFlow, applyApprovedRequest, checkPublicName, checkPublicNameIn } from '../../domain/public.js'
 import { approvePublicRequest, discardPublicRequest } from '../../domain/public-requests.js'
 import { progressOf } from '../../domain/public-progress.js'
 import { audit } from '../../domain/audit.js'
@@ -53,6 +53,18 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const q = publicNameCheckQuerySchema.parse(request.query ?? {})
     return { check: await checkPublicName(project, { label: q.name, zone: q.zone, apex: q.apex === '1' }) }
   })
+
+  /**
+   * Dieselbe Prüfung ohne Projekt (Neues Projekt): in der Umgebung aus dem
+   * Pfad; «vergeben» gilt dann gegen alle Projekte.
+   */
+  const checkInEnv = async (request: FastifyRequest) => {
+    const scope = listScopeFor(request)
+    const q = publicNameCheckQuerySchema.parse(request.query ?? {})
+    return { check: await checkPublicNameIn(scope.envId, { label: q.name, zone: q.zone, apex: q.apex === '1' }) }
+  }
+  app.get('/public/check', checkInEnv)
+  app.get('/environments/:env/public/check', checkInEnv)
 
   app.post<{ Params: IdParams }>('/projects/:id/public/pause', async (request) => {
     sessionOnly(request)

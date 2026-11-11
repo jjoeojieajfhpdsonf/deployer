@@ -427,7 +427,7 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | --- | --- | --- |
 | `list_projects` | – | Nein |
 | `get_project` | `project` | Nein |
-| `create_project` | `name`, `source` (Typ `files` mit Dateien, oder Repo, Image, Upload), `port`, `env`, `targets` (`public`, `lan`, `tailnet`), `subdomain` | Ja, wenn `public` dabei ist |
+| `create_project` | `name`, `source` (Typ `files` mit Dateien, oder Repo, Image, Upload), `port`, `env`, `targets` (`public`, `lan`, `tailnet`), `subdomain`; für die vorgemerkte Öffentlich-Anfrage `public_subdomain` + `public_zone` – vor dem Anlegen gleich geprüft wie bei `set_targets` | Ja, wenn `public` dabei ist |
 | `update_files` | `project`, geänderte oder gelöschte Dateien, `message`; deployt automatisch neu | Nein |
 | `read_files` | `project`, optional `paths` | Nein |
 | `export_repo` | `project`, `format` (`zip` oder Push-URL) | Nein |

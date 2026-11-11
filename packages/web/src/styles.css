@@ -1187,6 +1187,26 @@ a.tab { text-decoration: none; }
 .origin-switch { display: flex; gap: var(--sp-5); flex-wrap: wrap; margin-top: var(--sp-4); padding-top: var(--sp-3); }
 .origin-switch .choice { margin: 0; }
 .public-options { display: grid; gap: var(--sp-1); margin: 6px 0 var(--sp-1) 26px; max-width: 520px; }
+/* Öffentliche Adresse: Name · «.» · Domain, darunter Vorschau, Prüfung und «Direkt unter <zone>» */
+.pubname-row { display: flex; align-items: center; gap: 6px; }
+.pubname-row input { flex: 1 1 auto; min-width: 0; }
+.pubname-row select { flex: 0 1 auto; width: auto; max-width: 60%; }
+.pubname-dot { color: var(--muted); font-weight: 600; }
+.pubname-zone { flex: none; color: var(--ink-dim); font-size: var(--fs-14); }
+.pubname-preview { margin: var(--sp-2) 0 0; font-size: var(--fs-13); color: var(--ink-dim); overflow-wrap: anywhere; }
+.pubname-status { display: flex; align-items: flex-start; gap: 6px; margin: var(--sp-1) 0 0; font-size: var(--fs-13); line-height: 1.4; max-width: var(--measure); }
+.pubname-status svg { flex: none; margin-top: 2px; }
+.pubname-status strong { font-weight: 600; }
+.pubname-detail { color: var(--ink-dim); }
+.pubname-ok { color: var(--ok); }
+.pubname-warn { color: var(--warn); }
+.pubname-bad { color: var(--bad); }
+.pubname-checking { color: var(--muted); }
+.pubname-note { display: flex; align-items: flex-start; gap: 6px; margin: var(--sp-2) 0 0; font-size: var(--fs-13); }
+.pubname-note svg { flex: none; margin-top: 2px; color: var(--warn); }
+.pubname-takeover { margin-top: var(--sp-2); }
+.pubname-apex { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); font-size: var(--fs-14); color: var(--ink); }
+.pubname-apex .muted { font-size: var(--fs-13); }
 
 /* --- Projektseite ------------------------------------------------------------------- */
 

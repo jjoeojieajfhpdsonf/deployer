@@ -8,13 +8,23 @@ import type {
   LogLineDto,
   LogLinesDto,
   NamePreviewDto,
-  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
 } from '@airlock/shared'
 
 export type {
   ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
   HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+}
+
+/** POST /projects/:id/public: Name und Zone getrennt (oder voller Name, z. B. für «Rückgängig») */
+export interface PublishInput {
+  publicSubdomain?: string
+  publicHostname?: string
+  publicZone?: string
+  publicApex?: boolean
+  takeOverDns?: boolean
+  accessProtected?: boolean
 }
 
 export interface PublicFlowResult {
@@ -186,8 +196,13 @@ export const api = {
   approvePublicRequest: (id: string) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/request/approve`, { method: 'POST' }),
   discardPublicRequest: (id: string) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/request`, { method: 'DELETE' }),
   publicProgress: (id: string) => call<{ progress: PublicProgressDto | null }>(`/projects/${id}/public/progress`),
-  publish: (id: string, pub: { publicSubdomain?: string; publicHostname?: string; accessProtected?: boolean }) =>
+  publish: (id: string, pub: PublishInput) =>
     call<PublicFlowResult>(`/projects/${id}/public`, { method: 'POST', body: body(pub) }),
+  /** Öffentlichen Namen prüfen (beim Tippen, verzögert); ohne Projekt in der Umgebung (Neues Projekt) */
+  publicCheck: (id: string | null, q: { name: string; zone: string; apex: boolean }, signal?: AbortSignal) => {
+    const qs = `name=${encodeURIComponent(q.name)}&zone=${encodeURIComponent(q.zone)}${q.apex ? '&apex=1' : ''}`
+    return call<{ check: PublicNameCheckDto }>(id ? `/projects/${id}/public/check?${qs}` : e(`/public/check?${qs}`), { signal })
+  },
   /** opts: eigene Pause-Seite (null = Vorlage) und «Voraussichtlich zurück» */
   pausePublic: (id: string, opts?: PauseOptions) =>
     call<PublicFlowResult>(`/projects/${id}/public/pause`, { method: 'POST', ...(opts ? { body: body(opts) } : {}) }),

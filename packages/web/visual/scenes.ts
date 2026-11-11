@@ -10,6 +10,8 @@ export const VISUAL_SCENES = [
   // Projekte
   'projekte', 'projekt-uebersicht', 'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
+  // Öffentliche Adressen: Name · Domain, Vorschau, Prüfung (frei, fremder DNS-Eintrag, apex mit Worker, Neues Projekt)
+  'adresse-frei', 'adresse-dns-fremd', 'adresse-apex', 'adresse-neues-projekt',
   // Antwort 8: Abschnitt Container, Sprung aus der Fehlerbox mit Vorschlag; Antwort 7: CSP-Qualität (ZAP 10055)
   'einstellungen-container', 'fehler-grenze-vorschlag', 'security-csp-qualitaet',
   'neues-projekt-validierung', 'neues-projekt-vorschau', 'neues-projekt-chat','projekte-anzahl-0', 'projekte-anzahl-1',
