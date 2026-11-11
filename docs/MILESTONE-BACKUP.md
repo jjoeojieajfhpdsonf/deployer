@@ -35,6 +35,17 @@ Nicht gesichert: Images (werden neu gebaut bzw. gezogen), Container-Logs, Caddy-
 - Tabelle `backup_runs` (Start, Ende, Ergebnis, Grösse neu/gesamt, Dauer, Snapshot-ID, Fehler) und `backup_settings` in `app_settings`.
 - Abnahme: Ziel lokal und S3 (MinIO im Test) einrichten, Repository wird angelegt, Passwort steht nicht im Klartext in DB oder Logs.
 
+**Stand (11. November 2026): umgesetzt.**
+
+- `compose.yaml`: Service `backup` (Image `airlock/backup:local` aus `backup/Dockerfile`: restic 0.17.3 aus `restic/restic:0.17.3`, dazu `pg_dump` aus `postgres:17-alpine`, also dieselbe Hauptversion wie die Datenbank). Liest `caddy_data`, `sites`, `data` read-only unter `/source/…`, schreibt nur ins Staging-Volume `airlock_backup_staging` (`/staging`) und ins Ziel (`/target`: `BACKUP_LOCAL_DIR` aus `.env`, auch ein NAS-Mount; sonst Volume `backup_local`). Feste Host-Kennung, `init: true`.
+- Abweichung «nur internes Netz»: zusätzlich das Netz `airlock_backup_egress` (nicht internal, nur dieser Container darin) – S3-Ziele wie B2 oder R2 sind sonst nicht erreichbar.
+- Socket-Proxy: `EXEC: 1`. Die Schranke ist `execIn` in `drivers/docker.ts`: exec nur im Container `BACKUP_CONTAINER` (`airlock-backup`). Geheimnisse gehen nur über die Umgebung des exec-Prozesses an restic, nie über Argumente (die stehen in `exec inspect`).
+- `secrets.key`: `keys/` ist per `--exclude /source/data/keys` ausgeschlossen (Pflicht, Unit-Test); ebenso `work/`, `scan/`, `scan-src/`.
+- Einstellungen in `app_settings` `backup_settings` (Ziel, Passwort und S3-Schlüssel verschlüsselt mit `lib/crypto.ts`, Zeitplan, Aufbewahrung, Projekte), Zustand getrennt in `backup_state`. Tabelle `backup_runs` (Migration `0018_backup_runs.sql`).
+- REST (nur mit Anmeldung, Token → 403): `GET/PUT /api/v1/system/backup/settings` (Antwort ohne Geheimnisse, nur `hasPassword`, `hasAccessKey`, `hasSecretKey`), `POST …/test` («Verbindung testen»: `restic cat config`, fehlt das Repository → `init`; falsches Passwort wird erkannt), `GET …/runs`, `GET …/snapshots`. Zod-Schemas in `packages/shared/src/backup.ts`.
+- Dateien: `compose.yaml`, `backup/Dockerfile`, `.env.example`, `packages/api/src/backup/{restic,settings,service}.ts`, `packages/api/src/backup/restic.test.ts`, `packages/api/src/http/routes/backup.ts`, `drivers/docker.ts`, `config.ts`, `db/schema.ts`, `http/{app,auth}.ts`, `packages/shared/src/backup.ts`.
+- Offen: das Repository-Passwort muss Joël getrennt aufbewahren (ohne es ist jedes Backup wertlos; es steht verschlüsselt in der Datenbank, die selbst im Backup liegt) – Hinweis gehört in die Oberfläche (Etappe 3). Ein Wechsel des Passworts ändert nur die Einstellung, nicht das Repository (`restic key passwd` gibt es nicht).
+
 ### Etappe 2 – Sichern: nächtlicher Lauf, «Jetzt sichern», Aufbewahrung
 
 - Ablauf: Sperre (kein paralleler Lauf), `pg_dump` → Staging, Projekt-Volumes nach Einstellung (Stopp/Live), `restic backup` mit Tags (`airlock`, Version, Umgebungen), danach `restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune` (einstellbar), `restic check` einmal pro Woche.

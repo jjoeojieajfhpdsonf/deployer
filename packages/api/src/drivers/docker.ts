@@ -1,9 +1,9 @@
 import Docker from 'dockerode'
-import type { Readable } from 'node:stream'
+import { PassThrough, type Readable } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import { config } from '../config.js'
 import { assertCreatePolicy } from './policy.js'
-import { AppError } from '../lib/errors.js'
+import { AppError, PolicyError } from '../lib/errors.js'
 import { LABEL, LEGACY_LABEL_NS, projectNetwork, legacyProjectNetwork, PROJECT_PREFIX, LEGACY_PROJECT_PREFIX, normalizeLabels } from '../lib/names.js'
 
 /**
@@ -591,6 +591,108 @@ export async function createComposeVolume(name: string, composeProject: string, 
     Name: name,
     Labels: { 'com.docker.compose.project': composeProject, 'com.docker.compose.volume': volume },
   })
+}
+
+/* --- Exec (nur Backup) ------------------------------------------------------ */
+
+/**
+ * Container, in denen Airlock Befehle ausführen darf. exec umgeht jede
+ * Richtlinie der Container-Erstellung (Mounts, Netze, Benutzer) – deshalb
+ * eine Erlaubnisliste mit genau einem Ziel: dem Backup-Container aus
+ * compose.yaml. Der Socket-Proxy erlaubt exec allgemein (EXEC=1); die
+ * Schranke ist, wie bei der Erstellung, dieser Code.
+ */
+export const execAllowed = (container: string): boolean => container === config.BACKUP_CONTAINER
+
+export interface ExecResult {
+  exitCode: number
+  timedOut: boolean
+  /** Letzte Zeilen der Standardausgabe bzw. Fehlerausgabe (höchstens maxLines) */
+  stdout: string[]
+  stderr: string[]
+}
+
+export interface ExecOptions {
+  /** Geheimnisse gehören hierher, nie in cmd (cmd steht in «exec inspect») */
+  env?: Record<string, string>
+  timeoutMs: number
+  maxLines?: number
+  onLine?: (line: string, stream: 'stdout' | 'stderr') => void
+}
+
+/** Zeilen eines Stroms zählen, nur die letzten behalten */
+function lineSink(max: number, kind: 'stdout' | 'stderr', onLine?: ExecOptions['onLine']): { stream: PassThrough; lines: string[]; flush: () => void } {
+  const stream = new PassThrough()
+  const lines: string[] = []
+  const dec = new StringDecoder('utf8')
+  let partial = ''
+  const push = (l: string) => {
+    lines.push(l)
+    if (lines.length > max) lines.shift()
+    onLine?.(l, kind)
+  }
+  stream.on('data', (chunk: Buffer) => {
+    const parts = (partial + dec.write(chunk)).split('\n')
+    partial = parts.pop() ?? ''
+    for (const p of parts) push(p.replace(/\r$/, ''))
+  })
+  return {
+    stream,
+    lines,
+    flush: () => {
+      const rest = partial + dec.end()
+      partial = ''
+      if (rest) push(rest)
+    },
+  }
+}
+
+/**
+ * Befehl in einem laufenden Container ausführen und auf das Ende warten.
+ * Ohne TTY und ohne Eingabe; Ausgabe getrennt nach stdout/stderr. Beim
+ * Zeitlimit wird nur die Verbindung getrennt – den Prozess im Container
+ * beendet der Aufrufer (z.B. pkill per zweitem exec).
+ */
+export async function execIn(container: string, cmd: string[], o: ExecOptions): Promise<ExecResult> {
+  if (!execAllowed(container)) {
+    throw new PolicyError('exec.container', `exec ist nur im Backup-Container erlaubt, nicht in "${container}"`)
+  }
+  const c = docker.getContainer(container)
+  const exec = await c.exec({
+    Cmd: cmd,
+    Env: Object.entries(o.env ?? {}).map(([k, v]) => `${k}=${v}`),
+    AttachStdin: false,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: false,
+  })
+  const stream = (await exec.start({ hijack: false, stdin: false, Detach: false, Tty: false })) as unknown as Readable
+  const max = o.maxLines ?? 400
+  const out = lineSink(max, 'stdout', o.onLine)
+  const err = lineSink(max, 'stderr', o.onLine)
+  docker.modem.demuxStream(stream, out.stream, err.stream)
+
+  let timer: NodeJS.Timeout | undefined
+  const timedOut = await new Promise<boolean>((resolve, reject) => {
+    timer = setTimeout(() => {
+      stream.destroy()
+      resolve(true)
+    }, o.timeoutMs)
+    stream.on('end', () => resolve(false))
+    stream.on('close', () => resolve(false))
+    stream.on('error', (e) => reject(e))
+  }).finally(() => clearTimeout(timer))
+  out.flush()
+  err.flush()
+  if (timedOut) return { exitCode: -1, timedOut: true, stdout: out.lines, stderr: err.lines }
+
+  // Der Strom kann kurz vor dem Prozessende schliessen: kurz auf den Exit-Code warten
+  let info = await exec.inspect()
+  for (let i = 0; i < 20 && info.Running; i++) {
+    await new Promise((r) => setTimeout(r, 250))
+    info = await exec.inspect()
+  }
+  return { exitCode: info.ExitCode ?? -1, timedOut: false, stdout: out.lines, stderr: err.lines }
 }
 
 /* --- Logs ----------------------------------------------------------------- */

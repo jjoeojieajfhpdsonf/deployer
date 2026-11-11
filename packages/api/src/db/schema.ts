@@ -186,6 +186,24 @@ export const appSettings = pgTable('app_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/* --- Meilenstein Backup ------------------------------------------------------ */
+
+export const backupRuns = pgTable('backup_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  trigger: text('trigger').$type<'schedule' | 'manual'>().notNull(),
+  actor: text('actor').notNull(),
+  status: text('status').$type<'running' | 'ok' | 'warning' | 'failed'>().notNull().default('running'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  durationMs: integer('duration_ms'),
+  snapshotId: text('snapshot_id'),
+  bytesNew: bigint('bytes_new', { mode: 'number' }),
+  bytesTotal: bigint('bytes_total', { mode: 'number' }),
+  filesNew: integer('files_new'),
+  error: text('error'),
+  warnings: jsonb('warnings').$type<string[]>().notNull().default([]),
+})
+
 /* --- M6: Security ------------------------------------------------------------ */
 
 export const scanIntervalEnum = pgEnum('scan_interval', ['off', 'daily', 'weekly', 'monthly'])

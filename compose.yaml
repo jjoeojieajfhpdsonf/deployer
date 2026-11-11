@@ -51,8 +51,11 @@ services:
       # RUN-Schritte aus, aber in einem eigenen Build-Container ohne
       # privileged (die Entitlement setzt die API hier nicht).
       BUILD: 1
+      # Backup: restic und pg_dump laufen per exec im Container airlock-backup.
+      # Der Proxy kann exec nicht auf einen Container beschraenken; die Schranke
+      # ist die Erlaubnisliste in docker.ts (execIn: nur BACKUP_CONTAINER).
+      EXEC: 1
       # Ausdruecklich aus:
-      EXEC: 0
       SWARM: 0
       SECRETS: 0
       SYSTEM: 0
@@ -166,10 +169,56 @@ services:
       retries: 10
       start_period: 20s
 
+  backup:
+    # Backup (docs/MILESTONE-BACKUP.md): restic (gepinnt in backup/Dockerfile)
+    # und pg_dump. Tut von sich aus nichts; Airlock steuert ihn per exec ueber
+    # den Socket-Proxy (nur diesen Container, siehe docker.ts).
+    image: airlock/backup:local
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    container_name: airlock-backup
+    # Feste Kennung: restic merkt sich den Host je Stand (Aufbewahrung, forget)
+    hostname: airlock-backup
+    # Reapt die per exec gestarteten Prozesse
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # pg_dump ueber das interne Netz
+      PGHOST: postgres
+      PGUSER: airlock
+      PGDATABASE: airlock
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt (siehe .env.example)}
+    volumes:
+      # Gesichert wird nur gelesen. keys/ (secrets.key) liegt im Daten-Volume und
+      # wird per restic --exclude ausgeschlossen (backup/restic.ts, Test dazu):
+      # der Schluessel wird getrennt gesichert, nie im selben Backup.
+      - caddy_data:/source/caddy_data:ro
+      - sites:/source/sites:ro
+      - data:/source/data:ro
+      # Datenbank-Dump und Kopien der Projekt-Volumes (BACKUP_STAGING_VOLUME)
+      - backup_staging:/staging
+      # Lokales Ziel: BACKUP_LOCAL_DIR=/pfad/auf/dem/server (auch ein NAS-Mount);
+      # ohne Angabe ein eigenes Volume. Im Ziel-Pfad der Oberflaeche: /target/…
+      - ${BACKUP_LOCAL_DIR:-backup_local}:/target
+    networks:
+      # Datenbank
+      - internal
+      # S3-Ziele (Backblaze B2, Cloudflare R2) brauchen den Weg nach draussen;
+      # internal hat keinen. Nur dieser Container haengt in diesem Netz.
+      - backup_egress
+
 networks:
   internal:
     name: airlock_internal
     internal: true
+  # Nur der Backup-Container: ausgehend zu S3, kein anderer Dienst darin
+  backup_egress:
+    name: airlock_backup_egress
   edge:
     name: airlock_edge
   # cloudflared (von Airlock gestartet) und Caddy. Nicht internal: cloudflared
@@ -187,3 +236,8 @@ volumes:
   caddy_secrets:
   sites:
   data:
+  # Backup: Staging (Name fest, Airlock haengt es in Wegwerf-Container fuer
+  # die Projekt-Volumes) und das Standard-Ziel ohne BACKUP_LOCAL_DIR
+  backup_staging:
+    name: airlock_backup_staging
+  backup_local:
