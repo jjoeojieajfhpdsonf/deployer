@@ -21,7 +21,7 @@ describe('Fehler erklären: Muster aus Log und Healthcheck', () => {
     const e = load('env-fehlt-node')
     assert.equal(e.kind, 'env_missing')
     assert.equal(e.title, 'Variable DATABASE_URL fehlt')
-    assert.deepEqual(e.action, { kind: 'add_env', name: 'DATABASE_URL', exists: false, label: 'Hinzufügen' })
+    assert.deepEqual(e.action, { kind: 'add_env', name: 'DATABASE_URL', exists: false, label: 'DATABASE_URL hinzufügen' })
     assert.equal(e.linesFrom, 'container')
     assert.ok(e.lines.some((l) => l.includes('Missing required environment variable')))
   })
@@ -112,6 +112,52 @@ describe('Fehler erklären: Muster aus Log und Healthcheck', () => {
     assert.ok(e.lines.length > 0)
   })
 
+  test('«npm start» stürzt ab: kein npm-Build, sondern die fehlende Variable (Warnung davor zählt nicht)', () => {
+    const e = load('npm-start-absturz', { port: 3000 })
+    assert.equal(e.kind, 'env_missing')
+    assert.equal(e.action.kind === 'add_env' && e.action.name, 'SESSION_SECRET')
+  })
+
+  test('irreführende App-Ausgabe: Uhrzeit, Redis-Port, «unauthorized», KeyError ohne environ → HTTP 503', () => {
+    const e = load('app-ausgabe-irrefuehrend')
+    assert.equal(e.kind, 'health_http_5xx', `bekam ${e.kind}: ${e.title}`)
+    assert.equal(e.action.kind, 'claude')
+  })
+
+  test('Basis-Image im Dockerfile fehlt → in der Quelle ändern, nicht «Image ändern»', () => {
+    const e = load('image-fehlt', { sourceType: 'dockerfile' })
+    assert.equal(e.title, 'Basis-Image nicht gefunden')
+    assert.equal(e.action.kind, 'claude')
+  })
+
+  test('Healthcheck: Verbindung abgelehnt ohne Hinweis im Log → Port ändern (Feld)', () => {
+    const log = '[2026-11-10T12:47:02.050Z] Healthcheck nach 60 Versuchen nicht bestanden (connect ECONNREFUSED 172.20.0.5:8080)\n[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:\nBereit.'
+    const e = explainFailure({ message: 'Healthcheck nicht bestanden', log, port: 8080 })
+    assert.equal(e.kind, 'health_refused')
+    assert.deepEqual(e.action, { kind: 'set_field', field: 'port', value: null, label: 'Port ändern' })
+  })
+
+  test('Exit-Code 137 ohne OOMKilled → beendet, Hinweis auf Speicher', () => {
+    const log = '[2026-11-10T12:47:02.050Z] Healthcheck nach 9 Versuchen nicht bestanden (getaddrinfo ENOTFOUND x)\n[2026-11-10T12:47:02.090Z] Container beendet: Exit-Code 137'
+    const e = explainFailure({ message: 'Healthcheck nicht bestanden', log, port: 8080 })
+    assert.equal(e.kind, 'exited')
+    assert.match(e.cause, /Arbeitsspeicher/)
+  })
+
+  test('Richtlinie nur über den Fehlercode, nicht über das Wort «policy» in der Meldung', () => {
+    const msg = 'Container läuft als root (Richtlinie: kein root)'
+    assert.equal(explainFailure({ message: msg, log: '', port: 8080, errorCode: 'policy_violation' }).kind, 'policy')
+    assert.notEqual(explainFailure({ message: 'Referrer-Policy fehlt.', log: '', port: 8080 }).kind, 'policy')
+  })
+
+  test('Quelle, Port fehlt, doppelter Punkt', () => {
+    assert.equal(explainFailure({ message: 'git clone fehlgeschlagen: Repository not found.', log: '', port: 8080 }).kind, 'source')
+    assert.ok(!explainFailure({ message: 'git clone fehlgeschlagen: Repository not found.', log: '', port: 8080 }).cause.includes('..'))
+    const p = explainFailure({ message: 'Als Webdienst braucht das Projekt einen Port im Container (port setzen)', log: '', port: null })
+    assert.equal(p.kind, 'port_missing')
+    assert.equal(p.action.kind === 'set_field' && p.action.field, 'port')
+  })
+
   test('Abbruch durch Neustart von Airlock → einfach neu deployen', () => {
     const e = explainFailure({ message: 'Abgebrochen durch Neustart von Airlock', log: '', port: 8080 })
     assert.equal(e.kind, 'aborted')
@@ -126,10 +172,19 @@ describe('Fehler erklären: Bausteine', () => {
     assert.deepEqual(listeningOn(['Listening on port 4000']), { host: null, port: 4000 })
     assert.deepEqual(listeningOn(['ready - started server on 0.0.0.0:3000, url: http://localhost:3000']), { host: '0.0.0.0', port: 3000 })
     assert.equal(listeningOn(['Datenbank verbunden']), null)
+    // Uhrzeit und Verbindungen zu anderen Diensten sind nicht der eigene Port
+    assert.equal(listeningOn(['Server started at 12:30:45']), null)
+    assert.equal(listeningOn(['Connected to Redis server at redis:6379']), null)
+    // «listen» hat Vorrang vor einer späteren, unklaren Zeile
+    assert.deepEqual(listeningOn(['Listening on port 8080', 'Admin server available at 0.0.0.0:9000 for metrics']), { host: null, port: 8080 })
   })
 
-  test('missingEnvVar: keine Treffer bei gewöhnlichen Sätzen', () => {
+  test('missingEnvVar: keine Treffer bei gewöhnlichen Sätzen, Warnungen und fremden KeyErrors', () => {
     assert.equal(missingEnvVar(['Database is required for migrations, skipping']), null)
+    assert.equal(missingEnvVar(['WARN: NODE_ENV is not set, defaulting to development']), null)
+    assert.equal(missingEnvVar(["    return STATIONS['ID']", "KeyError: 'ID'"]), null)
+    // Der Abbruch unten zählt, nicht eine Warnung weiter oben
+    assert.equal(missingEnvVar(['WARN: LOG_LEVEL is not set, using info', 'Error: Missing required environment variable: API_KEY']), 'API_KEY')
     assert.equal(missingEnvVar(['DATABASE_URL is not set']), 'DATABASE_URL')
     assert.equal(missingEnvVar(['Environment variable "REDIS_URL" is required']), 'REDIS_URL')
   })

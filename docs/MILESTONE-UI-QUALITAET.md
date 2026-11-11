@@ -115,6 +115,28 @@ Umsetzung:
 - Tests: `api/src/deploy/failure.test.ts` mit 13 Log-Fixtures (`deploy/fixtures/failure/`), dazu
   ein Zustandstest. Screenshots je Muster: `fehler-build-claude`, `fehler-port`, `fehler-speicher`.
 
+Befunde aus dem Gutachten (behoben):
+- Erkennung enger: npm/pip nur aus der Build-Phase (ein abstürzendes `npm start` ist kein
+  Build-Fehler); Image-Fehler nur aus der Fehlermeldung, nie aus der App-Ausgabe; bei Dockerfile/
+  Compose heisst es «Basis-Image» mit Claude statt «Image ändern»; Port: keine Uhrzeiten, keine
+  Verbindungen zu Redis/DB, «listen» hat Vorrang; Variable: von unten, Warnungen («defaulting»)
+  zählen nicht, KeyError nur mit `os.environ`/`getenv` davor, keine Build-Zeilen; Richtlinie nur
+  über den Fehlercode `policy_violation`; kein doppelter Punkt. Negativ-Tests dazu (24 Tests).
+- Die Erklärung wird beim Scheitern am Deployment festgehalten (Migration 0017, Spalte `failure`,
+  `recordFailure`): mit Variablen und Port *dieses* Deploys. Nach «Hinzufügen» oder «Port ändern»
+  bleibt der Titel, die Box sagt «… ist jetzt gesetzt. Wirksam beim nächsten Deploy.» und
+  «Erneut deployen» wird Hauptknopf. Die Projektliste liest keine Logs mehr; ältere Deployments
+  werden beim ersten Lesen erklärt und nachgetragen. Kein Wechsel des Titels während das Log lädt.
+- Audit und Push-Meldung: «Titel (rohe Meldung)», damit die Aktivität dasselbe sagt.
+- Barrierefreiheit: kein `role="alert"` auf der ganzen Box (die Seite meldet das Ende des Deploys
+  schon); «Letzte Zeile»/«Letzte n Zeilen»; Knopf «SENSOR_URL hinzufügen»; Logzeilen und Auftrag als
+  Region mit Namen und per Tastatur scrollbar; `aria-controls` nur bei offenem Feld; kein
+  Fehler-Aufblitzen beim Klick auf «Abbrechen». «Container läuft nicht» nutzt dieselben Worte
+  (`envTexts`).
+- Zahlenfelder (RAM, Port) leer mit «Aktuell 512 MB» als Hinweis statt vorbelegt (kein
+  Vorschlag – Frage Nr. 8). Claude-Funke auf dem Hauptknopf in Schriftfarbe (Kontrast); Vorschau
+  des Auftrags begrenzt.
+
 ### 3 – Seitentitel und Live-Aktualisierung
 - `document.title` «<Seite/Projekt> · Airlock», bei laufendem Vorgang mit Präfix; Favicon mit Punkt
   bei gescheitertem Deploy/kritischem Befund.

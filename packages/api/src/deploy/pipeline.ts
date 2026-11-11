@@ -13,6 +13,7 @@ import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
 import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
+import { recordFailure } from './explain.js'
 import { waitForHealthy } from './healthcheck.js'
 import { withProjectNetwork } from './attach.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
@@ -291,6 +292,13 @@ async function run(
     appendLine(deploymentId, `FEHLGESCHLAGEN: ${message}`)
     await cleanupFailed(projectId, deploymentId)
     await setDeployment(deploymentId, { status: 'failed', errorMessage: message, finishedAt: new Date(), isActive: false })
+    // UI-Qualität 2: Erklärung mit dem Stand *dieses* Deploys festhalten (vor dem Ende-Ereignis)
+    const project = await findProject(projectId).catch(() => null)
+    const why = project
+      ? await recordFailure(project, { id: deploymentId, errorMessage: message }, (err as { code?: string }).code).catch(() => null)
+      : null
+    // Audit und Meldung: zuerst die Erklärung, dahinter die rohe Meldung
+    const told = why && why.title !== message ? `${why.title} (${message})` : message
 
     // Die vorherige Fassung läuft weiter; das Projekt ist nur dann "failed",
     // wenn es überhaupt keine aktive Fassung mehr gibt.
@@ -304,10 +312,9 @@ async function run(
     await lock.release()
     emitDone(deploymentId, false)
     log.error('Deploy fehlgeschlagen', { projectId, deploymentId, err: message })
-    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: message })
+    await audit({ actor, action, targetType: 'project', targetId: projectId, params, result: 'error', error: told })
     // M6: Push laut Standard der SPEC. Die Meldung enthält nur Projekt und Fehlertext.
-    const p = await findProject(projectId).catch(() => null)
-    await notify('deploy_failed', { project: p?.name ?? projectId, error: message.slice(0, 300) })
+    await notify('deploy_failed', { project: project?.name ?? projectId, error: told.slice(0, 300) })
   } finally {
     await dropWorkDir(deploymentId)
   }

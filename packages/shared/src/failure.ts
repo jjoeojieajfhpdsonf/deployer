@@ -61,8 +61,12 @@ export interface FailureInput {
   healthcheckPath?: string | null
   image?: string | null
   memoryLimitMb?: number | null
-  /** Namen der gesetzten Umgebungsvariablen */
+  /** Namen der gesetzten Umgebungsvariablen (zum Zeitpunkt des Deploys) */
   envKeys?: string[]
+  /** Art der Quelle (image, dockerfile, compose, files, static) */
+  sourceType?: string | null
+  /** Fehlercode der Pipeline (AppError.code), z. B. policy_violation */
+  errorCode?: string | null
 }
 
 const STAMP = /^\[(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?Z\] /
@@ -102,11 +106,21 @@ const has = (s: string, ...needles: (string | RegExp)[]) =>
   needles.some((n) => (typeof n === 'string' ? s.toLowerCase().includes(n.toLowerCase()) : n.test(s)))
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{1,}$/
+/** Hinweise und Warnungen sind kein Abbruchgrund («NODE_ENV is not set, defaulting to …») */
+const NOT_FATAL = /\b(?:default(?:s|ing)?|warn(?:ing)?|using|fallback|optional)\b/i
 
-/** Name einer fehlenden Umgebungsvariable aus der Ausgabe, sonst null */
+/**
+ * Name einer fehlenden Umgebungsvariable aus der Container-Ausgabe, sonst
+ * null. Von unten nach oben: Der Abbruch steht am Ende, frühere Zeilen sind
+ * oft nur Warnungen.
+ */
 export function missingEnvVar(lines: string[]): string | null {
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i]!
+    if (NOT_FATAL.test(l)) continue
+    // Python: KeyError nur, wenn der Traceback davor die Umgebung liest (os.environ['X'], getenv)
+    const keyError = /KeyError:\s*['"]([A-Z][A-Z0-9_]+)['"]/.exec(l)?.[1]
+    const fromEnviron = keyError && lines.slice(Math.max(0, i - 6), i).some((x) => /\benviron\b|getenv/.test(x)) ? keyError : undefined
     const hits = [
       // «Missing required environment variable: DATABASE_URL», «missing env var "X"»
       /(?:missing|required|undefined|unset)\s+(?:required\s+)?env(?:ironment)?[\s_-]*var(?:iable)?s?\s*[:=]?\s*["'`]?([A-Z][A-Z0-9_]+)/i.exec(l)?.[1],
@@ -115,7 +129,7 @@ export function missingEnvVar(lines: string[]): string | null {
       // «DATABASE_URL is not set», «DATABASE_URL must be set» (Name in Grossbuchstaben)
       /\b([A-Z][A-Z0-9]*_[A-Z0-9_]+|[A-Z]{3,})\s+(?:is\s+)?(?:not\s+set|must\s+be\s+(?:set|defined|provided)|is\s+(?:required|missing|undefined))\b/.exec(l)?.[1],
       // Python: os.environ['SECRET_KEY'] → KeyError: 'SECRET_KEY'
-      /KeyError:\s*['"]([A-Z][A-Z0-9_]+)['"]/.exec(l)?.[1],
+      fromEnviron,
     ].find((n): n is string => !!n && ENV_NAME.test(n))
     if (hits) return hits
     // envalid u. a.: «Missing environment variables:» und darunter die Namen
@@ -127,17 +141,38 @@ export function missingEnvVar(lines: string[]): string | null {
   return null
 }
 
-/** Worauf die App laut eigener Ausgabe lauscht (letzte Meldung), sonst null */
+/** Verbindungen zu anderen Diensten («Connected to Redis at redis:6379») sind nicht der eigene Port */
+const OUTBOUND = /\b(?:connect(?:ed|ing)?|database|redis|postgres(?:ql)?|mongo(?:db)?|mysql|mariadb|amqp|rabbitmq|kafka|smtp|db)\b/i
+
+/**
+ * Worauf die App laut eigener Ausgabe lauscht, sonst null. Zeilen mit
+ * «listen» haben Vorrang; Uhrzeiten («started at 12:30:45») und
+ * Verbindungen zu anderen Diensten zählen nicht.
+ */
 export function listeningOn(lines: string[]): { host: string | null; port: number } | null {
-  const re = /\b(?:listening|running|started|serving|ready|available|server)\b[^\n]*?\b(?:on|at)\s+(?:port\s+)?(?:(?:https?:\/\/)?(\[[^\]]+\]|[\w.-]+):)?(\d{2,5})\b/i
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = re.exec(lines[i]!)
-    if (!m) continue
-    const port = Number(m[2])
-    if (port > 0 && port < 65536) return { host: m[1] ?? null, port }
+  const re = /\b(?:listening|listen|running|started|serving|ready|available|server)\b[^\n]*?\b(?:on|at)\s+(?:port\s+)?(?:(?:https?:\/\/)?(\[[^\]]+\]|[\w.-]+):)?(\d{2,5})(?![\d:.])/i
+  const pick = (only: (l: string) => boolean) => {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]!
+      if (!only(l) || OUTBOUND.test(l)) continue
+      const m = re.exec(l)
+      if (!m) continue
+      const port = Number(m[2])
+      if (port >= 80 && port < 65536) return { host: m[1] ?? null, port }
+    }
+    return null
   }
-  return null
+  return pick((l) => /listen/i.test(l)) ?? pick(() => true)
 }
+
+/** Einträge der Build-Phase: alles vor dem Start des Containers */
+function buildEntries(es: Entry[]): Entry[] {
+  const end = es.findIndex((e) => /^--- (?:starting|healthchecking) ---$|^Healthcheck gegen |^Letzte (?:Container-Ausgabe|Ausgabe von )/.test(e.head))
+  return end < 0 ? es : es.slice(0, end)
+}
+
+/** Satz ohne doppelten Punkt am Ende */
+const clause = (s: string) => s.replace(/[.\s]+$/, '')
 
 const LOCAL_ONLY = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 
@@ -159,8 +194,18 @@ export function explainFailure(i: FailureInput): FailureExplanation {
   if (has(msg, 'Abgebrochen durch Neustart')) {
     return { ...base, ...fromDeploy, kind: 'aborted', title: 'Deploy unterbrochen', cause: 'Airlock wurde während des Deploys neu gestartet. An der Quelle liegt es nicht; ein neuer Deploy sollte durchgehen.', action: { kind: 'redeploy', label: 'Erneut deployen' } }
   }
-  if (has(`${msg}\n${i.log}`, 'pull access denied', 'error from registry: denied', 'manifest unknown', 'not found: manifest', 'repository does not exist', /unauthorized: /i)) {
-    const denied = has(`${msg}\n${i.log}`, 'denied', 'unauthorized')
+  // Image: nur die Fehlermeldung (der Pull), nie die Ausgabe der App («unauthorized: invalid api key»)
+  if (has(msg, 'pull access denied', 'error from registry: denied', 'manifest unknown', 'not found: manifest', 'repository does not exist', /unauthorized: /i)) {
+    const denied = has(msg, 'denied', 'unauthorized')
+    if (i.sourceType && i.sourceType !== 'image') {
+      // Basis-Image im Dockerfile (FROM) bzw. in der compose.yaml – zu ändern im Code, nicht in Airlock
+      return {
+        ...base, ...fromBuild, kind: 'image_missing',
+        title: denied ? 'Zugriff auf ein Basis-Image verweigert' : 'Basis-Image nicht gefunden',
+        cause: `Ein Image aus dem Dockerfile (FROM) oder der compose.yaml ${denied ? 'ist privat oder existiert so nicht' : 'gibt es so nicht – meist ist der Name oder der Tag falsch'}. Das lässt sich nur in der Quelle ändern.`,
+        action: CLAUDE,
+      }
+    }
     return {
       ...base, ...fromDeploy, kind: 'image_missing',
       title: denied ? 'Zugriff auf das Image verweigert' : 'Image nicht gefunden',
@@ -170,31 +215,34 @@ export function explainFailure(i: FailureInput): FailureExplanation {
       action: { kind: 'change_source', label: 'Image ändern' },
     }
   }
-  if (has(msg, 'policy', 'Richtlinie') || has(i.log, 'policy_violation')) {
-    return { ...base, ...fromDeploy, kind: 'policy', title: 'Von der Container-Richtlinie gestoppt', cause: msg, action: { kind: 'change_source', label: 'Quelle ändern' } }
+  if (i.errorCode === 'policy_violation') {
+    return { ...base, ...fromDeploy, kind: 'policy', title: 'Von der Container-Richtlinie gestoppt', cause: `${clause(msg)}.`, action: { kind: 'change_source', label: 'Quelle ändern' } }
   }
   if (has(msg, 'port setzen')) {
-    return { ...base, ...fromDeploy, kind: 'port_missing', title: 'Port fehlt', cause: `${msg.replace(/\s*\(port setzen\)\s*$/, '')}. Ohne Port weiss Airlock nicht, wohin die Anfragen gehen.`, action: { kind: 'set_field', field: 'port', value: null, label: 'Port setzen' } }
+    return { ...base, ...fromDeploy, kind: 'port_missing', title: 'Port fehlt', cause: `${clause(msg.replace(/\s*\(port setzen\)\s*$/, ''))}. Ohne Port weiss Airlock nicht, wohin die Anfragen gehen.`, action: { kind: 'set_field', field: 'port', value: null, label: 'Port setzen' } }
   }
-  // Build: npm/pnpm/yarn, pip, sonst allgemein (vor der Quelle: ein Build-Schritt kann «git» enthalten)
-  const npmLine = tail.concat(es.flatMap((e) => [e.head, ...e.body])).find((l) => /\b(?:npm (?:ERR!|error)|ERR_PNPM_\w+|error Command failed)/.test(l) && !/npm (?:ERR!|error) (?:code|errno|path|command|signal|A complete log|\s*$)/.test(l))
-  const pipLine = es.flatMap((e) => [e.head, ...e.body]).find((l) => /ERROR: (?:Could not find a version|No matching distribution|Failed building wheel|Could not build wheels)|error: subprocess-exited-with-error/.test(l))
-  const buildFailed = has(msg, 'build', 'Dockerfile', 'returned a non-zero code', 'exit code')
+  // Build: npm/pnpm/yarn, pip, sonst allgemein. Nur Zeilen der Build-Phase – ein «npm start», das
+  // beim Starten abstürzt, schreibt auch «npm error», ist aber kein Build-Fehler.
+  const healthFailed = has(msg, 'Healthcheck nicht bestanden')
+  const buildLines = healthFailed ? [] : buildEntries(es).map((e) => e.head)
+  const npmLine = buildLines.find((l) => /\b(?:npm (?:ERR!|error)|ERR_PNPM_\w+|error Command failed)/.test(l) && !/npm (?:ERR!|error) (?:code|errno|path|command|signal|A complete log|\s*$)/.test(l))
+  const pipLine = buildLines.find((l) => /ERROR: (?:Could not find a version|No matching distribution|Failed building wheel|Could not build wheels)|error: subprocess-exited-with-error/.test(l))
+  const buildFailed = !healthFailed && has(msg, 'build', 'Dockerfile', 'returned a non-zero code', 'exit code')
   if (buildFailed || npmLine || pipLine) {
     if (npmLine) {
-      const detail = npmLine.replace(STAMP, '').replace(/^.*?\b(?:npm (?:ERR!|error)|error)\s*/, '').trim()
+      const detail = clause(npmLine.replace(/^.*?\b(?:npm (?:ERR!|error)|error)\s*/, '').trim())
       return { ...base, ...fromBuild, kind: 'build_npm', title: 'npm-Build gescheitert', cause: `Beim Installieren oder Bauen mit npm ist ein Fehler aufgetreten${detail ? `: «${detail}»` : ''}.`, action: CLAUDE }
     }
     if (pipLine) {
-      const detail = pipLine.replace(STAMP, '').replace(/^.*?ERROR:\s*/, '').trim()
+      const detail = clause(pipLine.replace(/^.*?ERROR:\s*/, '').trim())
       return { ...base, ...fromBuild, kind: 'build_pip', title: 'pip-Installation gescheitert', cause: `pip konnte die Abhängigkeiten nicht installieren: «${detail}». Oft ist eine Version zu neu oder für diese Python-Version nicht verfügbar.`, action: CLAUDE }
     }
     if (buildFailed) {
-      return { ...base, ...fromBuild, kind: 'build', title: 'Build gescheitert', cause: `Der Build ist abgebrochen: ${msg.replace(/^Build fehlgeschlagen:\s*/, '')}.`, action: CLAUDE }
+      return { ...base, ...fromBuild, kind: 'build', title: 'Build gescheitert', cause: `Der Build ist abgebrochen: ${clause(msg.replace(/^Build fehlgeschlagen:\s*/, ''))}.`, action: CLAUDE }
     }
   }
   if (has(msg, /\bgit\b/i, 'clone', 'Repository', 'Branch', 'Commit nicht')) {
-    return { ...base, ...fromDeploy, kind: 'source', title: 'Quelle nicht abrufbar', cause: msg, action: { kind: 'change_source', label: 'Quelle ändern' } }
+    return { ...base, ...fromDeploy, kind: 'source', title: 'Quelle nicht abrufbar', cause: `${clause(msg)}.`, action: { kind: 'change_source', label: 'Quelle ändern' } }
   }
 
   if (has(msg, 'Healthcheck nicht bestanden')) {
@@ -205,17 +253,11 @@ export function explainFailure(i: FailureInput): FailureExplanation {
         action: { kind: 'set_field', field: 'memoryLimitMb', value: null, label: 'Grenze erhöhen' },
       }
     }
-    const env = missingEnvVar(out.length ? out : es.flatMap((e) => e.body))
+    // Nur die Container-Ausgabe: Build-Zeilen sind keine Laufzeitfehler
+    const env = missingEnvVar(out)
     if (env) {
-      const exists = (i.envKeys ?? []).includes(env)
-      return {
-        ...base, ...fromContainer, kind: 'env_missing',
-        title: exists ? `Variable ${env} wird nicht akzeptiert` : `Variable ${env} fehlt`,
-        cause: exists
-          ? `Die App meldet ${env} als fehlend oder ungültig, obwohl die Variable gesetzt ist. Stimmt der Wert?`
-          : `Die App braucht die Umgebungsvariable ${env} und startet ohne sie nicht.`,
-        action: { kind: 'add_env', name: env, exists, label: exists ? `${env} ändern` : 'Hinzufügen' },
-      }
+      const t = envTexts(env, (i.envKeys ?? []).includes(env))
+      return { ...base, ...fromContainer, kind: 'env_missing', ...t }
     }
     const listen = listeningOn(out)
     if (listen && port !== null && listen.port !== port) {
@@ -263,7 +305,17 @@ export function explainFailure(i: FailureInput): FailureExplanation {
     return { ...base, ...fromContainer, kind: 'health', title: 'Healthcheck nicht bestanden', cause: `Auf Port ${port ?? '–'} unter ${path} kam innerhalb von 60 Sekunden keine gültige Antwort${why ? ` (${why})` : ''}.`, action: CLAUDE }
   }
 
-  return { ...base, ...fromDeploy, kind: 'unknown', title: 'Deploy fehlgeschlagen', cause: msg || 'Keine Fehlermeldung gespeichert.', action: CLAUDE }
+  return { ...base, ...fromDeploy, kind: 'unknown', title: 'Deploy fehlgeschlagen', cause: msg ? `${clause(msg)}.` : 'Keine Fehlermeldung gespeichert.', action: CLAUDE }
+}
+
+/**
+ * Titel, Satz und Aktion für eine fehlende bzw. abgelehnte Variable – geteilt
+ * von der Deploy-Fehlerbox und «Container läuft nicht» (gleiche Worte).
+ */
+export function envTexts(name: string, exists: boolean): { title: string; cause: string; action: FailureAction } {
+  return exists
+    ? { title: `Variable ${name} wird nicht akzeptiert`, cause: `Die App meldet ${name} als fehlend oder ungültig, obwohl die Variable gesetzt ist. Stimmt der Wert?`, action: { kind: 'add_env', name, exists, label: `${name} ändern` } }
+    : { title: `Variable ${name} fehlt`, cause: `Die App braucht die Umgebungsvariable ${name} und startet ohne sie nicht.`, action: { kind: 'add_env', name, exists, label: `${name} hinzufügen` } }
 }
 
 /** Was Claude als Nächstes tun kann – in Worten, weil das MCP-Ergebnis keine Knöpfe hat */

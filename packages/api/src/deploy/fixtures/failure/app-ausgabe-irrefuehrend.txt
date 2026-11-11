@@ -1,0 +1,13 @@
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:46:02.031Z] Healthcheck gegen http://dep_wetter_c3:8080/health
+[2026-11-10T12:47:02.050Z] Healthcheck nach 60 Versuchen nicht bestanden (HTTP 503)
+[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:
+Server started at 12:30:45
+Connected to Redis server at redis:6379
+Wetterdienst: unauthorized: invalid api key
+Traceback (most recent call last):
+  File "/app/stations.py", line 40, in load
+    return STATIONS['ID']
+KeyError: 'ID'
+GET /health 503 4.1 ms
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden

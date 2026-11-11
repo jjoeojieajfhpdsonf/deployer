@@ -67,10 +67,9 @@ export const logForFailure = (message: string | null, deploymentId?: string) =>
 
 function dep(projectId: string, n: number, over: Partial<DeploymentDto> = {}): DeploymentDto {
   const d = depRaw(projectId, n, over)
-  // Wie der Server (withFailure): gescheiterte mit dem Titel der Erklärung
+  // Wie der Server (recordFailure): gescheiterte mit der beim Scheitern festgehaltenen Erklärung
   if (d.status !== 'failed' || d.failure !== undefined) return d
-  const e = explainFailure({ message: d.errorMessage, log: logForFailure(d.errorMessage, d.id), port: 8080, healthcheckPath: '/health', memoryLimitMb: 512, envKeys: [] })
-  return { ...d, failure: { kind: e.kind, title: e.title } }
+  return { ...d, failure: explainFailure({ message: d.errorMessage, log: logForFailure(d.errorMessage, d.id), port: 8080, healthcheckPath: '/health', memoryLimitMb: 512, envKeys: [] }) }
 }
 
 function depRaw(projectId: string, n: number, over: Partial<DeploymentDto> = {}): DeploymentDto {
@@ -677,7 +676,7 @@ export function audit(targetId?: string): AuditEventDto[] {
     [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
     [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
     [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
-    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck nicht bestanden'],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
     [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
     [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
     [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],

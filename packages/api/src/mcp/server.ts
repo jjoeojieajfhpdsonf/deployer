@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets } from '@airlock/shared'
 import { listProjects, findProject, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
-import { listDeployments, getDeployment, activeDeployment } from '../domain/deployments.js'
+import { listDeployments, getDeployment, activeDeployment, toDeploymentDto } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
 import {
@@ -90,7 +90,7 @@ async function waitFor(dep: DeploymentDto, timeoutMs = 10 * 60_000) {
   const tail = readLog(dep.id).trim().split('\n').slice(-20).join('\n')
   // UI-Qualität 2: dieselbe Erklärung wie die Fehlerbox der Oberfläche
   const why = d.status === 'failed'
-    ? await findProject(dep.projectId).then((p) => explainDeployment(p, { id: dep.id, errorMessage: d.errorMessage })).catch(() => null)
+    ? await findProject(dep.projectId).then(async (p) => explainDeployment(p, toDeploymentDto(await getDeployment(dep.id)))).catch(() => null)
     : null
   return {
     deployment: dep.id,

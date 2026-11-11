@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { PausePage } from './pause-page.js'
-import type { FailureKind } from './failure.js'
+import type { FailureExplanation } from './failure.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -515,8 +515,8 @@ export interface DeploymentDto {
   sourceRef: string | null
   status: DeploymentStatus
   errorMessage: string | null
-  /** UI-Qualität 2: Erklärung eines gescheiterten Deploys in Kurzform (Titel wie in der Fehlerbox) */
-  failure?: { kind: FailureKind; title: string } | null
+  /** UI-Qualität 2: Erklärung eines gescheiterten Deploys, beim Scheitern festgehalten (Fehlerbox, Pille, Listen) */
+  failure?: FailureExplanation | null
   startedAt: string
   finishedAt: string | null
   isActive: boolean

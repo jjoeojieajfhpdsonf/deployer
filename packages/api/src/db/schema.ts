@@ -2,7 +2,7 @@ import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType,
 } from 'drizzle-orm/pg-core'
-import type { ScanStageDto, PausePage, DeployReason } from '@airlock/shared'
+import type { ScanStageDto, PausePage, DeployReason, FailureExplanation } from '@airlock/shared'
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
@@ -73,6 +73,8 @@ export const deployments = pgTable(
     reason: jsonb('reason').$type<DeployReason>(),
     actor: text('actor'),
     message: text('message'),
+    // UI-Qualität 2 (Migration 0017): Erklärung beim Scheitern festgehalten
+    failure: jsonb('failure').$type<FailureExplanation>(),
   },
   (t) => [index('deployments_project_started').on(t.projectId, t.startedAt)],
 )

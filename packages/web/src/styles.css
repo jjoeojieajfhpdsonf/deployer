@@ -1512,6 +1512,10 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 form.failure-fix { display: grid; gap: var(--sp-3); max-width: 420px; }
 form.failure-fix .form-actions { margin: 0; }
 .failure .claude-fix { margin-top: 0; display: grid; gap: var(--sp-2); }
+/* Auftrag: Vorschau begrenzt, Rest scrollt (die Zeilen stehen oben schon) */
+.failure .claude-fix .code-block { max-height: 220px; overflow: auto; }
+/* Auf dem gefüllten Hauptknopf die Schriftfarbe statt Claude-Orange (Kontrast) */
+.button-primary .claude-spark { color: currentColor; }
 
 /* Zustand */
 .state-rows { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--sp-3) var(--sp-5); margin: 0; }
