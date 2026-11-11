@@ -382,7 +382,7 @@ const STEP: Record<string, { n: number; label: string }> = {
 function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | undefined; onAct: (what: 'deploy' | 'stop' | 'start') => void; busy: boolean }) {
   const [confirm, setConfirm] = useState<MenuConfirm>(null)
   return (
-    <RowMenu label={`Aktionen für ${p.name}`}>
+    <RowMenu label={`Aktionen für ${p.name}`} onClose={() => setConfirm(null)}>
       {(close) => (
         <>
           {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}

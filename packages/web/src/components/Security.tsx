@@ -300,7 +300,8 @@ export function ScanReport({
       {/* Ergebnis als Bento: Note, offene Befunde, Zeit; darunter die Stufen */}
       <div className="bento">
         <section className="bento-card" aria-labelledby="sec-result">
-          <h3 id="sec-result" className="bento-label">Ergebnis</h3>
+          {/* Ebene 2: direkt unter dem Seitentitel (h1), ohne Zwischenüberschrift */}
+          <h3 id="sec-result" className="bento-label" aria-level={2}>Ergebnis</h3>
           <div aria-live="polite" className="bento-value">
             {running ? <span className="scan-running"><span className="status-dot" aria-hidden="true" />Scan läuft …</span> : <GradeBadge grade={s.grade} score={s.score} />}
           </div>
@@ -310,12 +311,12 @@ export function ScanReport({
         </section>
 
         <section className="bento-card" aria-labelledby="sec-open">
-          <h3 id="sec-open" className="bento-label">Offene Befunde</h3>
+          <h3 id="sec-open" className="bento-label" aria-level={2}>Offene Befunde</h3>
           <div className="bento-value"><SeverityChips counts={report.counts} /></div>
         </section>
 
         <section className="bento-card" aria-labelledby="sec-time">
-          <h3 id="sec-time" className="bento-label">{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
+          <h3 id="sec-time" className="bento-label" aria-level={2}>{running ? 'Läuft seit' : 'Letzter Scan'}</h3>
           <p className="bento-value bento-text">{running ? runFor(s.startedAt, now) : t.rel}</p>
           <p className="bento-sub">
             {t.abs}
@@ -326,7 +327,7 @@ export function ScanReport({
         </section>
 
         <section className="bento-card bento-wide" aria-labelledby="sec-stages">
-          <h3 id="sec-stages" className="bento-label">Stufen</h3>
+          <h3 id="sec-stages" className="bento-label" aria-level={2}>Stufen</h3>
           {running && <ScanHead s={s} now={now} />}
           <StageList stages={s.stages} now={now} open={running ? null : open} onTool={running ? undefined : showFindings} toolFilter={toolFilter} />
         </section>

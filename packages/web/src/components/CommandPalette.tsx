@@ -112,7 +112,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     },
   })
 
-  const go = (to: string) => { onClose(); navigate(to); focusMain() }
+  // Nach dem Seitenwechsel den Inhalt fokussieren – erst im close-Ereignis des Dialogs, denn
+  // der native Dialog gibt den Fokus beim Schliessen an das vorherige Element (<body>) zurück
+  const focusAfterClose = useRef(false)
+  const go = (to: string) => { focusAfterClose.current = true; onClose(); navigate(to) }
 
   const items = useMemo<Item[]>(() => {
     // Nur vollständige Projekte (kaputte Einträge legen die Palette nicht lahm)
@@ -176,7 +179,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       ref={ref}
       className="dialog palette"
       aria-label="Befehle und Suche"
-      onClose={onClose}
+      onClose={() => {
+        onClose()
+        if (focusAfterClose.current) { focusAfterClose.current = false; focusMain() }
+      }}
       onCancel={(e) => { if (confirm) { e.preventDefault(); backToList() } }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >

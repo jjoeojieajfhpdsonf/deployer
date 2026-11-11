@@ -50,7 +50,8 @@ export function ActivityList({
     <div className="act">
       {byDay(items).map((g) => (
         <section key={g.day} className="act-day" aria-label={g.day}>
-          <h3 className="act-day-label">{g.day}</h3>
+          {/* Im Audit-Log (ohne Kartenüberschrift) Ebene 2, in der Karte der Projektseite Ebene 3 */}
+          <h3 className="act-day-label" aria-level={details ? 2 : 3}>{g.day}</h3>
           <ol className="act-list">
             {g.items.map((it) => {
               const Icon = ICON[it.info.category]

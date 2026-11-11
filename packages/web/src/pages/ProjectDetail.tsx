@@ -42,6 +42,7 @@ export function ProjectDetail() {
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
   const [watching, setWatching] = useState<string | null>(null)
+  const [announce, setAnnounce] = useState('')
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
@@ -183,12 +184,15 @@ export function ProjectDetail() {
             >
               {key === 'einstellungen' && <IconGear />}
               {t.label}
-              {t.count !== undefined && t.count > 0 && <span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`} aria-label={t.countLabel}>{t.count}</span>}
+              {/* Zahl sichtbar, für Screenreader als Satz (aria-label auf span ohne Rolle ist unzulässig) */}
+              {t.count !== undefined && t.count > 0 && <><span className={`tab-count${t.tone ? ` tab-count-${t.tone}` : ''}`} aria-hidden="true">{t.count}</span><span className="sr-only">, {t.countLabel}</span></>}
               {t.live && <span className="tab-live" role="img" aria-label="Container läuft" title="Container läuft" />}
             </button>
           )
         })}
       </nav>
+      {/* Bleibt über Reiterwechsel und das Ende des Deploys hinweg im DOM */}
+      <p className="sr-only" role="status">{announce}</p>
       <div id="tab-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
 
       {tab === 'uebersicht' && (
@@ -196,7 +200,9 @@ export function ProjectDetail() {
           {watching && (
             <DeployProgress
               deploymentId={watching}
-              onFinished={() => {
+              onFinished={(ok) => {
+                // Ende ansagen über die Region der Seite: der Fortschritt verschwindet gleich danach
+                setAnnounce(ok ? 'Deploy fertig. Der neue Stand ist live.' : 'Deploy fehlgeschlagen. Die vorherige Fassung läuft weiter.')
                 setWatching(null)
                 void qc.invalidateQueries({ queryKey: ['project', id] })
               }}
@@ -266,7 +272,7 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
   // Statische Seiten haben keinen Container: nichts neu zu starten
   const restartable = p.desiredState === 'running' && p.runtimeKind !== 'static' && Boolean(p.activeDeployment)
   return (
-    <RowMenu label="Weitere Aktionen">
+    <RowMenu label="Weitere Aktionen" onClose={() => setConfirm(null)}>
       {(close) => (
         <>
           {restartable && (confirm === 'restart' ? (

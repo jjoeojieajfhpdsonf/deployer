@@ -11,7 +11,8 @@ import { A11Y_SCENES } from './scenes.js'
  * Dunkel, Regeln WCAG 2.2 A/AA. Jeder Befund lässt den Test scheitern; die
  * Meldung nennt Regel, Wirkung, Element und Hilfe-Link.
  */
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+// Dazu die Best-Practice-Regeln (Überschriftenfolge, Landmarks, ein h1); «incomplete» wird protokolliert
+const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 
 for (const theme of ['hell', 'dunkel'] as const) {
   const t = theme === 'hell' ? 'light' : 'dark'
@@ -28,6 +29,8 @@ for (const theme of ['hell', 'dunkel'] as const) {
         // Die Vorschau der Pause-Seite ist Inhalt des Nutzers in einem abgeschotteten iframe
         // (sandbox ohne Skripte) – nicht Teil der Oberfläche, axe käme dort ohnehin nicht hinein
         const result = await new AxeBuilder({ page }).withTags(TAGS).exclude('iframe[sandbox]').analyze()
+        // Nicht entscheidbare Prüfungen (meist Kontrast auf Verläufen) im Bericht vermerken
+        if (result.incomplete.length) test.info().annotations.push({ type: 'axe-unvollständig', description: result.incomplete.map((v) => `${v.id}: ${v.nodes.length}`).join(', ') })
         const report = result.violations.map((v) => `${v.id} (${v.impact}): ${v.help}\n  ${v.nodes.slice(0, 4).map((n) => n.target.join(' ')).join('\n  ')}\n  ${v.helpUrl}`)
         expect(report, `axe-Befunde in ${name} · ${theme}`).toEqual([])
       } finally {
