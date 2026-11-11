@@ -372,3 +372,34 @@ Umsetzung:
   Audit-Eintrag), Link je Ereignis und «Alle im Audit-Log». Welche Ereignisse hineingehören: offen,
   Frage Nr. 11.
 - Szenen: `glocke`, `sitzung-abgelaufen`, `verlassen-rueckfrage`, `tokens-neu`.
+
+Befunde aus dem Gutachten (behoben):
+- «Gelesen bis» der Glocke ging beim Lesen verloren (nach jedem Neuladen alles wieder ungelesen);
+  jetzt mitgelesen, auf dem Server nie in der Zukunft, gesetzt auf die Zeit des neuesten Ereignisses
+  (Uhr des Servers); scheitert das Speichern, kommt der alte Stand zurück, mit Fehlermeldung.
+  Gezählt wird über alle geladenen Ereignisse (vorher höchstens 8, «9+» kam nie).
+- Bewusstes Abmelden zeigte «Sitzung abgelaufen»: jetzt die Anmeldeseite; vorher Rückfrage, wenn
+  etwas ungespeichert ist.
+- An der abgelaufenen Sitzung gescheiterte Aktionen: kein Toast hinter dem Dialog mehr, der Dialog
+  nennt sie («Variablen nicht gespeichert …»). Ob nach der Anmeldung mehr passieren soll: offen,
+  Frage Nr. 16. Neue Szene `sitzung-abgelaufen-aktion`.
+- 401 auf `/auth/preferences`, `/auth/password` und `/auth/logout` öffnet jetzt auch den Dialog
+  (ausgenommen nur Anmeldung und `/auth/me`).
+- Schliesst der Browser einen Dialog trotz `preventDefault` (zweites Esc): Sitzungsdialog öffnet
+  wieder, Rückfrage gilt als «Bleiben», Pause-Editor fragt statt still zu verwerfen.
+- Rückfrage auch bei Tastenkürzeln, Befehlspalette, Aktionen in Toasts und Abmelden
+  (`useGuardedNavigate`); dazu angeschlossen: neue öffentliche Adresse, Ablauf von Chat-Projekten,
+  Benachrichtigungen. Zurück-Knopf des Browsers: offen, Frage Nr. 12. Passwort-Formular: offen,
+  Frage Nr. 13.
+- Reiterwechsel: «Löschen» und «Variable hinzufügen» merken sich ihr Ziel nur, wenn der Wechsel
+  stattfindet; Pfeiltasten fokussieren nur den gewählten Reiter; nach gestartetem Deploy/Rollback
+  wechselt die Seite nur zur Übersicht, wenn nichts ungespeichert ist (keine Rückfrage aus dem Nichts).
+- Texte der Rückfrage: «Weiter bearbeiten» statt «Bleiben und speichern»; für das nicht kopierte
+  Token eigener Text («… ist noch nicht kopiert und wird nicht noch einmal angezeigt», «Trotzdem
+  weiter»). Links im Glocken-Menü schliessen das Menü wieder (kein `stopPropagation` mehr).
+- Glocke: nach «Alle als gelesen markieren» geht der Fokus zurück auf die Glocke; Stand im Namen
+  des Menüs, Leerzustand als gesperrter Eintrag.
+- Tokens: Codeblöcke als benannte Gruppe; Claude-Desktop-Eintrag mit Kopfzeile über `env`
+  (Leerzeichen in `args` zerteilen das Argument unter Windows); Abstand zwischen Eingabezeile und
+  Banner. `--scope` im Befehl für Claude Code: offen, Frage Nr. 14.
+- Sitzungsdialog: Überschrift `h2` statt zweiter `h1`. Ausweg aus dem Dialog: offen, Frage Nr. 15.

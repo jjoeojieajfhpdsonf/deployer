@@ -9,6 +9,7 @@ import { auditTone, describeAudit, actorLabel } from '../lib/format.js'
 import { fmtDateTime, fmtTime, msOf, nowIso, sameDay, fmtDayMonth } from '../lib/dates.js'
 import { isReadOnly } from '../lib/activity.js'
 import { poll } from '../lib/live.js'
+import { notifyError } from '../lib/feedback.js'
 
 /**
  * UI-Qualität 8: Glocke im Kopf. Zeigt Ereignisse, die nicht von dir in der
@@ -33,14 +34,27 @@ export function Bell({ me }: { me: MeDto }) {
   const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: poll })
   const projects = useProjects()
   const byId = useMemo(() => new Map((projects.data?.projects ?? []).map((p): [string, ProjectDto] => [p.id, p])), [projects.data])
-  const events = (audit.data?.events ?? []).filter(isBellEvent).slice(0, MAX)
+  const all = (audit.data?.events ?? []).filter(isBellEvent)
+  // Liste zeigt die neuesten MAX; gezählt wird über alles Geladene (sonst gäbe es nie «9+»)
+  const events = all.slice(0, MAX)
   const seen = msOf(me.bellSeenAt) ?? 0
-  const unread = events.filter((e) => (msOf(e.at) ?? 0) > seen).length
+  const unread = all.filter((e) => (msOf(e.at) ?? 0) > seen).length
 
   async function markRead() {
-    const at = nowIso()
+    // «Gelesen bis» = Zeit des neuesten Ereignisses (Uhr des Servers, nicht des Browsers):
+    // eine falsch gehende Uhr im Browser würde sonst Ereignisse verstecken oder stehen lassen
+    const at = all[0]?.at
+    if (!at) return
+    const before = me.bellSeenAt ?? null
+    // Menü zu, Fokus zurück auf die Glocke (der Knopf hier wäre gleich gesperrt)
+    close()
     qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, bellSeenAt: at } : old))
-    try { await api.setPreferences({ bellSeenAt: at }) } catch { /* beim nächsten Laden gilt der Server */ }
+    try {
+      await api.setPreferences({ bellSeenAt: at })
+    } catch (err) {
+      qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, bellSeenAt: before } : old))
+      notifyError('Nicht als gelesen markiert', err)
+    }
   }
 
   const label = unread > 0 ? `Ereignisse, ${unread} ungelesen` : 'Ereignisse, keine ungelesenen'
@@ -69,14 +83,15 @@ export function Bell({ me }: { me: MeDto }) {
         {/* Zahl als Zusatz; die Bedeutung steht im Namen des Knopfs */}
         {unread > 0 && <span className="bell-count" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}
       </button>
-      <div {...listProps} role="menu" id={id} aria-label="Ereignisse" className={`${listProps.className} bell-menu`}>
-        <div className="menu-head bell-head">
+      {/* Kopfzeile und Leerzustand liest ein Screenreader im Menü nicht vor: der Stand steht im Namen des Menüs */}
+      <div {...listProps} role="menu" id={id} aria-label={unread > 0 ? `Ereignisse, ${unread} ungelesen` : 'Ereignisse, alles gelesen'} className={`${listProps.className} bell-menu`}>
+        <div className="menu-head bell-head" aria-hidden="true">
           <strong>Ereignisse</strong>
           <span>{unread > 0 ? `${unread} ungelesen` : 'alles gelesen'}</span>
         </div>
         <div className="menu-sep" />
         {events.length === 0 ? (
-          <p className="bell-empty">Noch nichts passiert, das du nicht selbst ausgelöst hast.</p>
+          <p className="bell-empty" role="menuitem" aria-disabled="true" tabIndex={-1}>Noch nichts passiert, das du nicht selbst ausgelöst hast.</p>
         ) : events.map((e) => {
           const fresh = (msOf(e.at) ?? 0) > seen
           const tone = auditTone(e)

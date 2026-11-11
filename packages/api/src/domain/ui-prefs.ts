@@ -20,6 +20,9 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
     const setup = uiPrefsSchema.shape.setup.safeParse(obj?.setup)
     const out: UiPrefs = { theme: theme.success ? theme.data : DEFAULT_UI_PREFS.theme }
     if (setup.success && setup.data) out.setup = setup.data
+    // UI-Qualität 8: «Glocke gelesen bis» muss beim Lesen mitkommen, sonst ist nach jedem Neuladen alles wieder ungelesen
+    const bell = uiPrefsSchema.shape.bellSeenAt.safeParse(obj?.bellSeenAt)
+    if (bell.success && bell.data) out.bellSeenAt = bell.data
     return out
   } catch {
     return DEFAULT_UI_PREFS
@@ -38,8 +41,17 @@ export function mergeUiPrefs(current: UiPrefs, patch: UiPrefsPatch): UiPrefs {
   return uiPrefsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })
 }
 
+/**
+ * Rein: «Glocke gelesen bis» nie in der Zukunft – ein Datum wie 9999 würde
+ * die Glocke für immer stumm schalten.
+ */
+export function clampBellSeen(patch: UiPrefsPatch, now: Date): UiPrefsPatch {
+  if (!patch.bellSeenAt || Date.parse(patch.bellSeenAt) <= now.getTime()) return patch
+  return { ...patch, bellSeenAt: now.toISOString() }
+}
+
 export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs> {
-  const patch = uiPrefsPatchSchema.parse(input)
+  const patch = clampBellSeen(uiPrefsPatchSchema.parse(input), new Date())
   const prefs = mergeUiPrefs(await getUiPrefs(), patch)
   await setSetting(KEY, JSON.stringify(prefs))
   // «Glocke gelesen» ist keine Einstellung, die jemand im Audit-Log sucht (und erzeugte bei jedem Öffnen einen Eintrag)

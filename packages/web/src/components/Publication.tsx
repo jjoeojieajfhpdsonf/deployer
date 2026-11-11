@@ -6,6 +6,7 @@ import { PausePageDialog, pageKind } from './PausePageEditor.js'
 import { api } from '../api.js'
 import { poll } from '../lib/live.js'
 import { useFormErrors } from '../lib/form.js'
+import { useUnsaved } from '../lib/unsaved.js'
 import { usePublicActions } from '../lib/public.js'
 import { relativeTime } from '../lib/format.js'
 import { ageMs, fmtDate, fmtDateTime, fmtDateTimeMedium, fmtTime, msOf, sameDay } from '../lib/dates.js'
@@ -315,6 +316,8 @@ function AddressRow({ p, s, actions, paused, defaultZone }: { p: ProjectDto; s: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [err])
   const renaming = actions.pending && actions.current?.op === 'rename'
+  // UI-Qualität 8: neue Adresse eingetippt, aber nicht übernommen → Rückfrage beim Verlassen
+  useUnsaved(editing && name.trim() !== (s.hostname ?? ''), 'neue öffentliche Adresse')
   return (
     <>
       <SetRow

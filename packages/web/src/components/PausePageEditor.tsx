@@ -220,7 +220,10 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
   }
 
   return (
-    <dialog ref={ref} className="dialog pause-dialog" aria-labelledby={`${prefix}-h`} onClose={onCancel}
+    <dialog ref={ref} className="dialog pause-dialog" aria-labelledby={`${prefix}-h`}
+      // Schliesst der Browser den Dialog selbst (zweites Esc ohne Nutzeraktion), nicht still verwerfen:
+      // wieder öffnen und fragen
+      onClose={() => { if (!open) return; if (changed) { ref.current?.showModal(); cancel() } else onCancel() }}
       onCancel={(e) => { if (changed) { e.preventDefault(); cancel() } }}
       onClick={(e) => { if (e.target === e.currentTarget) cancel() }}>
       <form className="pause-dialog-form" noValidate onSubmit={(e) => { e.preventDefault(); submit() }}>

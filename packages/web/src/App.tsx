@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { markSessionExpired } from './lib/session.js'
+import { markSessionExpired, markSessionOk, useLoggedOut } from './lib/session.js'
 import { SessionDialog } from './components/SessionDialog.js'
 import { LeaveGuard } from './components/LeaveGuard.js'
 import { Bell } from './components/Bell.js'
@@ -43,6 +43,7 @@ export function App() {
   const hadShell = useRef(false)
   // Profil der letzten gültigen Sitzung: bleibt im Kopf stehen, solange der Dialog offen ist
   const lastMe = useRef<MeDto | null>(null)
+  const loggedOut = useLoggedOut()
   if (me.data?.loggedIn) { hadShell.current = true; lastMe.current = me.data }
   useEffect(() => {
     if (me.data && !me.data.loggedIn && hadShell.current) markSessionExpired()
@@ -83,8 +84,9 @@ export function App() {
     )
   }
 
-  if (!me.data?.loggedIn && !hadShell.current) {
-    return <Login onDone={() => void qc.invalidateQueries({ queryKey: ['me'] })} />
+  // Anmeldeseite: beim ersten Öffnen ohne Sitzung und nach bewusstem Abmelden; sonst Dialog über der Seite
+  if (!me.data?.loggedIn && (!hadShell.current || loggedOut)) {
+    return <Login onDone={() => { markSessionOk(); void qc.invalidateQueries({ queryKey: ['me'] }) }} />
   }
 
   return (

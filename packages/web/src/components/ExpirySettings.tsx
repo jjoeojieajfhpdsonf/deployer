@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api.js'
 import { Field } from './Field.js'
+import { useUnsaved } from '../lib/unsaved.js'
 
 const MIN = 4
 const MAX = 3650
@@ -29,6 +30,8 @@ export function ExpirySettings() {
     onError: (err) => setError(err instanceof ApiError ? err.message : 'Nicht gespeichert'),
   })
   const d = q.data
+  // UI-Qualität 8: geänderte Frist, nicht gespeichert → Rückfrage beim Verlassen
+  useUnsaved(Boolean(d) && value !== String(d?.days), 'Ablauf von Chat-Projekten')
   return (
     <section className="expiry-settings" aria-labelledby="expiry-h">
       <h2 id="expiry-h">Ablauf von Chat-Projekten</h2>

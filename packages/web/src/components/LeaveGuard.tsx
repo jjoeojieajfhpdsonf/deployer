@@ -36,8 +36,9 @@ export function LeaveGuard() {
       if (url.origin !== location.origin) return
       // Sprung auf derselben Seite (#abschnitt) verlässt nichts
       if (url.pathname === location.pathname && url.search === location.search) return
+      // Nur preventDefault (kein stopPropagation): <Link> navigiert dann nicht, eigene onClick
+      // (z.B. Menü schliessen) laufen aber weiter
       e.preventDefault()
-      e.stopPropagation()
       back.current = a
       void confirmLeave().then((ok) => { if (ok) navigate(`${url.pathname}${url.search}${url.hash}`) })
     }
@@ -62,15 +63,34 @@ export function LeaveGuard() {
     }
   }, [ask])
 
-  const what = ask?.what.join(', ') ?? ''
+  const edits = ask?.edits ?? []
+  const once = ask?.once ?? []
+  const onlyOnce = edits.length === 0 && once.length > 0
+  const list = (xs: string[]) => xs.join(', ')
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby="leave-h" aria-describedby="leave-d" onCancel={(e) => { e.preventDefault(); ask?.resolve(false) }}>
+    <dialog
+      ref={ref}
+      className="dialog"
+      aria-labelledby="leave-h"
+      aria-describedby="leave-d"
+      onCancel={(e) => { e.preventDefault(); ask?.resolve(false) }}
+      // Schliesst der Browser den Dialog trotzdem (zweites Esc ohne Nutzeraktion), heisst das «Bleiben»
+      onClose={() => ask?.resolve(false)}
+    >
       <div className="dialog-body">
-        <h2 id="leave-h">Änderungen verwerfen?</h2>
-        <p id="leave-d" className="dialog-lede">Ungespeichert: {what}. Wer jetzt weitergeht, verliert diese Eingaben.</p>
+        <h2 id="leave-h">{onlyOnce ? 'Weiter ohne zu kopieren?' : 'Änderungen verwerfen?'}</h2>
+        <p id="leave-d" className="dialog-lede">
+          {edits.length > 0 && <>Ungespeichert: {list(edits)}. Wer jetzt weitergeht, verliert diese Eingaben.</>}
+          {edits.length > 0 && once.length > 0 && ' '}
+          {once.length > 0 && <>{list(once)} ist noch nicht kopiert und wird nicht noch einmal angezeigt.</>}
+        </p>
         <div className="dialog-actions">
-          <button type="button" ref={stay} className="button-primary" onClick={() => ask?.resolve(false)}>Bleiben und speichern</button>
-          <button type="button" className="button-danger" onClick={() => ask?.resolve(true)}>Verwerfen und weiter</button>
+          <button type="button" ref={stay} className="button-primary" onClick={() => ask?.resolve(false)}>
+            {edits.length > 0 ? 'Weiter bearbeiten' : 'Bleiben'}
+          </button>
+          <button type="button" className="button-danger" onClick={() => ask?.resolve(true)}>
+            {onlyOnce ? 'Trotzdem weiter' : 'Verwerfen und weiter'}
+          </button>
         </div>
       </div>
     </dialog>

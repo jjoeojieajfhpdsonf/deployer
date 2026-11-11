@@ -69,14 +69,24 @@ export function Tokens() {
   const cli = fresh
     ? `claude mcp add --transport http airlock ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
     : ''
-  // Claude Desktop spricht entfernte MCP-Server über mcp-remote an (Eintrag in claude_desktop_config.json)
+  // Claude Desktop spricht entfernte MCP-Server über mcp-remote an (Eintrag in claude_desktop_config.json).
+  // Kopfzeile über eine Umgebungsvariable und ohne Leerzeichen im Argument: so empfiehlt es mcp-remote,
+  // weil Leerzeichen in args unter Windows das Argument zerteilen
   const desktop = fresh
-    ? JSON.stringify({ mcpServers: { airlock: { command: 'npx', args: ['-y', 'mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${fresh.token}`] } } }, null, 2)
+    ? JSON.stringify({
+        mcpServers: {
+          airlock: {
+            command: 'npx',
+            args: ['-y', 'mcp-remote', mcpUrl, '--header', 'Authorization:${AUTH_HEADER}'],
+            env: { AUTH_HEADER: `Bearer ${fresh.token}` },
+          },
+        },
+      }, null, 2)
     : ''
   const [client, setClient] = useState<'code' | 'desktop'>('code')
   // Das Token steht nur dieses eine Mal da: nicht unbemerkt wegnavigieren, solange nichts kopiert ist
   const [anyCopied, setAnyCopied] = useState(false)
-  useUnsaved(Boolean(fresh) && !anyCopied, 'neues Token (noch nicht kopiert, wird nicht noch einmal angezeigt)')
+  useUnsaved(Boolean(fresh) && !anyCopied, `Das neue Token «${fresh?.name ?? ''}»`, 'once')
 
   return (
     <section className="page page-medium">
@@ -102,7 +112,7 @@ export function Tokens() {
       {fresh && (
         <section className="banner banner-warn token-fresh" aria-labelledby="token-fresh-h">
           <h2 id="token-fresh-h" className="token-fresh-h">Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</h2>
-          <pre className="code-block" tabIndex={0} aria-label="Token">{fresh.token}</pre>
+          <pre className="code-block" tabIndex={0} role="group" aria-label="Token">{fresh.token}</pre>
           <div className="form-actions">
             <button type="button" onClick={() => copy('token', fresh.token)}>Token kopieren</button>
           </div>
@@ -115,7 +125,7 @@ export function Tokens() {
           {client === 'code' ? (
             <>
               <p className="hint">Im Terminal ausführen:</p>
-              <pre className="code-block" tabIndex={0} aria-label="Befehl für Claude Code">{cli}</pre>
+              <pre className="code-block" tabIndex={0} role="group" aria-label="Befehl für Claude Code">{cli}</pre>
               <div className="form-actions">
                 <button type="button" className="button-primary" onClick={() => copy('cli', cli)}>Befehl kopieren</button>
               </div>
@@ -123,7 +133,7 @@ export function Tokens() {
           ) : (
             <>
               <p className="hint">In Claude Desktop unter Einstellungen › Entwickler › «Konfiguration bearbeiten» in <code>claude_desktop_config.json</code> einfügen (bestehende Einträge unter <code>mcpServers</code> behalten), dann Claude Desktop neu starten. Braucht Node.js.</p>
-              <pre className="code-block" tabIndex={0} aria-label="Konfiguration für Claude Desktop">{desktop}</pre>
+              <pre className="code-block" tabIndex={0} role="group" aria-label="Konfiguration für Claude Desktop">{desktop}</pre>
               <div className="form-actions">
                 <button type="button" className="button-primary" onClick={() => copy('desktop', desktop)}>Konfiguration kopieren</button>
               </div>

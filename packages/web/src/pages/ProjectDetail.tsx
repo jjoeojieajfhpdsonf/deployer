@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
-import { confirmLeave } from '../lib/unsaved.js'
+import { confirmLeave, hasUnsaved } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
@@ -44,7 +44,18 @@ export function ProjectDetail() {
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   // UI-Qualität 8: Reiterwechsel mit ungespeicherten Eingaben (z.B. Variablen) erst nach Rückfrage
-  const setTab = (t: Tab) => { void confirmLeave().then((ok) => { if (ok) setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false }) }) }
+  // Gibt zurück, ob gewechselt wurde: Folgeschritte (Fokus, Löschen vormerken) nur dann
+  const showTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
+  const setTab = async (t: Tab): Promise<boolean> => {
+    if (t === tab) return true
+    const ok = await confirmLeave()
+    if (ok) showTab(t)
+    return ok
+  }
+  // Wechsel, den die Oberfläche selbst auslöst (Deploy/Rollback gestartet → Fortschritt in der
+  // Übersicht): nie mit Rückfrage aus dem Nichts und nie still verwerfen – mit offenen Eingaben
+  // bleibt der Reiter, der Vorgang läuft trotzdem (Anzeige oben rechts)
+  const showOverviewIfFree = () => { if (!hasUnsaved()) showTab('uebersicht') }
   // UI-Qualität 5: direkt nach «Anlegen und deployen» läuft der Fortschritt des ersten Deploys
   const location = useLocation()
   const [watching, setWatching] = useState<string | null>(() => (location.state as { watch?: string } | null)?.watch ?? null)
@@ -57,14 +68,12 @@ export function ProjectDetail() {
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)
   const goToDelete = () => {
-    setTab('einstellungen')
-    setDeleteRequested(true)
+    void setTab('einstellungen').then((ok) => { if (ok) setDeleteRequested(true) })
   }
   // Fehlerbox «Variable X fehlt» → «Hinzufügen»: Umgebung in den Einstellungen, Name vorbelegt
   const [envRequest, setEnvRequest] = useState<string | null>(null)
   const goToEnv = (name: string) => {
-    setTab('einstellungen')
-    setEnvRequest(name)
+    void setTab('einstellungen').then((ok) => { if (ok) setEnvRequest(name) })
   }
 
   const q = useQuery({
@@ -92,7 +101,7 @@ export function ProjectDetail() {
       else if (what === 'start' && !dep) notifyOk(`«${name}» läuft wieder`, { id: `act-${id}` })
       if (dep) {
         setWatching(dep.id)
-        setTab('uebersicht')
+        showOverviewIfFree()
       }
       void qc.invalidateQueries({ queryKey: ['project', id] })
     },
@@ -186,8 +195,8 @@ export function ProjectDetail() {
             : e.key === 'Home' ? TABS[0] : e.key === 'End' ? TABS.at(-1) : null
           if (!next) return
           e.preventDefault()
-          setTab(next)
-          requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
+          // Fokus nur auf den Reiter, der auch gewählt ist (bei «Weiter bearbeiten» bleibt alles)
+          void setTab(next).then((ok) => { if (ok) requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus()) })
         }}
       >
         {TABS.map((key) => {
@@ -252,7 +261,7 @@ export function ProjectDetail() {
           projectId={id}
           onRollback={(depId) => {
             setWatching(depId)
-            setTab('uebersicht')
+            showOverviewIfFree()
           }}
         />
       )}
@@ -268,14 +277,16 @@ export function ProjectDetail() {
           envRequest={envRequest}
           onEnvShown={() => setEnvRequest(null)}
           onManageHeaders={() => {
-            setTab('security')
-            // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
-            const go = (tries: number) => {
-              const el = document.getElementById('header-caddy')
-              if (el) el.scrollIntoView({ block: 'start' })
-              else if (tries > 0) setTimeout(() => go(tries - 1), 100)
-            }
-            go(20)
+            void setTab('security').then((ok) => {
+              if (!ok) return
+              // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
+              const go = (tries: number) => {
+                const el = document.getElementById('header-caddy')
+                if (el) el.scrollIntoView({ block: 'start' })
+                else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+              }
+              go(20)
+            })
           }}
         />
       )}

@@ -259,6 +259,20 @@ const shots: Shot[] = [
     },
   },
   {
+    // Speichern scheitert an der abgelaufenen Sitzung: der Dialog nennt, was nicht ausgeführt wurde
+    group: 'sitzung', name: 'sitzung-abgelaufen-aktion', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      const row = pg.locator('#set-umgebung .env-row').last().locator('input')
+      await row.nth(0).fill('API_KEY')
+      await row.nth(1).fill('geheim')
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
+      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
     group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
       await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()

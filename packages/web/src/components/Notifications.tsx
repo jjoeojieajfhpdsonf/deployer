@@ -6,6 +6,7 @@ import { notifyOk } from '../lib/feedback.js'
 import { notifySettingsFormSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from './Field.js'
+import { useUnsaved } from '../lib/unsaved.js'
 
 const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'deploy_failed', label: 'Deploy fehlgeschlagen' },
@@ -34,6 +35,14 @@ export function NotificationSettings() {
   }, [q.data, form])
 
   const [portText, setPortText] = useState<string | null>(null)
+
+  // UI-Qualität 8: Geändertes, nicht gespeichert → Rückfrage beim Verlassen
+  const dirty = Boolean(form && q.data) && (
+    JSON.stringify(form) !== JSON.stringify(q.data)
+    || ntfyToken !== '' || mailPassword !== ''
+    || (portText !== null && portText !== String(q.data?.email?.port ?? 587))
+  )
+  useUnsaved(dirty, 'Benachrichtigungen')
 
   /**
    * Was gespeichert würde – in der Form, die die API erwartet, geprüft mit

@@ -101,8 +101,10 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError('bad_response', 'Unerwartete Antwort vom Server.', res.status)
   }
   if (!res.ok) {
-    // UI-Qualität 8: Sitzung abgelaufen → Anmeldedialog über der Seite (nicht bei der Anmeldung selbst)
-    if (res.status === 401 && !path.startsWith('/auth/')) markSessionExpired()
+    // UI-Qualität 8: Sitzung abgelaufen → Anmeldedialog über der Seite. Nicht bei der Anmeldung selbst
+    // (falsches Passwort) und nicht bei /auth/me (das sagt «nicht angemeldet» als Antwort, nicht als 401);
+    // Glocke, Darstellung, Passwort und Abmelden sollen den Dialog dagegen auslösen
+    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') markSessionExpired()
     const e = (data as { error?: { code: string; message: string; details?: unknown } }).error
     throw new ApiError(e?.code ?? 'unknown', e?.message ?? `HTTP ${res.status}`, res.status, e?.details)
   }

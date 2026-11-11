@@ -5,6 +5,8 @@ import { themePrefs, type ThemePref } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
 import { applyTheme, readLocalTheme, THEME_LABEL } from '../lib/theme.js'
 import { useMenu } from './useMenu.js'
+import { confirmLeave } from '../lib/unsaved.js'
+import { markLoggedOut } from '../lib/session.js'
 
 /**
  * Profil-Menü oben rechts: Initiale als Avatar, Pfeil nach unten. Einträge
@@ -34,9 +36,16 @@ export function ProfileMenu({ me }: { me: MeDto }) {
 
   async function logout() {
     close()
-    await api.logout()
-    navigate('/projekte')
-    await qc.invalidateQueries({ queryKey: ['me'] })
+    // Ungespeichertes geht beim Abmelden verloren: vorher fragen (UI-Qualität 8)
+    if (!(await confirmLeave())) return
+    // Bewusst abgemeldet: danach die Anmeldeseite, nicht der Dialog «Sitzung abgelaufen»
+    markLoggedOut()
+    try {
+      await api.logout()
+    } finally {
+      navigate('/projekte')
+      await qc.invalidateQueries({ queryKey: ['me'] })
+    }
   }
 
   return (

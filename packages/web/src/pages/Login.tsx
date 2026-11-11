@@ -18,7 +18,13 @@ export function Login({ onDone }: { onDone: () => void }) {
  * Formular der Anmeldung – als Seite oder (UI-Qualität 8) im Dialog über der
  * Seite, wenn die Sitzung unterwegs abläuft.
  */
-export function LoginForm({ onDone, inDialog = false, headingId }: { onDone: () => void; inDialog?: boolean; headingId?: string }) {
+export function LoginForm({ onDone, inDialog = false, headingId, failed = [] }: {
+  onDone: () => void
+  inDialog?: boolean
+  headingId?: string
+  /** Aktionen, die am Ablauf der Sitzung gescheitert sind («Variablen nicht gespeichert») */
+  failed?: readonly string[]
+}) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,12 +60,20 @@ export function LoginForm({ onDone, inDialog = false, headingId }: { onDone: () 
           <span className="brand-name">Airlock</span>
         </div>
       )}
-      <h1 id={headingId} className={inDialog ? 'dialog-title' : undefined}>{inDialog ? 'Sitzung abgelaufen' : 'Anmelden'}</h1>
+      {/* Im Dialog über der Seite: h2 (die Seite darunter hat ihre eigene h1) */}
+      {inDialog
+        ? <h2 id={headingId} className="dialog-title">Sitzung abgelaufen</h2>
+        : <h1 id={headingId}>Anmelden</h1>}
       <p className="muted login-lede">
         {inDialog
           ? 'Melde dich wieder an – die Seite und deine Eingaben bleiben, wie sie sind.'
           : 'Mit dem Admin-Passwort dieses Servers.'}
       </p>
+      {failed.length > 0 && (
+        <div className="banner banner-warn session-failed" role="status">
+          <p>Wegen der abgelaufenen Sitzung: {failed.join(', ')}. Nach der Anmeldung bitte noch einmal auslösen.</p>
+        </div>
+      )}
       <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
         <input
           {...form.field('password')}

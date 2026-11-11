@@ -3,6 +3,7 @@ import { MutationCache, type Mutation } from '@tanstack/react-query'
 import { errorReason } from '../components/States.js'
 import { ApiError } from '../api.js'
 import { isUnreachable } from './connection.js'
+import { isSessionExpired, noteFailedAction } from './session.js'
 
 /**
  * Rückmeldung bei Aktionen, ein Muster für die ganze App:
@@ -53,6 +54,12 @@ export function mutationCacheWithToasts(): MutationCache {
   const cache: MutationCache = new MutationCache({
     onError: (err, variables, _ctx, mutation: Mutation<unknown, unknown, unknown, unknown>) => {
       const meta: FeedbackMeta = mutation.meta ?? {}
+      // Sitzung abgelaufen: Der Anmeldedialog nennt, was nicht ausgeführt wurde (ein Toast läge
+      // hinter dem Dialog und wäre weg, bevor jemand ihn liest)
+      if (err instanceof ApiError && err.status === 401 && isSessionExpired()) {
+        noteFailedAction(meta.errorTitle ?? 'Aktion nicht ausgeführt')
+        return
+      }
       if (meta.quiet) return
       const details = (err as { details?: unknown } | null)?.details
       if (Array.isArray(details) && details.length) return

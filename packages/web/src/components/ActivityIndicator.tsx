@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { openTotal, type CfStatusDto } from '@airlock/shared'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import { useGuardedNavigate } from '../lib/unsaved.js'
 import { api } from '../api.js'
 import { useActivities, type RunningActivity } from '../lib/activities.js'
 import { useProjects } from '../lib/projects.js'
@@ -98,7 +99,8 @@ function ActivityRow({ a, onPick }: { a: RunningActivity; onPick: () => void }) 
 function useFinishedToasts(list: RunningActivity[]) {
   const prev = useRef<Map<string, RunningActivity> | null>(null)
   const projects = useProjects()
-  const navigate = useNavigate()
+  // Toast-Aktionen («Ansehen», «Log ansehen»): mit Rückfrage bei ungespeicherten Änderungen
+  const navigate = useGuardedNavigate()
   const qc = useQueryClient()
   useEffect(() => {
     const now = new Map(list.map((a) => [a.key, a]))

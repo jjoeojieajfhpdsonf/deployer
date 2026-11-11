@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useGuardedNavigate } from '../lib/unsaved.js'
 import { CommandPalette } from './CommandPalette.js'
 
 /**
@@ -36,7 +36,8 @@ const typing = (t: EventTarget | null) => {
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
 export function Shortcuts() {
-  const navigate = useNavigate()
+  // Mit Rückfrage bei ungespeicherten Änderungen (UI-Qualität 8)
+  const navigate = useGuardedNavigate()
   const [palette, setPalette] = useState(false)
   const [help, setHelp] = useState(false)
   const pendingG = useRef<number | null>(null)
@@ -60,7 +61,7 @@ export function Shortcuts() {
         window.clearTimeout(pendingG.current)
         pendingG.current = null
         const to = GO[e.key.toLowerCase()]
-        if (to) { e.preventDefault(); navigate(to) }
+        if (to) { e.preventDefault(); void navigate(to) }
         return
       }
       if (e.key === 'g') {

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useGuardedNavigate } from '../lib/unsaved.js'
 import { publicStateOf, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useProjects, isLive } from '../lib/projects.js'
@@ -75,7 +75,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const ref = useRef<HTMLDialogElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
-  const navigate = useNavigate()
+  // Mit Rückfrage bei ungespeicherten Änderungen (UI-Qualität 8)
+  const navigate = useGuardedNavigate()
   const qc = useQueryClient()
   const projects = useProjects()
   const [query, setQuery] = useState('')
@@ -116,7 +117,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   // Nach dem Seitenwechsel den Inhalt fokussieren – erst im close-Ereignis des Dialogs, denn
   // der native Dialog gibt den Fokus beim Schliessen an das vorherige Element (<body>) zurück
   const focusAfterClose = useRef(false)
-  const go = (to: string) => { focusAfterClose.current = true; onClose(); navigate(to) }
+  const go = (to: string) => { focusAfterClose.current = true; onClose(); void navigate(to) }
 
   const items = useMemo<Item[]>(() => {
     // Nur vollständige Projekte (kaputte Einträge legen die Palette nicht lahm)
