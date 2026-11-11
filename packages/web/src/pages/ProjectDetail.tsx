@@ -100,7 +100,7 @@ export function ProjectDetail() {
   if (!q.data && q.isError && !(q.error instanceof ApiError && q.error.status === 404)) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }]} title="Projekt" />
+        <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Projekt' }]} title="Projekt" />
         <ErrorState what="Das Projekt" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
       </section>
     )
@@ -109,7 +109,7 @@ export function ProjectDetail() {
   if (!q.data) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }]} title="Projekt nicht gefunden" />
+        <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Nicht gefunden' }]} title="Projekt nicht gefunden" />
         <div className="state state-empty">
           <p>Vielleicht wurde es gelöscht, oder die Adresse ist veraltet.</p>
           <Link className="button" to="/projekte">Zu den Projekten</Link>
@@ -136,7 +136,7 @@ export function ProjectDetail() {
   return (
     <section className="page page-project">
       <PageHead
-        crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
+        crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: p.name }]}
         name={p.name}
         title={<><h1>{p.name}</h1><StatusBadge state={p.state} /><PublicPillFor p={p} /></>}
         actions={

@@ -21,7 +21,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | erledigt |
 | 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | erledigt |
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | erledigt |
-| 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | geplant |
+| 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | erledigt; fester Ort für Tokens offen, Frage Nr. 9 |
 | 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | geplant |
 | 8 | Sitzung, ungespeicherte Änderungen, Löschen mit Namen, Token-Befehle, Benachrichtigungen | geplant |
 
@@ -264,6 +264,26 @@ Umsetzung:
 - Cloudflare nach der Einrichtung: Statuszusammenfassung und «Einrichtung anzeigen»; übersprungene
   Schritte neutral «übersprungen». Breadcrumbs ab zweiter Ebene, echte Namen, klickbar, Wurzel
   «Airlock». «Server <name> · Version» unten in der Seitenleiste fixiert.
+
+Umsetzung:
+- Seitenleiste: Projekte, Security, Audit, System. Tokens sind nicht mehr in der Leiste, aber über
+  Konto («verwalten»), die Befehlspalette und die Anleitung «Per Chat» erreichbar – wo Tokens fest
+  hingehören, ist offen, Frage Nr. 9.
+- Domains ist ein Abschnitt von System › Cloudflare & HTTPS (`#domains`); Externe Ziele ein Reiter
+  unter Security (`/security/extern`). `/domains` und `/extern` leiten dorthin weiter, ebenso die
+  Befehlspalette.
+- Badge «Security»: offene kritische + hohe Befunde, Tooltip und Name sagen, was gezählt wird; bei
+  0 keine Zahl.
+- Cloudflare nach der Einrichtung (Token, Domains, Tunnel oder übersprungen, Zertifikat aktiv):
+  Zusammenfassung mit «Einrichtung anzeigen»; ein übersprungener Tunnel ist neutral «übersprungen»
+  (Strich statt Haken, kein Fehler), auch in den Schritten.
+- Brotkrumen erst ab der zweiten Ebene, mit echten Namen (Projektname statt Kurzname) und
+  klickbaren Vorgängern, Wurzel «Airlock» (statt des Servernamens), Trennzeichen «›».
+- Fusszeile der Seitenleiste in einer Zeile «Server heimserver · Version 0.9.0» (bricht nur
+  zwischen den Teilen um), unten fixiert wie bisher.
+- Szenen: `system-cloudflare-fertig` neu; `externe-ziele` und `domains` zeigen die Weiterleitungen.
+  Zwei Szenen der Projekteinstellungen mit höherer Pixel-Toleranz (schwankende Kantenglättung der
+  klebenden Sprungnavigation, sichtbar gleich).
 
 ### 7 – Schweregrade und Farbregeln
 - Eigene Darstellung je Stufe (kritisch gefüllt, hoch getönt Fehlerfarbe, mittel getönt Warnfarbe,

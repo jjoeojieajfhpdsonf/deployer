@@ -36,7 +36,7 @@ export function Setup() {
 
   return (
     <section className="page page-medium setup">
-      <PageHead crumbs={[{ label: 'system', to: '/system' }, { label: 'einrichtung' }]} title="Einrichtung">
+      <PageHead crumbs={[{ label: 'System', to: '/system' }, { label: 'Einrichtung' }]} title="Einrichtung">
         <p className="lede">Fünf Schritte, bis Airlock fertig eingerichtet ist. Jeder lässt sich überspringen und später unter System fortsetzen.</p>
       </PageHead>
 

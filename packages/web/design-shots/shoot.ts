@@ -87,6 +87,8 @@ type Shot = {
   broken?: boolean
   /** M8: GitHub App angelegt und installiert */
   githubConnected?: boolean
+  /** Cloudflare fertig eingerichtet (Zertifikat ausgestellt): Zusammenfassung statt Schritte */
+  cfDone?: boolean
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
@@ -112,6 +114,8 @@ type Shot = {
   prepare?: (page: Page) => Promise<void>
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
+  /** Erlaubte Pixelabweichung (visuelle Tests), wenn nur Kantenglättung schwankt – mit Begründung an der Szene */
+  maxDiff?: number
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -236,8 +240,10 @@ const shots: Shot[] = [
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
   { group: 'security', name: 'security-global', path: '/security' },
+  // UI-Qualität 6: alte Adressen leiten weiter – /extern auf den Reiter unter Security, /domains in System
   { group: 'security', name: 'externe-ziele', path: '/extern' },
-  { group: 'verwaltung', name: 'domains', path: '/domains' },
+  { group: 'verwaltung', name: 'domains', path: '/domains', full: false },
+  { group: 'system', name: 'system-cloudflare-fertig', path: '/system/cloudflare', cfDone: true },
   { group: 'verwaltung', name: 'tokens', path: '/tokens' },
   { group: 'verwaltung', name: 'audit', path: '/audit' },
   {
@@ -288,8 +294,9 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: /Per Chat/ }).click(); await pg.waitForTimeout(300) },
   },
   /* Veröffentlichung: Privat (projekt-einstellungen), Öffentlich, Pausiert, gesperrt, Rückfragen, Fortschritt, Toast */
-  { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen` },
-  { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen` },
+  // Kantenglättung der klebenden Sprungnavigation schwankt (bis rund 450 Pixel Text, sichtbar gleich)
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-live', path: `/projekte/${L}?tab=einstellungen`, maxDiff: 600 },
+  { group: 'veroeffentlichung', name: 'veroeffentlichung-pausiert', path: `/projekte/${Z}?tab=einstellungen`, maxDiff: 600 },
   { group: 'pauseseite', name: 'pauseseite-vorlage', path: '/system/veroeffentlichung' },
   {
     group: 'pauseseite', name: 'pauseseite-vorlage-vorschau-dunkel', path: '/system/veroeffentlichung', full: false,
@@ -634,6 +641,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             if (s.empty && url.pathname === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            if (s.cfDone && url.pathname === '/api/v1/system/cloudflare') return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {

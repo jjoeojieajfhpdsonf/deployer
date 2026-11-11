@@ -5,7 +5,6 @@ import { copyText } from '../lib/clipboard.js'
 import { ScanReport } from '../components/Security.js'
 import { relativeTime } from '../lib/format.js'
 import { poll } from '../lib/live.js'
-import { PageHead } from '../components/PageHead.js'
 import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
@@ -16,6 +15,7 @@ import { EmptyState, ErrorState, Loading, SkCard, SkRows } from '../components/S
  * (SPEC M6). Ohne Nachweis lehnt der Server jeden Scan ab.
  */
 export function ExternalTargets() {
+  // UI-Qualität 6: Reiter unter Security (eigene Seite nur noch als Weiterleitung)
   const qc = useQueryClient()
   const [hostname, setHostname] = useState('')
   const list = useQuery({ queryKey: ['external-targets'], queryFn: api.externalTargets })
@@ -32,14 +32,12 @@ export function ExternalTargets() {
   })
 
   return (
-    <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'externe ziele' }]} title="Externe Ziele">
-        <p className="lede">
-          Eigene Websites, die nicht über Airlock laufen, lassen sich mit denselben
-          passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
-          die Domain dir gehört.
-        </p>
-      </PageHead>
+    <div className="tab-panel">
+      <p className="lede lede-tight">
+        Eigene Websites, die nicht über Airlock laufen, lassen sich mit denselben
+        passiven Scannern prüfen. Gescannt wird erst, wenn ein TXT-Eintrag zeigt, dass
+        die Domain dir gehört.
+      </p>
 
       <form
         className="inline-form"
@@ -71,7 +69,7 @@ export function ExternalTargets() {
           {list.data.targets.map((t) => <Target key={t.id} t={t} />)}
         </ul>
       )}
-    </section>
+    </div>
   )
 }
 

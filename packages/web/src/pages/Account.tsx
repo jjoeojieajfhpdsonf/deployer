@@ -33,7 +33,7 @@ export function Account() {
 
   return (
     <section className="page page-narrow">
-      <PageHead crumbs={[{ label: 'konto' }]} title="Konto" />
+      <PageHead crumbs={[{ label: 'Konto' }]} title="Konto" />
 
       <div className="panel panel-pad">
         <dl className="facts">

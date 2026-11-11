@@ -335,6 +335,10 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--ink); }
 .crumbs-sep { color: var(--faint); }
+.crumbs ol { display: flex; flex-wrap: wrap; align-items: baseline; margin: 0; padding: 0; list-style: none; }
+.crumbs li { display: inline-flex; align-items: baseline; }
+.crumbs-sep { margin: 0 var(--sp-2); }
+.crumbs [aria-current='page'] { color: var(--ink-dim); }
 
 .profile-trigger {
   gap: var(--sp-2);
@@ -1828,6 +1832,20 @@ form.failure-fix .form-actions { margin: 0; }
 .cf-step-head { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 14px; align-items: center; }
 .cf-step-n { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); font-size: var(--fs-13); font-weight: 600; color: var(--muted); }
 .cf-step-done .cf-step-n { color: var(--ok); background: var(--surface); }
+/* UI-Qualität 6: übersprungen = neutral (kein Haken, kein Fehler); Zusammenfassung nach der Einrichtung */
+.cf-step-skipped .cf-step-n { color: var(--muted); background: var(--surface); }
+.cf-skipped { font-size: var(--fs-13); font-weight: 500; color: var(--ink-dim); }
+.cf-summary { display: grid; gap: var(--sp-4); }
+.cf-summary-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.cf-summary-head .cf-step-title { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.cf-summary-head .cf-step-title svg { color: var(--ok); }
+.cf-summary-back { justify-content: flex-end; margin-bottom: var(--sp-3); }
+.cf-summary-rows { display: grid; grid-template-columns: 10ch minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: 0; font-size: var(--fs-14); }
+.cf-summary-rows dt { color: var(--muted); }
+.cf-summary-rows dd { margin: 0; color: var(--ink); }
+.domains-section { margin-top: var(--sp-8); }
+.domains-section > h3 { margin: var(--sp-5) 0 var(--sp-2); }
+.domains-section h4 { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-14); }
 .cf-step-done .cf-step-n svg { width: 20px; height: 20px; }
 .cf-step-current .cf-step-n { background: var(--primary); color: var(--primary-ink); }
 .cf-step-title { margin: 0; font-size: var(--fs-15); font-weight: 600; color: var(--ink); letter-spacing: -0.006em; }

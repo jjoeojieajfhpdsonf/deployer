@@ -36,8 +36,9 @@ const PAGES: { label: string; to: string; words?: string }[] = [
   { label: 'Projekte', to: '/projekte', words: 'übersicht start' },
   { label: 'Neues Projekt', to: '/projekte/neu', words: 'anlegen erstellen' },
   { label: 'Security', to: '/security', words: 'sicherheit befunde scan' },
-  { label: 'Domains', to: '/domains', words: 'zonen' },
-  { label: 'Externe Ziele', to: '/extern', words: 'extern domain' },
+  // UI-Qualität 6: neue Orte (die alten Adressen leiten ebenfalls weiter)
+  { label: 'Domains', to: '/system/cloudflare#domains', words: 'zonen system cloudflare' },
+  { label: 'Externe Ziele', to: '/security/extern', words: 'extern domain security' },
   { label: 'Tokens', to: '/tokens', words: 'mcp claude schlüssel' },
   { label: 'Audit-Log', to: '/audit', words: 'audit protokoll aktivität' },
   { label: 'System', to: '/system', words: 'server dienste netz' },

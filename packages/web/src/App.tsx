@@ -28,7 +28,7 @@ import { useSetup } from './lib/setup.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { ShellLive } from './components/DocumentTitle.js'
-import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
+import { IconProjects, IconShield, IconList, IconServer } from './components/Icons.js'
 
 export function App() {
   const qc = useQueryClient()
@@ -99,9 +99,11 @@ export function App() {
           <Route path="/projekte" element={<Projects />} />
           <Route path="/projekte/neu" element={<NewProject />} />
           <Route path="/projekte/:id" element={<ProjectDetailRoute />} />
-          <Route path="/security" element={<SecurityOverview />} />
-          <Route path="/domains" element={<Domains />} />
-          <Route path="/extern" element={<ExternalTargets />} />
+          <Route path="/security" element={<SecurityOverview section="projekte" />} />
+          <Route path="/security/extern" element={<SecurityOverview section="extern" />} />
+          {/* UI-Qualität 6: alte Adressen leiten weiter (Lesezeichen, Links in Meldungen) */}
+          <Route path="/domains" element={<Navigate to="/system/cloudflare#domains" replace />} />
+          <Route path="/extern" element={<Navigate to="/security/extern" replace />} />
           <Route path="/system" element={<System section="uebersicht" />} />
           <Route path="/system/cloudflare" element={<System section="cloudflare" />} />
           <Route path="/system/veroeffentlichung" element={<System section="veroeffentlichung" />} />
@@ -152,12 +154,11 @@ function Rail() {
     { to: '/projekte', label: 'Projekte', icon: <IconProjects />, count: projects.data ? <span className="rail-count" aria-hidden="true">{list.length}</span> : null, countText: projects.data ? `${list.length} Projekte` : undefined },
     {
       to: '/security', label: 'Security', icon: <IconShield />,
-      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-bad' : 'rail-count-warn'}`} aria-hidden="true">{urgent}</span> : null,
+      // Zahl = offene kritische + hohe Befunde; bei 0 keine Zahl. Tooltip und Name sagen, was sie zählt
+      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-bad' : 'rail-count-warn'}`} aria-hidden="true" title={urgentText}>{urgent}</span> : null,
       countText: urgentText,
     },
-    { to: '/domains', label: 'Domains', icon: <IconGlobe /> },
-    { to: '/extern', label: 'Externe Ziele', icon: <IconTarget /> },
-    { to: '/tokens', label: 'Tokens', icon: <IconKey /> },
+    // UI-Qualität 6: vier Bereiche. Domains → System › Cloudflare & HTTPS, Externe Ziele → Reiter unter Security
     { to: '/audit', label: 'Audit', icon: <IconList /> },
     { to: '/system', label: 'System', icon: <IconServer /> },
   ]
@@ -187,9 +188,13 @@ function Rail() {
           </NavLink>
         ))}
       </nav>
+      {/* Unten fixiert: «Server <Name> · Version <x>» */}
       <div className="rail-foot">
-        <span>Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />}</span>
-        <span>Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
+        <span>
+          {/* Umbruch nur zwischen den beiden Teilen, nie mitten in «Version 0.9.0» */}
+          <span className="nowrap">Server {system.data ? <strong>{system.data.server.name}</strong> : <Sk w={64} h={11} className="sk-inline" />} ·</span>{' '}
+          <span className="nowrap">Version {system.data ? <strong className="num">{system.data.version}</strong> : <Sk w={40} h={11} className="sk-inline" />}</span>
+        </span>
       </div>
     </aside>
   )

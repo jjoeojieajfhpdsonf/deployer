@@ -68,7 +68,7 @@ export function Tokens() {
 
   return (
     <section className="page page-medium">
-      <PageHead crumbs={[{ label: 'tokens' }]} title="Tokens">
+      <PageHead crumbs={[{ label: 'Konto', to: '/konto' }, { label: 'Tokens' }]} title="Tokens">
         <p className="lede">
           Ein Token pro Client, z.B. «Claude Desktop» oder «Backup-Skript». Damit spricht der Client den
           MCP-Server unter <code>{mcpUrl}</code> oder die REST-API an. Tokens verwalten geht nur hier,

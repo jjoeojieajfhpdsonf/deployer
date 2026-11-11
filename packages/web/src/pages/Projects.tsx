@@ -80,7 +80,7 @@ export function Projects() {
   return (
     <section className="page">
       <PageHead
-        crumbs={[{ label: 'projekte' }]}
+        crumbs={[{ label: 'Projekte' }]}
         title="Projekte"
         actions={
           <>

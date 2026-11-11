@@ -168,7 +168,7 @@ export function NewProject() {
 
   return (
     <section className="page page-narrow">
-      <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }, { label: 'neu' }]} title="Neues Projekt">
+      <PageHead crumbs={[{ label: 'Projekte', to: '/projekte' }, { label: 'Neues Projekt' }]} title="Neues Projekt">
         <p className="lede">Aus dem Chat geht es ohne Formular: Claude legt Projekte über MCP direkt an.</p>
       </PageHead>
 

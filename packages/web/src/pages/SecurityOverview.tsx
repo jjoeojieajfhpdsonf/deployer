@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
+import { ExternalTargets } from './ExternalTargets.js'
 import { sumCounts, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
@@ -12,7 +13,27 @@ import { EmptyState, ErrorState, Loading, SkRows, SkStats } from '../components/
  * Security über alle Projekte: Note, offene Befunde nach Schwere, letzter
  * Scan. Sortiert nach Dringlichkeit – oben, was zuerst angeschaut werden soll.
  */
-export function SecurityOverview() {
+export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte' | 'extern' }) {
+  // UI-Qualität 6: Externe Ziele als Reiter unter Security (/extern leitet hierher)
+  const tabs = (
+    <nav className="tabs" aria-label="Bereiche von Security">
+      <NavLink to="/security" end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'projekte' ? 'page' : undefined}>Projekte</NavLink>
+      <NavLink to="/security/extern" className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'extern' ? 'page' : undefined}>Externe Ziele</NavLink>
+    </nav>
+  )
+  if (section === 'extern') {
+    return (
+      <section className="page page-medium">
+        <PageHead crumbs={[{ label: 'Security', to: '/security' }, { label: 'Externe Ziele' }]} title="Security" name="Externe Ziele" />
+        {tabs}
+        <ExternalTargets />
+      </section>
+    )
+  }
+  return <ProjectsSecurity tabs={tabs} />
+}
+
+function ProjectsSecurity({ tabs }: { tabs: React.ReactNode }) {
   const qc = useQueryClient()
   const projects = useProjects()
   const list = projects.data?.projects ?? []
@@ -33,9 +54,10 @@ export function SecurityOverview() {
 
   return (
     <section className="page">
-      <PageHead crumbs={[{ label: 'security' }]} title="Security">
+      <PageHead crumbs={[{ label: 'Security' }]} title="Security">
         <p className="lede">Nach jedem Deploy prüfen Trivy, ein Header-Check, OWASP ZAP und Nuclei das Projekt. Öffentlich schalten geht nur ohne offenen kritischen Befund.</p>
       </PageHead>
+      {tabs}
 
       {/* Ohne Daten keine Nullen zeigen: erst Skeleton */}
       {projects.data ? (
@@ -66,7 +88,6 @@ export function SecurityOverview() {
       <div className="section">
         <div className="section-head">
           <h2>Projekte nach Dringlichkeit</h2>
-          <Link to="/extern" className="muted">Externe Ziele</Link>
         </div>
         {!projects.data && projects.isError ? (
           <ErrorState what="Die Projektliste" error={projects.error} retrying={projects.isFetching} onRetry={() => void projects.refetch()} />

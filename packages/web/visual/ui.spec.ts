@@ -21,8 +21,9 @@ for (const theme of ['hell', 'dunkel'] as const) {
         // Scroll-Spy der Sprungnavigation (Einstellungen) setzt den aktiven Eintrag kurz nach dem Laden
         await page.waitForTimeout(300)
         const file = `${name}-${theme}.png`
-        if (s.el) await expect(page.locator(s.el).first()).toHaveScreenshot(file)
-        else await expect(page).toHaveScreenshot(file, { fullPage: s.full !== false })
+        const tol = s.maxDiff ? { maxDiffPixels: s.maxDiff } : {}
+        if (s.el) await expect(page.locator(s.el).first()).toHaveScreenshot(file, tol)
+        else await expect(page).toHaveScreenshot(file, { fullPage: s.full !== false, ...tol })
       } finally {
         await ctx.close()
       }

@@ -59,7 +59,7 @@ export function Audit() {
   return (
     <section className="page">
       <PageHead
-        crumbs={[{ label: 'audit' }]}
+        crumbs={[{ label: 'Audit' }]}
         title="Audit"
         actions={
           <div className="search">

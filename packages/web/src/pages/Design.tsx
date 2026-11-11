@@ -25,7 +25,7 @@ import { isoOf } from '../lib/dates.js'
 export function Design() {
   return (
     <section className="page page-design">
-      <PageHead crumbs={[{ label: 'design' }]} title="Bausteine">
+      <PageHead crumbs={[{ label: 'Bausteine' }]} title="Bausteine">
         <p className="lede">Alle Bausteine der Oberfläche in Hell und Dunkel. Interne Seite, nur zum Nachschlagen.</p>
       </PageHead>
       <div className="design-cols">

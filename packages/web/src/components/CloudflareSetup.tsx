@@ -21,7 +21,8 @@ const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke:
 const IconOptional = IconSkipped
 const IconUp = () => <svg {...svg}><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" /></svg>
 
-type StepState = 'done' | 'current' | 'locked'
+/** skipped: bewusst ausgelassen (Tunnel) – neutral, kein Haken, kein Fehler (UI-Qualität 6) */
+type StepState = 'done' | 'current' | 'locked' | 'skipped'
 
 function Step({ n, title, state, summary, onEdit, children }: {
   n: number; title: string; state: StepState; summary?: React.ReactNode; onEdit?: () => void; children?: React.ReactNode
@@ -29,14 +30,15 @@ function Step({ n, title, state, summary, onEdit, children }: {
   return (
     <li className={`cf-step cf-step-${state}`} aria-current={state === 'current' ? 'step' : undefined}>
       <div className="cf-step-head">
-        <span className="cf-step-n" aria-hidden="true">{state === 'done' ? <IconOk /> : n}</span>
+        <span className="cf-step-n" aria-hidden="true">{state === 'done' ? <IconOk /> : state === 'skipped' ? '–' : n}</span>
         <h3 className="cf-step-title" aria-level={2}>
           <span className="visually-hidden">Schritt {n}{state === 'done' ? ', erledigt' : state === 'locked' ? ', noch nicht möglich' : ''}: </span>
           {title}
+          {state === 'skipped' && <span className="cf-skipped"> übersprungen</span>}
         </h3>
         {state === 'done' && onEdit && <button type="button" className="link-button cf-edit" onClick={onEdit}>Ändern</button>}
       </div>
-      {state === 'done' && summary && <div className="cf-step-summary">{summary}</div>}
+      {(state === 'done' || state === 'skipped') && summary && <div className="cf-step-summary">{summary}</div>}
       {state === 'current' && <div className="cf-step-body">{children}</div>}
     </li>
   )
@@ -53,6 +55,7 @@ export function CloudflareSetup() {
   })
   const [editing, setEditing] = useState<'token' | 'domains' | null>(null)
   const [check, setCheck] = useState<CfTokenCheckDto | null>(null)
+  const [showSetup, setShowSetup] = useState(false)
   const set = (s: CfStatusDto) => {
     qc.setQueryData(['cloudflare'], s)
     void qc.invalidateQueries({ queryKey: ['system'] })
@@ -74,8 +77,41 @@ export function CloudflareSetup() {
   const tokenState = st(hasToken, true, 'token')
   const checkState: StepState = tokenState === 'current' ? (check ? 'current' : 'locked') : hasToken ? 'done' : 'locked'
 
+  // UI-Qualität 6: nach der Einrichtung eine Zusammenfassung statt der fünf Schritte
+  const complete = ui && hasToken && hasDomains && (hasTunnel || tunnelSkipped) && tlsDone && !editing
+  if (complete && !showSetup) {
+    return (
+      <div className="cf">
+        <section className="cf-summary panel panel-pad" aria-labelledby="cf-summary-h">
+          <div className="cf-summary-head">
+            <h3 id="cf-summary-h" className="cf-step-title" aria-level={2}><IconOk /> Cloudflare ist eingerichtet</h3>
+            <button type="button" className="button-small" aria-expanded={false} onClick={() => setShowSetup(true)}>Einrichtung anzeigen</button>
+          </div>
+          <dl className="cf-summary-rows">
+            <dt>Token</dt>
+            <dd>Gespeichert {s.token.savedAt ? relativeTime(s.token.savedAt) : ''} · Konto {s.account?.name ?? s.account?.id}</dd>
+            <dt>Rechte</dt>
+            <dd><PermissionSummary check={s.token.lastCheck} /></dd>
+            <dt>Domains</dt>
+            <dd>Intern <code>*.{s.baseDomain}</code>{s.defaultZone ? <> · öffentlich unter <code>{s.defaultZone}</code></> : ' · keine Standard-Domain'}</dd>
+            <dt>Tunnel</dt>
+            <dd>{tunnelSkipped ? <><span className="cf-skipped">übersprungen</span> <TunnelSkippedSummary onDone={set} /></> : <TunnelSummary s={s} onChanged={set} />}</dd>
+            <dt>Zertifikat</dt>
+            <dd><CertSummary s={s} /></dd>
+          </dl>
+        </section>
+        <Manage s={s} onChanged={set} onReplaceToken={() => { setShowSetup(true); setCheck(null); setEditing('token'); requestAnimationFrame(() => document.getElementById('f-token')?.focus()) }} />
+      </div>
+    )
+  }
+
   return (
     <div className="cf">
+      {complete && (
+        <div className="cf-summary-head cf-summary-back">
+          <button type="button" className="button-small" aria-expanded onClick={() => setShowSetup(false)}>Zusammenfassung zeigen</button>
+        </div>
+      )}
       {s.source === 'env' && (
         <p className="banner banner-info">
           Cloudflare ist noch über <code>.env</code> eingerichtet (<code>compose.tls.yaml</code> / <code>compose.public.yaml</code>).
@@ -98,7 +134,7 @@ export function CloudflareSetup() {
           <DomainsStep s={s} onSaved={(st2) => { set(st2); setEditing(null) }} onCancel={hasDomains ? () => setEditing(null) : undefined} />
         </Step>
 
-        <Step n={4} title={tunnelSkipped ? 'Tunnel (später)' : 'Tunnel anlegen'} state={hasDomains ? st(hasTunnel || tunnelSkipped, true) : 'locked'}
+        <Step n={4} title="Tunnel anlegen" state={hasDomains ? (tunnelSkipped ? 'skipped' : st(hasTunnel, true)) : 'locked'}
           summary={tunnelSkipped ? <TunnelSkippedSummary onDone={set} /> : <TunnelSummary s={s} onChanged={set} />}>
           <TunnelStep onDone={set} />
         </Step>

@@ -14,7 +14,7 @@ export const VISUAL_SCENES = [
   // Verwaltung und Security
   'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto',
   // System
-  'system-uebersicht', 'system-cloudflare', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
+  'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
   // Zustände (Etappe 1) und Rückmeldung (Etappe 2)
   'nicht-gefunden', 'fehlerseite', 'api-offline', 'laden-projekte', 'leer-projekte',
   'zustand-laden-projektseite', 'zustand-laden-audit', 'zustand-fehler-projekte', 'zustand-fehler-karte',

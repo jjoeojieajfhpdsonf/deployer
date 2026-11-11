@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useServerName } from './ServerName.js'
+import { PRODUCT_NAME } from '@airlock/shared'
 
 /**
  * Brotkrumen leben in der globalen Kopfzeile (links, rechts das
@@ -27,18 +27,26 @@ export function CrumbsProvider({ children }: { children: ReactNode }) {
 /** Name der aktuellen Seite (aus PageHead), für den Titel des Tabs */
 export const usePageName = () => useContext(CrumbsContext).page
 
+/**
+ * UI-Qualität 6: Brotkrumen erst ab der zweiten Ebene («Airlock › Projekte ›
+ * Wetterstation»), mit echten Namen und klickbaren Vorgängern. Auf den
+ * Hauptseiten (Projekte, Security, Audit, System) steht nichts – dort sagt die
+ * Seitenleiste, wo man ist. Die Kopfzeile behält ihren Platz.
+ */
 export function Crumbs() {
   const { crumbs } = useContext(CrumbsContext)
-  const server = useServerName()
+  if (crumbs.length < 2) return <div className="crumbs" aria-hidden="true" />
   return (
     <nav className="crumbs" aria-label="Pfad">
-      <Link to="/projekte">{server}</Link>
-      {crumbs.map((c, i) => (
-        <span key={i}>
-          <span className="crumbs-sep" aria-hidden="true"> / </span>
-          {c.to ? <Link to={c.to}>{c.label}</Link> : <span aria-current={i === crumbs.length - 1 ? 'page' : undefined}>{c.label}</span>}
-        </span>
-      ))}
+      <ol>
+        <li><Link to="/projekte">{PRODUCT_NAME}</Link></li>
+        {crumbs.map((c, i) => (
+          <li key={i}>
+            <span className="crumbs-sep" aria-hidden="true">›</span>
+            {c.to && i < crumbs.length - 1 ? <Link to={c.to}>{c.label}</Link> : <span aria-current={i === crumbs.length - 1 ? 'page' : undefined}>{c.label}</span>}
+          </li>
+        ))}
+      </ol>
     </nav>
   )
 }

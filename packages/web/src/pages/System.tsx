@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
 import { FALLBACK_MS } from '../lib/live.js'
+import { Domains } from './Domains.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkCard } from '../components/States.js'
 import { SetupSummary } from './Setup.js'
 import { NotificationSettings } from '../components/Notifications.js'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { GithubSetup } from '../components/GithubSetup.js'
@@ -67,7 +68,7 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   if (!status.data) {
     return (
       <section className="page page-medium">
-        <PageHead crumbs={[{ label: 'system' }]} title="System" />
+        <PageHead crumbs={[{ label: 'System' }]} title="System" />
         {status.isError
           ? <ErrorState what="Der Systemstatus" error={status.error} retrying={status.isFetching} onRetry={() => void status.refetch()} />
           : <Loading label="Systemstatus wird geladen"><SkCard lines={4} /><SkCard lines={5} className="sk-gap-lg" /></Loading>}
@@ -80,9 +81,11 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
   return (
     <section className="page page-medium">
       <PageHead
-        crumbs={section === 'uebersicht' ? [{ label: 'system' }] : [{ label: 'system', to: '/system' }, { label: current.label.toLowerCase() }]}
+        crumbs={section === 'uebersicht' ? [{ label: 'System' }] : [{ label: 'System', to: '/system' }, { label: current.label }]}
         title="System"
+        name={section === 'uebersicht' ? 'System' : current.label}
       />
+      <ScrollToHash ready={Boolean(s)} />
 
       <nav className="tabs" aria-label="Bereiche von System">
         {SECTIONS.map((x) => (
@@ -97,6 +100,8 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
           <p className="lede lede-tight">Interne Adressen mit eigenem Namen und HTTPS, öffentlich schalten über einen Tunnel. Alles hier, ohne <code>.env</code> oder Compose-Dateien.</p>
           <CloudflareSetup />
           {s.baseDomain && <TlsSection s={s} />}
+          {/* UI-Qualität 6: Domains gehören hierher (früher eigene Seite /domains) */}
+          <Domains />
         </>
       )}
 
@@ -109,6 +114,23 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
     </section>
   )
+}
+
+/** Sprung zu #abschnitt (z.B. /domains → /system/cloudflare#domains), sobald die Seite steht */
+function ScrollToHash({ ready }: { ready: boolean }) {
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (!ready || !hash) return
+    const t = setTimeout(() => {
+      const el = document.getElementById(hash.slice(1))
+      if (!el) return
+      el.scrollIntoView({ block: 'start' })
+      el.querySelector<HTMLElement>('h2')?.setAttribute('tabindex', '-1')
+      el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [ready, hash])
+  return null
 }
 
 function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: Record<string, boolean | null>; copied: boolean; setCopied: (v: boolean) => void }) {
