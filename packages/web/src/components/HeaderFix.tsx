@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@airlock/shared'
 import { api, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
@@ -7,6 +7,7 @@ import { poll } from '../lib/live.js'
 import { copyText } from '../lib/clipboard.js'
 import { IconWarn } from './Security.js'
 import { notifyOk } from '../lib/feedback.js'
+import { InlineConfirm, useConfirmState } from './Confirm.js'
 
 /**
  * M8, Etappe 1: Header über Caddy im Security-Reiter. Knopf am Befund
@@ -108,32 +109,14 @@ function useHeaderMutation(projectId: string, onDone: (msg: string) => void) {
 
 /**
  * Rückfrage mit Fokus: beim Öffnen auf «Abbrechen» (zweimal Enter bestätigt
- * nichts), beim Schliessen zurück auf den auslösenden Knopf.
+ * nichts), beim Schliessen zurück auf den auslösenden Knopf (Confirm.tsx).
  */
-function useConfirm() {
-  const [open, setOpen] = useState(false)
-  const trigger = useRef<HTMLButtonElement>(null)
-  const back = useRef(false)
-  useEffect(() => {
-    if (!open && back.current) {
-      back.current = false
-      trigger.current?.focus()
-    }
-  }, [open])
-  return {
-    open,
-    trigger,
-    show: () => setOpen(true),
-    close: () => {
-      back.current = true
-      setOpen(false)
-    },
-  }
-}
+const useConfirm = useConfirmState
 
 const SET_LABEL: Record<HeaderKey, string> = {
   'x-content-type-options': 'Header setzen',
   'referrer-policy': 'Header setzen',
+  'permissions-policy': 'Header setzen',
   'frame-ancestors': 'Header setzen',
   'content-security-policy': 'Als Report-Only testen',
   'strict-transport-security': 'HSTS setzen',
@@ -182,21 +165,10 @@ export function HeaderFixAction({
   return (
     <>
       {key === 'strict-transport-security' && c.open ? (
-        <span className="confirm-inline" role="group" aria-label="HSTS bestätigen">
-          <span className="confirm-note">
-            <IconWarn />Browser erzwingen danach HTTPS für diesen Namen. Airlock startet mit {HEADER_DEFAULT['strict-transport-security']} (5 Minuten); länger erst, wenn alles läuft.
-          </span>
-          <button type="button" className="button-small" onClick={c.close} autoFocus>Abbrechen</button>
-          <button
-            type="button"
-            className="button-small button-primary"
-            disabled={m.busy}
-            onClick={() => m.set.mutate({ header: key, mode, confirm: true }, { onSettled: c.close })}
-            aria-busy={m.set.isPending || undefined}
-          >
-            Ja, HSTS setzen
-          </button>
-        </span>
+        <InlineConfirm label="HSTS bestätigen" small tone="primary" focus="cancel"
+          note={<>Browser erzwingen danach HTTPS für diesen Namen. Airlock startet mit {HEADER_DEFAULT['strict-transport-security']} (5 Minuten); länger erst, wenn alles läuft.</>}
+          confirmLabel="Ja, HSTS setzen" busy={m.set.isPending} disabled={m.busy}
+          onCancel={c.close} onConfirm={() => m.set.mutate({ header: key, mode, confirm: true }, { onSettled: c.close })} />
       ) : (
         <button
           ref={c.trigger}
@@ -409,14 +381,10 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
               </button>
             )}
             {csp.mode === 'report-only' && enforce.open && (
-              <span className="confirm-inline" role="group" aria-label="CSP scharf schalten">
-                <span className="confirm-note"><IconWarn />Eine scharfe CSP blockiert alles, was die Regel nicht erlaubt. Danach prüft Airlock die Seiten im Browser; bei einem Verstoss geht sie von selbst auf Report-Only zurück.</span>
-                <button type="button" className="button-small" onClick={enforce.close} autoFocus>Abbrechen</button>
-                <button type="button" className="button-small button-primary" disabled={m.busy} aria-busy={settingCsp || undefined}
-                  onClick={() => m.set.mutate({ header: 'content-security-policy', mode: 'enforce', confirm: true }, { onSettled: enforce.close })}>
-                  Ja, scharf schalten
-                </button>
-              </span>
+              <InlineConfirm label="CSP scharf schalten" small tone="primary" focus="cancel"
+                note="Eine scharfe CSP blockiert alles, was die Regel nicht erlaubt. Danach prüft Airlock die Seiten im Browser; bei einem Verstoss geht sie von selbst auf Report-Only zurück."
+                confirmLabel="Ja, scharf schalten" busy={settingCsp} disabled={m.busy}
+                onCancel={enforce.close} onConfirm={() => m.set.mutate({ header: 'content-security-policy', mode: 'enforce', confirm: true }, { onSettled: enforce.close })} />
             )}
             {csp.mode === 'enforce' && csp.check?.state !== 'running' && <span className="fix-note">CSP ist scharf; Verstösse werden weiter gemeldet.</span>}
           </div>

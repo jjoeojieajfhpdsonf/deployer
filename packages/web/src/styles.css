@@ -819,10 +819,6 @@ a.tab { text-decoration: none; }
 .set-danger .set-head { border-bottom-color: var(--bad-line); }
 .set-danger .set-head h2 { color: var(--bad); margin: 0; }
 .set-danger .set-row { border-bottom-color: var(--bad-line); }
-.set-delete { display: grid; gap: var(--sp-2); }
-.set-delete-lede { margin: 0; color: var(--ink-dim); }
-.set-delete .field { margin: 0; }
-.set-delete input:not([type='checkbox']) { max-width: 300px; }
 /* Veröffentlichung im Zeilen-Layout: Rückfragen und Fortschritt als Blöcke */
 .set-card .publication-actions { margin-top: 0; }
 .set-card .publication-offline { margin: 0; }
@@ -1032,7 +1028,8 @@ a.tab { text-decoration: none; }
 .menu-confirm, .confirm-note { display: flex; align-items: flex-start; gap: 6px; font-size: var(--fs-13); font-weight: 500; color: var(--warn); }
 .menu-confirm svg, .confirm-note svg { flex: none; margin-top: 2px; }
 .menu-confirm { padding: var(--sp-2) var(--sp-3) var(--sp-1); max-width: 240px; white-space: normal; }
-.confirm-inline { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+/* .form-buttons: Knopfpaar eines Formulars (keine Rückfrage), gleich gesetzt wie .confirm-inline */
+.confirm-inline, .form-buttons { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .confirm-note { margin-right: var(--sp-1); }
 
 /* --- Unterer Bereich der Übersicht --------------------------------------------------- */
@@ -1686,6 +1683,14 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .dialog-steps li { padding-left: 4px; }
 .dialog-steps li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-6); }
+/* Rückfrage für Zerstörerisches (components/Confirm.tsx): Text, ggf. Kurzname eintippen */
+.confirm-dialog-text { display: grid; gap: var(--sp-2); color: var(--ink-dim); }
+.confirm-dialog-text p { margin: 0; }
+.confirm-dialog-text .choice { margin-top: var(--sp-2); }
+.confirm-dialog-type label { margin-top: var(--sp-5); }
+.confirm-dialog-value { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.confirm-dialog-value code { font-family: var(--mono); font-weight: 400; padding: 2px 6px; border-radius: var(--r-sm); background: var(--surface-2); }
+.confirm-dialog .error { margin-bottom: 0; }
 .pcard-foot { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
 .pcard-actions, .pcard .chips { position: relative; z-index: 1; }
 /* Offenes Menü liegt über den Nachbarkarten (sonst schieben sich deren Pillen darüber) */

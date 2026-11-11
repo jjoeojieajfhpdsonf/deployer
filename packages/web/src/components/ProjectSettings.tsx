@@ -9,12 +9,12 @@ import { relativeTime } from '../lib/format.js'
 import { fmtDate } from '../lib/dates.js'
 import { ErrorState, Loading, SkLines } from './States.js'
 import { EnvEditor, type EnvRow } from './EnvEditor.js'
-import { Field } from './Field.js'
 import { Publication, SetRow } from './Publication.js'
 import { Reachability } from './Reachability.js'
 import { useHeaderRules } from './HeaderFix.js'
 import { Switch } from './Switch.js'
 import { MoveProject } from './MoveProject.js'
+import { ConfirmDialog } from './Confirm.js'
 
 /**
  * Projekt → Einstellungen: Abschnitte als Karten mit kompakten Zeilen
@@ -331,18 +331,19 @@ function Expiry({ p }: { p: ProjectDto }) {
 function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDeleted: () => void; requested?: boolean; onShown?: () => void }) {
   const titleId = useId()
   const [open, setOpen] = useState(false)
-  const [confirm, setConfirm] = useState('')
   const [purge, setPurge] = useState(false)
-  const [confirmError, setConfirmError] = useState<string | null>(null)
   const ref = useRef<HTMLElement>(null)
-  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht', noRetry: true } })
+  const trigger = useRef<HTMLButtonElement>(null)
+  // Fehler zeigt der Dialog selbst (quiet), dort bleibt er offen
+  const remove = useMutation({ mutationFn: () => api.deleteProject(p.id, purge), onSuccess: onDeleted, meta: { errorTitle: 'Projekt nicht gelöscht', noRetry: true, quiet: true } })
+  const show = () => { setPurge(false); remove.reset(); setOpen(true) }
+  // «Löschen …» aus dem Kopfmenü: zur Gefahrenzone und gleich der Dialog
   useEffect(() => {
     if (!requested) return
-    setOpen(true)
+    show()
     requestAnimationFrame(() => {
       const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       ref.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' })
-      document.getElementById('f-delete-confirm')?.focus({ preventScroll: true })
       onShown?.()
     })
   }, [requested]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -353,51 +354,29 @@ function DangerZone({ p, onDeleted, requested, onShown }: { p: ProjectDto; onDel
       {/* «Verschieben …» (in eine andere Umgebung) erscheint hier, sobald es Umgebungen gibt (Meilenstein 9) */}
       <SetRow
         label="Löschen"
-        action={!open ? <button type="button" className="button-small button-danger" onClick={() => { setOpen(true); requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus()) }}>Projekt löschen …</button> : undefined}
+        action={<button ref={trigger} type="button" className="button-small button-danger" onClick={show}>Projekt löschen …</button>}
       >
         <span className="muted">Container, Dateien, Adressen und Verlauf werden entfernt</span>
       </SetRow>
-      {open && (
-        <form
-          className="set-row-block set-delete"
-          noValidate
-          onSubmit={(ev) => {
-            ev.preventDefault()
-            if (confirm.trim() !== p.slug) {
-              setConfirmError(confirm.trim() ? `Das ist nicht «${p.slug}». Tippe den Kurznamen genau so ein, um das Löschen zu bestätigen.` : `Tippe «${p.slug}» ein, um das Löschen zu bestätigen.`)
-              requestAnimationFrame(() => document.getElementById('f-delete-confirm')?.focus())
-              return
-            }
-            setConfirmError(null)
-            remove.mutate()
-          }}
-        >
-          <p className="set-delete-lede">Lässt sich nicht rückgängig machen. Öffentliche Namen, DNS-Einträge und die Tunnel-Regel gehen mit.</p>
-          <Field id="f-delete-confirm" label="Kurzname zur Bestätigung" error={confirmError ?? undefined}>
-            <input
-              id="f-delete-confirm"
-              aria-invalid={confirmError ? true : undefined}
-              aria-describedby={confirmError ? 'f-delete-confirm-error' : undefined}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onBlur={() => { if (confirmError && confirm.trim() === p.slug) setConfirmError(null) }}
-              placeholder={p.slug}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          {p.runtimeKind !== 'static' && (
-            <label className="choice">
-              <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
-              <span>Auch die Daten-Volumes löschen <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small></span>
-            </label>
-          )}
-          <div className="confirm-inline">
-            <button type="button" onClick={() => { setOpen(false); setConfirm(''); setConfirmError(null) }}>Abbrechen</button>
-            <button type="submit" className="button-danger-solid" disabled={remove.isPending} aria-busy={remove.isPending || undefined}>Endgültig löschen</button>
-          </div>
-        </form>
-      )}
+      <ConfirmDialog
+        open={open}
+        title={<>«{p.name}» löschen?</>}
+        confirmLabel="Endgültig löschen"
+        busy={remove.isPending}
+        error={remove.isError ? (remove.error as Error).message : null}
+        typeToConfirm={{ value: p.slug, label: 'Kurzname zur Bestätigung' }}
+        returnFocusTo={trigger}
+        onCancel={() => setOpen(false)}
+        onConfirm={() => remove.mutate()}
+      >
+        <p>Lässt sich nicht rückgängig machen. Öffentliche Namen, DNS-Einträge und die Tunnel-Regel gehen mit.</p>
+        {p.runtimeKind !== 'static' && (
+          <label className="choice">
+            <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
+            <span>Auch die Daten-Volumes löschen <small>Ohne Haken bleiben benannte Volumes (z.B. einer Datenbank) erhalten.</small></span>
+          </label>
+        )}
+      </ConfirmDialog>
     </section>
   )
 }

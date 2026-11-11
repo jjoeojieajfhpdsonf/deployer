@@ -10,6 +10,7 @@ import { ErrorState, Loading, SkLog } from './States.js'
 import { deployState, groupDeployments, groupSummary, type DeployItem } from '../lib/deployments.js'
 import { Actor } from './Actor.js'
 import { IconCheck, IconChevron, IconUp } from './Icons.js'
+import { InlineConfirm } from './Confirm.js'
 
 /**
  * Deployments als Liste (Übersicht: Karte mit fünf Einträgen; Reiter: alle,
@@ -109,10 +110,8 @@ export function DeployList({
           )}
           {canRoll && confirming !== d.id && <button type="button" className="button-small" onClick={() => setConfirming(d.id)}>Zurückrollen</button>}
           {confirming === d.id && (
-            <span className="confirm-inline" role="group" aria-label="Rollback bestätigen">
-              <button type="button" className="button-small button-primary" onClick={() => rollback.mutate(d.id)} disabled={rollback.isPending} aria-busy={rollback.isPending || undefined} autoFocus>Ja, diese Fassung</button>
-              <button type="button" className="button-small" onClick={() => setConfirming(null)}>Abbrechen</button>
-            </span>
+            <InlineConfirm label="Rollback bestätigen" small tone="primary" confirmLabel="Ja, diese Fassung"
+              busy={rollback.isPending} onCancel={() => setConfirming(null)} onConfirm={() => rollback.mutate(d.id)} />
           )}
           {d.seq !== undefined && <span className="dl-seq num" aria-label={`Deployment Nummer ${d.seq}`}>#{d.seq}</span>}
         </div>

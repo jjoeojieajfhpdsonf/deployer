@@ -8,7 +8,7 @@ import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { PausePageSettings } from '../components/PausePageSettings.js'
 import { Field } from '../components/Field.js'
-import { IconWarn } from '../components/Icons.js'
+import { ConfirmDialog, InlineConfirm } from '../components/Confirm.js'
 import { useEnv, useEnvPath } from '../lib/env.js'
 import { copyText } from '../lib/clipboard.js'
 import { Domains } from './Domains.js'
@@ -105,7 +105,9 @@ function General({ env }: { env: EnvironmentDto }) {
   })
   const [confirmDefault, setConfirmDefault] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Löschen im modalen Dialog; Fehler zeigt der Dialog selbst (quiet)
   const remove = useMutation({
+    meta: { errorTitle: 'Umgebung nicht gelöscht', noRetry: true, quiet: true },
     mutationFn: () => api.deleteEnvironment(env.slug),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['environments'] })
@@ -151,11 +153,10 @@ function General({ env }: { env: EnvironmentDto }) {
             {!confirmDefault ? (
               <button type="button" onClick={() => setConfirmDefault(true)}>Zur Standard-Umgebung machen …</button>
             ) : (
-              <>
-                <span className="confirm-note"><IconWarn /> Die Oberfläche ist danach unter deployer.{env.baseDomain ?? '…'} erreichbar.</span>
-                <button type="button" onClick={() => setConfirmDefault(false)}>Abbrechen</button>
-                <button type="button" className="button-primary" onClick={() => { setConfirmDefault(false); save.mutate({ makeDefault: true }) }} autoFocus>Ja, zum Standard machen</button>
-              </>
+              <InlineConfirm label="Standard-Umgebung bestätigen" tone="primary"
+                note={<> Die Oberfläche ist danach unter deployer.{env.baseDomain ?? '…'} erreichbar.</>}
+                confirmLabel="Ja, zum Standard machen"
+                onCancel={() => setConfirmDefault(false)} onConfirm={() => { setConfirmDefault(false); save.mutate({ makeDefault: true }) }} />
             )}
           </div>
         </fieldset>
@@ -168,17 +169,20 @@ function General({ env }: { env: EnvironmentDto }) {
           <p className="hint" id="env-delete-blocked">{deleteBlocked}</p>
         ) : null}
         <div className="form-actions">
-          {!confirmDelete ? (
-            <button type="button" className="button-danger" onClick={() => setConfirmDelete(true)} disabled={Boolean(deleteBlocked)} aria-describedby={deleteBlocked ? 'env-delete-blocked' : undefined}>Umgebung löschen …</button>
-          ) : (
-            <>
-              <span className="confirm-note"><IconWarn /> «{env.name}» und ihre Tokens werden gelöscht.</span>
-              <button type="button" onClick={() => setConfirmDelete(false)}>Abbrechen</button>
-              <button type="button" className="button-danger-solid" onClick={() => remove.mutate()} disabled={remove.isPending} autoFocus>{remove.isPending ? 'Wird gelöscht…' : 'Ja, löschen'}</button>
-            </>
-          )}
+          <button type="button" className="button-danger" onClick={() => { remove.reset(); setConfirmDelete(true) }} disabled={Boolean(deleteBlocked)} aria-describedby={deleteBlocked ? 'env-delete-blocked' : undefined}>Umgebung löschen …</button>
         </div>
-        {remove.isError && <p role="alert" className="error">{(remove.error as Error).message}</p>}
+        <ConfirmDialog
+          open={confirmDelete}
+          title={<>Umgebung «{env.name}» löschen?</>}
+          confirmLabel={remove.isPending ? 'Wird gelöscht…' : 'Ja, löschen'}
+          busy={remove.isPending}
+          error={remove.isError ? (remove.error as Error).message : null}
+          typeToConfirm={{ value: env.slug, label: 'Kurzname zur Bestätigung' }}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => remove.mutate()}
+        >
+          <p>«{env.name}» und ihre Tokens werden gelöscht.</p>
+        </ConfirmDialog>
       </section>
     </>
   )

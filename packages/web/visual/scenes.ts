@@ -20,6 +20,8 @@ export const VISUAL_SCENES = [
   'zustand-laden-projektseite', 'zustand-laden-audit', 'zustand-fehler-projekte', 'zustand-fehler-karte',
   'zustand-leer-audit', 'zustand-teilweise-scan', 'zustand-veraltet',
   'bestaetigung-stoppen', 'aktion-vorgaenge', 'aktion-knopf-laedt',
+  // Rückfragen (Antwort 3/10): Löschen im modalen Dialog
+  'loeschen-dialog',
   // Komponenten-Übersicht (Etappe 4), Befehlspalette und Kürzel (Etappe 6)
   'design-bausteine', 'palette', 'palette-offline', 'kuerzel',
   // Erster Start (Etappe 7)

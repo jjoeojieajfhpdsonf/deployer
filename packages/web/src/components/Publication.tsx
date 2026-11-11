@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgressDto, type PublicState, type PublicStatusDto, type PausePage, type PauseOptions } from '@airlock/shared'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import { ErrorState, Loading, SkLines } from './States.js'
 import { Field } from './Field.js'
 import { IconExternal, IconGlobe, IconLock, IconPause, IconWarn } from './Icons.js'
 import { Switch } from './Switch.js'
+import { ConfirmDialog, InlineConfirm } from './Confirm.js'
 
 const STATE_LABEL: Record<PublicState, string> = { private: 'Privat', live: 'Öffentlich', paused: 'Pausiert' }
 
@@ -164,18 +165,14 @@ function PendingRequest({ p, s }: { p: ProjectDto; s: PublicStatusDto }) {
             <button type="button" className="button-small button-ghost" onClick={() => discard.mutate()} disabled={busy}>Anfrage verwerfen</button>
           </div>
         ) : (
-          <div className="confirm-inline" role="group" aria-label="Öffentlich-Anfrage bestätigen">
-            <span className="confirm-note">
-              <IconWarn /> {now
-                ? <>«{p.name}» wird jetzt für alle im Internet erreichbar.</>
-                : <>«{p.name}» wird nach dem nächsten Scan ohne kritischen Befund automatisch für alle im Internet erreichbar.</>}
-              {' '}<InternalNote s={s} />
-            </span>
-            <button type="button" className="button-small" onClick={() => setConfirming(false)}>Abbrechen</button>
-            <button type="button" className="button-small button-primary" onClick={() => approve.mutate()} disabled={busy} aria-busy={approve.isPending || undefined} autoFocus>
-              {now ? 'Ja, veröffentlichen' : 'Ja, nach dem Scan'}
-            </button>
-          </div>
+          <InlineConfirm as="div" label="Öffentlich-Anfrage bestätigen" small tone="primary"
+            note={<>{' '}{now
+              ? <>«{p.name}» wird jetzt für alle im Internet erreichbar.</>
+              : <>«{p.name}» wird nach dem nächsten Scan ohne kritischen Befund automatisch für alle im Internet erreichbar.</>}
+              {' '}<InternalNote s={s} /></>}
+            confirmLabel={now ? 'Ja, veröffentlichen' : 'Ja, nach dem Scan'}
+            busy={approve.isPending} disabled={busy}
+            onCancel={() => setConfirming(false)} onConfirm={() => approve.mutate()} />
         )
       ) : (
         <div className="publication-pending-actions">
@@ -280,19 +277,11 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
         )}
         {!confirming && <button onClick={() => { setOpen(false); v.reset() }} disabled={actions.pending}>Abbrechen</button>}
         {confirming && (
-          <span className="confirm-inline publication-confirm" role="group" aria-label="Veröffentlichen bestätigen">
-            <span className="confirm-note">
-              <IconWarn />
-              <span>
-                «{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Login per E-Mail-Code' : ', ohne Login'}. <InternalNote s={s} />
-              </span>
-            </span>
-            <button onClick={() => setConfirming(false)}>Abbrechen</button>
-            <button className="button-danger-solid" autoFocus disabled={actions.pending}
-              onClick={() => { setConfirming(false); actions.run({ op: 'publish', name, access }) }}>
-              Ja, veröffentlichen
-            </button>
-          </span>
+          <InlineConfirm label="Veröffentlichen bestätigen" className="publication-confirm"
+            note={<span>«{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Login per E-Mail-Code' : ', ohne Login'}. <InternalNote s={s} /></span>}
+            confirmLabel="Ja, veröffentlichen" disabled={actions.pending}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => { setConfirming(false); actions.run({ op: 'publish', name, access }) }} />
         )}
       </div>
       )}
@@ -344,7 +333,7 @@ function AddressRow({ p, s, actions, paused, defaultZone }: { p: ProjectDto; s: 
             hint={<>Subdomain ({defaultZone ? <>wird zu <code>…{'.'}{defaultZone}</code></> : 'keine Standard-Domain gesetzt'}) oder ein voller Name in einer Zone des Kontos. Der alte Name wird frei.</>}>
             <input {...v.field('name', `${v.idFor('name')}-hint`)} value={name} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />
           </Field>
-          <div className="confirm-inline">
+          <div className="form-buttons">
             <button type="button" onClick={() => { setEditing(false); v.reset() }}>Abbrechen</button>
             <button type="submit" className="button-primary" disabled={renaming} aria-busy={renaming || undefined}>Adresse ändern</button>
           </div>
@@ -372,14 +361,11 @@ function AccessRow({ s, actions }: { s: PublicStatusDto; actions: Actions }) {
       </SetRow>
       {confirm !== null && (
         <div className="set-row-block">
-          <span className="confirm-inline" role="group" aria-label={confirm ? 'Access einschalten bestätigen' : 'Access ausschalten bestätigen'}>
-            <span className="confirm-note"><IconWarn /> <span>{confirm ? `${s.hostname} verlangt danach einen Login per E-Mail-Code; wer keinen Zugang hat, sieht die Seite nicht mehr.` : `${s.hostname} ist danach ohne Login für alle erreichbar.`}</span></span>
-            <button type="button" onClick={() => setConfirm(null)}>Abbrechen</button>
-            <button type="button" className={confirm ? 'button-primary' : 'button-danger-solid'} autoFocus disabled={actions.pending}
-              onClick={() => { actions.run({ op: 'access', access: confirm }); setConfirm(null) }}>
-              {confirm ? 'Ja, Access einschalten' : 'Ja, ohne Login'}
-            </button>
-          </span>
+          <InlineConfirm label={confirm ? 'Access einschalten bestätigen' : 'Access ausschalten bestätigen'} tone={confirm ? 'primary' : 'danger'}
+            note={<> <span>{confirm ? `${s.hostname} verlangt danach einen Login per E-Mail-Code; wer keinen Zugang hat, sieht die Seite nicht mehr.` : `${s.hostname} ist danach ohne Login für alle erreichbar.`}</span></>}
+            confirmLabel={confirm ? 'Ja, Access einschalten' : 'Ja, ohne Login'} disabled={actions.pending}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => { actions.run({ op: 'access', access: confirm }); setConfirm(null) }} />
         </div>
       )}
     </>
@@ -433,48 +419,62 @@ function PausePageSummary({ page, template, backAt, onEdit }: { page: PausePage 
 }
 
 /** Rückfrage «Offline nehmen» mit Wahl zwischen Pausieren und ganz offline. */
-export function OfflineConfirm({ s, name, busy, onCancel, onGo, only }: {
-  s: PublicStatusDto; name: string; busy: boolean; onCancel: () => void; onGo: (m: OfflineMode, opts?: PauseOptions) => void; only?: OfflineMode
+export function OfflineConfirm({ s, name, busy, onCancel, onGo }: {
+  s: PublicStatusDto; name: string; busy: boolean; onCancel: () => void; onGo: (m: OfflineMode, opts?: PauseOptions) => void
 }) {
-  const [mode, setMode] = useState<OfflineMode>(only ?? 'pause')
+  const [mode, setMode] = useState<OfflineMode>('pause')
   const group = useId()
   // Pause-Seite für diesen Lauf: vorbelegt mit der des Projekts, angepasst im Dialog
   const [draft, setDraft] = useState<{ page: PausePage | null; backAt: string | null }>({ page: s.pause.page, backAt: s.pause.backAt })
   const [dialog, setDialog] = useState(false)
+  // Ganz offline ist zerstörerisch (Name wird frei): Rückfrage im modalen Dialog
+  const [remove, setRemove] = useState(false)
   return (
     <div className="publication-offline" role="group" aria-label="Offline nehmen bestätigen">
-      {!only && (
-        <div className="publication-modes" role="radiogroup" aria-label="Wie offline nehmen?">
-          <label className="choice">
-            <input type="radio" name={group} checked={mode === 'pause'} onChange={() => setMode('pause')} />
-            <span>Pausieren <small>Besucher sehen die Pause-Seite (HTTP 503). Name, DNS-Eintrag und Tunnel-Regel bleiben – «Wieder online» geht mit einem Klick.</small></span>
-          </label>
-          <label className="choice">
-            <input type="radio" name={group} checked={mode === 'unpublish'} onChange={() => setMode('unpublish')} />
-            <span>Ganz offline nehmen <small>Tunnel-Regel und DNS-Eintrag werden entfernt{s.accessProtected ? ', ebenso die Access-App' : ''}. Der Name {s.hostname} ist danach frei.</small></span>
-          </label>
-        </div>
-      )}
-      {mode === 'pause' && (
+      <div className="publication-modes" role="radiogroup" aria-label="Wie offline nehmen?">
+        <label className="choice">
+          <input type="radio" name={group} checked={mode === 'pause'} onChange={() => setMode('pause')} />
+          <span>Pausieren <small>Besucher sehen die Pause-Seite (HTTP 503). Name, DNS-Eintrag und Tunnel-Regel bleiben – «Wieder online» geht mit einem Klick.</small></span>
+        </label>
+        <label className="choice">
+          <input type="radio" name={group} checked={mode === 'unpublish'} onChange={() => setMode('unpublish')} />
+          <span>Ganz offline nehmen <small>Tunnel-Regel und DNS-Eintrag werden entfernt{s.accessProtected ? ', ebenso die Access-App' : ''}. Der Name {s.hostname} ist danach frei.</small></span>
+        </label>
+      </div>
+      {mode === 'pause' ? (
         <>
           <PausePageSummary page={draft.page} template={s.pause.template} backAt={draft.backAt} onEdit={() => setDialog(true)} />
           <PausePageDialog open={dialog} title={`Pause-Seite für «${name}»`} initial={draft.page} template={s.pause.template} initialBackAt={draft.backAt} hostname={s.hostname}
             saveLabel="Übernehmen" onCancel={() => setDialog(false)} onSave={(r) => { setDraft(r); setDialog(false) }} />
+          <p className="confirm-note publication-offline-note">
+            <IconWarn />
+            <span>«{name}» ist unter {s.hostname} nicht mehr zu sehen. <InternalNote s={s} /></span>
+          </p>
+          <InlineConfirm label="Pausieren bestätigen" focus="none" confirmLabel="Ja, pausieren" disabled={busy}
+            onCancel={onCancel} onConfirm={() => onGo('pause', draft)} />
         </>
-      )}
-      <p className="confirm-note publication-offline-note">
-        <IconWarn />
-        <span>
-          {mode === 'pause' ? <>«{name}» ist unter {s.hostname} nicht mehr zu sehen.</> : <>«{name}» verliert den Namen {s.hostname}.</>} <InternalNote s={s} />
+      ) : (
+        <span className="form-buttons">
+          <button type="button" onClick={onCancel}>Abbrechen</button>
+          <button type="button" className="button-danger" disabled={busy} onClick={() => setRemove(true)}>Ganz offline nehmen …</button>
         </span>
-      </p>
-      <span className="confirm-inline">
-        <button onClick={onCancel}>Abbrechen</button>
-        <button className="button-danger-solid" disabled={busy} onClick={() => (mode === 'pause' ? onGo(mode, draft) : onGo(mode))}>
-          {mode === 'pause' ? 'Ja, pausieren' : 'Ja, ganz offline nehmen'}
-        </button>
-      </span>
+      )}
+      <UnpublishDialog open={remove} s={s} name={name} onCancel={() => setRemove(false)} onConfirm={() => { setRemove(false); onGo('unpublish') }} />
     </div>
+  )
+}
+
+/** Ganz offline nehmen: modaler Dialog (zerstörerisch – der öffentliche Name wird frei). */
+function UnpublishDialog({ open, s, name, onCancel, onConfirm, returnFocusTo }: {
+  open: boolean; s: PublicStatusDto; name: string; onCancel: () => void; onConfirm: () => void; returnFocusTo?: RefObject<HTMLElement | null>
+}) {
+  // Der Vorgang läuft nach dem Schliessen (Fortschritt in der Karte); kein «busy» im Dialog
+  return (
+    <ConfirmDialog open={open} title={<>«{name}» ganz offline nehmen?</>} confirmLabel="Ja, ganz offline nehmen"
+      onCancel={onCancel} onConfirm={onConfirm} returnFocusTo={returnFocusTo}>
+      <p>«{name}» verliert den Namen {s.hostname}. <InternalNote s={s} /></p>
+      <p>Tunnel-Regel und DNS-Eintrag werden entfernt{s.accessProtected ? ', ebenso die Access-App' : ''}.</p>
+    </ConfirmDialog>
   )
 }
 
@@ -506,6 +506,7 @@ function LiveState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: 
 
 function PausedState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s: PublicStatusDto; actions: Actions; defaultZone: string | null; titleId: string }) {
   const [offline, setOffline] = useState(false)
+  const offlineBtn = useRef<HTMLButtonElement>(null)
   const blockedId = useId()
   return (
     <>
@@ -520,15 +521,11 @@ function PausedState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; s
       <AddressRow p={p} s={s} actions={actions} paused defaultZone={defaultZone} />
       <AccessRow s={s} actions={actions} />
       <PausePageRow p={p} s={s} paused />
-      <SetRow label="Ganz offline" action={!offline ? <button type="button" className="button-small" onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen</button> : undefined}>
+      <SetRow label="Ganz offline" action={<button ref={offlineBtn} type="button" className="button-small" onClick={() => setOffline(true)} disabled={actions.pending}>Ganz offline nehmen …</button>}>
         <span className="muted">Name, DNS-Eintrag und Tunnel-Regel entfernen; intern bleibt das Projekt erreichbar</span>
       </SetRow>
-      {offline && (
-        <div className="set-row-block">
-          <OfflineConfirm s={s} name={p.name} busy={actions.pending} only="unpublish" onCancel={() => setOffline(false)}
-            onGo={() => { setOffline(false); actions.run({ op: 'unpublish' }) }} />
-        </div>
-      )}
+      <UnpublishDialog open={offline} s={s} name={p.name} returnFocusTo={offlineBtn} onCancel={() => setOffline(false)}
+        onConfirm={() => { setOffline(false); actions.run({ op: 'unpublish' }) }} />
     </>
   )
 }

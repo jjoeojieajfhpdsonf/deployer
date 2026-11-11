@@ -11,6 +11,7 @@ import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
 import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 import { useEnv } from '../lib/env.js'
+import { ConfirmDialog } from '../components/Confirm.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -48,13 +49,17 @@ export function Tokens() {
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
   })
+  // Widerrufen im modalen Dialog (zerstörerisch); Fehler zeigt der Dialog selbst
   const revoke = useMutation({
+    meta: { errorTitle: 'Token nicht widerrufen', noRetry: true, quiet: true },
     mutationFn: (id: string) => api.revokeToken(id),
     onSuccess: () => {
       setConfirming(null)
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
   })
+  const revoking = confirming ? tokens.data?.tokens.find((t) => t.id === confirming) : undefined
+  const openRevoke = (id: string | null) => { revoke.reset(); setConfirming(id) }
 
   async function copy(label: string, text: string) {
     const ok = await copyText(text)
@@ -179,25 +184,34 @@ export function Tokens() {
               Lege eins an, z.B. «Claude Desktop», und trage es dort als MCP-Server ein.
             </EmptyState>
           ) : (
-            <TokenTable rows={active} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+            <TokenTable rows={active} setConfirming={openRevoke} />
           )}
           {revoked.length > 0 && (
             <details className="revoked-tokens">
               <summary>{revoked.length} widerrufene Token</summary>
-              <TokenTable rows={revoked} confirming={confirming} setConfirming={setConfirming} revoke={revoke} />
+              <TokenTable rows={revoked} setConfirming={openRevoke} />
             </details>
           )}
         </>
       )}
+      <ConfirmDialog
+        open={revoking !== undefined}
+        title={<>Token «{revoking?.name}» widerrufen?</>}
+        confirmLabel="Ja, widerrufen"
+        busy={revoke.isPending}
+        error={revoke.isError ? (revoke.error as Error).message : null}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => { if (revoking) revoke.mutate(revoking.id) }}
+      >
+        <p>Clients und Skripte mit diesem Token kommen danach nicht mehr an Airlock. Widerrufen lässt sich nicht rückgängig machen.</p>
+      </ConfirmDialog>
     </div>
   )
 }
 
-function TokenTable({ rows, confirming, setConfirming, revoke }: {
+function TokenTable({ rows, setConfirming }: {
   rows: ApiTokenDto[]
-  confirming: string | null
   setConfirming: (id: string | null) => void
-  revoke: { isPending: boolean; mutate: (id: string) => void }
 }) {
   return (
     <div className="table-scroll">
@@ -217,16 +231,8 @@ function TokenTable({ rows, confirming, setConfirming, revoke }: {
                 </span>
               </td>
               <td className="row-actions">
-                {!t.revokedAt && confirming !== t.id && (
-                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen</button>
-                )}
-                {confirming === t.id && (
-                  <>
-                    <button onClick={() => setConfirming(null)}>Abbrechen</button>
-                    <button className="button-danger-solid" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)}>
-                      Ja, widerrufen
-                    </button>
-                  </>
+                {!t.revokedAt && (
+                  <button className="button-danger" onClick={() => setConfirming(t.id)}>Widerrufen …</button>
                 )}
               </td>
             </tr>

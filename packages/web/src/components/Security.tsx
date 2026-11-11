@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from '.
 import { IconBad, IconPending, IconSkipped, IconWarn } from './Icons.js'
 import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
 import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
+import { InlineConfirm } from './Confirm.js'
 
 /**
  * Ergebnis eines Scans: Note, Score, offene Befunde, Stufen, Zeit. Wird am
@@ -234,13 +235,10 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
         {!confirm ? (
           <button type="button" className="button-small" onClick={() => setConfirm(true)} disabled={cancel.isPending}>Scan abbrechen</button>
         ) : (
-          <span className="confirm-inline" role="group" aria-label="Scan abbrechen bestätigen">
-            <span className="confirm-note">Befunde dieses Laufs werden nicht gewertet.</span>
-            <button type="button" className="button-small" onClick={() => setConfirm(false)}>Weiterlaufen lassen</button>
-            <button type="button" className="button-small button-primary" onClick={() => cancel.mutate()} disabled={cancel.isPending} aria-busy={cancel.isPending || undefined} autoFocus>
-              Ja, abbrechen
-            </button>
-          </span>
+          <InlineConfirm label="Scan abbrechen bestätigen" small tone="primary"
+            note="Befunde dieses Laufs werden nicht gewertet." noteIcon={false}
+            cancelLabel="Weiterlaufen lassen" confirmLabel="Ja, abbrechen" busy={cancel.isPending}
+            onCancel={() => setConfirm(false)} onConfirm={() => cancel.mutate()} />
         )}
       </div>
       <div aria-live="polite"><ScanHead s={s} now={now} /></div>
@@ -477,10 +475,8 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
             <IconWarn /> Aktiver Scan
           </button>
         ) : (
-          <span className="confirm-inline" role="group" aria-label="Aktiven Scan bestätigen">
-            <button onClick={() => setConfirmActive(false)}>Abbrechen</button>
-            <button className="button-danger-solid" onClick={() => start.mutate('active')} disabled={start.isPending} autoFocus>Ja, aktiv angreifen</button>
-          </span>
+          <InlineConfirm label="Aktiven Scan bestätigen" confirmLabel="Ja, aktiv angreifen" disabled={start.isPending}
+            onCancel={() => setConfirmActive(false)} onConfirm={() => start.mutate('active')} />
         )}
         <p className="scan-actions-hint">
           <strong>Aktiver Scan</strong> greift die App mit OWASP ZAP aktiv an (XSS, SQL-Injection) und kann dabei Daten anlegen oder ändern. Nur der interne Container, nie über das Internet.

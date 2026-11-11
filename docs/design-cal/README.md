@@ -52,9 +52,21 @@ wichtigsten Seiten in `aktuell/` und der Vergleich mit cal.com in `vergleich-*.p
   Zustandsfarbe, dazu das Wort («kritisch»/«hoch»).
 - **Zustände nie nur Farbe:** Status, Deploy-Ergebnis, Audit-Ergebnis, Token und Verifizierung
   als Pille mit Punkt und Wort. Die rot gefüllte Tabellenzeile für Fehler ist entfallen.
-- **Bestätigungen einheitlich:** erster Klick «Aktion …» als Umriss; danach Warnung mit Zeichen
-  (statt «!»), «Abbrechen», und die bestätigende Aktion als einziger gefüllter Knopf in Rot –
-  auch im Zeilenmenü. Während der Bestätigung verliert «Neu deployen» die Füllung.
+- **Rückfragen: inline für Normales, modal nur für Zerstörerisches** (Antwort 3 und 10, ersetzt
+  «Bestätigungen einheitlich»). Erster Klick «Aktion …» als Umriss.
+  - **Normale Rückfragen** laufen über eine gemeinsame Komponente, `InlineConfirm`
+    (`packages/web/src/components/Confirm.tsx`): an derselben Stelle eine Warnzeile mit Zeichen
+    (statt «!»), «Abbrechen» und der bestätigende Knopf (rot gefüllt; bei nicht zerstörerischen
+    Aktionen primär). Kein Markup mehr von Hand.
+  - **Modaler Dialog** (`ConfirmDialog`) nur für genau diese fünf: Projekt löschen, Cloudflare
+    trennen, ganz offline nehmen, Token widerrufen, Umgebung löschen. Überschrift als Frage,
+    Text der Warnung, rechts «Abbrechen» und die Aktion rot gefüllt; Esc und Klick daneben brechen
+    ab, Fehler stehen im Dialog, danach Fokus zurück auf den Auslöser.
+  - **Löschen** (Projekt, Umgebung): Kurzname eintippen, bevor «Endgültig löschen» aktiv wird;
+    neben dem Namen im Dialog ein Knopf «Kopieren».
+  - **Menüs** behalten ihre eigene Rückfrage im Menü (`menu-confirm`, `useMenu`), auch im
+    Zeilenmenü. Während der Bestätigung verliert «Neu deployen» die Füllung.
+  - Knopfpaare eines Formulars («Abbrechen / Adresse ändern») sind keine Rückfrage (`form-buttons`).
 - **System in Unterseiten** (Übersicht, Cloudflare & HTTPS, Benachrichtigungen) statt einer
   langen Seite; Reiter als graue Schiene mit weissem Feld, wie die Filter.
 - **Projektübersicht nur Karten** (Tabelle entfernt); bei Image-Projekten steht das Image-Tag,

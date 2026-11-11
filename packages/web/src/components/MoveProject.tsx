@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, type ProjectDto } from '../api.js'
 import { useEnv } from '../lib/env.js'
 import { IconWarn } from './Icons.js'
+import { InlineConfirm } from './Confirm.js'
 
 /**
  * M9: Projekt in eine andere Umgebung verschieben (SPEC, Tabelle «Projekt
@@ -87,19 +88,14 @@ export function MoveProject({ p }: { p: ProjectDto }) {
                 </li>
               </ul>
               {pv.blocked && <p className="cf-warn" role="alert"><IconWarn /> {pv.blocked}</p>}
-              <div className="form-actions move-actions" role="group" aria-label="Verschieben bestätigen">
+              <div className="form-actions move-actions">
                 {!confirming ? (
                   <button type="button" onClick={() => setConfirming(true)} disabled={Boolean(pv.blocked)}>Verschieben …</button>
                 ) : (
-                  <>
-                    <span className="confirm-note">
-                      <IconWarn /> {pv.public?.hostname ? <>«{p.name}» ist danach nicht mehr öffentlich erreichbar.</> : <>«{p.name}» bekommt eine neue interne Adresse.</>}
-                    </span>
-                    <button type="button" onClick={() => setConfirming(false)} disabled={move.isPending}>Abbrechen</button>
-                    <button type="button" className="button-danger-solid" onClick={() => move.mutate()} disabled={move.isPending} autoFocus>
-                      {move.isPending ? 'Wird verschoben …' : `Ja, nach «${target?.name ?? to}» verschieben`}
-                    </button>
-                  </>
+                  <InlineConfirm label="Verschieben bestätigen"
+                    note={<> {pv.public?.hostname ? <>«{p.name}» ist danach nicht mehr öffentlich erreichbar.</> : <>«{p.name}» bekommt eine neue interne Adresse.</>}</>}
+                    confirmLabel={move.isPending ? 'Wird verschoben …' : `Ja, nach «${target?.name ?? to}» verschieben`}
+                    busy={move.isPending} onCancel={() => setConfirming(false)} onConfirm={() => move.mutate()} />
                 )}
               </div>
               {move.isError && <p role="alert" className="error">{(move.error as Error).message}</p>}

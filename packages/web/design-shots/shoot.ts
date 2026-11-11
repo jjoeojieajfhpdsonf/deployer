@@ -618,7 +618,21 @@ const shots: Shot[] = [
     prepare: async (pg) => {
       await pg.getByRole('link', { name: 'Gefahrenzone' }).click()
       await pg.waitForTimeout(600)
+      // Antwort 10: öffnet den modalen Dialog (Kurzname eintippen)
       await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Projekt löschen im Dialog, Kurzname halb eingetippt (Bestätigen noch gesperrt); Container-Projekt mit Haken für Volumes
+    group: 'p6', name: 'loeschen-dialog', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      const dialog = pg.getByRole('dialog')
+      await dialog.waitFor()
+      const slug = (await dialog.locator('code').first().textContent()) ?? ''
+      await dialog.getByRole('textbox', { name: 'Kurzname zur Bestätigung' }).fill(slug.slice(0, Math.ceil(slug.length / 2)))
       await pg.waitForTimeout(300)
     },
   },
