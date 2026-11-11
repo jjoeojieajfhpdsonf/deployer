@@ -10,7 +10,8 @@ import { explainFailure, deployFixPrompt, failureNextStep as nextStep, listening
  */
 const dir = join(import.meta.dirname, 'fixtures', 'failure')
 function load(name: string, extra: Partial<FailureInput> = {}) {
-  const log = readFileSync(join(dir, `${name}.log`), 'utf8')
+  // .txt statt .log: *.log steht in .gitignore
+  const log = readFileSync(join(dir, `${name}.txt`), 'utf8')
   const message = /FEHLGESCHLAGEN: (.*)$/m.exec(log)?.[1] ?? null
   return explainFailure({ message, log, port: 8080, healthcheckPath: '/health', image: null, memoryLimitMb: 512, envKeys: [], ...extra })
 }

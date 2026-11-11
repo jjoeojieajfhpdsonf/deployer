@@ -1,0 +1,6 @@
+[2026-11-10T12:46:03.020Z] Step 1/6 : FROM python:3.13-slim
+[2026-11-10T12:46:03.021Z] Step 3/6 : RUN pip install --no-cache-dir -r requirements.txt
+[2026-11-10T12:46:09.500Z] Collecting django==5.2
+[2026-11-10T12:46:10.100Z] ERROR: Could not find a version that satisfies the requirement numpy==1.21.0 (from versions: 2.1.0, 2.1.1, 2.1.2, 2.1.3)
+[2026-11-10T12:46:10.101Z] ERROR: No matching distribution found for numpy==1.21.0
+[2026-11-10T12:46:10.300Z] FEHLGESCHLAGEN: Build fehlgeschlagen: The command '/bin/sh -c pip install --no-cache-dir -r requirements.txt' returned a non-zero code: 1

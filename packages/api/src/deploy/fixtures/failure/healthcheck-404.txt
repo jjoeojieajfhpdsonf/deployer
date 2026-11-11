@@ -1,0 +1,7 @@
+[2026-11-10T12:46:02.020Z] --- healthchecking ---
+[2026-11-10T12:46:02.031Z] Healthcheck gegen http://dep_rezepte_f6:8080/health
+[2026-11-10T12:46:02.044Z] Healthcheck 1: HTTP 404, warte weiter
+[2026-11-10T12:47:02.050Z] Healthcheck nach 60 Versuchen nicht bestanden (HTTP 404)
+[2026-11-10T12:47:02.130Z] Letzte Container-Ausgabe:
+GET /health 404 1.2 ms
+[2026-11-10T12:47:02.410Z] FEHLGESCHLAGEN: Healthcheck nicht bestanden
