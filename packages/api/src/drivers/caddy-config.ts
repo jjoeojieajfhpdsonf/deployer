@@ -48,6 +48,12 @@ export interface RouteSpec {
    * leitet nur diesen Pfad (POST, höchstens 64 KB, Ratenlimit) an Airlock.
    */
   cspReportKey?: string | null
+  /**
+   * Etappe 3: Aufrufe dieser Route ins Besucher-Log (Logger «visits», Datei
+   * im Volume caddy_access). Nur Projekt-Routen – nie die Oberfläche von
+   * Airlock oder Weiterleitungen.
+   */
+  visits?: boolean
 }
 
 /** Pfad am Host des Projekts, an den Browser CSP-Verstösse melden. */
@@ -95,6 +101,11 @@ export interface CaddyBuildOptions {
    * Fehlt es, setzt Caddy keine report-uri.
    */
   cspReportUpstream?: string | null
+  /**
+   * Etappe 3: Ordner im Caddy-Container für das Besucher-Log (JSON, eine
+   * Datei mit Rotation). Fehlt er, schreibt Caddy kein Besucher-Log.
+   */
+  visitsLogDir?: string | null
 }
 
 /** Name des Probe-Servers in Caddys Konfiguration */
@@ -106,6 +117,18 @@ export const ACCESS_LOGGER = 'airlock'
 export const CSP_VIEW_LOGGER = 'csp'
 /** Logger für Aufrufe statischer Seiten (http.log.access.site), Reiter «Zugriffe» */
 export const SITE_LOGGER = 'site'
+/**
+ * Etappe 3: Logger für die Besucher-Auswertung (http.log.access.visits).
+ * Schreibt nicht ins Container-Log, sondern in eine eigene Datei mit kurzer
+ * Rotation: sie enthält IP-Adressen, die Airlock nur liest, um Zugang, Stadt
+ * und den Besucher-Hash zu berechnen – gespeichert werden nur Zähler.
+ */
+export const VISITS_LOGGER = 'visits'
+export const VISITS_LOG_FILE = 'visits.log'
+/** Rotation: 20 MB je Datei, höchstens 2 alte Dateien, höchstens 2 Tage alt */
+export const VISITS_LOG_ROLL = { roll_size_mb: 20, roll_keep: 2, roll_keep_days: 2 }
+/** Antwort-Header der Sperrseite des IP-Filters: das Besucher-Log erkennt daran «geblockt» */
+export const BLOCK_HEADER = 'X-Airlock-Block'
 
 export interface TlsOptions {
   baseDomain: string
@@ -356,6 +379,8 @@ export function buildCaddyConfig(
           handle: [{
             handler: 'static_response',
             status_code: 403,
+            // Etappe 3: Kennung «am Eingang gesperrt» für Besucher-Log und Live-Strom
+            headers: { [BLOCK_HEADER]: ['ip-filter'] },
             body: 'Kein Zugriff von {http.request.remote.host} auf {http.request.host}: dieser Name ist nur aus den freigegebenen Netzen erreichbar (LAN, Tailnet oder Cloudflare).',
           }],
           terminal: true,
@@ -387,9 +412,12 @@ export function buildCaddyConfig(
   for (const r of routes) {
     // Projektseite: statische Seiten zeigen ihr Zugriffs-Log im Reiter «Zugriffe»
     if (r.kind === 'files') for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), SITE_LOGGER]
+    // Etappe 3: Besucher-Log für alle Projekt-Routen (eigene Datei, siehe logging unten)
+    if (r.visits && opts.visitsLogDir) for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), VISITS_LOGGER]
     if (!r.headers?.some((h) => h.header === 'content-security-policy' && h.mode === 'report-only')) continue
     for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), CSP_VIEW_LOGGER]
   }
+  const visitsInUse = Object.values(loggerNames).some((l) => l.includes(VISITS_LOGGER))
   const accessLog = Object.keys(loggerNames).length
     ? { logs: { logger_names: loggerNames, skip_unmapped_hosts: true } }
     : {}
@@ -463,7 +491,19 @@ export function buildCaddyConfig(
 
   return {
     admin: { listen: adminAddress(opts.adminSocket) },
-    logging: { logs: { default: { level: 'INFO' } } },
+    logging: {
+      logs: visitsInUse && opts.visitsLogDir
+        ? {
+            // Besucher-Zeilen nur in ihre Datei, nicht zusätzlich ins Container-Log
+            default: { level: 'INFO', exclude: [`http.log.access.${VISITS_LOGGER}`] },
+            [VISITS_LOGGER]: {
+              writer: { output: 'file', filename: `${opts.visitsLogDir.replace(/\/+$/, '')}/${VISITS_LOG_FILE}`, mode: '0640', ...VISITS_LOG_ROLL },
+              encoder: { format: 'json' },
+              include: [`http.log.access.${VISITS_LOGGER}`],
+            },
+          }
+        : { default: { level: 'INFO' } },
+    },
     apps,
   }
 }

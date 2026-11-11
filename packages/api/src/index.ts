@@ -27,6 +27,7 @@ import { registerGithub } from './domain/github.js'
 import { startAutoDeployJob } from './jobs/auto-deploy.js'
 import { startBackupJob } from './jobs/backup.js'
 import { abandonUnfinishedBackups } from './backup/run.js'
+import { startTrafficIngest, stopTrafficIngest } from './traffic/service.js'
 
 async function main(): Promise<void> {
   log.info('Airlock startet', { version: config.version, env: config.NODE_ENV })
@@ -105,6 +106,8 @@ async function main(): Promise<void> {
     .then((n) => n && log.warn('Abgebrochene Backup-Läufe als gescheitert markiert', { läufe: n }))
     .catch((err) => log.warn('Backup-Läufe nicht bereinigt', { err: String(err) }))
   startBackupJob()
+  // Etappe 3: Besucher aus Caddys Zugriffs-Log (Live-Strom, Stundenzähler, Löschfrist 13 Monate)
+  await startTrafficIngest().catch((err) => log.warn('Besucher-Auswertung nicht gestartet', { err: String(err) }))
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })
@@ -113,6 +116,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     log.info('fahre herunter', { signal })
     await app.close()
+    await stopTrafficIngest()
     await pool.end()
     process.exit(0)
   }

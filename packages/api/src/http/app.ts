@@ -9,6 +9,7 @@ import { AppError } from '../lib/errors.js'
 import { registerAuthGuard, sessionSecret } from './auth.js'
 import { registerScopeGuard } from './scope.js'
 import { environmentRoutes } from './routes/environments.js'
+import { trafficRoutes } from './routes/traffic.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -157,6 +158,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(clientErrorRoutes)
       // M9: Umgebungen
       await api.register(environmentRoutes)
+      // Etappe 3: Besucher (Auswertung, Live-Strom, Aufrufe heute, Städte-Datenbank)
+      await api.register(trafficRoutes)
     },
     { prefix: '/api/v1' },
   )

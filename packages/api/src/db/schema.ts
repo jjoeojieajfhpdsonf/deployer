@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
-  numeric, bigserial, bigint, uniqueIndex, index, customType,
+  numeric, bigserial, bigint, uniqueIndex, index, customType, smallint, primaryKey,
 } from 'drizzle-orm/pg-core'
 import type { ScanStageDto, PausePage, DeployReason, FailureExplanation, CfTlsPhase, CfTokenCheckDto } from '@airlock/shared'
 
@@ -185,6 +185,26 @@ export const appSettings = pgTable('app_settings', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- Etappe 3: Besucher (Stundenzähler, migrations/0019_traffic.sql) ----------- */
+
+export const trafficHourly = pgTable('traffic_hourly', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  hour: timestamp('hour', { withTimezone: true }).notNull(),
+  way: text('way').$type<import('@airlock/shared').TrafficWay>().notNull(),
+  path: text('path').notNull().default(''),
+  country: text('country').notNull().default(''),
+  city: text('city').notNull().default(''),
+  referrer: text('referrer').notNull().default(''),
+  device: text('device').notNull().default(''),
+  status: smallint('status').notNull(),
+  bot: boolean('bot').notNull().default(false),
+  views: integer('views').notNull().default(0),
+  visitors: integer('visitors').notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.hour, t.way, t.path, t.country, t.city, t.referrer, t.device, t.status, t.bot] }),
+  index('traffic_hourly_hour_idx').on(t.hour),
+])
 
 /* --- Meilenstein Backup ------------------------------------------------------ */
 

@@ -101,6 +101,10 @@ services:
       # Cloudflare-Token als Datei, geschrieben von Airlock. Die Konfiguration
       # (und autosave.json) enthält nur den Pfad: {file./run/caddy-secrets/...}
       - caddy_secrets:/run/caddy-secrets:ro
+      # Etappe 3 «Besucher»: Zugriffs-Log der Projekte als JSON-Datei mit
+      # Rotation (20 MB, 2 alte Dateien, höchstens 2 Tage). Enthält IPs; Airlock
+      # liest nur mit und speichert Zähler. Nicht im Backup.
+      - caddy_access:/var/log/airlock-access
     networks:
       edge:
         # Caddy wird zur Laufzeit in Projekt-Netze (air_*) gehaengt. Bei
@@ -158,6 +162,8 @@ services:
       - caddy_data:/caddy-data
       # Auftraege an den Backup-Container (BACKUP_JOBS_DIR, tmpfs)
       - backup_jobs:/backup-jobs
+      # Etappe 3: Zugriffs-Log von Caddy, nur lesen (ACCESS_LOG_DIR)
+      - caddy_access:/caddy-access:ro
     networks:
       internal: {}
       edge:
@@ -243,6 +249,8 @@ volumes:
   caddy_config:
   caddy_admin:
   caddy_secrets:
+  # Etappe 3: Zugriffs-Log der Projekte (Caddy schreibt, Airlock liest)
+  caddy_access:
   sites:
   data:
   # Backup: Staging (Name fest, Airlock haengt es in Wegwerf-Container fuer

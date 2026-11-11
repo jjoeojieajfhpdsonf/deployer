@@ -5,8 +5,8 @@
  * deshalb auf debug; Änderungen, Fehler und langsame Antworten bleiben info,
  * Serverfehler warn.
  */
-/** SSE-Routen (Ereignisse, Deploy-Fortschritt, Live-Logs, Zugriffe live) */
-export const isStreamRoute = (url: string | undefined): boolean => Boolean(url && /\/(?:events|stream)$/.test(url))
+/** SSE-Routen (Ereignisse, Deploy-Fortschritt, Live-Logs, Zugriffe live, Besucher live) */
+export const isStreamRoute = (url: string | undefined): boolean => Boolean(url && /\/(?:events|stream|traffic\/live)$/.test(url))
 
 export function requestLogLevel(method: string, status: number, ms: number, stream = false): 'debug' | 'info' | 'warn' {
   if (status >= 500) return 'warn'

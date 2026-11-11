@@ -327,9 +327,9 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
             return undefined
           })
         : undefined
-      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root } })
+      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root }, visits: true })
     } else if (r.sourceType === 'static') {
-      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra })
+      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra, visits: true })
     } else if (r.port && r.deploymentId) {
       specs.push({
         hosts,
@@ -337,6 +337,8 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
         upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId }, legacy)}:${r.port}`,
         cidrs,
         ...extra,
+        // Etappe 3: Besucher-Log (nur Projekte, nie die Oberfläche)
+        visits: true,
       })
     }
   }
@@ -468,6 +470,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       probeSocket: config.CADDY_PROBE_SOCKET || null,
       // M8: CSP-Meldungen vom Host des Projekts an Airlock (Body-Limit, Ratenlimit in Caddy)
       cspReportUpstream: cspForward ? config.AIRLOCK_UPSTREAM : null,
+      // Etappe 3: Besucher-Log als Datei im Volume caddy_access (aus, wenn Airlock es nicht lesen soll)
+      visitsLogDir: config.ACCESS_LOG_DIR ? config.CADDY_ACCESS_LOG_DIR || null : null,
     })
   let build = buildWith(!cspForwardUnsupported)
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das
