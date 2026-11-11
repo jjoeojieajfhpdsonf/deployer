@@ -207,7 +207,8 @@ p { margin: 0 0 var(--sp-2); max-width: var(--measure); }
 /* Monospace nur für Logs, Commit-Hashes, Code */
 code { font-family: var(--font); font-weight: 500; color: inherit; overflow-wrap: anywhere; }
 pre, pre code, kbd, .log, .code-block, .version { font-family: var(--mono); font-weight: 400; }
-.version { font-size: 0.92em; color: var(--ink-dim); }
+/* Etwas kleiner als der Text drumherum, aber nie unter 12 px (UI-Qualität 7) */
+.version { font-size: max(var(--fs-12), 0.92em); color: var(--ink-dim); }
 .num, .table, .stat-value, .count, .grade-cell, .activity time { font-variant-numeric: tabular-nums; }
 
 /* Links: Tinte mit Haarlinie; die Linie wird beim Hover zur Tinte – erkennbar nicht nur über Farbe */
@@ -256,7 +257,7 @@ html { scrollbar-color: var(--line-strong) var(--bg); caret-color: var(--ink); }
 }
 
 .brand { display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-2); color: var(--ink); text-decoration: none; }
-.brand-name { font-family: var(--display); font-weight: 400; font-size: 22px; letter-spacing: var(--track-display); color: var(--ink); text-decoration: none; }
+.brand-name { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); color: var(--ink); text-decoration: none; }
 .brand-mark {
   display: grid;
   place-items: center;
@@ -625,7 +626,7 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .error-inline { color: var(--bad); }
 .notice { display: flex; align-items: center; gap: 10px; margin: var(--sp-4) 0 0; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--sh-card); color: var(--ink-dim); font-size: var(--fs-14); max-width: none; }
 .notice strong { color: var(--ink); font-weight: 500; }
-.notice-info::before { content: '●'; color: var(--info); font-size: 10px; }
+.notice-info::before { content: '●'; color: var(--info); font-size: var(--fs-12); }
 /* Übergang deployer → Airlock: Hinweis mit «Neu erstellen» rechts */
 .legacy-notice { margin-bottom: var(--sp-4); }
 .legacy-notice > span { flex: 1; }
@@ -827,8 +828,8 @@ a.tab { text-decoration: none; }
 .grade-D { color: var(--bad); background: var(--bad-bg); }
 .grade-none { color: var(--muted); background: var(--surface-3); }
 .grade-line { display: inline-flex; align-items: center; gap: var(--sp-3); }
-.grade-line .grade { min-width: 36px; height: 36px; font-size: 17px; border-radius: var(--r); }
-.bento .grade-line .grade { min-width: 44px; height: 44px; font-size: 20px; border-radius: var(--r-md); }
+.grade-line .grade { min-width: 36px; height: 36px; font-size: var(--fs-18); border-radius: var(--r); }
+.bento .grade-line .grade { min-width: 44px; height: 44px; font-size: var(--fs-24); border-radius: var(--r-md); }
 .grade-score { font-size: var(--fs-14); color: var(--muted); font-variant-numeric: tabular-nums; }
 .grade-score strong { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); color: var(--ink); }
 .bento .grade-score strong { font-size: var(--fs-30); }
@@ -836,16 +837,20 @@ a.tab { text-decoration: none; }
 .grade-link:hover { color: var(--ink); }
 
 .badge, .sev { display: inline-flex; align-items: center; gap: var(--sp-1); height: 24px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--fs-12); font-weight: 500; white-space: nowrap; }
-.sev-critical, .sev-high { color: var(--bad); background: var(--bad-bg); }
+/* UI-Qualität 7: je Schweregrad eine eigene Form, nicht nur eine Farbe (Regel: docs/TEXTE.md, /design).
+   kritisch gefüllt · hoch rot getönt · mittel gelb getönt · niedrig neutral – immer mit Wort */
+.sev-critical { color: var(--bg); background: var(--bad); font-weight: 700; }
+.sev-high { color: var(--bad); background: var(--bad-bg); }
 .sev-medium { color: var(--warn); background: var(--warn-bg); }
 .sev-low { color: var(--ink-dim); background: var(--surface-2); }
 
-/* Zähler nach Schwere: gleiche Pillen, Farbe nur über 0 */
+/* Zähler nach Schwere: gleiche Pillen, Form und Farbe nur über 0 */
 .sev-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); list-style: none; margin: 0; padding: 0; }
 .sev-chip { display: inline-flex; align-items: baseline; gap: 6px; height: 30px; padding: 0 var(--sp-3); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-dim); font-size: var(--fs-13); line-height: 30px; white-space: nowrap; }
 .sev-chip-n { font-weight: 700; font-variant-numeric: tabular-nums; }
 .sev-chip-zero { color: var(--muted); }
-.sev-chip-critical, .sev-chip-high { color: var(--bad); background: var(--bad-bg); }
+.sev-chip-critical { color: var(--bg); background: var(--bad); font-weight: 600; }
+.sev-chip-high { color: var(--bad); background: var(--bad-bg); }
 .sev-chip-medium { color: var(--warn); background: var(--warn-bg); }
 
 /* --- Menüs: Karte mit Schatten, klappt von der Auslöser-Ecke auf ---------------------- */
@@ -1228,7 +1233,7 @@ html [data-sonner-toaster] [data-sonner-toast][data-type='error'] [data-icon] { 
   box-shadow: var(--sh-ring);
   color: var(--ink-dim);
 }
-.log { margin: var(--sp-3) 0 0; padding: 14px var(--sp-4); max-height: 340px; overflow: auto; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log { margin: var(--sp-3) 0 0; padding: 14px var(--sp-4); max-height: 340px; overflow: auto; font-size: var(--fs-13); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-tall { max-height: 64vh; min-height: 320px; }
 
 /* UI-Qualität 4: Werkzeugleiste der Reiter «Logs» und «Zugriffe» */
@@ -1269,7 +1274,7 @@ html [data-sonner-toaster] [data-sonner-toast][data-type='error'] [data-icon] { 
 .logv-error:hover { background: var(--bad-bg); }
 .logv-warn:hover { background: var(--warn-bg); }
 mark.log-hit { background: var(--info-bg); color: var(--ink); border-radius: 2px; box-shadow: 0 0 0 1px var(--info); }
-pre.code-block { margin: var(--sp-2) 0 var(--sp-3); padding: var(--sp-3) 14px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.code-block { margin: var(--sp-2) 0 var(--sp-3); padding: var(--sp-3) 14px; font-size: var(--fs-13); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .danger-zone { margin-top: var(--sp-8); padding: 26px var(--sp-7); box-shadow: inset 0 0 0 1px var(--bad-line), var(--sh-card); }
 .danger-zone h2 { color: var(--bad); margin-bottom: var(--sp-2); }
@@ -1470,7 +1475,7 @@ button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 /* Lange Zustände («neue Version gescheitert, alte läuft weiter») brechen in der Karte um, statt sie zu sprengen */
 .pcard-head .status { flex: 0 1 auto; min-width: 0; max-width: 55%; height: auto; min-height: 26px; padding-top: 3px; padding-bottom: 3px; white-space: normal; line-height: 1.3; border-radius: var(--r-md); }
 .pcard-head .status-dot { align-self: flex-start; margin-top: 6px; }
-.pcard-title h3 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+.pcard-title h3 { margin: 0; font-size: var(--fs-18); font-weight: 600; letter-spacing: -0.012em; }
 .pcard-link { color: var(--ink); text-decoration: none; }
 /* Ganze Karte klickbar; Pillen und Aktionen liegen darüber */
 .pcard-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
@@ -1548,7 +1553,7 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .failure-head { display: flex; gap: var(--sp-3); align-items: flex-start; }
 .failure-icon { color: var(--bad); display: grid; padding-top: 3px; }
 .failure-icon svg { width: 18px; height: 18px; }
-.failure h2 { font-size: 17px; margin: 0; }
+.failure h2 { font-size: var(--fs-18); margin: 0; }
 .failure-meta { margin: 2px 0 0; font-size: var(--fs-13); color: var(--ink-dim); }
 .failure-cause { margin: 0; max-width: 72ch; color: var(--ink); font-size: var(--fs-15); line-height: 1.6; }
 .failure-log-head { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-12); color: var(--ink-dim); }
@@ -1598,12 +1603,12 @@ form.failure-fix .form-actions { margin: 0; }
 .ov-meter-warn .ov-meter-dot { background: var(--warn); }
 .ov-meter-bad .ov-meter-dot { background: var(--bad); }
 .ov-meter-tip { position: absolute; top: -28px; transform: translateX(-50%); white-space: nowrap; font-size: var(--fs-12); padding: 2px var(--sp-2); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--sh-pop); color: var(--ink); pointer-events: none; font-variant-numeric: tabular-nums; }
-.ov-meter-foot { display: flex; justify-content: space-between; gap: var(--sp-2); margin-top: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-meter-foot { display: flex; justify-content: space-between; gap: var(--sp-2); margin-top: 6px; font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Auslöser (Deployments, Aktivität): Zeichen + Wort */
 .actor { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .actor-mark { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-xs); background: var(--surface-2); color: var(--ink-dim); }
-.actor-avatar { border-radius: 50%; background: var(--primary); color: var(--primary-ink); font-size: 10px; font-weight: 600; line-height: 1; }
+.actor-avatar { border-radius: 50%; background: var(--primary); color: var(--primary-ink); font-size: var(--fs-12); font-weight: 600; line-height: 1; }
 .actor-spark { background: var(--claude-bg); color: var(--claude); }
 .actor-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1669,7 +1674,7 @@ form.failure-fix .form-actions { margin: 0; }
 .sc-ring-C { color: var(--warn); }
 .sc-ring-D { color: var(--bad); }
 .sc-ring-grade { position: relative; font-family: var(--display); font-size: var(--fs-30); line-height: 1; color: currentColor; }
-.sc-ring-score { position: relative; margin-top: 3px; font-size: 11px; color: var(--muted); }
+.sc-ring-score { position: relative; margin-top: 3px; font-size: var(--fs-12); color: var(--muted); }
 .sc-verdict { min-width: 0; }
 .sc-verdict p { margin: 0; }
 .sc-verdict-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
@@ -1682,9 +1687,14 @@ form.failure-fix .form-actions { margin: 0; }
 .sc-sevs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-2) !important; font-size: var(--fs-13); }
 .sc-sev { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .sc-sev-mark { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
-.sc-sev-critical, .sc-sev-high { color: var(--bad); }
+/* UI-Qualität 7: Zeichen je Stufe in eigener Form – kritisch gefüllt, hoch getönt mit Rand, mittel getönt, niedrig leer */
+.sc-sev-critical { color: var(--bad); font-weight: 700; }
+.sc-sev-high { color: var(--bad); }
+.sc-sev-high .sc-sev-mark { background: var(--bad-bg); box-shadow: inset 0 0 0 2px var(--bad); }
 .sc-sev-medium { color: var(--warn); }
+.sc-sev-medium .sc-sev-mark { background: var(--warn-bg); box-shadow: inset 0 0 0 2px var(--warn); }
 .sc-sev-low { color: var(--ink-dim); }
+.sc-sev-low .sc-sev-mark { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-dim); }
 .sc-sev-zero { color: var(--muted); }
 .sc-findings { list-style: none; margin: var(--sp-6) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
 .sc-finding { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--sp-2) var(--sp-4); align-items: center; padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }
@@ -1861,7 +1871,7 @@ form.failure-fix .form-actions { margin: 0; }
 .cf-perms li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: var(--sp-1) 10px; align-items: baseline; padding: var(--sp-3) 14px; border-radius: var(--r-md); background: var(--surface-2); }
 .cf-perm-label { font-size: var(--fs-13); font-weight: 500; color: var(--ink); }
 .cf-perm-why { grid-column: 1 / -1; font-size: var(--fs-12); color: var(--muted); }
-.cf-tag { font-size: 11px; color: var(--ink-dim); background: var(--surface-3); border-radius: var(--r-sm); padding: 0 var(--sp-2); line-height: 18px; }
+.cf-tag { font-size: var(--fs-12); color: var(--ink-dim); background: var(--surface-3); border-radius: var(--r-sm); padding: 0 var(--sp-2); line-height: 18px; }
 .cf-template { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 var(--sp-1); }
 .cf-checking { min-height: 20px; margin: var(--sp-1) 0 0; font-size: var(--fs-13); display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
 .cf-checking svg, .cf-ok svg, .cf-bad svg, .cf-warn svg { flex: none; }

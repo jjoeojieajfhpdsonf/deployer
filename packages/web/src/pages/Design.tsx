@@ -4,7 +4,7 @@ import { PageHead } from '../components/PageHead.js'
 import { StatusBadge } from '../components/Status.js'
 import { PublicPill } from '../components/Publication.js'
 import { SetRow } from '../components/Publication.js'
-import { GradeBadge, SeverityChips } from '../components/Security.js'
+import { GradeBadge, SeverityChips, SEVERITY_LABEL } from '../components/Security.js'
 import { Ring } from '../components/SecurityCard.js'
 import { Meter } from '../components/ProjectOverview.js'
 import { Switch } from '../components/Switch.js'
@@ -105,6 +105,25 @@ function Catalog() {
           <GradeBadge grade="A" score={97} /><GradeBadge grade="C" score={61} /><GradeBadge grade="D" score={38} />
           <span className="tab-count">6</span><span className="tab-count tab-count-warn">9</span><span className="tab-count tab-count-bad">2</span>
         </div>
+      </Block>
+
+      {/* UI-Qualität 7: Schweregrade mit eigener Form; Regel auch in docs/TEXTE.md */}
+      <Block title="Schweregrade und Farbregel">
+        <div className="design-row">
+          {(['critical', 'high', 'medium', 'low'] as const).map((s) => (
+            <span key={s} className={`sev sev-${s}`}>{SEVERITY_LABEL[s]}</span>
+          ))}
+        </div>
+        <div className="design-row sc-sevs">
+          {(['critical', 'high', 'medium', 'low'] as const).map((s) => (
+            <span key={s} className={`sc-sev sc-sev-${s}`}><span className="sc-sev-mark" aria-hidden="true" />{s === 'critical' ? 1 : s === 'high' ? 2 : 3} {SEVERITY_LABEL[s]}</span>
+          ))}
+        </div>
+        <ul className="design-rules">
+          <li><strong>kritisch</strong> gefüllt rot, fett · <strong>hoch</strong> rot getönt · <strong>mittel</strong> gelb getönt · <strong>niedrig</strong> neutral – immer mit dem Wort.</li>
+          <li>Rot: kaputt oder gefährlich. Gelb: Aufmerksamkeit. Grün: in Ordnung. Blau: läuft gerade, Hinweis. Grau: neutral.</li>
+          <li>Farbe nie allein: immer mit Wort oder Zahl mit Wort. Schriftgrössen nur aus der Skala, nichts unter 12 px.</li>
+        </ul>
       </Block>
 
       <Block title="Zeilen">

@@ -22,7 +22,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | erledigt |
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | erledigt |
 | 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | erledigt; fester Ort für Tokens offen, Frage Nr. 9 |
-| 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | geplant |
+| 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | erledigt |
 | 8 | Sitzung, ungespeicherte Änderungen, Löschen mit Namen, Token-Befehle, Benachrichtigungen | geplant |
 
 ## Abnahmekriterien
@@ -319,6 +319,17 @@ Befunde aus dem Gutachten (behoben):
 - Eigene Darstellung je Stufe (kritisch gefüllt, hoch getönt Fehlerfarbe, mittel getönt Warnfarbe,
   niedrig neutral), immer mit Wort. Farbregel dokumentiert (TEXTE.md bzw. /design). Feste
   Schriftgrössen auf die Skala, nichts unter 12 px.
+
+Umsetzung:
+- Pillen (`.sev-*`), Zähler (`.sev-chip-*`) und Zeichen der Security-Karte (`.sc-sev-*`): kritisch
+  gefüllt rot mit Schrift in der Grundfarbe und fett, hoch rot getönt, mittel gelb getönt, niedrig
+  neutral; das Zeichen der Karte ist gefüllt, getönt mit Rand bzw. leer. Immer mit dem Wort.
+- Farbregel: `docs/TEXTE.md` (Abschnitt «Farbregel») und `/design` (Baustein «Schweregrade und
+  Farbregel»). Kontrast der gefüllten Pille im Kontrast-Skript.
+- Feste Schriftgrössen auf die Skala (`--fs-12` … `--fs-24`): Marke 22→24, Note 17/20→18/24,
+  Kartentitel und Fehlertitel 17→18, Log und Code 12,5→13, alles unter 12 (10/11 px: Diagramm-Fuss,
+  Avatar, Ring, Tag, Hinweispunkt) → 12. `.version` (0,92 em) nie unter 12 px.
+- Neuer Test `visual/schrift.spec.ts`: in allen Szenen kein sichtbarer Text unter 12 px.
 
 ### 8 – Sitzung und Sicherheit in der Bedienung
 - 401: Login-Dialog über der Seite, danach zurück; Formulareingaben bleiben. Warnung beim Verlassen
