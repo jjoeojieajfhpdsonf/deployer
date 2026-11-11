@@ -272,7 +272,7 @@ Heute kennt Airlock genau eine Konfiguration: eine Basisdomain mit einem Wildcar
 
 ### Bedienung
 
-- **Umschalter oben links**, rechts neben dem Namen «Airlock»: Kürzel, Name und Domain der aktuellen Umgebung. Ein Klick öffnet die Liste aller Umgebungen mit Domain, Anzahl Projekte und offenen kritischen Befunden (Zahl mit Wort, nie nur Farbe), darunter «Umgebung anlegen …» und «Umgebungen verwalten». Bedienbar wie die übrigen Menüs (Pfeiltasten, Esc, Fokus zurück zum Auslöser).
+- **Umschalter oben links in der Kopfzeile**, vor dem Pfad (gleiche Höhe wie Brotkrumen und Profil-Knopf; in der Seitenleiste neben «Airlock» ist für Name und Domain kein Platz): Kürzel, Name und Domain der aktuellen Umgebung (Domain nur, wenn sie sich vom Namen unterscheidet; höchstens etwa 220 px, sonst gekürzt mit vollem Namen im Tooltip). Unter 860 px nur Kürzel. Ein Klick öffnet die Liste aller Umgebungen mit Domain, Anzahl Projekte und offenen kritischen Befunden (Zahl mit Wort, nie nur Farbe), darunter «Umgebung anlegen …» und «Umgebungen verwalten». Bedienbar wie die übrigen Menüs (Pfeiltasten, Esc, Fokus zurück zum Auslöser).
 - **Alles darunter gilt nur für die gewählte Umgebung:** Projekte, Security, Domains, Externe Ziele, Tokens, Audit und «Einstellungen» (der umgebungsbezogene Teil der heutigen Seite System).
 - **Server-Teil abgesetzt:** Unter einem Trenner mit der Beschriftung «Server · für alle Umgebungen» steht, was geteilt bleibt: Übersicht, Tunnel, Benachrichtigungen, GitHub. Die Seitenleiste zeigt damit jederzeit, ob eine Einstellung eine oder alle Umgebungen betrifft.
 - **Umgebung in der Adresse:** `/u/<umgebung>/projekte`, `/u/<umgebung>/projekte/<id>`. Zwei Tabs können zwei Umgebungen zeigen, ein kopierter Link öffnet immer die richtige. Die zuletzt gewählte Umgebung merkt sich das Konto (wie die Darstellung in `ui_prefs`); alte Adressen ohne Präfix leiten in die Standard-Umgebung.
@@ -558,17 +558,19 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | --- | --- | --- |
 | `list_projects` | – | Nein |
 | `get_project` | `project` | Nein |
-| `create_project` | `name`, `source` (Typ `files` mit Dateien, oder Repo, Image, Upload), `port`, `env`, `targets` (`public`, `lan`, `tailnet`), `subdomain` | Ja, wenn `public` dabei ist |
+| `create_project` | `name`, `source` (Typ `files` mit Dateien, oder Repo, Image, Upload), `port`, `env`, `targets` (`public`, `lan`, `tailnet`), `subdomain`; für die vorgemerkte Öffentlich-Anfrage `public_subdomain` + `public_zone` – vor dem Anlegen gleich geprüft wie bei `set_targets` | Ja, wenn `public` dabei ist |
 | `update_files` | `project`, geänderte oder gelöschte Dateien, `message`; deployt automatisch neu | Nein |
 | `read_files` | `project`, optional `paths` | Nein |
 | `export_repo` | `project`, `format` (`zip` oder Push-URL) | Nein |
 | `deploy` | `project`, optional `ref` (Branch, Tag, Commit) | Nein |
 | `start` / `stop` | `project` | Nein |
+| `update_project` | `project`, optional `port`, `healthcheck_path`, `cpu_limit`, `memory_limit_mb`, `deploy` (gleich neu deployen); wirkt sonst beim nächsten Deploy | Nein |
 | `rollback` | `project`, optional `version` | Ja |
 | `delete_project` | `project` | Ja |
 | `get_logs` | `project`, `lines` (max. 500), `since` | Nein |
-| `set_targets` | `project`, `targets`, `subdomain` | Ja, wenn `public` dazukommt |
+| `set_targets` | `project`, `targets`, `subdomain`; öffentlich `public_subdomain` + `public_zone` (Zone der Umgebung, Standard Hauptzone) statt vollem Hostnamen, `public_apex` (direkt unter der Zone), `take_over_dns` (fremden DNS-Eintrag ersetzen). Der Name wird normalisiert und vorher geprüft (vergeben, reserviert, fremder DNS-Eintrag), Fehler mit den möglichen Zonen | Ja, wenn `public` dazukommt |
 | `list_domains` | – | Nein |
+| `get_backup_status` | – (nur lesen: letzter Lauf, Alter, Art des Ziels ohne Zugangsdaten) | Nein |
 | `add_external_target` | `hostname` | Nein |
 | `verify_external_target` | `hostname` | Nein |
 | `run_scan` | `project` oder externer `hostname`, `level` (`standard` oder `active`) | Ja bei `active` |

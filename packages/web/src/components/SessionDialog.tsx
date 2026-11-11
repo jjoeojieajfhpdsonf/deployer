@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { LoginForm } from '../pages/Login.js'
-import { isSessionExpired, markSessionOk, useFailedActions, useSessionExpired } from '../lib/session.js'
+import { isSessionExpired, markSessionOk, takeFailedActions, useFailedActions, useSessionExpired } from '../lib/session.js'
+import { notifyWarn } from '../lib/feedback.js'
 
 /**
  * UI-Qualität 8: Sitzung abgelaufen (401 oder Abmeldung in einem anderen Tab)
@@ -28,6 +29,14 @@ export function SessionDialog() {
   }, [expired])
 
   const done = () => {
+    // Antwort 16: Gescheitertes nach der Anmeldung anbieten – «Erneut ausführen» nur, wo erlaubt
+    // (nicht zerstörerisch); nichts geschieht von selbst
+    for (const f of takeFailedActions()) {
+      const retry = f.retry
+      notifyWarn(`Nicht ausgeführt: ${f.title}`, retry
+        ? { description: 'Wegen der abgelaufenen Sitzung.', action: { label: 'Erneut ausführen', onClick: () => void retry() } }
+        : { description: 'Wegen der abgelaufenen Sitzung – bitte noch einmal auslösen.' })
+    }
     markSessionOk()
     void qc.invalidateQueries()
     requestAnimationFrame(() => back.current?.focus?.())

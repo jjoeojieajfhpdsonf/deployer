@@ -21,7 +21,6 @@ import { NewProject } from './pages/NewProject.js'
 import { ProjectDetail } from './pages/ProjectDetail.js'
 import { Audit } from './pages/Audit.js'
 import { System } from './pages/System.js'
-import { Tokens } from './pages/Tokens.js'
 import { ExternalTargets } from './pages/ExternalTargets.js'
 import { SecurityOverview } from './pages/SecurityOverview.js'
 import { Domains } from './pages/Domains.js'
@@ -37,6 +36,7 @@ import { Setup } from './pages/Setup.js'
 import { useSetup } from './lib/setup.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { EnvSwitcher } from './components/EnvSwitcher.js'
+import { Logo } from './components/Logo.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
 import { ShellLive } from './components/DocumentTitle.js'
 import { IconProjects, IconShield, IconList, IconServer, IconSliders } from './components/Icons.js'
@@ -103,7 +103,11 @@ export function App() {
       <Rail />
       <main className="main">
         <div className="topbar">
-          <Crumbs />
+          {/* M9: Umschalter links in der Kopfzeile – in der Seitenleiste fehlte der Platz für Name und Domain */}
+          <div className="topbar-start">
+            <EnvSwitcher />
+            <Crumbs />
+          </div>
           <div className="topbar-actions">
             <ErrorBoundary scope="part"><ActivityIndicator /></ErrorBoundary>
             <ErrorBoundary scope="part"><Bell me={me.data?.loggedIn ? me.data : lastMe.current!} /></ErrorBoundary>
@@ -131,6 +135,7 @@ export function App() {
           <Route path="/server" element={<System section="uebersicht" />} />
           <Route path="/server/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/server/github" element={<System section="github" />} />
+          <Route path="/server/backup" element={<System section="backup" />} />
           <Route path="/umgebungen" element={<Environments />} />
           <Route path="/umgebungen/neu" element={<NewEnvironment />} />
           <Route path="/konto" element={<Account />} />
@@ -151,6 +156,7 @@ export function App() {
           <Route path="/system/veroeffentlichung" element={<ToEnv path="/einstellungen/standards" />} />
           <Route path="/system/benachrichtigungen" element={<Navigate to="/server/benachrichtigungen" replace />} />
           <Route path="/system/github" element={<Navigate to="/server/github" replace />} />
+          <Route path="/system/backup" element={<Navigate to="/server/backup" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         </ErrorBoundary>
@@ -182,7 +188,9 @@ function EnvRoutes() {
       <Route path="domains" element={<Navigate to={ep('/einstellungen/cloudflare#domains')} replace />} />
       <Route path="extern" element={<Navigate to={ep('/security/extern')} replace />} />
       {/* Nicht in der Seitenleiste: erreichbar über Konto und Befehlspalette */}
-      <Route path="tokens" element={<Tokens />} />
+      {/* Antwort 9: Tokens als Reiter der Einstellungen; die alte Adresse leitet weiter (mit ?neu=1) */}
+      <Route path="tokens" element={<ToSettingsTab tab="tokens" />} />
+      <Route path="einstellungen/tokens" element={<EnvironmentSettings section="tokens" />} />
       <Route path="audit" element={<Audit />} />
       <Route path="einstellungen" element={<EnvironmentSettings section="allgemein" />} />
       <Route path="einstellungen/cloudflare" element={<EnvironmentSettings section="cloudflare" />} />
@@ -191,6 +199,13 @@ function EnvRoutes() {
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
+}
+
+/** Alte Adresse eines Bereichs, der jetzt ein Reiter der Einstellungen ist (Suche und Sprungmarke bleiben). */
+function ToSettingsTab({ tab }: { tab: string }) {
+  const ep = useEnvPath()
+  const location = useLocation()
+  return <Navigate to={`${ep(`/einstellungen/${tab}`)}${location.search}${location.hash}`} replace />
 }
 
 /** Weiterleitung in die gültige Umgebung (alte Adressen, Startseite). */
@@ -257,7 +272,7 @@ function Rail() {
     },
     // UI-Qualität 6: Externe Ziele → Reiter unter Security, Domains → Einstellungen › Cloudflare & HTTPS,
     // Tokens über Konto und Befehlspalette
-    { to: ep('/audit'), label: 'Audit', icon: <IconList /> },
+    { to: ep('/audit'), label: 'Audit-Log', icon: <IconList /> },
     { to: ep('/einstellungen'), label: 'Einstellungen', icon: <IconSliders /> },
   ] : []
 
@@ -275,9 +290,8 @@ function Rail() {
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
         </button>
-        <Link to={env ? ep('/projekte') : '/'} className="brand-name">Airlock</Link>
-        <span className="env-sep" aria-hidden="true">/</span>
-        <EnvSwitcher />
+        {/* Antwort 6: Bildmarke (Doppeltor) vor dem Namen; Einklappen bleibt der Knopf daneben */}
+        <Link to={env ? ep('/projekte') : '/'} className="brand-name"><Logo size={20} className="brand-logo" />Airlock</Link>
       </div>
       <nav className="rail-nav" id="rail-nav" aria-label={env ? `Umgebung ${env.name}` : 'Hauptnavigation'}>
         {items.map((it) => (

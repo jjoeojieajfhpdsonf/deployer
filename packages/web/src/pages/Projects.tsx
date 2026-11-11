@@ -538,7 +538,8 @@ function Activity({ projects }: { projects: ProjectDto[] }) {
   const ep = useEnvPath()
   const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: poll })
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
-  const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login').slice(0, 6)
+  // Benachrichtigungen (notify.*) gehören in die Glocke, hier stünden sie doppelt neben dem Ereignis
+  const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login' && !e.action.startsWith('notify.')).slice(0, 6)
 
   return (
     <section className="panel panel-pad" aria-labelledby="activity-h">

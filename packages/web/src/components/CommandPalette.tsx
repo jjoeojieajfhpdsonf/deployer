@@ -41,7 +41,7 @@ const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
   // UI-Qualität 6: neue Orte (die alten Adressen leiten ebenfalls weiter)
   { label: 'Externe Ziele', to: '/security/extern', env: true, words: 'extern domain security' },
   { label: 'Audit-Log', to: '/audit', env: true, words: 'audit protokoll aktivität' },
-  { label: 'Tokens', to: '/tokens', env: true, words: 'mcp claude schlüssel' },
+  { label: 'Tokens', to: '/einstellungen/tokens', env: true, words: 'mcp claude schlüssel' },
   { label: 'Einstellungen', to: '/einstellungen', env: true, words: 'umgebung name kürzel' },
   { label: 'Cloudflare & HTTPS', to: '/einstellungen/cloudflare', env: true, words: 'tunnel zertifikat https' },
   { label: 'Domains', to: '/einstellungen/cloudflare#domains', env: true, words: 'zonen cloudflare' },
@@ -50,6 +50,7 @@ const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
   { label: 'Server', to: '/server', words: 'system dienste netz' },
   { label: 'Benachrichtigungen', to: '/server/benachrichtigungen', words: 'ntfy e-mail' },
   { label: 'GitHub', to: '/server/github', words: 'app repos' },
+  { label: 'Backup', to: '/server/backup', words: 'sicherung restic wiederherstellen schlüssel' },
   { label: 'Einrichtung', to: '/einrichtung', words: 'assistent erster start' },
   { label: 'Konto', to: '/konto', words: 'passwort profil' },
   { label: 'Bausteine', to: '/design', words: 'design komponenten' },
@@ -134,7 +135,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     })
     for (const p of list) out.push({ id: `proj:${p.id}`, group: 'Projekte', label: p.name, hint: p.slug, run: () => go(ep(`/projekte/${p.id}`)) })
     out.push({ id: 'act:new', group: 'Aktionen', label: 'Neues Projekt anlegen', words: 'erstellen', run: () => go(ep('/projekte/neu')) })
-    out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go(ep('/tokens?neu=1')) })
+    out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go(ep('/einstellungen/tokens?neu=1')) })
     for (const p of list) {
       // Gleiche Sperren wie Projektkopf und Security-Übersicht
       const deploying = p.state.key === 'deploying' || (deploy.isPending && deploy.variables?.id === p.id)

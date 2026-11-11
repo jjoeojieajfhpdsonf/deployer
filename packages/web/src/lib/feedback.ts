@@ -57,7 +57,8 @@ export function mutationCacheWithToasts(): MutationCache {
       // Sitzung abgelaufen: Der Anmeldedialog nennt, was nicht ausgeführt wurde (ein Toast läge
       // hinter dem Dialog und wäre weg, bevor jemand ihn liest)
       if (err instanceof ApiError && err.status === 401 && isSessionExpired()) {
-        noteFailedAction(meta.errorTitle ?? 'Aktion nicht ausgeführt')
+        // Antwort 16: nicht zerstörerische Aktionen lassen sich nach der Anmeldung wiederholen
+        noteFailedAction(meta.errorTitle ?? 'Aktion nicht ausgeführt', meta.noRetry ? undefined : () => mutation.execute(variables).catch(() => {}))
         return
       }
       if (meta.quiet) return

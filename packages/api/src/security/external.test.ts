@@ -76,7 +76,7 @@ describe('Benachrichtigungen', () => {
   })
   test('Texte enthalten Titel und Stellen der Befunde', () => {
     const m = renderMessage('finding_critical', { target: 'shop', score: 50, grade: 'C', findings: [{ title: 'Secret im Code', location: 'config.js:1' }] })
-    assert.match(m.title, /1 neue kritische Befunde: shop/)
+    assert.match(m.title, /1 neuer kritischer Befund: shop/)
     assert.match(m.body, /Secret im Code \(config\.js:1\)/)
     assert.equal(m.priority, 5)
   })

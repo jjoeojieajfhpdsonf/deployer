@@ -47,7 +47,7 @@ export async function tailnetDnsConfigured(): Promise<boolean> {
 export async function ensureTailnetDns(actor: string): Promise<TailnetDnsResult[]> {
   const ip = net.tailscaleIp()
   const list = await targets()
-  if (!ip || !list.length) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailscale-IP (Einstellungen → Cloudflare & HTTPS)', 400)
+  if (!ip || !list.length) throw new CloudflareError('Für den Tailnet-Eintrag braucht es Basisdomain und Tailnet-IP (Einstellungen → Cloudflare & HTTPS)', 400)
   const out: TailnetDnsResult[] = []
   const errors: string[] = []
   for (const t of list) {
@@ -65,7 +65,7 @@ export async function ensureTailnetDns(actor: string): Promise<TailnetDnsResult[
 /** Eintrag *.<basis> einer Umgebung mit ihrem Token. */
 export async function ensureTailnetDnsFor(base: string, token: string, actor: string): Promise<TailnetDnsResult> {
   const ip = net.tailscaleIp()
-  if (!ip) throw new CloudflareError('Keine Tailscale-IP bekannt', 400)
+  if (!ip) throw new CloudflareError('Keine Tailnet-IP bekannt', 400)
   return ensureWildcardRecord(new Cloudflare({ token, base: config.CLOUDFLARE_API_BASE }), base, ip, actor)
 }
 

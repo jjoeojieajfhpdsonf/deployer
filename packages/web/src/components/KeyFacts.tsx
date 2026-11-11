@@ -191,12 +191,13 @@ export function KeyFacts({
         {!isStatic && <Row label="Grenzen"><span className="kf-strong num">{fmtCpu(p.cpuLimit)} CPU · {p.memoryLimitMb.toLocaleString('de-CH')} MB</span></Row>}
         {!isStatic && running && <Row label="Verbrauch"><Usage p={p} h={health} /></Row>}
         <Row
-          label="Umgebung"
+          // Weiches Trennzeichen: die Beschriftungsspalte ist 84 px breit
+          label={'Umgebungs­variablen'}
           action={!isStatic || env.length > 0 ? <button type="button" className="link-button kf-link" onClick={() => onTab('einstellungen')}>Bearbeiten</button> : undefined}
         >
           {env.length === 0
-            ? <span className="kf-dim">{isStatic ? 'keine Variablen nötig' : 'keine Variablen'}</span>
-            : <><span className="kf-strong num">{env.length} {env.length === 1 ? 'Variable' : 'Variablen'}</span>{secret > 0 && <span className="kf-dim num"> · {secret} geheim</span>}</>}
+            ? <span className="kf-dim">{isStatic ? 'keine nötig' : 'keine'}</span>
+            : <><span className="kf-strong num">{env.length} gesetzt</span>{secret > 0 && <span className="kf-dim num"> · {secret} geheim</span>}</>}
         </Row>
         {!isFiles && <Row label="Ablauf"><span className="kf-dim">kein Ablauf ({p.sourceType === 'image' ? 'Image' : p.source && 'repoUrl' in (p.source as object) ? 'Repo' : 'Upload'})</span></Row>}
       </dl>

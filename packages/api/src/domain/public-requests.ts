@@ -101,13 +101,15 @@ export async function getPublicRequest(projectId: string): Promise<Row | null> {
 /** Anfrage vormerken (ersetzt eine ältere; eine Bestätigung geht dabei verloren). */
 export async function requestPublic(
   projectId: string,
-  input: { subdomain?: string; hostname?: string; accessProtected?: boolean },
+  input: { subdomain?: string; hostname?: string; zone?: string; apex?: boolean; accessProtected?: boolean },
   actor: string,
   why: string,
 ): Promise<Row> {
+  // Name und Zone getrennt: als voller Name vormerken (die Anfrage kennt nur Subdomain oder Hostname)
+  const hostname = input.zone ? (input.apex ? input.zone : input.subdomain ? `${input.subdomain}.${input.zone}` : null) : input.hostname ?? null
   const values = {
     projectId, actor, requestedAt: new Date(),
-    subdomain: input.subdomain ?? null, hostname: input.hostname ?? null, accessProtected: Boolean(input.accessProtected),
+    subdomain: hostname ? null : input.subdomain ?? null, hostname, accessProtected: Boolean(input.accessProtected),
     approvedBy: null, approvedAt: null, lastError: null,
   }
   const rows = await db.insert(schema.publicRequests).values(values)

@@ -4,12 +4,13 @@ import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'reac
 import { useEnvPath } from '../lib/env.js'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
-import { confirmLeave, hasUnsaved } from '../lib/unsaved.js'
+import { Topology } from '../components/Topology.js'
+import { confirmLeave, hasUnsaved, leaveWithoutAsking } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { PublicPillFor } from '../components/Publication.js'
-import { ProjectSettings, useKeepToggle } from '../components/ProjectSettings.js'
+import { ProjectSettings, useKeepToggle, type ContainerPatch, type ContainerRequest } from '../components/ProjectSettings.js'
 import { notifyOk } from '../lib/feedback.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
@@ -31,7 +32,7 @@ const IconGear = () => (
   </svg>
 )
 
-type Tab = 'uebersicht' | 'deployments' | 'logs' | 'security' | 'einstellungen'
+type Tab = 'uebersicht' | 'aufbau' | 'deployments' | 'logs' | 'security' | 'einstellungen'
 
 export function ProjectDetail() {
   const { id = '' } = useParams()
@@ -39,8 +40,8 @@ export function ProjectDetail() {
   const navigate = useNavigate()
   const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
-  // Reihenfolge nach Wichtigkeit; Einstellungen rechts abgesetzt
-  const TABS: Tab[] = ['uebersicht', 'security', 'deployments', 'logs', 'einstellungen']
+  // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt
+  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'security', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
@@ -77,6 +78,37 @@ export function ProjectDetail() {
   const goToEnv = (name: string) => {
     void setTab('einstellungen').then((ok) => { if (ok) setEnvRequest(name) })
   }
+  // Antwort 8: Fehlerbox «Port ändern», «Grenze erhöhen» … → Abschnitt Container, Feld vorbelegt
+  const [containerRequest, setContainerRequest] = useState<ContainerRequest | null>(null)
+  const goToContainer = (r: ContainerRequest) => {
+    void setTab('einstellungen').then((ok) => { if (ok) setContainerRequest(r) })
+  }
+  // Seit dem letzten Deploy dort gespeichert: die Fehlerbox sagt dann «… ist jetzt …» statt erneut zu fragen
+  const [containerSaved, setContainerSaved] = useState<ContainerPatch>({})
+  // Aufbau «Veröffentlichen →»: Einstellungen › Veröffentlichung, Ablauf offen
+  const [publishRequested, setPublishRequested] = useState(false)
+  const goToPublish = () => {
+    void setTab('einstellungen').then((ok) => { if (ok) setPublishRequested(true) })
+  }
+  // «Verwalten» bei den Security-Headern (Einstellungen, Aufbau): Security › Liste «Header über Caddy»
+  const manageHeaders = () => {
+    void setTab('security').then((ok) => {
+      if (!ok) return
+      // Die Liste erscheint, sobald der Reiter geladen ist
+      const go = (tries: number) => {
+        const el = document.getElementById('header-caddy')
+        if (el) el.scrollIntoView({ block: 'start' })
+        else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+      }
+      go(20)
+    })
+  }
+  // Logs: Dienst steht in der Adresse (?tab=logs&dienst=web), damit «Alle Logs» im Aufbau gefiltert landet
+  const logService = params.get('dienst')
+  const goToLogs = async (service: string | null) => {
+    if (tab !== 'logs' && !(await confirmLeave())) return
+    setParams(service ? { tab: 'logs', dienst: service } : { tab: 'logs' }, { replace: false })
+  }
 
   const q = useQuery({
     queryKey: ['project', id],
@@ -108,6 +140,10 @@ export function ProjectDetail() {
       void qc.invalidateQueries({ queryKey: ['project', id] })
     },
   })
+
+  // Neuer Deploy (auch per MCP oder Auto-Deploy): die gespeicherten Änderungen sind darin enthalten
+  const lastDeployId = q.data?.project.lastDeployment?.id
+  useEffect(() => { setContainerSaved({}) }, [lastDeployId])
 
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
   // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
@@ -147,6 +183,7 @@ export function ProjectDetail() {
   const secTone = o?.critical ? 'critical' : o?.high ? 'bad' : o?.medium ? 'warn' : undefined
   const tabInfo: Record<Tab, { label: string; count?: number; tone?: 'warn' | 'bad' | 'critical'; countLabel?: string; live?: boolean }> = {
     uebersicht: { label: 'Übersicht' },
+    aufbau: { label: 'Aufbau' },
     security: { label: 'Security', count: openFindings, tone: secTone, countLabel: openFindings === 1 ? '1 offener Befund' : `${openFindings} offene Befunde` },
     deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
@@ -254,6 +291,8 @@ export function ProjectDetail() {
             onToggleKeep={() => keep.mutate({ keep: !p.keep })}
             keepBusy={keep.isPending}
             onAddEnv={goToEnv}
+            onContainerField={goToContainer}
+            containerSaved={containerSaved}
           />
         </div>
       )}
@@ -267,29 +306,48 @@ export function ProjectDetail() {
           }}
         />
       )}
-      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : <LogsTab projectId={id} slug={p.slug} activeDeploymentId={p.activeDeployment?.id ?? null} />)}
+      {tab === 'aufbau' && (
+        <Topology
+          p={p}
+          onLogs={(service) => void goToLogs(service)}
+          onPublish={goToPublish}
+          onRestart={() => act.mutate('restart')}
+          restartBusy={act.isPending}
+          onManageHeaders={() => manageHeaders()}
+        />
+      )}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : (
+        <LogsTab
+          projectId={id}
+          slug={p.slug}
+          activeDeploymentId={p.activeDeployment?.id ?? null}
+          service={logService}
+          onService={(s) => setParams(s ? { tab: 'logs', dienst: s } : { tab: 'logs' }, { replace: true })}
+        />
+      ))}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings
           p={p}
           env={env}
-          onDeleted={() => navigate(ep('/projekte'))}
+          // Projekt gelöscht: offene Eingaben haben kein Ziel mehr, keine Rückfrage
+          onDeleted={() => { leaveWithoutAsking(); navigate(ep('/projekte')) }}
           deleteRequested={deleteRequested}
           onDeleteShown={() => setDeleteRequested(false)}
           envRequest={envRequest}
           onEnvShown={() => setEnvRequest(null)}
-          onManageHeaders={() => {
-            void setTab('security').then((ok) => {
-              if (!ok) return
-              // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)
-              const go = (tries: number) => {
-                const el = document.getElementById('header-caddy')
-                if (el) el.scrollIntoView({ block: 'start' })
-                else if (tries > 0) setTimeout(() => go(tries - 1), 100)
-              }
-              go(20)
-            })
-          }}
+          containerRequest={containerRequest}
+          onContainerShown={() => setContainerRequest(null)}
+          onContainerSaved={(patch, undo) => setContainerSaved((s) => {
+            const next = { ...s, ...patch }
+            if (undo) for (const k of Object.keys(patch) as (keyof ContainerPatch)[]) delete next[k]
+            return next
+          })}
+          onDeploy={() => act.mutate('deploy')}
+          deploying={act.isPending || p.status === 'deploying'}
+          onManageHeaders={() => manageHeaders()}
+          publishRequested={publishRequested}
+          onPublishShown={() => setPublishRequested(false)}
         />
       )}
       </div>

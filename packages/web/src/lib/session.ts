@@ -14,6 +14,11 @@ import { useSyncExternalStore } from 'react'
  */
 type State = { expired: boolean; failed: readonly string[]; loggedOut: boolean }
 let state: State = { expired: false, failed: [], loggedOut: false }
+/**
+ * Antwort 16: zu jeder gescheiterten Aktion, ob und wie sie sich nach der
+ * Anmeldung wiederholen lässt (nur nicht zerstörerische; nie automatisch).
+ */
+const retries = new Map<string, () => unknown>()
 const listeners = new Set<() => void>()
 const set = (next: Partial<State>) => { state = { ...state, ...next }; listeners.forEach((f) => f()) }
 
@@ -28,12 +33,24 @@ export function markSessionOk(): void {
 }
 
 /** Eine Aktion ist am 401 gescheitert (Titel wie «Nicht gespeichert», «Deploy nicht gestartet») */
-export function noteFailedAction(title: string): void {
-  if (state.loggedOut || state.failed.includes(title)) return
+export function noteFailedAction(title: string, retry?: () => unknown): void {
+  if (state.loggedOut) return
+  // Gleicher Titel: der letzte Versuch zählt (z. B. zweimal «Variablen nicht gespeichert»)
+  if (retry) retries.set(title, retry)
+  else retries.delete(title)
+  if (state.failed.includes(title)) return
   set({ failed: [...state.failed, title] })
 }
 
+/** Gescheiterte Aktionen mit ihrer Wiederholung (falls erlaubt) – zum Anbieten nach der Anmeldung */
+export function takeFailedActions(): { title: string; retry: (() => unknown) | null }[] {
+  const out = state.failed.map((title) => ({ title, retry: retries.get(title) ?? null }))
+  retries.clear()
+  return out
+}
+
 export function markLoggedOut(): void {
+  retries.clear()
   set({ expired: false, failed: [], loggedOut: true })
 }
 

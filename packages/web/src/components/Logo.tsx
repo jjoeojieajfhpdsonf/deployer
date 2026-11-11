@@ -1,6 +1,7 @@
 /**
- * Bildmarke von Airlock. Provisorisch Variante 1 («Doppeltor») aus
- * docs/design-cal/marke/ – die Wahl zwischen den drei Varianten ist offen.
+ * Bildmarke von Airlock: Variante 1 («Doppeltor») aus docs/design-cal/marke/
+ * (Antwort 6). Steht im Favicon, auf der Anmeldeseite und in der Seitenleiste
+ * vor «Airlock».
  * Farbe über currentColor, damit Hell und Dunkel von selbst passen.
  */
 export function Logo({ size = 24, className }: { size?: number; className?: string }) {

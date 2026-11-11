@@ -14,6 +14,7 @@ import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
 import { eventRoutes } from './routes/events.js'
 import { systemRoutes } from './routes/system.js'
+import { backupRoutes } from './routes/backup.js'
 import { clientErrorRoutes } from './routes/client-errors.js'
 import { uploadRoutes } from './routes/uploads.js'
 import { tokenRoutes } from './routes/tokens.js'
@@ -150,6 +151,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(deploymentRoutes)
       await api.register(eventRoutes)
       await api.register(systemRoutes)
+      // Meilenstein Backup (nur mit Anmeldung, siehe auth.ts)
+      await api.register(backupRoutes)
       await api.register(uploadRoutes)
       await api.register(clientErrorRoutes)
       // M9: Umgebungen

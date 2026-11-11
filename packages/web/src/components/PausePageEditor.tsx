@@ -4,6 +4,7 @@ import {
   pauseHtmlProblems, utf8Length, PAUSE_BACK_MAX_MS, type PausePage,
 } from '@airlock/shared'
 import { Field } from './Field.js'
+import { InlineConfirm } from './Confirm.js'
 import { isoOf } from '../lib/dates.js'
 import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 import type { CodeEditorHandle } from './CodeEditor.js'
@@ -148,11 +149,10 @@ function HtmlPane({ value, onChange, error, id, full, onFull, aside }: {
         {!confirmTemplate
           ? <button type="button" className="button-small" onClick={() => setConfirmTemplate(true)}>Vorlage</button>
           : (
-            <span className="confirm-inline" role="group" aria-label="HTML durch die Vorlage ersetzen">
-              <span className="confirm-note">Ersetzt das HTML durch die Seite aus Titel und Text.</span>
-              <button type="button" className="button-small" onClick={() => setConfirmTemplate(false)}>Abbrechen</button>
-              <button type="button" className="button-small button-primary" autoFocus onClick={() => { editor.current?.replaceAll(renderPauseForm({ ...value, mode: 'form' })); setConfirmTemplate(false) }}>Ersetzen</button>
-            </span>
+            <InlineConfirm label="HTML durch die Vorlage ersetzen" small tone="primary"
+              note="Ersetzt das HTML durch die Seite aus Titel und Text." noteIcon={false} confirmLabel="Ersetzen"
+              onCancel={() => setConfirmTemplate(false)}
+              onConfirm={() => { editor.current?.replaceAll(renderPauseForm({ ...value, mode: 'form' })); setConfirmTemplate(false) }} />
           )}
         <button type="button" className="button-small button-icon" aria-pressed={full} aria-label={full ? 'Vollbild beenden' : 'Editor im Vollbild'} title={full ? 'Vollbild beenden' : 'Vollbild'} onClick={() => onFull(!full)}>
           {full

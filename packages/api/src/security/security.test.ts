@@ -65,10 +65,18 @@ describe('Header-Check', () => {
         'content-security-policy': "default-src 'self'; frame-ancestors 'self'",
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'strict-origin-when-cross-origin',
+        'permissions-policy': 'camera=(), microphone=()',
         'set-cookie': ['sid=1; HttpOnly; SameSite=Lax; Path=/'],
       },
     })
     assert.deepEqual(f, [])
+  })
+
+  test('Antwort 7: Permissions-Policy, X-AspNet-Version und X-Backend-Server aus dem Header-Check', () => {
+    const titles = checkHeaders({ ...bare, headers: { 'x-aspnet-version': '4.0.30319', 'x-backend-server': 'web-02.intern' } }).map((x) => x.title)
+    assert.ok(titles.includes('Permissions-Policy fehlt'))
+    assert.ok(titles.includes('Versionsangabe im Header X-AspNet-Version'))
+    assert.ok(titles.includes('Interner Server im Header X-Backend-Server'))
   })
 
   test('HTTPS: HSTS, Secure-Cookie, gemischte Inhalte', () => {
@@ -112,7 +120,8 @@ describe('Parser gegen echte Ausgaben', () => {
     const f = parseZap(JSON.parse(fx('zap.json')))
     const titles = f.map((x) => x.title)
     assert.ok(!titles.some((t) => /Content Security Policy|Clickjacking|X-Content-Type|Out of Date/.test(t)), titles.join(' | '))
-    assert.ok(titles.some((t) => /Permissions Policy/.test(t)))
+    // Antwort 7: Permissions-Policy prüft jetzt der Header-Check (ZAP 10063 unterdrückt)
+    assert.ok(!titles.some((t) => /Permissions Policy/.test(t)), 'Permissions-Policy nur aus dem Header-Check')
     assert.ok(!titles.some((t) => /Storable and Cacheable/.test(t)), 'Info zählt nicht')
     assert.ok(f.every((x) => !/<p>/.test(x.fix)), 'HTML entfernt')
   })

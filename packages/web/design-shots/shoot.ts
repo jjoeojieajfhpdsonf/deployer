@@ -21,8 +21,8 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
 const repo = resolve(webRoot, '../..')
 
-/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen */
-const PORT = 5199
+/** Port des Screenshot-Werkzeugs; die visuellen Tests (visual/) nehmen einen eigenen. SHOOT_PORT=… für parallele Worktrees */
+const PORT = Number(process.env.SHOOT_PORT) || 5199
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -53,6 +53,11 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if (method !== 'GET') return { body: {} }
   if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
+  // Prüfung öffentlicher Namen: mit Projekt (Veröffentlichung) und in der Umgebung (Neues Projekt)
+  if ((m = p.match(/^(?:\/projects\/([^/]+))?\/public\/check$/))) {
+    const q = u.searchParams
+    return { body: { check: fx.publicCheck(m[1] ?? null, q.get('name') ?? '', q.get('zone') ?? 'example.ch', q.get('apex') === '1') } }
+  }
   if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
   // Vor /projects/:id (sonst hielte es «name-preview» für eine Projekt-ID)
@@ -64,6 +69,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
     return { body: { deployment: d, log: d?.status === 'failed' ? fx.logForFailure(d.errorMessage, d.id) : fx.deployLog } }
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/topology$/))) return { body: { topology: fx.topology(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/log-lines$/))) return { body: fx.logLines(m[1]!, u.searchParams.get('service')) }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
@@ -98,7 +104,7 @@ type Shot = {
   path: string
   loggedIn?: boolean
   full?: boolean
-  /** Leere Daten (keine Projekte, kein Audit) */
+  /** Leere Daten (keine Projekte, kein Audit-Log) */
   empty?: boolean
   /** Kaputte Projektliste (Projekt ohne Felder): zeigt die Fehlerseite der Error Boundary */
   broken?: boolean
@@ -106,8 +112,12 @@ type Shot = {
   githubConnected?: boolean
   /** Cloudflare fertig eingerichtet (Zertifikat ausgestellt): Zusammenfassung statt Schritte */
   cfDone?: boolean
+  /** Meilenstein Backup: Zustand von Server › Backup (Standard: eingerichtet, mit Läufen) */
+  backup?: fx.BackupVariant
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
+  /** Antwort 7: Scan-Bericht mit einem ZAP-Befund zur CSP-Qualität (10055) */
+  cspQuality?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -122,12 +132,16 @@ type Shot = {
   me?: Partial<import('../src/api.js').MeDto>
   /** Leerer Speicher der Sitzung erzwingen (Assistent erscheint wie beim ersten Start) */
   freshSession?: boolean
+  /** Umgebung mit zwei Zonen (Domain-Auswahl im Feld «Öffentliche Adresse») */
+  zones2?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
   legacy?: boolean
   /** Projekt patchen (GET /projects/:id), z. B. Ablauf in 5 Tagen */
   patch?: Partial<import('@airlock/shared').ProjectDto>
+  /** M9: Standard-Umgebung «example» patchen (z. B. sehr langer Name für den Umschalter) */
+  envPatch?: Partial<import('@airlock/shared').EnvironmentDto>
   prepare?: (page: Page) => Promise<void>
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
@@ -179,6 +193,12 @@ const shots: Shot[] = [
         }
       })
       await pg.getByText('Windows 95 freigeschaltet').waitFor()
+      // Die Pfeiltasten scrollen die Seite unterschiedlich weit (je nach Zeitpunkt): fest nach oben
+      // Die Pfeiltasten lösen weiches Scrollen aus, das nach scrollTo noch weiterlaufen kann:
+      // warten, bis die Position zweimal hintereinander gleich ist, dann ohne Animation nach oben
+      await pg.waitForFunction(() => new Promise<boolean>((r) => { const y = window.scrollY; setTimeout(() => r(window.scrollY === y), 150) }))
+      await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+      await pg.waitForFunction(() => window.scrollY === 0)
       await pg.locator('.profile-trigger').click()
       await pg.waitForTimeout(250)
     },
@@ -193,11 +213,40 @@ const shots: Shot[] = [
     group: 'fehler', name: 'fehler-build-claude', path: '/projekte/p-fehler-build', full: false, el: '.failure',
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Mit Claude lösen' }).click(); await pg.waitForTimeout(200) },
   },
+  // Antwort 8: Port, Healthcheck-Pfad und RAM ändert man unter Einstellungen › Container; die Box zeigt den Knopf
   { group: 'fehler', name: 'fehler-port', path: '/projekte/p-fehler-port', full: false, el: '.failure' },
+  { group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure' },
   {
-    group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure',
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Grenze erhöhen' }).click(); await pg.waitForTimeout(200) },
+    // «Grenze erhöhen» springt zum Abschnitt Container: RAM fokussiert, mit Vorschlag und Verbrauch
+    // Kantenglättung der klebenden Sprungnavigation schwankt (wie projekt-einstellungen), sichtbar gleich
+    group: 'fehler', name: 'fehler-grenze-vorschlag', path: '/projekte/p-fehler-oom', full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Grenze erhöhen' }).click()
+      await pg.locator('#ct-memoryLimitMb:focus').waitFor()
+      await pg.waitForTimeout(300)
+    },
   },
+  // Reiter «Aufbau»: Compose mit Datenbank und Volumes (Internet aus: Umriss «Veröffentlichen →»), Einzelcontainer
+  // öffentlich mit Access, statische Seite öffentlich pausiert, gestoppter Container (nicht öffentlich),
+  // gewählter Host, unter 1100 px (Seitenkarte unten) und unter 700 px (Liste statt Fläche)
+  { group: 'aufbau', name: 'aufbau', path: `/projekte/${P}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-einzelcontainer', path: `/projekte/${L}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-statisch', path: `/projekte/${Z}?tab=aufbau` },
+  { group: 'aufbau', name: 'aufbau-nicht-oeffentlich', path: '/projekte/p-notizen?tab=aufbau' },
+  {
+    group: 'aufbau', name: 'aufbau-host', path: `/projekte/${P}?tab=aufbau`, full: false,
+    prepare: async (pg) => { await pg.locator('.topo-node[data-node="host:fotoalbum.int.example.ch"]').click(); await pg.waitForTimeout(200) },
+  },
+  {
+    group: 'aufbau', name: 'aufbau-schmal', path: `/projekte/${P}?tab=aufbau`,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 1000, height: 900 }); await pg.waitForTimeout(300) },
+  },
+  {
+    group: 'aufbau', name: 'aufbau-sehr-schmal', path: `/projekte/${P}?tab=aufbau`,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 680, height: 900 }); await pg.waitForTimeout(300) },
+  },
+  // Ergebnisbilder neben der Vorlage (docs/design-cal/aufbau/umgesetzt-*.png): erster Bildschirm wie die Vorlage
+  { group: 'aufbau-umgesetzt', name: 'umgesetzt', path: `/projekte/${P}?tab=aufbau`, full: false },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand
@@ -233,6 +282,16 @@ const shots: Shot[] = [
     group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security`, full: false, cspReverted: true,
     prepare: async (pg) => {
       await pg.locator('#header-caddy-title').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  // Antwort 7: CSP-Qualität (ZAP 10055) bleibt ZAP-Befund, mit «Zum CSP-Ablauf»
+  {
+    group: 'csp', name: 'security-csp-qualitaet', path: `/projekte/${S}?tab=security`, full: false, cspQuality: true,
+    prepare: async (pg) => {
+      const card = pg.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
+      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
@@ -281,6 +340,14 @@ const shots: Shot[] = [
   // Kantenglättung der klebenden Sprungnavigation schwankt (wie veroeffentlichung-*), sichtbar gleich
   { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen`, maxDiff: 600 },
   {
+    // Antwort 8: Abschnitt Container (nur bei Projekten mit Container) mit Verbrauch neben den Grenzen
+    group: 'projekte', name: 'einstellungen-container', path: `/projekte/${P}?tab=einstellungen`, full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.locator('#set-container').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
     prepare: async (pg) => { await pg.locator('form button[type="submit"]').click(); await pg.waitForTimeout(200); await pg.evaluate(() => window.scrollTo(0, 0)) },
   },
@@ -307,7 +374,7 @@ const shots: Shot[] = [
     group: 'sitzung', name: 'sitzung-abgelaufen', path: '/projekte', full: false,
     prepare: async (pg) => {
       await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
-      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('link', { name: /^Audit-Log/ }).first().click()
       await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).waitFor()
       await pg.waitForTimeout(250)
     },
@@ -316,24 +383,62 @@ const shots: Shot[] = [
     // Speichern scheitert an der abgelaufenen Sitzung: der Dialog nennt, was nicht ausgeführt wurde
     group: 'sitzung', name: 'sitzung-abgelaufen-aktion', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
       const row = pg.locator('#set-umgebung .env-row').last().locator('input')
       await row.nth(0).fill('API_KEY')
       await row.nth(1).fill('geheim')
       await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
-      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
-      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.getByRole('button', { name: 'Umgebungsvariablen speichern' }).click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Umgebungsvariablen nicht gespeichert', { exact: false }).waitFor()
       await pg.waitForTimeout(250)
+    },
+  },
+  {
+    // Antwort 16: nach der Anmeldung «Erneut ausführen» für die gescheiterte Aktion (nichts automatisch)
+    group: 'sitzung', name: 'sitzung-erneut-ausfuehren', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
+      const row = pg.locator('#set-umgebung .env-row').last().locator('input')
+      await row.nth(0).fill('API_KEY')
+      await row.nth(1).fill('geheim')
+      const unauthorized = (r: import('@playwright/test').Route) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' })
+      await pg.route('**/api/v1/**', unauthorized)
+      await pg.getByRole('button', { name: 'Umgebungsvariablen speichern' }).click()
+      const dialog = pg.getByRole('dialog', { name: 'Sitzung abgelaufen' })
+      await dialog.getByText('Umgebungsvariablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.unroute('**/api/v1/**', unauthorized)
+      await dialog.getByLabel('Passwort').fill('test-passwort')
+      await dialog.getByRole('button', { name: 'Anmelden' }).click()
+      await pg.locator('[data-sonner-toast]').filter({ hasText: 'Erneut ausführen' }).first().waitFor()
+      await pg.waitForTimeout(500)
     },
   },
   {
     group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
       await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
-      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('link', { name: /^Audit-Log/ }).first().click()
       await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
       await pg.waitForTimeout(250)
+    },
+  },
+  {
+    // Antwort 12: auch der Zurück-Knopf des Browsers fragt (Daten-Router, useBlocker). Über einen Link
+    // der Oberfläche zur Projektseite, damit es ein «Zurück» innerhalb der Oberfläche gibt.
+    // Kantenglättung der klebenden Sprungnavigation schwankt (wie projekt-einstellungen), sichtbar gleich
+    group: 'sitzung', name: 'verlassen-zurueck', path: '/domains', full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.locator('td.cell-main').getByRole('link', { name: 'Haushaltsbuch' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+      await pg.goBack()
+      await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
+      // Der Browser stellt beim (angehaltenen) Zurück die Scrollposition wieder her – je nach Zeitpunkt
+      // um ein Pixel anders. Für ein stabiles Bild oben ausrichten.
+      await pg.waitForTimeout(250)
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(100)
     },
   },
   {
@@ -345,9 +450,21 @@ const shots: Shot[] = [
       await pg.waitForTimeout(200)
     },
   },
+  {
+    // Antwort 14: Befehl für Claude Code mit --scope user, Token verdeckt eingelesen (bash gewählt)
+    group: 'sitzung', name: 'tokens-neu-claude-code', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name des Tokens').fill('Claude Code Mac')
+      await pg.getByRole('button', { name: 'Token anlegen' }).click()
+      await pg.getByRole('button', { name: 'bash', exact: true }).click()
+      await pg.locator('.token-shell').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'security', name: 'security-global', path: '/security' },
   // UI-Qualität 6: alte Adressen leiten weiter – /extern auf den Reiter unter Security, /domains in System
-  { group: 'security', name: 'externe-ziele', path: '/extern' },
+  // Native Auswahlliste: Breite schwankt je nach Zeitpunkt des Schrift-Ladens um 4 px (Knöpfe rücken mit)
+  { group: 'security', name: 'externe-ziele', path: '/extern', maxDiff: 2000 },
   { group: 'verwaltung', name: 'domains', path: '/domains', full: false },
   { group: 'system', name: 'system-cloudflare-fertig', path: '/system/cloudflare', cfDone: true },
   { group: 'verwaltung', name: 'tokens', path: '/tokens' },
@@ -363,6 +480,40 @@ const shots: Shot[] = [
   // M8, Etappe 3
   { group: 'github', name: 'system-github', path: '/system/github' },
   { group: 'github', name: 'system-github-verbunden', path: '/system/github?ok=installiert', githubConnected: true },
+  // Meilenstein Backup, Etappe 3: eingerichtet, noch nicht eingerichtet, über 48 h ohne Erfolg
+  { group: 'backup', name: 'system-backup', path: '/server/backup' },
+  { group: 'backup', name: 'system-backup-leer', path: '/server/backup', backup: 'leer' },
+  { group: 'backup', name: 'system-backup-veraltet', path: '/server/backup', backup: 'veraltet', full: false },
+  // Etappe 4: secrets.key getrennt sichern – Datei mit Passphrase, Papier mit QR
+  {
+    group: 'backup', name: 'backup-schluessel-datei', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Als Datei exportieren' }).click()
+      await pg.getByRole('dialog', { name: 'Schlüssel als Datei exportieren' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'backup', name: 'backup-schluessel-papier', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Papier-Anleitung' }).click()
+      await pg.getByLabel('Anmelde-Passwort').fill('beispiel')
+      await pg.getByRole('button', { name: 'Anzeigen' }).click()
+      await pg.getByRole('heading', { name: /^Schlüssel der Secrets · / }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  // Etappe 5: Projekt aus einem Stand zurückholen – Vorschau und Bestätigung (Slug eintippen)
+  {
+    group: 'backup', name: 'backup-wiederherstellen', path: '/server/backup', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Projekt aus Stand 3f9c2a7b wiederherstellen' }).click()
+      await pg.getByRole('dialog').getByLabel('Projekt', { exact: true }).selectOption('fotoalbum')
+      await pg.getByRole('dialog').getByRole('table').waitFor()
+      await pg.getByRole('dialog').getByLabel(/Zur Bestätigung/).fill('fotoalbum')
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -535,6 +686,54 @@ const shots: Shot[] = [
       await pg.waitForTimeout(900)
     },
   },
+  /*
+   * Öffentliche Adressen: geteiltes Feld Name · Domain, Vorschau, Prüfung beim Tippen.
+   * frei: eingefügter voller Name wird in Name und Domain zerlegt
+   */
+  {
+    group: 'adresse', name: 'adresse-frei', path: `/projekte/${P}?tab=einstellungen`, full: false, el: '.publication', zones2: true, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
+      await pg.getByLabel('Öffentliche Adresse').fill('https://Mein-Shop.example.org/start')
+      await pg.locator('.pubname-status.pubname-ok').waitFor()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // Adresse ändern: fremder DNS-Eintrag (Typ → Ziel), Ersetzen nur nach Haken
+  {
+    group: 'adresse', name: 'adresse-dns-fremd', path: `/projekte/${L}?tab=einstellungen`, full: false, el: '.publication',
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Ändern', exact: true }).click()
+      await pg.getByLabel('Neue öffentliche Adresse').fill('alt')
+      await pg.getByRole('checkbox', { name: /Bestehenden Eintrag ersetzen/ }).check()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // «Direkt unter <zone>»: dieselbe Prüfung; Worker/Custom Domain lässt sich nicht ersetzen
+  {
+    group: 'adresse', name: 'adresse-apex', path: `/projekte/${P}?tab=einstellungen`, full: false, el: '.publication', zones2: true, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
+      await pg.getByLabel('Domain', { exact: true }).selectOption('example.org')
+      await pg.getByRole('switch', { name: /Direkt unter/ }).click()
+      await pg.locator('.pubname-status.pubname-bad').waitFor()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // Neues Projekt: öffentlich nach dem ersten Scan; Name schon vergeben (Prüfung ohne Projekt, in der Umgebung)
+  {
+    group: 'adresse', name: 'adresse-neues-projekt', path: '/projekte/neu', full: false, el: '.field-group:has(.public-options)',
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('Haushalt')
+      await pg.getByRole('checkbox', { name: /Öffentlich über Cloudflare Tunnel/ }).check()
+      await pg.locator('.pubname-status.pubname-bad').waitFor()
+      await pg.locator('.public-options').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'anfrage', name: 'anfrage-wartet', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false },
   {
     group: 'anfrage', name: 'anfrage-wartet-bestaetigen', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false,
@@ -631,7 +830,21 @@ const shots: Shot[] = [
     prepare: async (pg) => {
       await pg.getByRole('link', { name: 'Gefahrenzone' }).click()
       await pg.waitForTimeout(600)
+      // Antwort 10: öffnet den modalen Dialog (Kurzname eintippen)
       await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Projekt löschen im Dialog, Kurzname halb eingetippt (Bestätigen noch gesperrt); Container-Projekt mit Haken für Volumes
+    group: 'p6', name: 'loeschen-dialog', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Projekt löschen …' }).click()
+      const dialog = pg.getByRole('dialog')
+      await dialog.waitFor()
+      const slug = (await dialog.locator('code').first().textContent()) ?? ''
+      await dialog.getByRole('textbox', { name: 'Kurzname zur Bestätigung' }).fill(slug.slice(0, Math.ceil(slug.length / 2)))
       await pg.waitForTimeout(300)
     },
   },
@@ -717,10 +930,22 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.locator('body').click({ position: { x: 5, y: 600 } }); await pg.keyboard.press('Shift+?'); await pg.waitForTimeout(400) },
   },
   // Etappe 4: Komponenten-Übersicht
-  { group: 'design', name: 'design-bausteine', path: '/design' },
+  // Native Auswahllisten: Breite schwankt um wenige Pixel (Schrift-Laden)
+  { group: 'design', name: 'design-bausteine', path: '/design', maxDiff: 600 },
   /* M9: Umgebungen (echte Seiten; der DOM-Prototyp unter docs/design-cal/umgebungen ist damit abgelöst) */
   { group: 'm9', name: 'm9-projekte', path: '/u/example/projekte', full: false },
   { group: 'm9', name: 'm9-umschalter', path: '/u/example/projekte', full: false, prepare: async (pg) => { await pg.locator('.env-trigger').click(); await pg.waitForTimeout(250) } },
+  // Umschalter in der Kopfzeile: Domain hinter dem Namen (Verein), sehr langer Name endet mit «…»
+  { group: 'm9', name: 'm9-umschalter-domain', path: '/u/verein/projekte', el: '.topbar' },
+  {
+    group: 'm9', name: 'm9-umschalter-lang', path: `/u/example/projekte/${P}`, el: '.topbar',
+    envPatch: { name: 'Gemeinnütziger Verein Beispielhausen', short: 'GV', zone: 'verein-beispielhausen.ch' },
+  },
+  // Unter 860 px: nur Kürzel und Pfeil
+  {
+    group: 'm9', name: 'm9-umschalter-schmal', path: `/u/example/projekte/${P}`, full: false,
+    prepare: async (pg) => { await pg.setViewportSize({ width: 800, height: 900 }); await pg.waitForTimeout(250) },
+  },
   { group: 'm9', name: 'm9-einstellungen', path: '/u/example/einstellungen' },
   {
     group: 'm9', name: 'm9-einstellungen-cloudflare', path: '/u/example/einstellungen/cloudflare',
@@ -732,7 +957,7 @@ const shots: Shot[] = [
     group: 'm9', name: 'm9-umgebung-anlegen', path: '/umgebungen/neu',
     prepare: async (pg) => { await pg.locator('#ne-name').fill('Verein Beispiel'); await pg.waitForTimeout(150) },
   },
-  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung' },
+  { group: 'm9', name: 'm9-einrichtung', path: '/u/labor/einrichtung', maxDiff: 600 },
   {
     group: 'm9', name: 'm9-verschieben', path: `/u/example/projekte/${Z}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
@@ -771,6 +996,8 @@ export const contextOptions = (t: ShotTheme) => ({
  */
 export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // Feste Adresse der Oberfläche (MCP-Adresse in Tokens, «Per Chat»): Bilder hängen nicht vom Port ab
+      await ctx.addInitScript({ content: `window.__AIRLOCK_ORIGIN__ = 'https://airlock.int.example.ch'` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
       // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
       await ctx.addInitScript({ content: `(() => {
@@ -810,13 +1037,29 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, r)
             }
             if (s.empty && path === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.zones2 && path === '/api/v1/domains') return json(route, fx.domainsTwo)
             if (s.broken && path === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
+            if (s.envPatch && route.request().method() === 'GET' && /^\/api\/v1\/environments(\/example)?$/.test(url.pathname)) {
+              const list = fx.environments.map((e) => (e.slug === 'example' ? { ...e, ...s.envPatch } : e))
+              return json(route, url.pathname.endsWith('/example') ? { environment: list.find((e) => e.slug === 'example') } : { environments: list })
+            }
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            // Meilenstein Backup: Server › Backup
+            if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
+            if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })
+            if (url.pathname === '/api/v1/system/backup/key/paper') return json(route, fx.backupKeyPaper)
+            if (url.pathname === '/api/v1/system/backup/restore/preview') {
+              return json(route, fx.backupRestorePreview(url.searchParams.get('snapshot') ?? '', url.searchParams.get('project') ?? ''))
+            }
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
+            if (s.cspQuality && url.pathname.endsWith(`/projects/${fx.securityProjectId}/scans/latest`)) {
+              const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
+              return json(route, { report: r.report ? fx.withCspQuality(r.report) : null })
+            }
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
               const b = r.body as { project: object }

@@ -1,8 +1,9 @@
 # Bildmarke für Airlock – drei Varianten
 
-**Wahl offen** (Frage Nr. 6 in `docs/FRAGEN-NACHT.md`). Provisorisch eingebaut ist Variante 1 –
-nur weil der Auftrag verlangt, eine einzubauen; sie ist nach ihrer Nummer genommen, nicht nach
-Vorzug. Entworfen nach dem Taste Skill (design-taste-frontend).
+**Entschieden: Variante 1 (Doppeltor)** (Frage 6 in `docs/FRAGEN-NACHT.md`). Sie steht im Favicon,
+auf der Anmeldeseite und in der Seitenleiste vor «Airlock»; der Knopf zum Einklappen bleibt daneben.
+Variante 3 wird nicht verwendet (wirkt bei 16 px wie ein Pause-Symbol). Entworfen nach dem Taste
+Skill (design-taste-frontend).
 
 Alle drei: `viewBox="0 0 32 32"`, Kanten auf geraden Koordinaten (bei 16 px ganze Pixel), nur
 `currentColor` (`variante-n.svg`); die Favicons (`favicon-n.svg`) tragen #242424 (hell) bzw. #f2f2f3

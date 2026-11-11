@@ -85,7 +85,7 @@ export function parseTrivy(json: unknown): FindingInput[] {
         // Ohne Zeile: die verschiebt sich mit jeder Änderung darüber.
         key: `secret:${s.RuleID ?? s.Title ?? ''}:${target}`,
         description: 'Im Code oder im Image steht ein Zugangsschlüssel. Wer das Image oder die Seite bekommt, bekommt ihn mit.',
-        fix: 'Schlüssel sofort beim Anbieter widerrufen, aus dem Code entfernen und als geheime Variable in der Projekt-Env setzen.',
+        fix: 'Schlüssel sofort beim Anbieter widerrufen, aus dem Code entfernen und als geheime Umgebungsvariable des Projekts setzen.',
       })
     }
 

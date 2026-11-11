@@ -95,7 +95,7 @@ const EVENTS: Record<string, Describe> = {
   },
   'project.env.replace': (p) => {
     const k = list(p.keys)
-    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} ${k.length === 1 ? 'Variable' : 'Variablen'}` : 'keine Variablen'] }
+    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} gesetzt` : 'keine mehr gesetzt'] }
   },
   'project.routes.set': (p) => ({ title: 'Erreichbarkeit geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
   'project.routes.internal': (p) => ({ title: 'Erreichbarkeit intern geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
@@ -172,6 +172,27 @@ const EVENTS: Record<string, Describe> = {
   'github.manifest': () => ({ title: 'GitHub App vorbereitet', category: 'config' }),
   'github.repos': () => ({ title: 'GitHub-Repos abgeglichen', category: 'config' }),
   'github.disconnect': () => ({ title: 'GitHub getrennt', category: 'danger' }),
+
+  // Backup (Server)
+  'backup.settings': () => ({ title: 'Backup-Einstellungen geändert', category: 'config' }),
+  'backup.test': (p) => ({ title: p.initialized ? 'Backup-Repository angelegt' : 'Backup-Verbindung getestet', category: 'config', sub: [str(p.target)] }),
+  'backup.run': (p, e) => ({
+    title: e.result === 'error' ? 'Backup fehlgeschlagen' : p.status === 'warning' ? 'Backup mit Hinweisen' : 'Backup gesichert',
+    category: p.status === 'warning' ? 'error' : 'config',
+    sub: [p.trigger === 'manual' ? 'von Hand' : 'nächtlich', took(num(p.durationMs)) ? `nach ${took(num(p.durationMs))}` : null],
+  }),
+  // «fehlt» im Titel: describeEvent hängt dann kein «– fehlgeschlagen» an
+  'backup.stale': () => ({ title: 'Erfolgreiches Backup fehlt seit über 48 Stunden', category: 'error' }),
+  // Etappe 4: Schlüssel der Secrets (nur Art und Prüfsumme, nie der Schlüssel)
+  'backup.key_export': (p) => ({ title: p.method === 'paper' ? 'Schlüssel der Secrets angezeigt (Papier)' : 'Schlüssel der Secrets exportiert (Datei)', category: 'danger', sub: [str(p.fingerprint)] }),
+  'backup.key_saved': (p) => ({ title: `Schlüssel als gesichert vermerkt (${p.method === 'paper' ? 'Papier' : 'Datei'})`, category: 'config' }),
+  // Etappe 5: Projekt aus einem Stand zurückgeholt (am Projekt, also auch in dessen Aktivität)
+  'backup.restore': (p, e) => ({
+    title: e.result === 'error' ? 'Wiederherstellen aus Backup' : 'Aus Backup wiederhergestellt',
+    category: e.result === 'error' ? 'error' : 'danger',
+    sub: [p.snapshot ? `Stand ${str(p.snapshot)}` : null, Array.isArray(p.restored) && p.restored.length ? (p.restored as string[]).join(', ') : null],
+  }),
+  'backup.key_verify': (p) => ({ title: p.matches ? 'Schlüssel-Datei geprüft: passt' : 'Schlüssel-Datei geprüft: anderer Schlüssel', category: p.matches ? 'config' : 'error' }),
 }
 
 /** MCP-Werkzeuge, falls ihr Aufruf allein steht */
@@ -182,13 +203,14 @@ const MCP_TOOL: Record<string, string> = {
   get_scan_report: 'Scan-Bericht gelesen', accept_finding: 'Befund akzeptiert', set_targets: 'Erreichbarkeit geändert',
   pause_public: 'Öffentlich pausiert', resume_public: 'Wieder öffentlich', unpublish: 'Offline genommen', set_security_header: 'Header gesetzt',
   propose_fix: 'Vorschlag gemacht', apply_fix: 'Vorschlag übernommen', get_fix_context: 'Befund gelesen', list_domains: 'Domains abgefragt',
+  get_backup_status: 'Backup-Stand abgefragt',
   add_external_target: 'Externes Ziel eingetragen', verify_external_target: 'Externes Ziel geprüft',
 }
 
 const WORD: Record<string, string> = {
   deploy: 'Deploy', failed: 'fehlgeschlagen', done: 'fertig', start: 'gestartet', started: 'gestartet', stop: 'gestoppt', update: 'geändert',
   updated: 'geändert', create: 'angelegt', created: 'angelegt', delete: 'gelöscht', remove: 'entfernt', set: 'gesetzt', check: 'geprüft',
-  scan: 'Scan', project: 'Projekt', env: 'Variablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
+  scan: 'Scan', project: 'Projekt', env: 'Umgebungsvariablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
 }
 
 /** Lesbarer Satz für unbekannte Typen: «deploy.failed» → «Deploy fehlgeschlagen» */
@@ -227,6 +249,11 @@ export function describeEvent(e: AuditEventDto): EventInfo {
     const tool = action.slice(4)
     // Der Auslöser «Claude (<Token>)» sagt schon, dass es über MCP kam
     return { title: MCP_TOOL[tool] ?? fallbackTitle(tool), sub: e.result === 'error' && e.error ? [firstLine(e.error)] : [], category: e.result === 'error' ? 'error' : 'claude', chip: null }
+  }
+  if (action.startsWith('notify.')) {
+    // Titel kommt fertig vom Server (derselbe wie in Push und E-Mail)
+    const kind = action.slice(7)
+    return { title: typeof p.title === 'string' ? p.title : fallbackTitle(kind), sub: [], category: NOTIFY_CATEGORY[kind] ?? 'config', chip: null }
   }
   const d = EVENTS[action]
   const base = d ? d(p, e) : { title: fallbackTitle(action), category: 'config' as Category, sub: [] }
@@ -300,6 +327,14 @@ function sameScan(c: Cluster, e: AuditEventDto): boolean {
 
 /** Nur gelesen (get_project, read_files …): in der Aktivität eines Projekts ohne Aussage */
 export const isReadOnly = (e: AuditEventDto) => /^mcp\.(get_|list_|read_files)/.test(e.action) && e.result !== 'error'
+
+/** Antwort 11: Benachrichtigung zu einem Ereignis (für die Glocke); in Aktivitäten stünde es doppelt */
+export const isNotifyEvent = (e: AuditEventDto) => e.action.startsWith('notify.')
+
+const NOTIFY_CATEGORY: Record<string, Category> = {
+  deploy_failed: 'error', finding_critical: 'danger', finding_high: 'danger', project_public: 'public',
+  external_verification_lost: 'scan', infra_problem: 'error', expiry: 'paused', gateway_warning: 'access',
+}
 
 /** Wie weit ein MCP-Aufruf von seinem Ereignis entfernt sein darf (mit wait läuft der Deploy mit) */
 const TWIN = 10 * MIN

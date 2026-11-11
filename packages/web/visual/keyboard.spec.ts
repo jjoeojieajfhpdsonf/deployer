@@ -40,6 +40,19 @@ test('Profilmenü: öffnen, Pfeiltasten, Esc gibt den Fokus zurück', async ({ b
   await page.context().close()
 })
 
+test('Umschalter der Umgebung: Name im Knopf, Enter öffnet, Esc gibt den Fokus zurück', async ({ browser }) => {
+  const page = await open(browser, 'm9-umschalter-domain')
+  const trigger = page.getByRole('button', { name: 'Umgebung: VB Verein, verein-beispiel.ch – wechseln' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menu', { name: 'Umgebungen' })).toBeVisible()
+  expect((await focused(page)).role).toMatch(/menuitem/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Umgebungen' })).toBeHidden()
+  await expect(trigger).toBeFocused()
+  await page.context().close()
+})
+
 test('Zeilenmenü einer Projektkarte: Enter öffnet, Esc schliesst', async ({ browser }) => {
   const page = await open(browser, 'projekte')
   const trigger = page.getByRole('button', { name: 'Aktionen für Haushaltsbuch' })
@@ -77,8 +90,9 @@ test('Reiter der Projektseite: Pfeiltasten wechseln und fokussieren', async ({ b
   const page = await open(browser, 'projekt-uebersicht')
   await page.getByRole('tab', { name: /^Übersicht/ }).focus()
   await page.keyboard.press('ArrowRight')
-  await expect(page.getByRole('tab', { name: /^Security/ })).toBeFocused()
-  await expect(page.getByRole('tab', { name: /^Security/ })).toHaveAttribute('aria-selected', 'true')
+  // Reihenfolge: Übersicht · Aufbau · Deployments · Logs · Security · Einstellungen
+  await expect(page.getByRole('tab', { name: /^Aufbau/ })).toBeFocused()
+  await expect(page.getByRole('tab', { name: /^Aufbau/ })).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('End')
   await expect(page.getByRole('tab', { name: /Einstellungen/ })).toBeFocused()
   await page.context().close()
@@ -181,6 +195,85 @@ test('Cloudflare: «Token ersetzen» aus der Zusammenfassung fokussiert das Feld
   await page.getByRole('button', { name: 'Abbrechen' }).click()
   await expect(page.getByRole('heading', { name: /Cloudflare ist eingerichtet/ })).toBeVisible()
   await expect.poll(async () => (await focused(page)).label).toMatch(/Cloudflare ist eingerichtet/)
+  await page.context().close()
+})
+
+test('Fehlerbox «Grenze erhöhen» per Tastatur: Einstellungen › Container, RAM fokussiert mit dem Vorschlag', async ({ browser }) => {
+  const page = await open(browser, 'fehler-speicher')
+  await page.getByRole('button', { name: 'Grenze erhöhen' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/tab=einstellungen/)
+  const ram = page.locator('#ct-memoryLimitMb')
+  await expect(ram).toBeFocused()
+  // 512 MB verdoppelt; der Server hat genug frei
+  await expect(ram).toHaveValue('1024')
+  // «Abbrechen» zeigt wieder den gespeicherten Wert; der Fokus geht auf «Bearbeiten», nicht auf <body>
+  await page.locator('#set-container').getByRole('button', { name: 'Abbrechen' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#set-container')).toContainText('512 MB')
+  await expect(page.locator('#set-container').getByRole('button', { name: 'Bearbeiten' })).toBeFocused()
+  await page.context().close()
+})
+
+test('ZAP-Befund zur CSP-Qualität: «Zum CSP-Ablauf» fokussiert die CSP unter «Header über Caddy»', async ({ browser }) => {
+  const page = await open(browser, 'security-csp-qualitaet')
+  const card = page.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
+  await card.getByRole('button', { name: 'Zum CSP-Ablauf' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#header-caddy-csp-title')).toBeFocused()
+  await page.context().close()
+})
+
+/* --- Antwort 12: ungespeicherte Änderungen, auch beim Zurück-Knopf des Browsers ------- */
+
+test('Zurück im Browser mit ungespeicherten Änderungen: Rückfrage, Esc bleibt, «Verwerfen und weiter» geht zurück', async ({ browser }) => {
+  const page = await open(browser, 'domains')
+  await page.locator('td.cell-main').getByRole('link', { name: 'Haushaltsbuch' }).click()
+  await expect(page).toHaveURL(/\/projekte\/[^/?]+\?tab=einstellungen$/)
+  await page.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+  const name = page.locator('#set-umgebung .env-row').last().locator('input').first()
+  await name.fill('API_KEY')
+  const dialog = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+  const stay = dialog.getByRole('button', { name: 'Weiter bearbeiten' })
+  await page.goBack()
+  await expect(dialog).toBeVisible()
+  await expect(stay).toBeFocused()
+  // Esc = bleiben: Adresse und Eingabe unverändert, Fokus zurück im Feld
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\?tab=einstellungen$/)
+  await expect(name).toHaveValue('API_KEY')
+  await expect(name).toBeFocused()
+  // Noch einmal zurück, diesmal verwerfen: die Seite davor, keine zweite Rückfrage
+  await page.goBack()
+  await expect(dialog).toBeVisible()
+  // Bleibt offen: das verspätete close-Ereignis der ersten Runde beantwortet die zweite nicht
+  await page.waitForTimeout(100)
+  await expect(dialog).toBeVisible()
+  // Erst wenn der Fokus auf der sicheren Wahl steht (nächster Frame), weiter mit Tab
+  await expect(stay).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Verwerfen und weiter' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/einstellungen\/cloudflare#domains$/)
+  await page.waitForTimeout(300)
+  await expect(dialog).toBeHidden()
+  await page.context().close()
+})
+
+test('Reiterwechsel mit ungespeicherten Änderungen: genau eine Rückfrage', async ({ browser }) => {
+  const page = await open(browser, 'projekt-einstellungen')
+  await page.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+  await page.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+  const dialog = page.getByRole('dialog', { name: 'Änderungen verwerfen?' })
+  await page.getByRole('tab', { name: /^Übersicht/ }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Verwerfen und weiter' }).click()
+  await expect(page.getByRole('tab', { name: /^Übersicht/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page).not.toHaveURL(/tab=/)
+  // Der Wechsel nach der Rückfrage läuft am Blocker vorbei (kein zweiter Dialog)
+  await page.waitForTimeout(300)
+  await expect(dialog).toBeHidden()
   await page.context().close()
 })
 

@@ -7,7 +7,7 @@ import { ErrorState, Loading, SkCard } from './States.js'
 import { useFormErrors } from '../lib/form.js'
 import { relativeTime } from '../lib/format.js'
 import { Field } from './Field.js'
-import { IconWarn } from './Security.js'
+import { InlineConfirm } from './Confirm.js'
 
 /**
  * M8, Etappe 3: GitHub App über ein Manifest. Drei Schritte, alle per Klick:
@@ -188,17 +188,14 @@ export function GithubSetup() {
       {s.connected && (
         <div className="danger-zone">
           <h2>Verbindung trennen</h2>
-          <p>Löscht Schlüssel und Secrets der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
+          <p>Löscht Schlüssel und geheime Werte der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
           {!confirmDisconnect ? (
             <button ref={disconnectRef} type="button" className="button-danger" onClick={() => setConfirmDisconnect(true)}>Verbindung trennen</button>
           ) : (
-            <span className="confirm-inline" role="group" aria-label="Verbindung trennen bestätigen">
-              <span className="confirm-note"><IconWarn />Offene Pull Requests bleiben bei GitHub, Airlock verfolgt sie nicht mehr.</span>
-              <button type="button" onClick={() => { setConfirmDisconnect(false); requestAnimationFrame(() => disconnectRef.current?.focus()) }} autoFocus>Abbrechen</button>
-              <button type="button" className="button-danger-solid" aria-disabled={disconnect.isPending || undefined} aria-busy={disconnect.isPending || undefined} onClick={() => !disconnect.isPending && disconnect.mutate()}>
-                Ja, trennen
-              </button>
-            </span>
+            <InlineConfirm label="Verbindung trennen bestätigen" focus="cancel" softDisable
+              note="Offene Pull Requests bleiben bei GitHub, Airlock verfolgt sie nicht mehr." confirmLabel="Ja, trennen"
+              busy={disconnect.isPending} returnFocusTo={disconnectRef}
+              onCancel={() => setConfirmDisconnect(false)} onConfirm={() => disconnect.mutate()} />
           )}
         </div>
       )}

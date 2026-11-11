@@ -52,9 +52,9 @@ const forProject = (id: string | null, ...names: string[]): Key[] => names.map((
 export function affected(e: ServerEvent): Key[] {
   switch (e.type) {
     case 'project':
-      return [['projects'], ...forProject(e.projectId, 'project', 'health')]
+      return [['projects'], ...forProject(e.projectId, 'project', 'health', 'topology')]
     case 'deploy':
-      return [['projects'], ['deployment', e.deploymentId], ...forProject(e.projectId, 'project', 'deployments', 'health', 'audit-project', 'fix-requests'),
+      return [['projects'], ['deployment', e.deploymentId], ...forProject(e.projectId, 'project', 'deployments', 'health', 'audit-project', 'fix-requests', 'topology'),
         // Ende: Aktivität der Übersicht
         ...(e.status === 'active' || e.status === 'failed' ? [['audit']] : [])]
     case 'scan': {
@@ -66,20 +66,20 @@ export function affected(e: ServerEvent): Key[] {
     case 'cert':
       return [['cloudflare'], ['domains']]
     case 'public':
-      return [['projects'], ...forProject(e.projectId, 'project', 'public', 'public-progress')]
+      return [['projects'], ...forProject(e.projectId, 'project', 'public', 'public-progress', 'topology')]
     case 'audit': {
       const base: Key[] = [['audit']]
       const id = e.targetId
       switch (e.targetType) {
         case 'project':
-          return [...base, ['projects'], ...forProject(id, 'project', 'audit-project', 'deployments', 'public', 'header-rules', 'fix-requests', 'scan', 'files', 'auto-deploy')]
+          return [...base, ['projects'], ...forProject(id, 'project', 'audit-project', 'deployments', 'public', 'header-rules', 'fix-requests', 'scan', 'files', 'auto-deploy', 'topology')]
         case 'external_target':
           return [...base, ['external-targets'], ['external-scan']]
         case 'token':
           return [...base, ['tokens']]
         default:
           // System, Cloudflare, Domains, Benachrichtigungen, GitHub, Einstellungen
-          return [...base, ['system'], ['cloudflare'], ['domains'], ['notifications'], ['github'], ['expiry'], ['pause-page-template']]
+          return [...base, ['system'], ['cloudflare'], ['domains'], ['notifications'], ['github'], ['expiry'], ['pause-page-template'], ['backup']]
       }
     }
     default:

@@ -1,5 +1,5 @@
-import { useIsMutating, useQuery } from '@tanstack/react-query'
-import type { DeploymentStatus, ProjectDto } from '@airlock/shared'
+import { useIsMutating, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { BackupStatusDto, DeploymentStatus, ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useProjects } from './projects.js'
 import { FALLBACK_MS } from './live.js'
@@ -11,7 +11,7 @@ import { FALLBACK_MS } from './live.js'
  * Schlüssel (Tunnel anlegen) – deshalb bleibt die Anzeige beim Seitenwechsel.
  */
 
-export type ActivityKind = 'deploy' | 'scan' | 'cert' | 'tunnel'
+export type ActivityKind = 'deploy' | 'scan' | 'cert' | 'tunnel' | 'backup'
 
 export interface RunningActivity {
   key: string
@@ -86,6 +86,16 @@ export function useActivities(): RunningActivity[] {
     staleTime: 10_000,
   })
   const tunnel = useIsMutating({ mutationKey: [...MUTATION_TUNNEL] })
+  // Backup: kein eigener Takt auf jeder Seite. Bekannt ist ein Lauf nur, wenn die
+  // Backup-Seite ihn geladen oder gestartet hat; dann nachsehen, bis er fertig ist.
+  const qc = useQueryClient()
+  const busy = (d: BackupStatusDto | undefined) => d?.running === true || d?.restore?.status === 'running'
+  const backup = useQuery({
+    queryKey: ['backup'],
+    queryFn: api.backup,
+    enabled: busy(qc.getQueryData<BackupStatusDto>(['backup'])),
+    refetchInterval: (q) => (busy(q.state.data) ? 3_000 : false),
+  })
 
   const out: RunningActivity[] = []
   for (const p of projects.data?.projects ?? []) {
@@ -104,6 +114,30 @@ export function useActivities(): RunningActivity[] {
       progress: phase === 'staging' ? 0.5 : 0.75,
       to: '/system/cloudflare',
       startedAt: cf.data?.tls.startedAt ?? null,
+    })
+  }
+  if (backup.data?.running) {
+    const run = backup.data.lastRun
+    out.push({
+      key: `backup-${run?.id ?? 'lauf'}`,
+      kind: 'backup',
+      title: 'Backup',
+      detail: run?.trigger === 'schedule' ? 'Nächtliche Sicherung' : 'Sicherung von Hand',
+      progress: null,
+      to: '/server/backup',
+      startedAt: run?.startedAt ?? null,
+    })
+  }
+  const restore = backup.data?.restore
+  if (restore?.status === 'running') {
+    out.push({
+      key: `restore-${restore.id}`,
+      kind: 'backup',
+      title: `Wiederherstellen · ${restore.project.name}`,
+      detail: `Aus Stand ${restore.snapshot.shortId}`,
+      progress: null,
+      to: '/server/backup',
+      startedAt: restore.startedAt,
     })
   }
   if (tunnel > 0) {

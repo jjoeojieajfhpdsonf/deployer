@@ -163,7 +163,7 @@ export async function getFixContext(scope: Scope, idOrSlug: string, findingId: s
     next:
       'Änderung mit propose_fix vorschlagen: geänderte Dateien vollständig (nicht als Diff), gelöschte unter delete, kurze Erklärung. ' +
       (way === 'github' ? 'Airlock legt dafür einen Branch und einen Pull Request an. ' : '') +
-      'Ersetzte Stellen («Airlock: …») nicht zurückschreiben: ein Secret gehört in die Projekt-Env (Oberfläche), nicht in den Code.',
+      'Ersetzte Stellen («Airlock: …») nicht zurückschreiben: ein Secret gehört in die Umgebungsvariablen des Projekts (Oberfläche), nicht in den Code.',
   }
 }
 
@@ -211,7 +211,7 @@ export async function proposeFix(
   const decoded = decodeFiles(files) // prüft Pfade und Grössen
   for (const x of decoded) {
     if (isWithheld(x.path)) throw badRequest(`${x.path}: Env-Dateien und Schlüssel ändert Airlock nicht über Vorschläge`)
-    if (containsMask(x.data.toString('utf8'))) throw badRequest(`${x.path} enthält einen Platzhalter von Airlock («Airlock: …»); das Secret gehört in die Projekt-Env, nicht in den Code`)
+    if (containsMask(x.data.toString('utf8'))) throw badRequest(`${x.path} enthält einen Platzhalter von Airlock («Airlock: …»); das Secret gehört in die Umgebungsvariablen des Projekts, nicht in den Code`)
   }
 
   let diff = ''
