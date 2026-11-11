@@ -12,6 +12,7 @@ import { FieldError } from '../components/Field.js'
 import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 import { useEnv } from '../lib/env.js'
 import { ConfirmDialog } from '../components/Confirm.js'
+import { appOrigin } from '../lib/origin.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -30,7 +31,7 @@ export function Tokens() {
   // Antwort 14: Befehl je Shell (macOS-Standard zsh)
   const [shell, setShell] = useState<'zsh' | 'bash'>('zsh')
 
-  const mcpUrl = `${window.location.origin}/mcp`
+  const mcpUrl = `${appOrigin()}/mcp`
 
   const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name }) })
   // Aus der Befehlspalette («Token erstellen»): gleich ins Namensfeld

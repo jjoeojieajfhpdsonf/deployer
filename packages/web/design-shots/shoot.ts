@@ -831,6 +831,8 @@ export const contextOptions = (t: 'light' | 'dark') => ({
  */
 export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | 'dark', port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // Feste Adresse der Oberfläche (MCP-Adresse in Tokens, «Per Chat»): Bilder hängen nicht vom Port ab
+      await ctx.addInitScript({ content: `window.__AIRLOCK_ORIGIN__ = 'https://airlock.int.example.ch'` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
       // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
       await ctx.addInitScript({ content: `(() => {

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useEnvPath } from '../lib/env.js'
+import { appOrigin } from '../lib/origin.js'
 
 /**
  * Anleitung «Per Chat»: Projekte über den MCP-Server von Airlock anlegen.
@@ -7,7 +8,7 @@ import { useEnvPath } from '../lib/env.js'
  * «Neues Projekt» (UI-Qualität 5).
  */
 export function ChatSteps() {
-  const mcpUrl = `${window.location.origin}/mcp`
+  const mcpUrl = `${appOrigin()}/mcp`
   const ep = useEnvPath()
   return (
     <ol className="dialog-steps">
