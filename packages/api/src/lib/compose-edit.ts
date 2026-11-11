@@ -67,7 +67,8 @@ export const varPrefix = (name: string): string => name.toUpperCase().replace(/[
 const fieldError = (path: string, message: string) => badRequest(message, [{ path, message }])
 
 function load(text: string): Document {
-  const doc = parseDocument(text, { maxAliasCount: 50, merge: true, prettyErrors: false })
+  // Alias-Bomben fängt die Prüfung danach ab (normalizeCompose, maxAliasCount)
+  const doc = parseDocument(text, { merge: true, prettyErrors: false })
   if (doc.errors.length) throw badRequest(`compose.yaml ist kein gültiges YAML: ${doc.errors[0]!.message}`)
   if (!isMap(doc.contents) || !isMap(doc.get('services'))) throw badRequest('compose.yaml hat keine Dienste (services)')
   return doc

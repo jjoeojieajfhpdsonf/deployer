@@ -117,6 +117,8 @@ export interface TopologyInput {
   /** CPU/RAM je Container-ID (nur laufende) */
   usage: Record<string, { cpu: number; memMb: number } | null>
   limits: { cpu: number; memoryMb: number }
+  /** Etappe 4: eigene interne Adressen von Diensten (Adminer usw.) */
+  internalHosts?: { service: string; hostname: string; url: string; ways: TopologyWay[] }[]
 }
 
 const HEALTH: [RegExp, TopologyHealth][] = [[/\(unhealthy\)/, 'unhealthy'], [/\(healthy\)/, 'healthy'], [/health: starting/, 'starting']]
@@ -234,6 +236,17 @@ export function buildTopology(i: TopologyInput): TopologyDto {
     })
   }
 
+  // Etappe 4: interne Adresse eines Dienstes (nur LAN/Tailnet), führt zu diesem Dienst statt zum Web-Dienst
+  for (const ih of i.internalHosts ?? []) {
+    const target = services.find((s) => s.name === ih.service)
+    if (!target) continue
+    hosts.push({
+      id: `host:${ih.hostname}`, hostname: ih.hostname, url: ih.url, ways: ih.ways.filter((w) => w !== 'public'), fallback: false,
+      headers: i.headers, tls: ih.url.startsWith('https:') ? 'https' : 'http', tlsProblem: ih.url.startsWith('https:') ? i.tlsProblem : null,
+      accessProtected: false, paused: false, service: target.id, internal: true,
+    })
+  }
+
   /* --- Zugang: nur Wege, die es in der Umgebung gibt (oder die das Projekt schon nutzt) --- */
   const access: TopologyAccessDto[] = []
   const pubRoute = i.routes.find((r) => r.target === 'public')
@@ -251,13 +264,13 @@ export function buildTopology(i: TopologyInput): TopologyDto {
   /* --- Linien --------------------------------------------------------------- */
   const edges: TopologyEdgeDto[] = []
   // Hauptname intern: dorthin zeigt ein abgeschalteter Weg (gestrichelt – der Schalter würde ihn verbinden)
-  const mainHost = hosts.find((h) => !h.fallback && !h.ways.includes('public')) ?? null
+  const mainHost = hosts.find((h) => !h.fallback && !h.internal && !h.ways.includes('public')) ?? null
   for (const a of access) {
     const reached = hosts.filter((h) => h.ways.includes(a.way))
     if (reached.length) for (const h of reached) edges.push({ from: a.id, to: h.id, on: a.on && !h.paused, via: 'route' })
     else if (mainHost) edges.push({ from: a.id, to: mainHost.id, on: false, via: 'route' })
   }
-  for (const h of hosts) if (h.service) edges.push({ from: h.id, to: h.service, on: !h.paused && isUp(main ?? undefined), via: 'route' })
+  for (const h of hosts) if (h.service) edges.push({ from: h.id, to: h.service, on: !h.paused && isUp(services.find((s) => s.id === h.service)), via: 'route' })
 
   // Dienst → Datenbank: gemäss depends_on; hängt niemand ausdrücklich davon ab, alle Dienste im Projekt-Netz
   const dbs = services.filter((s) => s.database)

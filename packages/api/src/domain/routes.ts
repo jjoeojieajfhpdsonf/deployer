@@ -14,6 +14,8 @@ import { effectivePausePage, renderPausePage, UI_HOST_LABEL, type RouteTarget, t
 import { isProjectScoped } from '../lib/names.js'
 import { pausePageTemplate, displayTimeZone, writePauseFile } from './pause-page.js'
 import type { HeaderRuleSpec } from '../security/header-rules.js'
+import { internalServiceRoutes, type InternalServiceRoute } from '../lib/internal-routes.js'
+import { composeWebContainer } from '../lib/compose.js'
 
 /**
  * Hostnamen und Caddy-Abgleich.
@@ -149,6 +151,8 @@ interface RouteRow {
   deploymentId: string | null
   /** compose: Name des Web-Containers aus dem Artefakt */
   webContainer: string | null
+  /** compose (Etappe 4): Dienste mit eigener interner Adresse */
+  internalRoutes: { service: string; port: number }[]
   /** Öffentlich pausiert: Wartungsseite statt Projekt */
   paused: boolean
   /** Pausiert: eigene Seite des Projekts (null = Vorlage) und «Voraussichtlich zurück» */
@@ -202,7 +206,22 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       port: r.port,
       deploymentId: r.deploymentId,
       webContainer: r.artifact?.webContainer ?? null,
+      internalRoutes: r.artifact?.internalRoutes ?? [],
     }))
+}
+
+/**
+ * Etappe 4: interne Adressen der Dienste (Adminer usw.) aus den aktuellen
+ * Routen – nur intern, siehe lib/internal-routes.ts.
+ */
+export async function currentInternalServiceRoutes(taken: Set<string> = new Set()): Promise<InternalServiceRoute[]> {
+  const rows = await currentRouteRows()
+  const env = new Map(rows.map((r) => [r.projectId, r.environmentId]))
+  return internalServiceRoutes(rows, {
+    hostFor: (projectId, label) => primaryHostIn(env.get(projectId) ?? defaultEnvironmentId(), label),
+    containerFor: (slug, service) => composeWebContainer(docker.projectNetworkName(slug), service),
+    taken,
+  })
 }
 
 /** Container, an den Caddy den Verkehr eines Projekts gibt. */
@@ -341,6 +360,20 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
         visits: true,
       })
     }
+  }
+
+  // Etappe 4: eigene interne Adressen von Diensten (x-airlock-internal) – nur LAN/Tailnet, nie öffentlich
+  for (const ir of await currentInternalServiceRoutes(seen)) {
+    const envId = rows.find((r) => r.projectId === ir.projectId)?.environmentId
+    const h = headers.get(ir.projectId)
+    seen.add(ir.hostname)
+    specs.push({
+      hosts: [ir.hostname, ...aliasesForHost(ir.hostname, envId)],
+      kind: 'proxy',
+      upstream: ir.upstream,
+      cidrs: cidrsForTargets(ir.targets, net.lanCidr(), config.tailnetCidr),
+      ...(h ? { headers: h.rules } : {}),
+    })
   }
 
   // M9: Nach dem Verschieben leitet die alte interne Adresse 30 Tage weiter

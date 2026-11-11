@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
-import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, isFixBranch, GITHUB_PERMISSIONS } from './github.js'
+import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, isFixBranch, isServiceBranch, serviceBranchName, GITHUB_PERMISSIONS } from './github.js'
 
 /**
  * GitHub-Attrappe: ein fetch, der Aufrufe mitschreibt und je Pfad antwortet.
@@ -106,6 +106,31 @@ describe('GitHub-Attrappe: Abläufe', () => {
     assert.ok(!g.calls.some((c) => c.method === 'PATCH' || c.path.includes('/git/refs/heads/main')), 'Standard-Branch wird nie geändert')
     assert.ok(g.calls.every((c) => c.auth === 'token ghs_x'))
     await assert.rejects(() => gh.createFixPullRequest('t', { owner: 'o', repo: 'r', base: 'main', branch: 'main', title: '', body: '', message: '', files: [], delete: [] }), /eigenen Branch/)
+  })
+
+  test('Etappe 4: Dienst als Pull Request auf airlock/dienst-… – nie Fix- oder Hauptbranch', async () => {
+    const g = fake({
+      'GET /repos/joel/shop/git/ref/heads/main': () => [200, { object: { sha: 'base000' } }],
+      'GET /repos/joel/shop/git/commits/base000': () => [200, { tree: { sha: 'tree000' } }],
+      'POST /repos/joel/shop/git/trees': () => [201, { sha: 'tree111' }],
+      'POST /repos/joel/shop/git/commits': () => [201, { sha: 'commit111' }],
+      'POST /repos/joel/shop/git/refs': () => [201, {}],
+      'POST /repos/joel/shop/pulls': () => [201, { number: 12, html_url: 'https://github.com/joel/shop/pull/12' }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    const branch = serviceBranchName('add', 'db', '9f3a1c22-7d40-4e8b-9b1a-0c2d6e8f4a17')
+    assert.equal(branch, 'airlock/dienst-neu-db-9f3a1c22')
+    assert.equal(serviceBranchName('remove', 'Cache_2', 'abcdef12'), 'airlock/dienst-weg-cache-2-abcdef12')
+    const pr = await gh.createServicePullRequest('ghs_x', {
+      owner: 'joel', repo: 'shop', base: 'main', branch, title: 'Dienst db', body: 'b', message: 'm', files: [{ path: 'compose.yaml', content: 'services: {}\n' }], delete: [],
+    })
+    assert.equal(pr.number, 12)
+    assert.equal((g.calls.find((c) => c.path.endsWith('/pulls'))!.body as { head: string }).head, branch)
+    assert.ok(!g.calls.some((c) => c.path.includes('/git/refs/heads/main') && c.method !== 'GET'))
+    const bad = { owner: 'o', repo: 'r', base: 'main', title: '', body: '', message: '', files: [], delete: [] }
+    await assert.rejects(() => gh.createServicePullRequest('t', { ...bad, branch: 'main' }), /eigenen Branch/)
+    await assert.rejects(() => gh.createServicePullRequest('t', { ...bad, branch: 'airlock/fix-x-12345678' }), /eigenen Branch/)
+    assert.ok(isServiceBranch(branch) && !isFixBranch(branch))
   })
 
   test('Fehler von GitHub kommen mit Status und Meldung', async () => {

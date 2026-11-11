@@ -458,3 +458,26 @@ export const routeRedirects = pgTable('route_redirects', {
   until: timestamp('until', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- Etappe 4: Dienst hinzufügen/entfernen (migrations/0020_service_changes.sql) --- */
+
+export const serviceChanges = pgTable('service_changes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'add' | 'remove'>().notNull(),
+  service: text('service').notNull(),
+  template: text('template').$type<import('@airlock/shared').ServiceTemplateId>(),
+  status: text('status').$type<import('@airlock/shared').ServiceChangeStatus>().notNull(),
+  way: text('way').$type<import('@airlock/shared').ServiceEditWay>().notNull(),
+  deploymentId: uuid('deployment_id'),
+  prUrl: text('pr_url'),
+  prNumber: integer('pr_number'),
+  branch: text('branch'),
+  dropVolumes: jsonb('drop_volumes').$type<string[]>().notNull().default([]),
+  diff: text('diff').notNull().default(''),
+  note: text('note'),
+  actor: text('actor').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+}, (t) => [index('service_changes_project_idx').on(t.projectId, t.createdAt)])

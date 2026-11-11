@@ -97,6 +97,14 @@ export function fixBranchName(title: string, id: string): string {
   return `${FIX_BRANCH_PREFIX}fix-${slug || 'befund'}-${id.replace(/-/g, '').slice(0, 8)}`
 }
 
+export const isServiceBranch = (branch: string): boolean => branch.startsWith(`${FIX_BRANCH_PREFIX}dienst-`)
+
+/** Etappe 4: airlock/dienst-<neu|weg>-<dienst>-<kurz-id> */
+export function serviceBranchName(kind: 'add' | 'remove', service: string, id: string): string {
+  const s = service.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'dienst'
+  return `${FIX_BRANCH_PREFIX}dienst-${kind === 'add' ? 'neu' : 'weg'}-${s}-${id.replace(/-/g, '').slice(0, 8)}`
+}
+
 export class GithubError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
@@ -226,6 +234,20 @@ export class GitHub {
    */
   async createFixPullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
     if (i.branch === i.base || !isFixBranch(i.branch)) throw new GithubError(400, 'Fixes nur auf einem eigenen Branch airlock/fix-…')
+    return this.branchPullRequest(token, i)
+  }
+
+  /**
+   * Etappe 4: Änderung an der compose.yaml (Dienst hinzufügen/entfernen) als
+   * eigener Branch airlock/dienst-… mit Pull Request – nie direkt in den
+   * Hauptbranch.
+   */
+  async createServicePullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
+    if (i.branch === i.base || !isServiceBranch(i.branch)) throw new GithubError(400, 'Änderungen an Diensten nur auf einem eigenen Branch airlock/dienst-…')
+    return this.branchPullRequest(token, i)
+  }
+
+  private async branchPullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
     const repo = `/repos/${i.owner}/${i.repo}`
     const baseSha = await this.branchHead(token, i.owner, i.repo, i.base)
     const baseCommit = await this.request<{ tree: { sha: string } }>('GET', `${repo}/git/commits/${baseSha}`, { token })

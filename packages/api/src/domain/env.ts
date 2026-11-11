@@ -4,6 +4,7 @@ import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import type { EnvEntryDto, EnvEntryInput } from '@airlock/shared'
+import { conflict } from '../lib/errors.js'
 
 /**
  * Umgebungsvariablen eines Projekts. Als geheim markierte Werte liegen
@@ -53,6 +54,24 @@ export async function resolvePublicEnv(projectId: string): Promise<Record<string
   const out: Record<string, string> = {}
   for (const r of rows) if (!r.isSecret) out[r.key] = r.value ?? ''
   return out
+}
+
+/**
+ * Etappe 4 «Dienst hinzufügen»: neue Variablen anlegen (erzeugte Passwörter,
+ * Verbindungs-Strings). Überschreibt nie eine bestehende Variable – gibt es
+ * den Namen inzwischen, scheitert alles (Konflikt), nichts wird halb angelegt.
+ */
+export async function addEnvEntries(projectId: string, entries: { key: string; value: string; secret: boolean }[]): Promise<void> {
+  if (!entries.length) return
+  const k = key()
+  await db.transaction(async (tx) => {
+    const existing = new Set((await tx.select({ key: schema.projectEnv.key }).from(schema.projectEnv).where(eq(schema.projectEnv.projectId, projectId))).map((r) => r.key))
+    const clash = entries.find((e) => existing.has(e.key))
+    if (clash) throw conflict(`Die Umgebungsvariable ${clash.key} gibt es inzwischen schon. Bitte die Vorschau neu laden.`)
+    await tx.insert(schema.projectEnv).values(entries.map((e) => (e.secret
+      ? { projectId, key: e.key, isSecret: true, value: null, valueEncrypted: encrypt(e.value, k) }
+      : { projectId, key: e.key, isSecret: false, value: e.value, valueEncrypted: null })))
+  })
 }
 
 /**

@@ -241,3 +241,22 @@ describe('buildTopology: Einzelcontainer, statische Seite, öffentlich', () => {
     assert.equal(t.hosts[1]!.tlsProblem, null)
   })
 })
+
+describe('Etappe 4: interne Adresse eines Dienstes', () => {
+  test('eigener Host zum Dienst (nicht zum Web-Dienst), nur interne Wege', () => {
+    const t = buildTopology(base({
+      internalHosts: [{ service: 'worker', hostname: 'worker--fotoalbum.int.example.ch', url: 'https://worker--fotoalbum.int.example.ch', ways: ['lan', 'tailnet', 'public'] }],
+    }))
+    const h = t.hosts.find((x) => x.internal)!
+    assert.deepEqual([h.id, h.service, h.ways, h.tls], ['host:worker--fotoalbum.int.example.ch', 'svc:worker', ['lan', 'tailnet'], 'https'])
+    assert.equal(edge(t, h.id, 'svc:worker')?.on, true)
+    assert.equal(edge(t, h.id, 'svc:web'), undefined)
+    assert.equal(edge(t, 'way:public', h.id), undefined)
+    assert.ok(edge(t, 'way:lan', h.id))
+  })
+
+  test('unbekannter Dienst: kein Host', () => {
+    const t = buildTopology(base({ internalHosts: [{ service: 'weg', hostname: 'weg--fotoalbum.int.example.ch', url: 'https://x', ways: ['lan'] }] }))
+    assert.equal(t.hosts.some((x) => x.internal), false)
+  })
+})

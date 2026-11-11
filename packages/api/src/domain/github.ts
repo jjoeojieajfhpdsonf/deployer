@@ -152,7 +152,7 @@ export async function repoToken(repo: string): Promise<string> {
 }
 
 /** Deploy-Branch: der im Projekt eingetragene, sonst der Standard-Branch des Repos. */
-async function baseBranch(token: string, r: { owner: string; repo: string; ref: string | null }): Promise<string> {
+export async function baseBranch(token: string, r: { owner: string; repo: string; ref: string | null }): Promise<string> {
   if (r.ref && !/^[0-9a-f]{40}$/.test(r.ref)) return r.ref
   return github().defaultBranch(token, r.owner, r.repo)
 }
