@@ -89,7 +89,8 @@ export const projects: ProjectDto[] = [
   project({
     id: 'p-wetter', name: 'Wetterstation', slug: 'wetterstation', status: 'failed',
     lastDeployment: dep('p-wetter', 9, { status: 'failed', startedAt: ago(14 * MIN), finishedAt: ago(13 * MIN), durationMs: 52_000, errorMessage: 'Healthcheck /health antwortet nicht (Verbindung abgelehnt auf Port 8080 nach 60 s)', canRollback: false }),
-    security: { scanId: 'p-wetter-s', status: 'done', score: 61, grade: 'C', finishedAt: ago(2 * DAY), open: { critical: 0, high: 2, medium: 4, low: 2 } },
+    // Note passend zu den gezählten Befunden (zwei niedrige offen)
+    security: { scanId: 'p-wetter-s', status: 'done', score: 94, grade: 'A', finishedAt: ago(2 * DAY), open: { critical: 0, high: 0, medium: 0, low: 2 } },
   }),
   project({
     id: 'p-rezepte', name: 'Rezepte-API', slug: 'rezepte-api', status: 'deploying', runtimeKind: 'dockerfile', sourceType: 'dockerfile', source: { type: 'dockerfile', repoUrl: 'https://github.com/example/rezepte-api.git', ref: 'main', dockerfile: 'Dockerfile', context: '.' } as ProjectDto['source'],

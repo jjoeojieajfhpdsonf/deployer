@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
@@ -14,12 +14,33 @@ import { isProjectScoped } from '../lib/names.js'
  * selbst wieder" ab und raeumt auf, was ein Absturz hinterlassen hat.
  */
 export async function reconcileOnBoot(): Promise<void> {
+  await abandonUnfinishedDeploys()
   await detachFromProjectNetworks()
   await restoreDesiredState()
   await reportLegacy()
   // Basisdomain gesetzt oder geaendert? Dann ziehen bestehende Adressen mit.
   await rehostRoutes()
   await reconcileCaddy()
+}
+
+/**
+ * Deploys, die ein Neustart von Airlock unterbrochen hat, laufen nicht weiter
+ * (die Pipeline lebt im Prozess). Ohne Aufräumen stünde das Projekt für immer
+ * auf «deployt gerade». Die alte Fassung bleibt aktiv; der Status kehrt auf
+ * «running» bzw. – ohne aktive Fassung – auf «failed» zurück.
+ */
+async function abandonUnfinishedDeploys(): Promise<void> {
+  const open = await db.select().from(schema.deployments).where(inArray(schema.deployments.status, ['pending', 'pulling', 'starting', 'healthchecking']))
+  for (const d of open) {
+    await db.update(schema.deployments).set({ status: 'failed', errorMessage: 'Abgebrochen durch Neustart von Airlock', finishedAt: new Date() }).where(eq(schema.deployments.id, d.id))
+    log.warn('Unterbrochenen Deploy als gescheitert markiert', { deployment: d.id, project: d.projectId })
+  }
+  const stuck = await db.select().from(schema.projects).where(eq(schema.projects.status, 'deploying'))
+  for (const p of stuck) {
+    const active = await db.select({ id: schema.deployments.id }).from(schema.deployments)
+      .where(and(eq(schema.deployments.projectId, p.id), eq(schema.deployments.isActive, true))).limit(1)
+    await setStatus(p.id, active[0] ? 'running' : 'failed')
+  }
 }
 
 /**

@@ -64,6 +64,16 @@ test('Seitenleiste und Security-Seite zählen dieselben kritischen und hohen Bef
   await page.context().close()
 })
 
+test('Kennzahl «laufen» = Zähler des Filters «Laufen»', async ({ browser }) => {
+  const page = await open(browser, '/projekte')
+  await page.locator('.stats').waitFor()
+  const sub = (await page.locator('.stat').filter({ hasText: 'Projekte' }).first().locator('.stat-sub').textContent()) ?? ''
+  const stat = Number(/(\d+) laufen/.exec(sub)?.[1] ?? -1)
+  const filter = num(await page.getByRole('button', { name: /^Laufen/ }).locator('.num').textContent())
+  expect(stat).toBe(filter)
+  await page.context().close()
+})
+
 test('Zustand: Pille der Karte = Pille im Projektkopf', async ({ browser }) => {
   const page = await open(browser, '/projekte')
   await page.locator('.pcards').waitFor()

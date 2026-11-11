@@ -65,6 +65,10 @@ function summarize(p: ProjectDto) {
     project: p.slug,
     name: p.name,
     status: p.status,
+    // Derselbe Zustand wie in der Oberfläche (UI-Qualität 1), mit Satz
+    state: p.state.key,
+    state_label: p.state.label,
+    state_detail: p.state.detail,
     source: p.sourceType,
     url: p.routes[0]?.urls[0] ?? null,
     urls: p.routes.flatMap((r) => r.urls),

@@ -39,8 +39,11 @@ export const hasPublicName = (p: ProjectDto) => p.routes.some((r) => r.target ==
  * läuft etwas (auch wenn der neueste Deploy scheiterte oder öffentlich pausiert)?
  */
 export const isLive = (p: ProjectDto) => p.state.key === 'running' || p.state.key === 'failed_old_running' || p.state.key === 'paused'
+/** Zählt als «läuft» in Kennzahl und Filter: läuft oder pausiert – gescheiterte stehen unter «Aufmerksamkeit» */
+export const isRunningOk = (p: ProjectDto) => p.state.key === 'running' || p.state.key === 'paused'
 /** Gescheiterter Deploy, der Aufmerksamkeit braucht (alte Fassung läuft weiter oder gar nichts) */
-export const deployFailedState = (p: ProjectDto) => p.state.key === 'failed_old_running' || (p.state.key === 'down' && p.lastDeployment?.status === 'failed')
+// Gilt für Liste, Filter, Hinweise UND Fehlerbox der Projektseite (eine Definition)
+export const deployFailedState = (p: ProjectDto) => p.state.key === 'failed_old_running' || (p.state.key === 'down' && !p.activeDeployment && p.lastDeployment?.status === 'failed')
 
 /** Reihenfolge nach Dringlichkeit: Fehler, kritisch, hoch, bald ablaufend, Rest nach Name. */
 export function urgency(p: ProjectDto): number {

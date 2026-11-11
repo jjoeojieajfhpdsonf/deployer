@@ -701,13 +701,18 @@ export function projectState(p: {
   routes: { target: string; pausedAt?: string | null }[]
   container?: { running: boolean; missing?: boolean; exitCode?: number | null } | null
 }): ProjectStateDto {
-  const make = (key: ProjectStateKey, detail: string | null): ProjectStateDto => ({ key, ...STATE_TEXT[key], detail })
+  const make = (key: ProjectStateKey, detail: string | null, tone?: ProjectStateDto['tone']): ProjectStateDto => ({ key, ...STATE_TEXT[key], ...(tone ? { tone } : {}), detail })
   const last = p.lastDeployment
   if (p.status === 'deploying' || (last && DEPLOY_RUNNING.has(last.status))) return make('deploying', null)
-  if (p.desiredState === 'stopped') return make('stopped', 'Gestoppt – die Adressen antworten nicht, bis du es wieder startest.')
+  // Ohne aktive Fassung zuerst: Ein neues Projekt steht bis zum ersten erfolgreichen Deploy auf
+  // «stopped»; ein gescheiterter erster Deploy darf nicht als «gestoppt» erscheinen.
   if (!p.activeDeployment) {
-    return make('down', last?.status === 'failed' ? 'Der erste Deploy ist gescheitert; es gibt noch keine laufende Fassung.' : 'Es gibt noch keine laufende Fassung.')
+    return last?.status === 'failed'
+      ? make('down', 'Der erste Deploy ist gescheitert; es gibt noch keine laufende Fassung.')
+      // Noch nie deployt: kein Fehler, also neutral
+      : make('down', 'Noch nicht deployt.', 'neutral')
   }
+  if (p.desiredState === 'stopped') return make('stopped', 'Gestoppt – die Adressen antworten nicht, bis du es wieder startest.')
   if (p.container && !p.container.running) {
     return make('down', p.container.missing
       ? 'Der Container der aktiven Fassung fehlt.'

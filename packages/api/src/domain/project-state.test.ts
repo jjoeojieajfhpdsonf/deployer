@@ -42,6 +42,17 @@ describe('Projektzustand: eine Quelle für Pille, Unterzeile, Fehlerbox, Liste',
     assert.match(projectState({ ...base, container: { running: false, exitCode: 137 } }).detail!, /Exit-Code 137/)
   })
 
+  test('neues Projekt (desiredState stopped): erster Deploy gescheitert ist nicht «gestoppt»', () => {
+    const s = projectState({ ...base, desiredState: 'stopped', status: 'failed', activeDeployment: null, lastDeployment: dep('d1', 'failed') })
+    assert.equal(s.key, 'down')
+    assert.equal(s.tone, 'bad')
+    assert.match(s.detail!, /erste Deploy ist gescheitert/)
+    // Noch nie deployt: nichts läuft, aber neutral (kein Fehler)
+    const fresh = projectState({ ...base, desiredState: 'stopped', status: 'created', activeDeployment: null, lastDeployment: null })
+    assert.equal(fresh.key, 'down')
+    assert.equal(fresh.tone, 'neutral')
+  })
+
   test('pausiert (öffentlich), intern läuft es weiter', () => {
     const s = projectState({ ...base, routes: [{ target: 'public', pausedAt: '2026-11-10T10:00:00Z' }] })
     assert.equal(s.key, 'paused')

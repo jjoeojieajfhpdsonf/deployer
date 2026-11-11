@@ -126,7 +126,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     out.push({ id: 'act:token', group: 'Aktionen', label: 'Token erstellen', words: 'mcp claude anlegen', run: () => go('/tokens?neu=1') })
     for (const p of list) {
       // Gleiche Sperren wie Projektkopf und Security-Übersicht
-      const deploying = p.status === 'deploying' || (deploy.isPending && deploy.variables?.id === p.id)
+      const deploying = p.state.key === 'deploying' || (deploy.isPending && deploy.variables?.id === p.id)
       out.push({
         id: `act:deploy:${p.id}`, group: 'Aktionen', label: `Neu deployen · ${p.name}`, hint: p.slug, words: 'deploy',
         blocked: deploying ? 'Deploy läuft schon' : undefined,

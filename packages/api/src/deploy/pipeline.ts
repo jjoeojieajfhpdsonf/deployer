@@ -1,4 +1,5 @@
 import { eq, and, ne, desc } from 'drizzle-orm'
+import { forgetContainer } from '../jobs/monitor.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { db, schema, tryLockProject } from '../db/index.js'
@@ -270,6 +271,8 @@ async function run(
     }
 
     appendLine(deploymentId, `Fertig in ${Math.round((Date.now() - started) / 1000)} s`)
+    // Neuer Container: alter Zustand (z. B. «beendet») gilt nicht mehr
+    forgetContainer(projectId)
     await setStatus(projectId, 'running')
     await setDeployment(deploymentId, { status: 'active', isActive: true, finishedAt: new Date() })
     await lock.release()

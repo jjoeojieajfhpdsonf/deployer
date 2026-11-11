@@ -112,6 +112,11 @@ export function containerSnapshot(projectId: string): { running: boolean; missin
   return containerStates.get(projectId) ?? null
 }
 
+/** Nach Start, Stopp, Neustart oder Deploy: alten Zustand verwerfen (bis zur nächsten Runde unbekannt) */
+export function forgetContainer(projectId: string): void {
+  containerStates.delete(projectId)
+}
+
 async function noteContainer(t: Target): Promise<void> {
   if (!t.containerId || t.kind === 'static') { containerStates.delete(t.projectId); return }
   const state = await docker.inspectContainer(t.containerId).catch(() => null)

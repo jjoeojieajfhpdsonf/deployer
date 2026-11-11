@@ -13,6 +13,7 @@ import { IconWarn } from './Security.js'
 import { DeployList, useDeployments } from './DeployList.js'
 import { SecurityCard } from './SecurityCard.js'
 import { KeyFacts } from './KeyFacts.js'
+import { deployFailedState } from '../lib/projects.js'
 import { IconBad, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 
@@ -50,7 +51,7 @@ export function ProjectOverview({
   const health = useProjectHealth(p)
   const h = health.data
   const live = st === 'running' || st === 'failed_old_running' || st === 'paused'
-  const deployFailed = p.lastDeployment?.status === 'failed' && (st === 'failed_old_running' || (st === 'down' && !p.activeDeployment))
+  const deployFailed = deployFailedState(p)
   const containerDown = st === 'down' && Boolean(p.activeDeployment)
 
   return (

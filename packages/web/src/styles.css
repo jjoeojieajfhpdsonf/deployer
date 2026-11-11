@@ -1420,6 +1420,9 @@ button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .pcard-bad { box-shadow: 0 0 0 1px var(--bad-line), var(--sh-btn); }
 .pcard-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-3); }
 .pcard-title { min-width: 0; display: grid; gap: var(--sp-1); }
+/* Lange Zustände («neue Version gescheitert, alte läuft weiter») brechen in der Karte um, statt sie zu sprengen */
+.pcard-head .status { flex: 0 1 auto; min-width: 0; max-width: 55%; height: auto; min-height: 26px; padding-top: 3px; padding-bottom: 3px; white-space: normal; line-height: 1.3; border-radius: var(--r-md); }
+.pcard-head .status-dot { align-self: flex-start; margin-top: 6px; }
 .pcard-title h3 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
 .pcard-link { color: var(--ink); text-decoration: none; }
 /* Ganze Karte klickbar; Pillen und Aktionen liegen darüber */

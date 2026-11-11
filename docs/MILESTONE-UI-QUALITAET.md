@@ -68,6 +68,21 @@ Umsetzung:
 - Bekannte Grenze: Befunde tragen nur das Werkzeug, nicht die Stufe. Laufen zwei Trivy-Stufen
   (Image und eigener Code) mit Befunden, zählt jede alle offenen Trivy-Befunde.
 
+Befunde aus dem Gutachten (behoben):
+- Reihenfolge in `projectState`: «keine aktive Fassung» kommt vor «gestoppt»; ein neues Projekt,
+  dessen erster Deploy scheiterte, heisst «nichts läuft» mit Grund (Test).
+- Nach einem Neustart von Airlock hängende Deploys (pending … healthchecking) werden als gescheitert
+  markiert («Abgebrochen durch Neustart von Airlock») und der Projektstatus zurückgesetzt
+  (`abandonUnfinishedDeploys` in `reconcileOnBoot`), sonst blieb «deployt gerade» für immer.
+- Der gemerkte Containerzustand wird nach Start, Stopp und erfolgreichem Deploy vergessen
+  (`forgetContainer`), damit der Zustand nicht bis zur nächsten Monitor-Runde veraltet.
+- MCP `list_projects`/`get_project` liefern `state`, `state_label`, `state_detail`.
+- Eine Definition «Deploy gescheitert» (`deployFailedState`) für Liste, Filter, Hinweise und
+  Fehlerbox; Kennzahl «laufen» und Filter «Laufen» zählen gleich (läuft oder pausiert; gescheiterte
+  stehen unter «Brauchen Aufmerksamkeit») – zusätzlicher Test in `konsistenz.spec.ts`.
+- Lange Zustands-Pille bricht in der Karte um statt den Namen zu verdrängen.
+- Fixture Wetterstation: Security-Werte passend zu den Befunden (94, A, 2 niedrig).
+
 ### 2 – Fehler erklären
 - Erkannte Muster mit Klartext und Aktion: fehlende Umgebungsvariable → «Variable X fehlt» +
   «Hinzufügen»; anderer Port (Log «listening on :3000») → «Port ändern auf 3000»; Container beendet

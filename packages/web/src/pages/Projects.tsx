@@ -11,7 +11,7 @@ import { RowMenu } from '../components/RowMenu.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { IconAlert, IconBox, IconChat, IconGit, IconPlus, IconSearch, IconUpload, IconWarn } from '../components/Icons.js'
 import { useSystem } from '../components/ServerName.js'
-import { useProjects, attention, deployFailedState, isLive, isPublic, urgency } from '../lib/projects.js'
+import { useProjects, attention, deployFailedState, isPublic, isRunningOk, urgency } from '../lib/projects.js'
 import { relativeTime, clockOrDay, gb, pct, shortVersion, KIND_LABEL, actorLabel, auditTone, describeAudit } from '../lib/format.js'
 import { ageMs, fmtDateTime } from '../lib/dates.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -50,7 +50,7 @@ export function Projects() {
   const list = projects.data?.projects ?? []
   const counts = useMemo(() => ({
     alle: list.length,
-    laufen: list.filter(isLive).length,
+    laufen: list.filter(isRunningOk).length,
     aufmerksamkeit: list.filter((p) => attention(p)).length,
   }), [list])
   // Bei wenigen Projekten sagt der Filter nichts, was das Raster nicht schon zeigt
@@ -60,7 +60,7 @@ export function Projects() {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
     return list
-      .filter((p) => view === 'alle' || (view === 'laufen' ? isLive(p) : attention(p)))
+      .filter((p) => view === 'alle' || (view === 'laufen' ? isRunningOk(p) : attention(p)))
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.routes.some((r) => r.hostname.includes(q)))
       // Dringendes zuerst, dann nach Name
       .sort((a, b) => urgency(b) - urgency(a) || a.name.localeCompare(b.name, 'de-CH'))
@@ -171,7 +171,8 @@ export function Projects() {
 
 function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto | undefined }) {
   // Zählung aus p.state (gleiche Quelle wie Pillen und Karten)
-  const running = list.filter(isLive).length
+  // «laufen» ohne die mit gescheitertem Deploy (die stehen als «Deploy-Fehler» daneben, nicht doppelt) – wie der Filter
+  const running = list.filter(isRunningOk).length
   const deploying = list.filter((p) => p.state.key === 'deploying').length
   const failedCount = list.filter((p) => p.state.key === 'failed_old_running' || p.state.key === 'down').length
   const all = sumCounts(list.map((p) => p.security?.open))
