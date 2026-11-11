@@ -1,4 +1,15 @@
-import { uiPrefsPatchSchema, uiPrefsSchema, type UiPrefs, type UiPrefsPatch } from '@airlock/shared'
+import {
+  themeUnlocked,
+  unlockIds,
+  unlockIdSchema,
+  unlockRequestSchema,
+  uiPrefsPatchSchema,
+  uiPrefsSchema,
+  type ThemePref,
+  type UiPrefs,
+  type UiPrefsPatch,
+  type UnlockId,
+} from '@airlock/shared'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 import { badRequest } from '../lib/errors.js'
@@ -10,6 +21,11 @@ import { badRequest } from '../lib/errors.js'
  *
  * M9: dazu die zuletzt gewählte Umgebung. Eine Änderung nur daran steht
  * nicht im Audit (jeder Wechsel der Umgebung wäre sonst ein Eintrag).
+ *
+ * Freischaltungen (Easter Eggs): Liste `unlocks` bekannter Kennungen. Sie
+ * kommt nur über unlockUi dazu und geht nie weg. Altes Format
+ * `win95Unlocked: true` wird beim Lesen zu `unlocks: ['win95']` (und beim
+ * nächsten Speichern im neuen Format geschrieben).
  */
 const KEY = 'ui_prefs'
 export const DEFAULT_UI_PREFS: UiPrefs = { theme: 'system' }
@@ -18,14 +34,14 @@ export const DEFAULT_UI_PREFS: UiPrefs = { theme: 'system' }
 export function parseUiPrefs(raw: string | null): UiPrefs {
   if (!raw) return DEFAULT_UI_PREFS
   try {
-    const obj = JSON.parse(raw) as Record<string, unknown>
+    const obj = JSON.parse(raw) as Record<string, unknown> | null
     // Feld für Feld: Ein kaputter Stand der Einrichtung kostet nicht die Wahl der Darstellung
     const theme = uiPrefsSchema.shape.theme.safeParse(obj?.theme)
     const setup = uiPrefsSchema.shape.setup.safeParse(obj?.setup)
-    const unlocked = obj?.win95Unlocked === true
-    // «Windows 95» nur mit Freischaltung; sonst gilt der Standard
-    const out: UiPrefs = { theme: theme.success && (theme.data !== 'win95' || unlocked) ? theme.data : DEFAULT_UI_PREFS.theme }
-    if (unlocked) out.win95Unlocked = true
+    const unlocks = readUnlocks(obj)
+    // Freischaltpflichtige Themes («Windows 95») nur mit Freischaltung; sonst gilt der Standard
+    const out: UiPrefs = { theme: theme.success && themeUnlocked(theme.data, unlocks) ? theme.data : DEFAULT_UI_PREFS.theme }
+    if (unlocks.length) out.unlocks = unlocks
     if (setup.success && setup.data) out.setup = setup.data
     // UI-Qualität 8: «Glocke gelesen bis» muss beim Lesen mitkommen, sonst ist nach jedem Neuladen alles wieder ungelesen
     const bell = uiPrefsSchema.shape.bellSeenAt.safeParse(obj?.bellSeenAt)
@@ -39,21 +55,52 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
   }
 }
 
+/** Rein: Liste in fester Reihenfolge (wie unlockIds), ohne Doppelte und ohne Unbekanntes. */
+export function normalizeUnlocks(ids: readonly unknown[]): UnlockId[] {
+  return unlockIds.filter((id) => ids.includes(id))
+}
+
+/**
+ * Rein: Freischaltungen aus dem gespeicherten Stand. Einzelne unbekannte
+ * Kennungen fallen weg (z. B. nach dem Zurückgehen auf eine ältere Version),
+ * der Rest bleibt. Altes Format: `win95Unlocked: true` → 'win95'.
+ */
+function readUnlocks(obj: Record<string, unknown> | null): UnlockId[] {
+  const list: unknown[] = Array.isArray(obj?.unlocks) ? obj.unlocks.filter((id) => unlockIdSchema.safeParse(id).success) : []
+  if (obj?.win95Unlocked === true) list.push('win95')
+  return normalizeUnlocks(list)
+}
+
 export async function getUiPrefs(): Promise<UiPrefs> {
   return parseUiPrefs(await getSetting(KEY))
 }
 
+const THEME_NAME: Partial<Record<ThemePref, string>> = { win95: 'Windows 95' }
+
+function assertThemeUnlocked(theme: ThemePref, unlocks: readonly string[] | undefined): void {
+  if (!themeUnlocked(theme, unlocks)) throw badRequest(`«${THEME_NAME[theme] ?? theme}» ist noch nicht freigeschaltet.`)
+}
+
 /**
  * Rein: Änderung mit dem Bestand zusammenführen. Ein Theme-Wechsel darf den
- * Stand der Einrichtung nicht löschen (und umgekehrt).
+ * Stand der Einrichtung nicht löschen (und umgekehrt). Freischaltungen kommen
+ * nicht über den Patch (dessen Schema kennt «unlocks» nicht); der Bestand bleibt.
  */
 export function mergeUiPrefs(current: UiPrefs, patch: UiPrefsPatch): UiPrefs {
-  const merged = uiPrefsSchema.parse({ ...current, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })
-  // Die Freischaltung bleibt: «false» nimmt sie nicht zurück (und fällt aus dem Stand)
-  if (current.win95Unlocked) merged.win95Unlocked = true
-  else if (!merged.win95Unlocked) delete merged.win95Unlocked
-  if (merged.theme === 'win95' && !merged.win95Unlocked) throw badRequest('«Windows 95» ist noch nicht freigeschaltet.')
+  const changes = Object.entries(patch).filter(([k, v]) => v !== undefined && k !== 'unlocks')
+  const merged = uiPrefsSchema.parse({ ...current, ...Object.fromEntries(changes) })
+  delete merged.unlocks
+  if (current.unlocks?.length) merged.unlocks = normalizeUnlocks(current.unlocks)
+  assertThemeUnlocked(merged.theme, merged.unlocks)
   return merged
+}
+
+/**
+ * Rein: eine Freischaltung hinzufügen. Idempotent: Ist sie schon da, bleibt
+ * die Liste gleich.
+ */
+export function addUnlock(current: UiPrefs, id: UnlockId): UiPrefs {
+  return { ...current, unlocks: normalizeUnlocks([...(current.unlocks ?? []), id]) }
 }
 
 /**
@@ -76,8 +123,20 @@ export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs
   if (patch.theme !== undefined && patch.theme !== before.theme) {
     await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { theme: prefs.theme }, result: 'ok' })
   }
-  if (prefs.win95Unlocked && !before.win95Unlocked) {
-    await audit({ actor, action: 'ui.win95_unlocked', targetType: 'system', targetId: 'ui', params: {}, result: 'ok' })
-  }
+  return prefs
+}
+
+/**
+ * Freischalten (POST /auth/unlocks): eine Kennung hinzufügen, idempotent.
+ * Nur das erste Freischalten wird gespeichert und steht im Audit
+ * (`ui.unlocked`, Kennung in params.id).
+ */
+export async function unlockUi(input: unknown, actor: string): Promise<UiPrefs> {
+  const { id } = unlockRequestSchema.parse(input)
+  const before = await getUiPrefs()
+  if (before.unlocks?.includes(id)) return before
+  const prefs = addUnlock(before, id)
+  await setSetting(KEY, JSON.stringify(prefs))
+  await audit({ actor, action: 'ui.unlocked', targetType: 'system', targetId: 'ui', params: { id }, result: 'ok' })
   return prefs
 }

@@ -21,10 +21,16 @@ Markup und Tastatur bleiben wie in Hell und Dunkel.
 - 7 schnelle Klicks auf «Version x.y.z» unten links (höchstens 1.5 s zwischen zwei Klicks)
   **oder** irgendwo ↑↑↓↓←→←→ B A (nicht in Eingabefeldern; Gross-/Kleinbuchstaben egal).
 - Danach die Meldung «Windows 95 freigeschaltet» (kein Ton) und die vierte Option im Profilmenü.
-- Gespeichert auf dem Server in den Präferenzen (`win95Unlocked`), gilt also auf jedem Gerät.
-  Die Freischaltung bleibt; `false` nimmt sie nicht zurück. Ohne Freischaltung lehnt der Server
-  `theme: 'win95'` ab, und ein gespeichertes `win95` ohne Freischaltung fällt beim Lesen auf
-  den Standard zurück. Erstes Freischalten steht im Audit (`ui.win95_unlocked`).
+- Gespeichert auf dem Server in den Präferenzen als Liste `unlocks` (hier `'win95'`), gilt also
+  auf jedem Gerät. Dieselbe Liste nutzen spätere Freischaltungen (bekannte Kennungen:
+  `unlockIds` in packages/shared; ein Theme hinter einer Freischaltung: `THEME_UNLOCK`).
+  Freischalten: `POST /auth/unlocks` mit `{ id: 'win95' }` – fügt hinzu, idempotent.
+  `PUT /auth/preferences` kann die Liste weder setzen noch leeren; eine Freischaltung bleibt.
+  Ohne Freischaltung lehnt der Server `theme: 'win95'` ab, und ein gespeichertes `win95` ohne
+  Freischaltung fällt beim Lesen auf den Standard zurück. Erstes Freischalten steht im Audit
+  (`ui.unlocked`, Kennung in `params.id`; ältere Einträge: `ui.win95_unlocked`).
+- Altes Format: ein gespeichertes `win95Unlocked: true` wird beim Lesen zu `unlocks: ['win95']`
+  und beim nächsten Speichern im neuen Format geschrieben.
 - Keine Migration nötig: Die Präferenzen liegen als JSON in `settings` (kein CHECK, kein Enum).
 
 ## Fenster, Taskleiste, Startmenü (wie in Windows 95)

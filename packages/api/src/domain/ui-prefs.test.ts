@@ -1,11 +1,11 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { uiPrefsSchema } from '@airlock/shared'
+import { themeUnlocked, uiPrefsPatchSchema, uiPrefsSchema, unlockRequestSchema } from '@airlock/shared'
 
 // ui-prefs.ts zieht die Datenbank nach; für den Import genügt eine Dummy-Umgebung.
 process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'
 process.env.ADMIN_PASSWORD ??= 'x'
-const { parseUiPrefs, mergeUiPrefs, clampBellSeen, DEFAULT_UI_PREFS } = await import('./ui-prefs.js')
+const { parseUiPrefs, mergeUiPrefs, clampBellSeen, addUnlock, normalizeUnlocks, DEFAULT_UI_PREFS } = await import('./ui-prefs.js')
 
 describe('Glocke: «gelesen bis» (UI-Qualität 8)', () => {
   test('wird beim Lesen mitgegeben, sonst ist nach dem Neuladen alles wieder ungelesen', () => {
@@ -64,35 +64,71 @@ describe('Darstellung (Hell/Dunkel/System)', () => {
   })
 })
 
+describe('Freischaltungen (unlocks)', () => {
+  test('Freischalten fügt die Kennung hinzu; zweimal ist wie einmal', () => {
+    const once = addUnlock({ theme: 'dark' }, 'win95')
+    assert.deepEqual(once, { theme: 'dark', unlocks: ['win95'] })
+    assert.deepEqual(addUnlock(once, 'win95'), once)
+  })
+
+  test('Schema: nur bekannte Kennungen', () => {
+    assert.equal(unlockRequestSchema.safeParse({ id: 'win95' }).success, true)
+    const r = unlockRequestSchema.safeParse({ id: 'amiga' })
+    assert.equal(r.success, false)
+    assert.match(r.error!.issues[0]!.message, /Unbekannte Freischaltung/)
+    assert.equal(unlockRequestSchema.safeParse({}).success, false)
+    assert.equal(uiPrefsSchema.safeParse({ theme: 'dark', unlocks: ['win95'] }).success, true)
+    assert.equal(uiPrefsSchema.safeParse({ theme: 'dark', unlocks: ['amiga'] }).success, false)
+  })
+
+  test('PUT /auth/preferences kann Freischaltungen weder setzen noch löschen', () => {
+    // Das Patch-Schema kennt «unlocks» nicht (fällt beim Parsen weg) …
+    assert.deepEqual(uiPrefsPatchSchema.parse({ theme: 'dark', unlocks: ['win95'] }), { theme: 'dark' })
+    // … und der Bestand bleibt bei jedem Wechsel stehen
+    assert.deepEqual(mergeUiPrefs({ theme: 'win95', unlocks: ['win95'] }, { theme: 'light' }), { theme: 'light', unlocks: ['win95'] })
+    assert.deepEqual(mergeUiPrefs({ theme: 'light', unlocks: ['win95'] }, { bellSeenAt: '2026-11-10T22:00:00.000Z' }), { theme: 'light', unlocks: ['win95'], bellSeenAt: '2026-11-10T22:00:00.000Z' })
+    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { theme: 'dark' }), { theme: 'dark' })
+  })
+
+  test('gespeicherte Liste wird gelesen; Unbekanntes und Doppeltes fällt weg', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","unlocks":["win95"]}'), { theme: 'dark', unlocks: ['win95'] })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","unlocks":["win95","amiga","win95"]}'), { theme: 'dark', unlocks: ['win95'] })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","unlocks":["amiga"]}'), { theme: 'dark' })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","unlocks":"win95"}'), { theme: 'dark' })
+    assert.deepEqual(normalizeUnlocks(['win95', 'win95', 7, null]), ['win95'])
+  })
+
+  test('Altes Format: win95Unlocked: true wird zu unlocks: [\'win95\']', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"win95","win95Unlocked":true}'), { theme: 'win95', unlocks: ['win95'] })
+    assert.deepEqual(parseUiPrefs('{"theme":"light","win95Unlocked":true,"unlocks":["win95"]}'), { theme: 'light', unlocks: ['win95'] })
+    // Nur «true» zählt
+    assert.deepEqual(parseUiPrefs('{"theme":"light","win95Unlocked":false}'), { theme: 'light' })
+    // Beim nächsten Speichern steht nur noch das neue Feld im Stand
+    const saved = mergeUiPrefs(parseUiPrefs('{"theme":"win95","win95Unlocked":true}'), { theme: 'dark' })
+    assert.deepEqual(saved, { theme: 'dark', unlocks: ['win95'] })
+    assert.equal('win95Unlocked' in saved, false)
+  })
+})
+
 describe('Windows 95 (verstecktes Theme)', () => {
   test('Freischaltung und Theme werden gespeichert und gelesen', () => {
-    const unlocked = mergeUiPrefs({ theme: 'dark' }, { win95Unlocked: true })
-    assert.deepEqual(unlocked, { theme: 'dark', win95Unlocked: true })
+    const unlocked = addUnlock({ theme: 'dark' }, 'win95')
     const chosen = mergeUiPrefs(unlocked, { theme: 'win95' })
-    assert.deepEqual(chosen, { theme: 'win95', win95Unlocked: true })
-    assert.deepEqual(parseUiPrefs(JSON.stringify(chosen)), { theme: 'win95', win95Unlocked: true })
+    assert.deepEqual(chosen, { theme: 'win95', unlocks: ['win95'] })
+    assert.deepEqual(parseUiPrefs(JSON.stringify(chosen)), { theme: 'win95', unlocks: ['win95'] })
   })
 
   test('ohne Freischaltung lehnt der Server «win95» ab', () => {
-    assert.throws(() => mergeUiPrefs({ theme: 'light' }, { theme: 'win95' }), /nicht freigeschaltet/)
-    // Freischalten und wählen in einem Schritt geht
-    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { theme: 'win95', win95Unlocked: true }), { theme: 'win95', win95Unlocked: true })
+    assert.throws(() => mergeUiPrefs({ theme: 'light' }, { theme: 'win95' }), /«Windows 95» ist noch nicht freigeschaltet/)
+    assert.equal(themeUnlocked('win95', []), false)
+    assert.equal(themeUnlocked('win95', ['win95']), true)
+    assert.equal(themeUnlocked('dark', undefined), true)
   })
 
   test('gespeichertes «win95» ohne Freischaltung fällt beim Lesen auf den Standard', () => {
     assert.deepEqual(parseUiPrefs('{"theme":"win95"}'), DEFAULT_UI_PREFS)
     assert.deepEqual(parseUiPrefs('{"theme":"win95","win95Unlocked":"ja"}'), DEFAULT_UI_PREFS)
-  })
-
-  test('die Freischaltung bleibt; «false» nimmt sie nicht zurück', () => {
-    assert.deepEqual(mergeUiPrefs({ theme: 'win95', win95Unlocked: true }, { win95Unlocked: false }), { theme: 'win95', win95Unlocked: true })
-    // Noch nicht freigeschaltet: «false» landet nicht im Stand
-    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { win95Unlocked: false }), { theme: 'light' })
-  })
-
-  test('andere Wechsel lassen die Freischaltung stehen', () => {
-    assert.deepEqual(mergeUiPrefs({ theme: 'win95', win95Unlocked: true }, { theme: 'light' }), { theme: 'light', win95Unlocked: true })
-    assert.deepEqual(mergeUiPrefs({ theme: 'light', win95Unlocked: true }, { bellSeenAt: '2026-11-10T22:00:00.000Z' }), { theme: 'light', win95Unlocked: true, bellSeenAt: '2026-11-10T22:00:00.000Z' })
+    assert.deepEqual(parseUiPrefs('{"theme":"win95","unlocks":[]}'), DEFAULT_UI_PREFS)
   })
 
   test('Schema kennt «win95», die Meldung nennt alle vier', () => {

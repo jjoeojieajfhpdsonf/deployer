@@ -1244,10 +1244,29 @@ export const addExternalTargetSchema = z.object({ hostname: externalHostnameSche
 
 /**
  * system: folgt prefers-color-scheme des Geräts. win95: verstecktes Spass-Theme,
- * erst nach der Freischaltung wählbar (win95Unlocked; 7× auf die Version oder Konami-Code).
+ * erst nach der Freischaltung wählbar (unlocks enthält 'win95'; 7× auf die Version oder Konami-Code).
  */
 export const themePrefs = ['light', 'dark', 'system', 'win95'] as const
 export type ThemePref = (typeof themePrefs)[number]
+
+/**
+ * Freischaltungen (Easter Eggs) pro Benutzer: eine Liste bekannter Kennungen in
+ * den Präferenzen. Neue Freischaltung = neue Kennung hier (und, falls sie ein
+ * Theme öffnet, ein Eintrag in THEME_UNLOCK). Einmal freigeschaltet, bleibt sie.
+ */
+export const unlockIds = ['win95'] as const
+export type UnlockId = (typeof unlockIds)[number]
+export const unlockIdSchema = z.enum(unlockIds, { message: 'Unbekannte Freischaltung' })
+/** POST /auth/unlocks: eine Kennung hinzufügen (idempotent) */
+export const unlockRequestSchema = z.object({ id: unlockIdSchema })
+export type UnlockRequest = z.infer<typeof unlockRequestSchema>
+/** Themes, die erst nach einer Freischaltung wählbar sind */
+export const THEME_UNLOCK: Partial<Record<ThemePref, UnlockId>> = { win95: 'win95' }
+/** Ist das Theme mit diesen Freischaltungen wählbar? */
+export function themeUnlocked(theme: ThemePref, unlocks: readonly string[] | null | undefined): boolean {
+  const need = THEME_UNLOCK[theme]
+  return !need || (unlocks ?? []).includes(need)
+}
 /** Schritte des Einrichtungs-Assistenten (erster Start), in dieser Reihenfolge */
 export const setupSteps = ['passwort', 'cloudflare', 'adressen', 'zertifikat', 'projekt'] as const
 export type SetupStep = (typeof setupSteps)[number]
@@ -1260,8 +1279,8 @@ export const setupPrefsSchema = z.object({
 export type SetupPrefs = z.infer<typeof setupPrefsSchema>
 export const uiPrefsSchema = z.object({
   theme: z.enum(themePrefs, { message: 'Hell, Dunkel, Wie das Gerät oder Windows 95' }),
-  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet (bleibt freigeschaltet) */
-  win95Unlocked: z.boolean().optional(),
+  /** Freischaltungen (Easter Eggs), z. B. 'win95'; bleiben freigeschaltet. Nur über POST /auth/unlocks */
+  unlocks: z.array(unlockIdSchema).max(unlockIds.length).optional(),
   setup: setupPrefsSchema.optional(),
   /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
   bellSeenAt: z.string().datetime().optional(),
@@ -1269,8 +1288,11 @@ export const uiPrefsSchema = z.object({
   lastEnvironment: z.string().max(64).optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
-/** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */
-export const uiPrefsPatchSchema = uiPrefsSchema.partial()
+/**
+ * PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen.
+ * Freischaltungen gehen nicht über diesen Weg (POST /auth/unlocks fügt nur hinzu).
+ */
+export const uiPrefsPatchSchema = uiPrefsSchema.omit({ unlocks: true }).partial()
 export type UiPrefsPatch = z.infer<typeof uiPrefsPatchSchema>
 
 export const PASSWORD_MIN = 12
