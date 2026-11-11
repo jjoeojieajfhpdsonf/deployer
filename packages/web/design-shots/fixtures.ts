@@ -7,9 +7,9 @@
 import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
-  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
 } from '@airlock/shared'
-import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
+import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -822,7 +822,39 @@ export const cloudflare: CfStatusDto = {
   publicProjects: 0,
 }
 
-export const domains: { domains: DomainDto[]; publicEnabled: boolean } = { domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }], publicEnabled: false }
+export const domains: { domains: DomainDto[]; publicEnabled: boolean } = { domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }], publicEnabled: true }
+
+/** Umgebung mit zwei Zonen (Auswahl der Domain im Feld «Öffentliche Adresse») */
+export const domainsTwo: { domains: DomainDto[]; publicEnabled: boolean } = {
+  domains: [{ id: 'd1', name: 'example.ch', zoneId: 'z1', isDefault: true }, { id: 'd4', name: 'example.org', zoneId: 'z4', isDefault: false }],
+  publicEnabled: true,
+}
+
+/**
+ * Prüfung eines öffentlichen Namens (GET …/public/check), wie die API:
+ * reserviert (int, deployer, airlock, acme-probe …), in Airlock vergeben
+ * (öffentliche Routen der Fixtures), fremder DNS-Eintrag («alt»), Worker
+ * bzw. Custom Domain (direkt unter example.org), sonst frei.
+ */
+export function publicCheck(projectId: string | null, name: string, zone: string, apex: boolean): PublicNameCheckDto {
+  const zones = domainsTwo.domains.map((d) => d.name)
+  const label = apex ? '' : normalizePublicLabel(name)
+  const host = apex ? zone : label ? `${label}.${zone}` : null
+  const out: PublicNameCheckDto = { host, label, zone, apex, zones, problems: [], existing: null }
+  if (!host) return { ...out, problems: [{ kind: 'format', message: 'Gib einen Namen an, z.B. solar' }] }
+  if (!apex && (RESERVED_PUBLIC_LABELS as readonly string[]).includes(label)) out.problems.push({ kind: 'reserved', message: `«${label}» ist reserviert` })
+  const owner = allProjects.find((p) => p.routes.some((r) => r.target === 'public' && r.hostname === host))
+  if (owner && owner.id !== projectId) out.problems.push({ kind: 'taken', message: `${host} ist in Airlock schon vergeben` })
+  if (label === 'alt') {
+    out.existing = { type: 'CNAME', content: 'alter-server.example.net', worker: false }
+    out.problems.push({ kind: 'dns', message: `Für ${host} gibt es bei Cloudflare schon einen Eintrag (CNAME → alter-server.example.net), der nicht von Airlock stammt` })
+  }
+  if (apex && zone === 'example.org') {
+    out.existing = { type: 'AAAA', content: '100::', worker: true }
+    out.problems.push({ kind: 'dns', message: `Für ${host} gibt es bei Cloudflare schon einen Worker bzw. eine Custom Domain` })
+  }
+  return out
+}
 
 export const notifications: NotifySettingsDto = {
   ntfy: { url: 'https://ntfy.sh', topic: 'heimserver-7f3a', hasToken: false },

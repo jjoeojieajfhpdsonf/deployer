@@ -50,6 +50,11 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if (method !== 'GET') return { body: {} }
   if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
+  // Prüfung öffentlicher Namen: mit Projekt (Veröffentlichung) und in der Umgebung (Neues Projekt)
+  if ((m = p.match(/^(?:\/projects\/([^/]+))?\/public\/check$/))) {
+    const q = u.searchParams
+    return { body: { check: fx.publicCheck(m[1] ?? null, q.get('name') ?? '', q.get('zone') ?? 'example.ch', q.get('apex') === '1') } }
+  }
   if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
   // Vor /projects/:id (sonst hielte es «name-preview» für eine Projekt-ID)
@@ -121,6 +126,8 @@ type Shot = {
   me?: Partial<import('../src/api.js').MeDto>
   /** Leerer Speicher der Sitzung erzwingen (Assistent erscheint wie beim ersten Start) */
   freshSession?: boolean
+  /** Umgebung mit zwei Zonen (Domain-Auswahl im Feld «Öffentliche Adresse») */
+  zones2?: boolean
   /** Feste Anzahl Projekte (fixtures.projectsFor) statt der Standardliste */
   count?: number
   /** Übergang deployer → Airlock: Projekt läuft noch mit alten Containern */
@@ -570,6 +577,54 @@ const shots: Shot[] = [
       await pg.waitForTimeout(900)
     },
   },
+  /*
+   * Öffentliche Adressen: geteiltes Feld Name · Domain, Vorschau, Prüfung beim Tippen.
+   * frei: eingefügter voller Name wird in Name und Domain zerlegt
+   */
+  {
+    group: 'adresse', name: 'adresse-frei', path: `/projekte/${P}?tab=einstellungen`, full: false, el: '.publication', zones2: true,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
+      await pg.getByLabel('Öffentliche Adresse').fill('https://Mein-Shop.example.org/start')
+      await pg.locator('.pubname-status.pubname-ok').waitFor()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // Adresse ändern: fremder DNS-Eintrag (Typ → Ziel), Ersetzen nur nach Haken
+  {
+    group: 'adresse', name: 'adresse-dns-fremd', path: `/projekte/${L}?tab=einstellungen`, full: false, el: '.publication',
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Ändern', exact: true }).click()
+      await pg.getByLabel('Neue öffentliche Adresse').fill('alt')
+      await pg.getByRole('checkbox', { name: /Bestehenden Eintrag ersetzen/ }).check()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // «Direkt unter <zone>»: dieselbe Prüfung; Worker/Custom Domain lässt sich nicht ersetzen
+  {
+    group: 'adresse', name: 'adresse-apex', path: `/projekte/${P}?tab=einstellungen`, full: false, el: '.publication', zones2: true,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
+      await pg.getByLabel('Domain', { exact: true }).selectOption('example.org')
+      await pg.getByRole('switch', { name: /Direkt unter/ }).click()
+      await pg.locator('.pubname-status.pubname-bad').waitFor()
+      await pg.locator('.publication').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(200)
+    },
+  },
+  // Neues Projekt: öffentlich nach dem ersten Scan; Name schon vergeben (Prüfung ohne Projekt, in der Umgebung)
+  {
+    group: 'adresse', name: 'adresse-neues-projekt', path: '/projekte/neu', full: false, el: '.field-group:has(.public-options)',
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('Haushalt')
+      await pg.getByRole('checkbox', { name: /Öffentlich über Cloudflare Tunnel/ }).check()
+      await pg.locator('.pubname-status.pubname-bad').waitFor()
+      await pg.locator('.public-options').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'anfrage', name: 'anfrage-wartet', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false },
   {
     group: 'anfrage', name: 'anfrage-wartet-bestaetigen', path: `/projekte/${fx.requestWaitingProjectId}?tab=einstellungen`, full: false,
@@ -872,6 +927,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
               return json(route, r)
             }
             if (s.empty && path === '/api/v1/projects') return json(route, { projects: [] })
+            if (s.zones2 && path === '/api/v1/domains') return json(route, fx.domainsTwo)
             if (s.broken && path === '/api/v1/projects') return json(route, { projects: [{ id: 'kaputt', name: 'Kaputt' }] })
             if (url.pathname === '/api/v1/client-errors') return route.fulfill({ status: 204, body: '' })
             if (s.envPatch && route.request().method() === 'GET' && /^\/api\/v1\/environments(\/example)?$/.test(url.pathname)) {

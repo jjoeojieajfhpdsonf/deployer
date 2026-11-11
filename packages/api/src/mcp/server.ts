@@ -7,7 +7,7 @@ import { listEnvDto } from '../domain/env.js'
 import { setRoutes, reconcileCaddy } from '../domain/routes.js'
 import {
   planPublic, applyPublic, removePublic, publicEnabled, listDomains, syncDomains,
-  publicRoute, publicStatus, publishability, pauseFlow, resumeFlow, unpublishFlow, checkPublicName,
+  publicRoute, publicStatus, publishability, pauseFlow, resumeFlow, unpublishFlow, checkPublicName, checkPublicNameIn,
 } from '../domain/public.js'
 import { startProject, stopProject } from '../domain/lifecycle.js'
 import { checkSourceEarly } from '../domain/source-checks.js'
@@ -29,6 +29,7 @@ import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, latest
 import { addExternalTarget, verifyExternalTarget, findExternalTarget } from '../security/external-targets.js'
 import { describeScan, describeStages } from '../security/progress.js'
 import { requestPublic, mcpRequestInfo } from '../domain/public-requests.js'
+import { blockingProblems } from '../lib/public-name-check.js'
 import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/pause-page.js'
 import { pausePageSchema, formatBackAt, backAtProblem, PAUSE_HTML_MAX, type PauseOptions } from '@airlock/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
@@ -266,6 +267,14 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     })
     assertSourceSupported(input.source.type)
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
+    // Gleiche Prüfung wie das Formular, bevor etwas angelegt wird: verständliche Meldung statt späterer Fehlschlag
+    if (wantsPublic && (a.public_subdomain !== undefined || a.public_zone)) {
+      const chk = await checkPublicNameIn(scope.envId, { label: a.public_subdomain ?? input.slug ?? slugify(input.name), zone: a.public_zone })
+      const blocking = blockingProblems(chk, false)
+      if (blocking.length) {
+        return fail(`${chk.host ?? 'Name'}: ${blocking.map((x) => x.message).join('; ')}.${chk.existing && !chk.existing.worker ? ' Ersetzen geht erst nach dem Anlegen mit set_targets und take_over_dns:true (mit Bestätigung).' : ''} Zonen dieser Umgebung: ${chk.zones.join(', ') || 'keine'}.`)
+      }
+    }
     const p = input.source.type === 'files' ? await createFilesProject(scope, input, actor) : await createProject(scope, input, actor)
     // Öffentlich geht erst nach dem Scan (M6): vormerken statt still verwerfen
     const req = wantsPublic
@@ -514,7 +523,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const label = a.public_subdomain !== undefined ? normalizePublicLabel(a.public_subdomain) : undefined
     if (wantsPublic && (label !== undefined || a.public_zone || a.public_apex)) {
       const chk = await checkPublicName(p, { label: label ?? p.slug, zone: a.public_zone, apex: a.public_apex })
-      const blocking = chk.problems.filter((x) => !(x.kind === 'dns' && a.take_over_dns && !chk.existing?.worker))
+      const blocking = blockingProblems(chk, Boolean(a.take_over_dns))
       if (blocking.length) {
         return fail(`${chk.host ?? 'Name'}: ${blocking.map((x) => x.message).join('; ')}.${chk.existing && !chk.existing.worker ? ' Mit take_over_dns:true (und Bestätigung) wird der Eintrag ersetzt.' : ''} Zonen dieser Umgebung: ${chk.zones.join(', ') || 'keine'}.`)
       }

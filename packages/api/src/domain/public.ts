@@ -4,7 +4,8 @@ import { defaultEnvironmentId, defaultEnvironment, environmentById, allEnvironme
 import { cloudflareFor } from './cloudflare-settings.js'
 import { inEnvironment, serverJob, type EnvScope, type ListScope } from '../lib/scope.js'
 import { config } from '../config.js'
-import { RESERVED_PUBLIC_LABELS, normalizePublicLabel, type PublicNameCheckDto } from '@airlock/shared'
+import { RESERVED_PUBLIC_LABELS, type PublicNameCheckDto } from '@airlock/shared'
+import { shapePublicName, markTaken, markForeignRecord } from '../lib/public-name-check.js'
 import { Cloudflare, CloudflareError, upsertManagedRecord, isManagedComment, type Zone } from '../drivers/cloudflare.js'
 import { resolvePublicHostname, reconcileIngress, tunnelCname, PublicHostError } from '../lib/public-hosts.js'
 import { assertPublishable, latestScan, onProjectScanDone } from '../security/scan.js'
@@ -169,39 +170,25 @@ export interface PublicInput {
  * Ziel – übernehmen nur nach ausdrücklicher Bestätigung).
  */
 export async function checkPublicName(project: Project, input: { label: string; zone?: string; apex?: boolean }): Promise<PublicNameCheckDto> {
-  const ctx = requireCtx(project.environmentId)
-  const domains = await listDomains(inEnvironment(project.environmentId)).then((d) => (d.length ? d : syncDomains(ctx.cf, project.environmentId)))
-  const zones = domains.map((d) => d.name)
-  const mainZone = environmentById(project.environmentId)?.zoneName ?? null
-  const zoneName = input.zone ?? (mainZone && zones.includes(mainZone) ? mainZone : zones[0] ?? null)
-  const label = input.apex ? '' : normalizePublicLabel(input.label)
-  const out: PublicNameCheckDto = { host: null, label, zone: zoneName, apex: Boolean(input.apex), zones, problems: [], existing: null }
-  const zone = domains.find((d) => d.name === zoneName)
-  if (!zoneName || !zone) {
-    out.problems.push({ kind: 'zone', message: zoneName ? `${zoneName} gehört nicht zu dieser Umgebung` : 'Diese Umgebung hat noch keine Zone bei Cloudflare' })
-    return out
-  }
-  if (!input.apex && !label) {
-    out.problems.push({ kind: 'format', message: 'Gib einen Namen an, z.B. solar' })
-    return out
-  }
-  const host = input.apex ? zoneName : `${label}.${zoneName}`
-  out.host = host
-  if (!input.apex && (RESERVED_PUBLIC_LABELS as readonly string[]).includes(label)) out.problems.push({ kind: 'reserved', message: `«${label}» ist reserviert` })
-  if (ctx.baseDomain && (host === ctx.baseDomain || host.endsWith(`.${ctx.baseDomain}`))) out.problems.push({ kind: 'internal', message: `${host} liegt unter der internen Basis` })
+  return checkPublicNameIn(project.environmentId, input, project.id)
+}
+
+/**
+ * Dieselbe Prüfung in einer Umgebung, ohne Projekt (Neues Projekt): dann
+ * zählt jede öffentliche Route als vergeben; mit ownProjectId die eigene nicht.
+ */
+export async function checkPublicNameIn(envId: string, input: { label: string; zone?: string; apex?: boolean }, ownProjectId?: string): Promise<PublicNameCheckDto> {
+  const ctx = requireCtx(envId)
+  const domains = await listDomains(inEnvironment(envId)).then((d) => (d.length ? d : syncDomains(ctx.cf, envId)))
+  const out = shapePublicName(input, { zones: domains.map((d) => d.name), mainZone: environmentById(envId)?.zoneName ?? null, baseDomain: ctx.baseDomain })
+  const zone = domains.find((d) => d.name === out.zone)
+  if (!out.host || !zone) return out
+  const host = out.host
   const taken = await db.select({ projectId: schema.routes.projectId }).from(schema.routes).where(and(eq(schema.routes.target, 'public'), eq(schema.routes.hostname, host)))
-  if (taken.some((r) => r.projectId !== project.id)) out.problems.push({ kind: 'taken', message: `${host} ist in Airlock schon vergeben` })
+  markTaken(out, taken.some((r) => r.projectId !== ownProjectId))
   try {
-    const recs = (await ctx.cf.listRecords(zone.zoneId, host)).filter((r) => ['A', 'AAAA', 'CNAME'].includes(r.type))
-    const foreign = recs.find((r) => !isManagedComment(r.comment))
-    if (foreign) {
-      // Worker-Routen und Custom Domains stehen als Platzhalter (AAAA 100:: bzw. A 192.0.2.1) in der Zone
-      const worker = (foreign.type === 'AAAA' && foreign.content === '100::') || (foreign.type === 'A' && foreign.content === '192.0.2.1')
-      out.existing = { type: foreign.type, content: foreign.content, worker }
-      out.problems.push({ kind: 'dns', message: worker
-        ? `Für ${host} gibt es bei Cloudflare schon einen Worker bzw. eine Custom Domain`
-        : `Für ${host} gibt es bei Cloudflare schon einen Eintrag (${foreign.type} → ${foreign.content}), der nicht von Airlock stammt` })
-    }
+    const recs = await ctx.cf.listRecords(zone.zoneId, host)
+    markForeignRecord(out, recs.map((r) => ({ type: r.type, content: r.content, managed: isManagedComment(r.comment) })))
   } catch (err) {
     log.warn('DNS-Prüfung für öffentlichen Namen fehlgeschlagen', { host, err: String(err) })
   }
@@ -591,7 +578,11 @@ export async function applyApprovedRequest(projectId: string): Promise<void> {
   const actor = `${req.approvedBy} (vorgemerkt)`
   try {
     log.info('Vorgemerkte Öffentlich-Anfrage wird ausgeführt', { projectId, actor })
-    await publishFlow(project, { subdomain: req.subdomain ?? undefined, hostname: req.hostname ?? undefined, accessProtected: req.accessProtected }, actor)
+    // Direkt unter der Zone (Neues Projekt, «Direkt unter <zone>»): als Name steht die Zone selbst
+    const apexZone = req.hostname && (await listDomains(inEnvironment(project.environmentId))).some((d) => d.name === req.hostname) ? req.hostname : null
+    await publishFlow(project, apexZone
+      ? { zone: apexZone, apex: true, accessProtected: req.accessProtected }
+      : { subdomain: req.subdomain ?? undefined, hostname: req.hostname ?? undefined, accessProtected: req.accessProtected }, actor)
     await discardPublicRequest(projectId, actor, 'nach bestandenem Scan veröffentlicht')
   } catch (err) {
     const msg = (err as Error).message
