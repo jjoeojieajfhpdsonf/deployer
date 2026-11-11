@@ -172,6 +172,17 @@ const EVENTS: Record<string, Describe> = {
   'github.manifest': () => ({ title: 'GitHub App vorbereitet', category: 'config' }),
   'github.repos': () => ({ title: 'GitHub-Repos abgeglichen', category: 'config' }),
   'github.disconnect': () => ({ title: 'GitHub getrennt', category: 'danger' }),
+
+  // Backup (Server)
+  'backup.settings': () => ({ title: 'Backup-Einstellungen geändert', category: 'config' }),
+  'backup.test': (p) => ({ title: p.initialized ? 'Backup-Repository angelegt' : 'Backup-Verbindung getestet', category: 'config', sub: [str(p.target)] }),
+  'backup.run': (p, e) => ({
+    title: e.result === 'error' ? 'Backup fehlgeschlagen' : p.status === 'warning' ? 'Backup mit Hinweisen' : 'Backup gesichert',
+    category: p.status === 'warning' ? 'error' : 'config',
+    sub: [p.trigger === 'manual' ? 'von Hand' : 'nächtlich', took(num(p.durationMs)) ? `nach ${took(num(p.durationMs))}` : null],
+  }),
+  // «fehlt» im Titel: describeEvent hängt dann kein «– fehlgeschlagen» an
+  'backup.stale': () => ({ title: 'Erfolgreiches Backup fehlt seit über 48 Stunden', category: 'error' }),
 }
 
 /** MCP-Werkzeuge, falls ihr Aufruf allein steht */

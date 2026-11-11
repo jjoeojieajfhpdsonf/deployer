@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "e2e": "tsx --test --test-concurrency=1 --test-timeout=900000 \"e2e/*.e2e.ts\"",
+    "e2e:backup": "tsx scripts/backup-e2e.ts",
     "e2e:cf": "docker compose -f ../../compose.yaml -f e2e/compose.cf-fake.yaml --project-directory ../.. up -d --build airlock && sleep 8 && E2E_CF_FAKE=1 tsx --test --test-concurrency=1 --test-timeout=900000 e2e/m5.e2e.ts; rc=$?; docker compose -f ../../compose.yaml --project-directory ../.. up -d airlock; exit $rc"
   },
   "dependencies": {

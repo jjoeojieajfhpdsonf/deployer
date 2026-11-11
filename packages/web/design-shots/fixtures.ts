@@ -810,6 +810,8 @@ export const notifications: NotifySettingsDto = {
     infra_problem: { push: true, email: false },
     expiry: { push: false, email: false },
     weekly_summary: { push: false, email: false },
+    backup_failed: { push: true, email: true },
+    backup_stale: { push: true, email: true },
   },
 }
 

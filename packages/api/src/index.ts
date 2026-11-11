@@ -24,6 +24,8 @@ import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 import { registerGithub } from './domain/github.js'
 import { startAutoDeployJob } from './jobs/auto-deploy.js'
+import { startBackupJob } from './jobs/backup.js'
+import { abandonUnfinishedBackups } from './backup/run.js'
 
 async function main(): Promise<void> {
   log.info('Airlock startet', { version: config.version, env: config.NODE_ENV })
@@ -95,6 +97,11 @@ async function main(): Promise<void> {
   // M8: GitHub App im Fix-Assistenten, Auto-Deploy nach Merge (Polling)
   registerGithub()
   startAutoDeployJob()
+  // Meilenstein Backup: abgebrochene Läufe abschliessen, nächtlicher Lauf und «48 h ohne Erfolg»
+  await abandonUnfinishedBackups()
+    .then((n) => n && log.warn('Abgebrochene Backup-Läufe als gescheitert markiert', { läufe: n }))
+    .catch((err) => log.warn('Backup-Läufe nicht bereinigt', { err: String(err) }))
+  startBackupJob()
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })

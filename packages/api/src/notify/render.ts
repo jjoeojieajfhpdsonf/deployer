@@ -14,6 +14,9 @@ export const notifyEvents = [
   'infra_problem',
   'expiry',
   'weekly_summary',
+  // Meilenstein Backup, Etappe 2
+  'backup_failed',
+  'backup_stale',
 ] as const
 export type NotifyEvent = (typeof notifyEvents)[number]
 
@@ -30,6 +33,9 @@ export const DEFAULT_MATRIX: Matrix = {
   infra_problem: { push: true, email: true },
   expiry: { push: false, email: true },
   weekly_summary: { push: false, email: true },
+  // Ohne Backup fällt es erst auf, wenn man es braucht: beide Kanäle
+  backup_failed: { push: true, email: true },
+  backup_stale: { push: true, email: true },
 }
 
 export const EVENT_LABEL: Record<NotifyEvent, string> = {
@@ -41,6 +47,8 @@ export const EVENT_LABEL: Record<NotifyEvent, string> = {
   infra_problem: 'Tunnel oder Zertifikat mit Problem',
   expiry: 'Chat-Projekt läuft ab oder wurde gestoppt',
   weekly_summary: 'Wöchentliche Zusammenfassung',
+  backup_failed: 'Backup fehlgeschlagen',
+  backup_stale: 'Seit über 48 Stunden kein erfolgreiches Backup',
 }
 
 export interface Message {
@@ -82,6 +90,8 @@ const PRIORITY: Record<NotifyEvent, number> = {
   infra_problem: 5,
   expiry: 3,
   weekly_summary: 2,
+  backup_failed: 4,
+  backup_stale: 4,
 }
 
 export function renderMessage(event: NotifyEvent, data: Record<string, unknown>): Message {
@@ -109,5 +119,17 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
       return { title: `${s('project')} ${data.stopped ? 'wurde gestoppt' : `läuft am ${s('date')} ab`}`, body: data.stopped ? `Das Chat-Projekt wurde nach ${s('days')} Tagen ohne Änderung gestoppt. Starten mit einem Klick oder per MCP (start).` : `Ohne Änderung wird das Chat-Projekt am ${s('date')} gestoppt. «Behalten» schaltet den Ablauf ab.`, priority: PRIORITY[event] }
     case 'weekly_summary':
       return { title: 'Airlock: Wochenübersicht', body: s('text'), priority: PRIORITY[event] }
+    case 'backup_failed':
+      return {
+        title: 'Backup fehlgeschlagen',
+        body: `${data.trigger === 'manual' ? 'Die von Hand gestartete' : 'Die nächtliche'} Sicherung${data.target ? ` nach ${s('target')}` : ''} ist gescheitert:\n${s('error')}${data.lastSuccess ? `\nLetztes erfolgreiches Backup: ${s('lastSuccess')}` : '\nEs gibt noch kein erfolgreiches Backup.'}`,
+        priority: PRIORITY[event],
+      }
+    case 'backup_stale':
+      return {
+        title: 'Seit über 48 Stunden kein Backup',
+        body: `${data.lastSuccess ? `Das letzte erfolgreiche Backup ist vom ${s('lastSuccess')}.` : 'Es gibt noch kein erfolgreiches Backup.'}${data.lastError ? `\nLetzter Fehler: ${s('lastError')}` : ''}\nPrüfen unter Server › Backup.`,
+        priority: PRIORITY[event],
+      }
   }
 }

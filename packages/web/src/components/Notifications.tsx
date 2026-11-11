@@ -17,6 +17,8 @@ const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'infra_problem', label: 'Infrastruktur-Problem' },
   { key: 'expiry', label: 'Chat-Projekt läuft ab' },
   { key: 'weekly_summary', label: 'Wochenübersicht' },
+  { key: 'backup_failed', label: 'Backup fehlgeschlagen' },
+  { key: 'backup_stale', label: 'Über 48 Stunden kein Backup' },
 ]
 
 /**
