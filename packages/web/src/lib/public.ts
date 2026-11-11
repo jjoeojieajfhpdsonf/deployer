@@ -60,7 +60,7 @@ function message(name: string, a: PublicAction, r: Awaited<ReturnType<typeof cal
   const host = r.hostname ?? r.status.hostname ?? ''
   switch (a.op) {
     case 'publish': case 'republish': return { title: `«${name}» ist öffentlich`, description: `https://${host}` }
-    case 'access': return { title: a.access ? 'Cloudflare Access ist an' : 'Cloudflare Access ist aus', description: a.access ? `${host} verlangt jetzt einen Login per E-Mail-Code.` : `${host} ist ohne Login erreichbar.` }
+    case 'access': return { title: a.access ? 'Cloudflare Access ist an' : 'Cloudflare Access ist aus', description: a.access ? `${host} verlangt jetzt eine Anmeldung per E-Mail-Code.` : `${host} ist ohne Anmeldung erreichbar.` }
     case 'pause': return { title: `«${name}» ist pausiert`, description: `Unter ${host} erscheint eine Wartungsseite.` }
     case 'resume': return { title: `«${name}» ist wieder online`, description: `https://${host}` }
     case 'unpublish': return { title: `«${name}» ist nicht mehr öffentlich`, description: `${host} ist frei. Intern bleibt das Projekt erreichbar.` }

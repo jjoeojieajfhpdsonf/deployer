@@ -29,7 +29,7 @@ export interface SetupStepState {
 export const STEP_TITLE: Record<SetupStep, string> = {
   passwort: 'Eigenes Passwort',
   cloudflare: 'Cloudflare verbinden',
-  adressen: 'Tailscale und Adressen',
+  adressen: 'Tailnet und Adressen',
   zertifikat: 'Zertifikat für HTTPS',
   projekt: 'Erstes Projekt',
 }
@@ -66,11 +66,11 @@ export function useSetup() {
       action: { label: 'Cloudflare einrichten', to: '/system/cloudflare' },
     },
     adressen: {
-      why: 'Eine Basisdomain gibt Projekten feste Namen; die Tailscale-Adresse macht sie unterwegs erreichbar.',
+      why: 'Eine Basisdomain gibt Projekten feste Namen; die Tailnet-Adresse macht sie unterwegs erreichbar.',
       done: Boolean(s?.baseDomain && s.tls.tailscaleIp),
       detail: !s ? unknown : s.baseDomain && s.tls.tailscaleIp ? `*.${s.baseDomain}, Tailnet über ${s.tls.tailscaleIp}.`
-        : !s.baseDomain && !s.tls.tailscaleIp ? 'Weder Basisdomain noch Tailscale-Adresse – Projekte laufen über nip.io im LAN.'
-        : !s.baseDomain ? 'Tailscale ist da, die Basisdomain fehlt.' : 'Basisdomain ist da, die Tailscale-Adresse fehlt.',
+        : !s.baseDomain && !s.tls.tailscaleIp ? 'Weder Basisdomain noch Tailnet-Adresse – Projekte laufen über nip.io im LAN.'
+        : !s.baseDomain ? 'Die Tailnet-Adresse ist da, die Basisdomain fehlt.' : 'Basisdomain ist da, die Tailnet-Adresse fehlt.',
       action: { label: 'Adressen prüfen', to: '/system' },
     },
     zertifikat: {

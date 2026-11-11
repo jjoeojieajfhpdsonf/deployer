@@ -261,7 +261,7 @@ function Rail() {
     },
     // UI-Qualität 6: Externe Ziele → Reiter unter Security, Domains → Einstellungen › Cloudflare & HTTPS,
     // Tokens über Konto und Befehlspalette
-    { to: ep('/audit'), label: 'Audit', icon: <IconList /> },
+    { to: ep('/audit'), label: 'Audit-Log', icon: <IconList /> },
     { to: ep('/einstellungen'), label: 'Einstellungen', icon: <IconSliders /> },
   ] : []
 

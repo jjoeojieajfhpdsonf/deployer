@@ -1376,7 +1376,7 @@ export const cfDomainsSchema = z.object({
   tailscaleIp: z
     .string()
     .trim()
-    .regex(/^$|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/, 'Eine Tailscale-Adresse im Bereich 100.64.0.0/10, z.B. 100.101.102.103 – oder leer lassen')
+    .regex(/^$|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/, 'Eine Tailnet-Adresse im Bereich 100.64.0.0/10, z.B. 100.101.102.103 – oder leer lassen')
     .nullable()
     .optional(),
   accessEmail: optionalEmail,

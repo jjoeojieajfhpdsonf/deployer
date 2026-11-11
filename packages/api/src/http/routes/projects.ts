@@ -159,7 +159,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const { entries } = putEnvSchema.parse(request.body)
     const seen = new Set<string>()
     for (const e of entries) {
-      if (seen.has(e.key)) throw badRequest(`Die Variable "${e.key}" kommt doppelt vor`)
+      if (seen.has(e.key)) throw badRequest(`Die Umgebungsvariable "${e.key}" kommt doppelt vor`)
       seen.add(e.key)
     }
     await replaceEnv(project.id, entries)

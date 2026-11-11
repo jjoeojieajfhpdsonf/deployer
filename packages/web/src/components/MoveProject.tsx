@@ -34,7 +34,7 @@ export function MoveProject({ p }: { p: ProjectDto }) {
   return (
     <fieldset className="field-group move-card" aria-describedby={`${id}-hint`}>
       <legend>In andere Umgebung verschieben</legend>
-      <p className="hint" id={`${id}-hint`}>Container, Versionen, Scans und Secrets bleiben, wie sie sind. Es ändern sich die Adressen und die geerbten Standards.</p>
+      <p className="hint" id={`${id}-hint`}>Container, Versionen, Scans und Umgebungsvariablen bleiben, wie sie sind. Es ändern sich die Adressen und die geerbten Standards.</p>
       {others.length === 0 ? (
         <p className="hint">Es gibt nur diese Umgebung. Eine weitere unter <Link to="/umgebungen/neu">Umgebung anlegen</Link>.</p>
       ) : (

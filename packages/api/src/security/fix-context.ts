@@ -11,7 +11,7 @@ import { headerFixFor } from '@airlock/shared'
 /** Ersetzt eine Zeile, in der Trivy ein Secret gefunden hat. */
 export const SECRET_LINE_MARK = '«Airlock: Zeile entfernt, sie enthält ein Secret»'
 /** Ersetzt einen Wert aus der Projekt-Env. */
-export const ENV_VALUE_MARK = '«Airlock: Wert aus der Projekt-Env»'
+export const ENV_VALUE_MARK = '«Airlock: Wert aus den Umgebungsvariablen des Projekts»'
 
 /** Dateien, die nie an Claude gehen (Env-Dateien, Schlüssel). */
 export function isWithheld(path: string): boolean {

@@ -1,37 +1,67 @@
 # Sprache und Texte der Oberfläche
 
-**Status: Vorschlag.** Nichts davon ist umbenannt. Die Wahl zwischen (a) und (b) trifft Joël
-(Frage Nr. 1 in `docs/FRAGEN-NACHT.md`); danach wird in einer eigenen Etappe umbenannt.
+**Status: entschieden – Variante (b), verbindlich.** Antwort von Joël auf Frage Nr. 1 in
+`docs/FRAGEN-NACHT.md`:
 
-Grundlage: die Begriffe, wie sie heute in `packages/web/src` stehen (Navigation, Reiter,
-Abschnitte, Knöpfe, Zustände; Stand Branch `ui-grundlagen`).
+> (b) – feste Liste bleibt englisch, alles andere deutsch. Uneinheitlichkeiten auf je ein Wort
+> bringen (immer «Audit-Log», «Umgebungsvariablen», «Rollback» im Text / «Zurückrollen» als
+> Knopf, «Tailnet» in der Oberfläche). Umbenennen als eigene Etappe.
 
-## Heute: gemischt und uneinheitlich
+Die Umbenennung ist erledigt (Branch `ui-antwort-sprache`). Sie betrifft nur sichtbare Texte:
+Oberfläche (`packages/web/src`), Texte, die die API an die Oberfläche liefert (Fehlermeldungen,
+Fortschritt, Fehlererklärungen in `packages/shared/src`) und die MCP-Beschreibungen. Code-Bezeichner,
+Routen, Anker (`#set-umgebung`), API-Felder und Datenbank bleiben, wie sie sind.
 
-Die Oberfläche ist deutsch, mit englischen Fachwörtern dazwischen – ohne feste Regel:
+## Verbindliche Liste (b)
 
-- Navigation: *Projekte*, *Security*, *Domains*, *Externe Ziele*, *Tokens*, *Audit*, *System*.
-- Reiter einer Projektseite: *Übersicht*, *Security*, *Deployments*, *Logs* (bei statischen Seiten
-  *Zugriffe*), *Einstellungen*.
-- Einstellungen: *Veröffentlichung*, *Erreichbarkeit*, *Umgebung*, *Security-Header*,
-  *Auto-Deploy*, *Ablauf*, *Gefahrenzone*.
-- System: *Übersicht*, *Cloudflare & HTTPS*, *Veröffentlichung*, *Benachrichtigungen*, *GitHub*.
+Diese Wörter bleiben englisch: **Deploy, Deployment, deployen, Rollback, Security, Scan, Score,
+Header, Report-Only, Healthcheck, Container, Image, Compose, Dockerfile, Repo, Commit,
+Pull Request, Merge, Log/Logs, Audit-Log, Token, Auto-Deploy, Upload, Tunnel**; dazu die Eigennamen
+(Cloudflare, Cloudflare Access, GitHub, Caddy, Trivy, ZAP, Nuclei, Let’s Encrypt, Tailscale,
+Claude, MCP) und Header-Namen, wie sie die Browser-Werkzeuge zeigen (CSP, HSTS,
+Referrer-Policy …). Alles, was nicht auf der Liste steht, ist deutsch. Neue englische Wörter
+kommen nur nach Entscheid dazu.
 
-Uneinheitlich sind u. a.:
+## Uneinheitlichkeiten
 
-| Gleiche Sache | Heute an verschiedenen Stellen |
-|---|---|
-| ein Deploy auslösen | «Neu deployen», «Erneut deployen», «Anlegen und deployen», Status «deployt» |
-| frühere Fassung zurück | Knopf «Zurückrollen», Wort «Rollback» in Hinweisen und im Audit |
-| was mitgeschrieben wird | «Audit», «Audit-Log», «Aktivität», «Letzte Aktivität» |
-| Ausgabe des Containers | «Logs» (Reiter), «Container-Ausgabe», «Container-Log» |
-| Umgebungsvariablen | «Umgebung», «Variablen», «Umgebungsvariablen» |
-| Sicherheit | «Security» (Navigation, Reiter), «Security-Header», aber «Befund», «Note», «Stufen» |
-| öffentlich weg | «Offline nehmen», «Pausieren», «Ganz offline nehmen», «Nicht mehr öffentlich» |
-| Zugangsschlüssel | «Tokens» (Navigation), «Token» (Einzahl), «API-Token» in Texten |
-| Tailscale | «Tailnet» (Adressen, Schalter), «Tailscale» (Hinweise) |
+| Gleiche Sache | Vorher | Jetzt | Stand |
+|---|---|---|---|
+| was mitgeschrieben wird | «Audit» (Seitenleiste, Seitentitel, Brotkrumen), «Audit-Log» | immer **«Audit-Log»** (Seitenleiste, Titel, Brotkrumen, Befehlspalette, Kürzel-Hilfe, Glocke); «Aktivität» bleibt für die Zeitleiste eines Projekts | erledigt |
+| Umgebungsvariablen | «Umgebung» (Abschnitt der Projekteinstellungen, Eckdaten), «Variablen», «Variable X fehlt», «Projekt-Env» | immer **«Umgebungsvariablen»** (Abschnitt, Knöpfe «Umgebungsvariable hinzufügen» / «Umgebungsvariablen speichern», Eckdaten, Fehlerbox «Umgebungsvariable X fehlt», Fehlermeldungen der API, MCP); Zahlen darunter als «3 gesetzt» | erledigt |
+| frühere Fassung zurück | Knopf «Zurückrollen», «Rollback» und «zurückrollen» in Sätzen | **«Rollback»** im Text, **«Zurückrollen»** auf dem Knopf (Hinweis nennt den Knopf «Zurückrollen» in Guillemets) | erledigt |
+| Tailscale | «Tailnet» (Adressen, Schalter), «Tailscale», «Tailscale-IP», «Tailscale-Adresse» (Hinweise) | **«Tailnet»**, «Tailnet-IP», «Tailnet-Adresse», wo das Netz gemeint ist; «Tailscale» nur für das Programm («Tailscale auf dem Server einrichten», Subnet-Router) | erledigt |
+| ein Deploy auslösen | «Neu deployen», «Erneut deployen», «Anlegen und deployen», Status «deployt» | unverändert (verschiedene Aktionen, alle mit «deployen» von der Liste) | offen, nicht Teil dieser Etappe |
+| Ausgabe des Containers | «Logs» (Reiter), «Container-Ausgabe», «Container-Log» | unverändert | offen, nicht Teil dieser Etappe |
+| öffentlich weg | «Offline nehmen», «Pausieren», «Ganz offline nehmen», «Nicht mehr öffentlich» | unverändert (verschiedene Zustände) | offen, nicht Teil dieser Etappe |
+| Zugangsschlüssel | «Tokens», «Token», «API-Token» | unverändert (alle mit «Token» von der Liste) | offen, nicht Teil dieser Etappe |
 
-## Glossar mit zwei Varianten
+Bewusst so gelassen:
+
+- **«Umgebung»** im Sinn von Meilenstein 9 (Arbeitsbereich wie jherren.com: Umschalter, «Umgebung
+  anlegen», «Einstellungen der Umgebung») bleibt «Umgebung». Nur wo die Variablen gemeint waren,
+  heisst es jetzt «Umgebungsvariablen».
+- **Partizipien** «zurückgerollt» (Status einer Fassung) und «Zurückgerollt» (Titel in Aktivität und
+  Deployments) bleiben: Sie sind das Verb des Knopfs, wie «deployt» zu «deployen».
+- **«Rollback»** bleibt in den MCP-Werkzeugnamen und in der Beschreibung `rollback` («Auf eine
+  frühere Fassung zurückrollen») – dort ist es die Aktion, wie auf dem Knopf.
+- **«Secret»** in Befundtiteln von Trivy («Secret im Code») und in den Texten für Claude: der
+  Befundtitel ist gespeichert und wird zum Zuordnen des Lösungswegs gelesen.
+
+## Englische Wörter ausserhalb der Liste
+
+Übersetzt: «Redeploy» → «neuer Deploy» (Security-Header), «Login» → «Anmeldung» (Cloudflare
+Access, wie schon «Anmeldungen zeigen» im Audit-Log), «Secrets» → «geheime Werte» bzw.
+«Umgebungsvariablen» (GitHub App entfernen, Projekt verschieben), «Projekt-Env» →
+«Umgebungsvariablen des Projekts» (API, MCP).
+
+**Zur Entscheidung (noch englisch, nicht auf der Liste):** Branch, Build (Build-Befehl, Build-Log),
+Diff, Fix/Fixes, Push (ntfy), Live («Live folgen»), Wildcard-Zertifikat, «nicht proxied»
+(Cloudflare-Begriff), Secret (Befunde), Subnet-Router, Header-Check, Cipher. Für jedes: auf die
+Liste nehmen oder übersetzen.
+
+## Glossar mit zwei Varianten (Entscheidungsgrundlage)
+
+Gilt: Spalte (b). Spalte (a) bleibt als Herleitung stehen.
 
 - **(a) alles deutsch:** jedes Wort der Oberfläche deutsch; englisch nur Eigennamen (Cloudflare,
   GitHub, Caddy, Trivy, ZAP, Nuclei, Let’s Encrypt, Claude, MCP) und Header-Namen, die man so in
@@ -39,7 +69,7 @@ Uneinheitlich sind u. a.:
 - **(b) feste Liste bleibt englisch:** Fachwörter, die in Docker, Git, Browsern und bei Claude genau
   so heissen, bleiben englisch (Liste unten); alles andere deutsch.
 
-| Heute | (a) alles deutsch | (b) feste Liste englisch | Wo |
+| Vorher | (a) alles deutsch | (b) feste Liste englisch – gilt | Wo |
 |---|---|---|---|
 | Projekte | Projekte | Projekte | Navigation, Titel |
 | Security | Sicherheit | Security | Navigation, Reiter |
@@ -84,12 +114,9 @@ Uneinheitlich sind u. a.:
 | Per Chat (MCP) | Per Chat (MCP) | Per Chat (MCP) | Neues Projekt, Tokens |
 | Vorgänge | Vorgänge | Vorgänge | Kopf (Aktivitätsanzeige) |
 
-**Feste Liste für (b):** Deploy, Deployment, deployen, Rollback, Security, Scan, Score, Header,
-Report-Only, Healthcheck, Container, Image, Compose, Dockerfile, Repo, Commit, Pull Request, Merge,
-Log/Logs, Audit-Log, Token, Auto-Deploy, Upload, Tunnel; dazu die Eigennamen.
-Alles, was nicht auf der Liste steht, ist deutsch.
+Die feste Liste steht oben unter «Verbindliche Liste (b)».
 
-## Empfehlung: (b)
+## Begründung für (b) (Empfehlung, so entschieden)
 
 Begründung:
 
@@ -104,9 +131,9 @@ Begründung:
    («Neu deployen» ist ein deutsches Verb aus einem englischen Stamm).
 
 Was (b) trotzdem verlangt: Die Liste ist abschliessend. Neue englische Wörter kommen nur nach
-Entscheid dazu; alles andere wird deutsch. Die Uneinheitlichkeiten oben werden auf **ein** Wort
-gebracht (z. B. immer «Audit-Log», immer «Umgebungsvariablen», immer «Rollback» im Text und
-«Zurückrollen» als Knopf).
+Entscheid dazu; alles andere wird deutsch. Die Uneinheitlichkeiten oben sind auf **ein** Wort
+gebracht (immer «Audit-Log», immer «Umgebungsvariablen», «Rollback» im Text und «Zurückrollen»
+als Knopf, «Tailnet» in der Oberfläche).
 
 ## Text-Leitfaden
 

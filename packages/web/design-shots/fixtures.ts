@@ -698,9 +698,9 @@ export function audit(targetId?: string): AuditEventDto[] {
     [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
     [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
     [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
-    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Umgebungsvariable SENSOR_URL fehlt (Healthcheck nicht bestanden)'],
     // Antwort 11: Benachrichtigungen als Ereignisse (Glocke)
-    [13 * MIN + 29_000, 'system', 'notify.deploy_failed', 'p-wetter', 'ok', null, { title: 'Deploy fehlgeschlagen: Wetterstation', body: 'Variable SENSOR_URL fehlt (Healthcheck nicht bestanden)\nDie vorherige Fassung läuft weiter.' }],
+    [13 * MIN + 29_000, 'system', 'notify.deploy_failed', 'p-wetter', 'ok', null, { title: 'Deploy fehlgeschlagen: Wetterstation', body: 'Umgebungsvariable SENSOR_URL fehlt (Healthcheck nicht bestanden)\nDie vorherige Fassung läuft weiter.' }],
     [50 * MIN, 'system', 'notify.gateway_warning', 'notify', 'ok', null, { title: 'Anfragen über das Docker-Gateway', body: 'In den letzten 30 Minuten kamen 9 von 14 fremden Anfragen auf Airlock von 172.20.0.1.' }],
     [3 * HOUR - 1_000, 'system', 'notify.finding_critical', 'p-kontoauszug', 'ok', null, { title: '1 neuer kritischer Befund: Kontoauszug-Reader', body: '• Veraltete Bibliothek mit bekannter Lücke (package-lock.json)' }],
     [6 * HOUR, 'system', 'notify.expiry', H, 'ok', null, { title: 'hallo-welt läuft am 18.11.2026 ab', body: 'Ohne Änderung wird das Chat-Projekt am 18.11.2026 gestoppt.' }],

@@ -52,7 +52,7 @@ export function EnvEditor({
           <div key={i} className="env-row">
             <input
               {...props(kName)}
-              aria-label={`Name der Variable ${i + 1}`}
+              aria-label={`Name der Umgebungsvariable ${i + 1}`}
               aria-invalid={keyError ? true : undefined}
               aria-describedby={keyError ? `${fieldId(kName)}-error` : undefined}
               placeholder="DATABASE_URL"
@@ -63,7 +63,7 @@ export function EnvEditor({
             />
             <input
               {...props(vName)}
-              aria-label={`Wert der Variable ${i + 1}`}
+              aria-label={`Wert der Umgebungsvariable ${i + 1}`}
               type={row.isSecret ? 'password' : 'text'}
               placeholder={row.stored && row.isSecret ? 'gespeichert – leer lassen zum Behalten' : 'Wert'}
               value={row.value}
@@ -78,7 +78,7 @@ export function EnvEditor({
               />
               geheim
             </label>
-            <button type="button" onClick={() => onChange(rows.filter((_, idx) => idx !== i))} aria-label={`Variable ${row.key || i + 1} entfernen`}>
+            <button type="button" onClick={() => onChange(rows.filter((_, idx) => idx !== i))} aria-label={`Umgebungsvariable ${row.key || i + 1} entfernen`}>
               Entfernen
             </button>
             {keyError && <FieldError id={fieldId(kName)} message={keyError} />}
@@ -88,7 +88,7 @@ export function EnvEditor({
       })}
 
       <button type="button" onClick={() => onChange([...rows, { key: '', value: '', isSecret: false }])}>
-        Variable hinzufügen
+        Umgebungsvariable hinzufügen
       </button>
     </fieldset>
   )

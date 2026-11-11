@@ -308,7 +308,7 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
       <div className="section-head findings-head">
         <div>
           <h2 id="header-caddy-title">Header über Caddy</h2>
-          <p>Caddy ergänzt diese Header nur, wenn die App sie nicht selbst setzt. Kein Redeploy nötig.</p>
+          <p>Caddy ergänzt diese Header nur, wenn die App sie nicht selbst setzt. Kein neuer Deploy nötig.</p>
         </div>
       </div>
       {!d.viaCaddy && (

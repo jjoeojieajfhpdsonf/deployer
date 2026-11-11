@@ -316,7 +316,7 @@ export async function applyPublic(plan: PublicPlan, actor: string, progress?: Pr
 
     // 4. Access abgeschaltet: App weg (erst nach dem Speichern, dann ist der Stand konsistent)
     if (!plan.access && accessAppId) await cf.deleteAccessApp(ctx.accountId, accessAppId).catch((e) => log.warn('Access-App nicht entfernt', { err: String(e) }))
-    progress?.set('access', 'done', plan.access ? 'Login per E-Mail-Code vorgeschaltet' : 'ohne Login')
+    progress?.set('access', 'done', plan.access ? 'Anmeldung per E-Mail-Code vorgeschaltet' : 'ohne Anmeldung')
 
     // 5. Alter Name (bei Umbenennung) aus DNS und Access entfernen
     if (before && before.hostname !== hostname) await dropCloudflareObjects(cf, ctx.accountId, before).catch((e) => log.warn('Alter öffentlicher Name nicht vollständig entfernt', { err: String(e) }))
@@ -409,7 +409,7 @@ async function dropCloudflareObjects(cf: Cloudflare, accountId: string, route: {
   }
   pr?.start('access')
   if (route.cfAccessAppId) await cf.deleteAccessApp(accountId, route.cfAccessAppId)
-  pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Login-Schutz entfernt' : 'war nicht eingeschaltet')
+  pr?.set('access', route.cfAccessAppId ? 'done' : 'skipped', route.cfAccessAppId ? 'Anmeldung per E-Mail-Code entfernt' : 'war nicht eingeschaltet')
 }
 
 /* --- Pausieren und Fortsetzen ----------------------------------------------------- */

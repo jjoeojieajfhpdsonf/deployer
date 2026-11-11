@@ -319,7 +319,7 @@ export function DomainsStep({ s, onSaved, onCancel }: { s: CfStatusDto; onSaved:
         </select>
       </Field>
 
-      <Field id={v.idFor('tailscaleIp')} label="Tailscale-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: Airlock legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall mit Tailscale.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
+      <Field id={v.idFor('tailscaleIp')} label="Tailnet-IP des Servers" error={e.tailscaleIp} hint={<>Die Hauptadresse: Airlock legt <code>*.{preview}</code> → diese IP bei Cloudflare an (nicht proxied), die internen Namen gehen so überall im Tailnet.{s.detectedTailscaleIp ? <> Auf dem Server erkannt: <code>{s.detectedTailscaleIp}</code>.</> : null}</>}>
         <input {...v.field('tailscaleIp', `${v.idFor('tailscaleIp')}-hint`)} value={tailscaleIp} onChange={(x) => setTailscaleIp(x.target.value)} placeholder="100.101.102.103" inputMode="decimal" spellCheck={false} />
       </Field>
 

@@ -95,7 +95,7 @@ type Shot = {
   path: string
   loggedIn?: boolean
   full?: boolean
-  /** Leere Daten (keine Projekte, kein Audit) */
+  /** Leere Daten (keine Projekte, kein Audit-Log) */
   empty?: boolean
   /** Kaputte Projektliste (Projekt ohne Felder): zeigt die Fehlerseite der Error Boundary */
   broken?: boolean
@@ -291,7 +291,7 @@ const shots: Shot[] = [
     group: 'sitzung', name: 'sitzung-abgelaufen', path: '/projekte', full: false,
     prepare: async (pg) => {
       await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
-      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('link', { name: /^Audit-Log/ }).first().click()
       await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).waitFor()
       await pg.waitForTimeout(250)
     },
@@ -300,13 +300,13 @@ const shots: Shot[] = [
     // Speichern scheitert an der abgelaufenen Sitzung: der Dialog nennt, was nicht ausgeführt wurde
     group: 'sitzung', name: 'sitzung-abgelaufen-aktion', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
       const row = pg.locator('#set-umgebung .env-row').last().locator('input')
       await row.nth(0).fill('API_KEY')
       await row.nth(1).fill('geheim')
       await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
-      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
-      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await pg.getByRole('button', { name: 'Umgebungsvariablen speichern' }).click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).getByText('Umgebungsvariablen nicht gespeichert', { exact: false }).waitFor()
       await pg.waitForTimeout(250)
     },
   },
@@ -314,15 +314,15 @@ const shots: Shot[] = [
     // Antwort 16: nach der Anmeldung «Erneut ausführen» für die gescheiterte Aktion (nichts automatisch)
     group: 'sitzung', name: 'sitzung-erneut-ausfuehren', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
       const row = pg.locator('#set-umgebung .env-row').last().locator('input')
       await row.nth(0).fill('API_KEY')
       await row.nth(1).fill('geheim')
       const unauthorized = (r: import('@playwright/test').Route) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' })
       await pg.route('**/api/v1/**', unauthorized)
-      await pg.getByRole('button', { name: 'Variablen speichern' }).click()
+      await pg.getByRole('button', { name: 'Umgebungsvariablen speichern' }).click()
       const dialog = pg.getByRole('dialog', { name: 'Sitzung abgelaufen' })
-      await dialog.getByText('Variablen nicht gespeichert', { exact: false }).waitFor()
+      await dialog.getByText('Umgebungsvariablen nicht gespeichert', { exact: false }).waitFor()
       await pg.unroute('**/api/v1/**', unauthorized)
       await dialog.getByLabel('Passwort').fill('test-passwort')
       await dialog.getByRole('button', { name: 'Anmelden' }).click()
@@ -333,9 +333,9 @@ const shots: Shot[] = [
   {
     group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Umgebungsvariable hinzufügen' }).click()
       await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
-      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('link', { name: /^Audit-Log/ }).first().click()
       await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
       await pg.waitForTimeout(250)
     },
