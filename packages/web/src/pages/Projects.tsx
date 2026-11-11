@@ -211,7 +211,7 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
         {crit > 0 ? (
           <div className="stat-value tone-bad">{crit} kritisch</div>
         ) : high > 0 ? (
-          <div className="stat-value tone-warn">{high} hoch</div>
+          <div className="stat-value tone-bad tone-high">{high} hoch</div>
         ) : (
           <div className="stat-value">{rest > 0 ? rest : '0'}</div>
         )}
@@ -515,11 +515,12 @@ function SecurityCell({ p }: { p: ProjectDto }) {
     const note = s?.status === 'running' || s?.status === 'queued' ? 'scannt' : p.status === 'deploying' ? 'nach Deploy' : s?.status === 'failed' ? 'Scan fehlgeschlagen' : 'kein Scan'
     return <div className="grade-cell"><span className="grade grade-none" aria-hidden="true">–</span>{note}</div>
   }
-  const serious = s.open.critical > 0 ? `${s.open.critical} kritisch` : s.open.high > 0 ? `${s.open.high} hoch` : null
+  // Schwerster offener Befund in der Form seiner Stufe (UI-Qualität 7)
+  const serious = s.open.critical > 0 ? { sev: 'critical', text: `${s.open.critical} kritisch` } : s.open.high > 0 ? { sev: 'high', text: `${s.open.high} hoch` } : null
   return (
     <div className="grade-cell" title={`Note ${s.grade}, Score ${s.score} von 100`}>
       <span className={`grade grade-${s.grade}`}>{s.grade}</span>
-      {serious ? <span>{s.score} · {serious}</span> : <span>{s.score} / 100</span>}
+      {serious ? <span>{s.score} · <span className={`sev sev-compact sev-${serious.sev}`}>{serious.text}</span></span> : <span>{s.score} / 100</span>}
       {(s.status === 'running' || s.status === 'queued') && <span className="muted">· scannt</span>}
     </div>
   )

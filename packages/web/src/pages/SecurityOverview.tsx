@@ -70,7 +70,7 @@ function ProjectsSecurity({ tabs }: { tabs: React.ReactNode }) {
         </div>
         <div className="stat">
           <div className="label">Hoch</div>
-          <div className={`stat-value${sum('high') ? ' tone-warn' : ''}`}>{sum('high')}</div>
+          <div className={`stat-value${sum('high') ? ' tone-bad tone-high' : ''}`}>{sum('high')}</div>
           <div className="stat-sub">zeitnah beheben</div>
         </div>
         <div className="stat">

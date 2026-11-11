@@ -149,7 +149,7 @@ Farbe trägt Bedeutung, nie allein: immer zusammen mit einem Wort oder einer Zah
 | Rot (`--bad`) | etwas ist kaputt oder gefährlich | Deploy gescheitert, nichts läuft, kritische und hohe Befunde, Fehlermeldungen, Löschen |
 | Gelb (`--warn`) | Aufmerksamkeit, aber nichts kaputt | mittlere Befunde, Warnungen im Log, bald ablaufend, pausiert |
 | Grün (`--ok`) | in Ordnung | läuft, gesund, erreichbar, keine offenen Befunde |
-| Blau (`--info`) | läuft gerade / Hinweis | deployt gerade, Scan läuft, Hinweise |
+| Blau (`--info`) | läuft gerade / Hinweis | deployt gerade, Scan läuft, Hinweise; Note B (gut, nicht sehr gut) |
 | Grau (`--ink-dim`, `--muted`) | neutral | niedrige Befunde, übersprungen, gestoppt, nicht deployt |
 
 **Schweregrade** haben je eine eigene Form, nicht nur eine eigene Farbe – die Reihenfolge ist
@@ -157,10 +157,13 @@ auch ohne Farbe lesbar:
 
 | Stufe | Darstellung |
 |---|---|
-| kritisch | gefüllt rot, Schrift in der Grundfarbe, fett |
-| hoch | rot getönt, rote Schrift |
-| mittel | gelb getönt, gelbe Schrift |
-| niedrig | neutral grau |
+| kritisch | gefüllt rot, Schrift in der Grundfarbe, fett; Zeichen: Quadrat gefüllt, Kennzahl: Punkt gefüllt |
+| hoch | rot getönt, rote Schrift; Zeichen: Quadrat mit Rand, Kennzahl: Ring |
+| mittel | gelb getönt, gelbe Schrift; Zeichen: Kreis gefüllt |
+| niedrig | neutral grau mit feinem Rand; Zeichen: Kreis leer |
+
+Zähler (Seitenleiste, Reiter) nehmen die Form der schwersten offenen Stufe an: gefüllt bei
+kritisch, rot getönt bei hoch, gelb getönt bei mittel.
 
 Immer mit dem Wort («kritisch», «hoch», «mittel», «niedrig»). Die Bausteine zeigt `/design`.
 

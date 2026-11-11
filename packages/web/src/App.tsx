@@ -175,7 +175,8 @@ function Rail() {
     {
       to: '/security', label: 'Security', icon: <IconShield />,
       // Zahl = offene kritische + hohe Befunde; bei 0 keine Zahl. Tooltip und Name sagen, was sie zählt
-      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-bad' : 'rail-count-warn'}`} aria-hidden="true" title={urgentText}>{urgent}</span> : null,
+      // Kritisch dabei: gefüllt; nur hohe: rot getönt (Farbregel, UI-Qualität 7)
+      count: urgent > 0 ? <span className={`rail-count ${critical ? 'rail-count-critical' : 'rail-count-bad'}`} aria-hidden="true" title={urgentText}>{urgent}</span> : null,
       countText: urgentText,
     },
     // UI-Qualität 6: vier Bereiche. Domains → System › Cloudflare & HTTPS, Externe Ziele → Reiter unter Security

@@ -308,6 +308,7 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 }
 .rail-nav a.active .rail-count { background: var(--surface); }
 .rail-nav a .rail-count-bad { color: var(--bad); background: var(--bad-bg); }
+.rail-nav a .rail-count-critical, .rail-nav a.active .rail-count-critical { color: var(--bg); background: var(--bad); font-weight: 700; }
 .rail-nav a .rail-count-warn { color: var(--warn); background: var(--warn-bg); }
 
 /* Eingeklappt: nur Zeichen, Zähler als Punkt */
@@ -602,6 +603,8 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .stat-value small { font-family: var(--font); font-size: var(--fs-16); font-weight: 500; letter-spacing: 0; color: var(--muted); }
 /* Kennzahl mit Befund: Zahl in der Zustandsfarbe mit Statuspunkt (dazu das Wort «kritisch»/«hoch») */
 .stat-value.tone-bad { color: var(--bad); }
+/* hoch: gleiche Farbe wie kritisch, aber Ring statt gefülltem Punkt (UI-Qualität 7) */
+.stat-value.tone-high::before { background: transparent !important; box-shadow: inset 0 0 0 2.5px currentColor; }
 .stat-value.tone-warn { color: var(--warn); }
 .stat-value.tone-bad::before,
 .stat-value.tone-warn::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: currentColor; vertical-align: 0.32em; }
@@ -691,6 +694,7 @@ a.tab { text-decoration: none; }
 .tab-count { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-dim); font-size: var(--fs-12); font-weight: 600; font-variant-numeric: tabular-nums; }
 .tab-count-warn { background: var(--warn-bg); color: var(--warn); }
 .tab-count-bad { background: var(--bad-bg); color: var(--bad); }
+.tab-count-critical { background: var(--bad); color: var(--bg); font-weight: 700; }
 .tab-live { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
 @media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 
@@ -861,7 +865,9 @@ a.tab { text-decoration: none; }
 .sev-critical { color: var(--bg); background: var(--bad); font-weight: 700; }
 .sev-high { color: var(--bad); background: var(--bad-bg); }
 .sev-medium { color: var(--warn); background: var(--warn-bg); }
-.sev-low { color: var(--ink-dim); background: var(--surface-2); }
+.sev-low { color: var(--ink-dim); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+/* Kleine Pille in Zeilen (Projektkarte) */
+.sev-compact { height: 20px; padding: 0 var(--sp-2); }
 
 /* Zähler nach Schwere: gleiche Pillen, Form und Farbe nur über 0 */
 .sev-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); list-style: none; margin: 0; padding: 0; }
@@ -1364,6 +1370,8 @@ details > summary:hover { color: var(--ink); }
 .scan-head-state svg { width: 14px; height: 14px; }
 .stage-link { padding-block: 6px; margin-block: -6px; color: inherit; font-size: var(--fs-13); text-decoration-color: currentColor; }
 .stage-critical .stage-link, .stage-high .stage-link { color: var(--bad); }
+/* Stufe mit kritischem Befund: fett (Form, nicht nur Farbe – UI-Qualität 7) */
+.stage-critical .stage-link { font-weight: 700; }
 .stage-medium .stage-link { color: var(--warn); }
 .stage-link:hover:not(:disabled) { color: var(--ink); }
 .stage-link[aria-pressed='true'] { font-weight: 600; text-decoration-thickness: 2px; }
@@ -1714,14 +1722,15 @@ form.failure-fix .form-actions { margin: 0; }
 .sc-sevs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-2) !important; font-size: var(--fs-13); }
 .sc-sev { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .sc-sev-mark { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
-/* UI-Qualität 7: Zeichen je Stufe in eigener Form – kritisch gefüllt, hoch getönt mit Rand, mittel getönt, niedrig leer */
+/* UI-Qualität 7: Zeichen je Stufe in eigener Form – kritisch Quadrat gefüllt, hoch Quadrat mit Rand,
+   mittel Kreis gefüllt, niedrig Kreis leer */
 .sc-sev-critical { color: var(--bad); font-weight: 700; }
 .sc-sev-high { color: var(--bad); }
 .sc-sev-high .sc-sev-mark { background: var(--bad-bg); box-shadow: inset 0 0 0 2px var(--bad); }
 .sc-sev-medium { color: var(--warn); }
-.sc-sev-medium .sc-sev-mark { background: var(--warn-bg); box-shadow: inset 0 0 0 2px var(--warn); }
+.sc-sev-medium .sc-sev-mark { border-radius: 50%; }
 .sc-sev-low { color: var(--ink-dim); }
-.sc-sev-low .sc-sev-mark { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-dim); }
+.sc-sev-low .sc-sev-mark { border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-dim); }
 .sc-sev-zero { color: var(--muted); }
 .sc-findings { list-style: none; margin: var(--sp-6) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
 .sc-finding { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--sp-2) var(--sp-4); align-items: center; padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }

@@ -95,7 +95,8 @@ function SeverityLine({ counts }: { counts: Record<Sev, number> }) {
   const present = SEVS.filter((s) => counts[s] > 0)
   const zero = SEVS.filter((s) => counts[s] === 0)
   return (
-    <p className="sc-sevs" aria-label="Offene Befunde nach Schwere">
+    // Gruppe mit Namen (ein <p> kann keinen Namen tragen)
+    <p className="sc-sevs" role="group" aria-label="Offene Befunde nach Schwere">
       {present.map((s) => (
         <span key={s} className={`sc-sev sc-sev-${s}`}><span className="sc-sev-mark" aria-hidden="true" />{counts[s]} {SEVERITY_LABEL[s]}</span>
       ))}

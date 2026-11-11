@@ -331,6 +331,21 @@ Umsetzung:
   Avatar, Ring, Tag, Hinweispunkt) → 12. `.version` (0,92 em) nie unter 12 px.
 - Neuer Test `visual/schrift.spec.ts`: in allen Szenen kein sichtbarer Text unter 12 px.
 
+Befunde aus dem Gutachten (behoben):
+- «hoch» war an fünf Stellen gelb (Kennzahl der Projektliste und der Security-Seite, Zähler der
+  Seitenleiste ohne kritische, Hinweis «hohe Befunde», Zähler des Reiters Security): jetzt rot wie
+  die Regel sagt. Kritisch und hoch unterscheiden sich in der Form: Kennzahl Punkt gefüllt bzw.
+  Ring, Zähler gefüllt bzw. getönt; der Reiter-Zähler nimmt die Form der schwersten Stufe an.
+- Projektkarte: «1 kritisch» / «2 hoch» als kleine Pille der Stufe; Stufenliste: kritisch fett.
+- Zeichen der Security-Karte in vier Formen (Quadrat gefüllt / mit Rand, Kreis gefüllt / leer);
+  «niedrig» mit feinem Rand, damit die Pille auf grauem Grund sichtbar bleibt.
+- Sortierung «hoch» griff nie (Text «hohe Befunde»): jetzt nach Art (`kind`); Einzahl «1 kritischer
+  Befund», «1 hoher Befund», «1 offener Befund».
+- Security-Karte: Gruppe mit Namen statt `aria-label` auf `<p>`.
+- Farbregel ergänzt (Note B blau, Formen der Zeichen, Zähler); doppelte Zeile im Kontrast-Skript weg.
+- Schrifttest strenger: Grenze 12 px genau, auch ::before/::after mit Text, Formularfelder und eine
+  Szene mit eingeklappter Seitenleiste.
+
 ### 8 – Sitzung und Sicherheit in der Bedienung
 - 401: Login-Dialog über der Seite, danach zurück; Formulareingaben bleiben. Warnung beim Verlassen
   mit ungespeicherten Änderungen (Pause-Editor, Umgebungsvariablen, Einstellungen). Projekt löschen

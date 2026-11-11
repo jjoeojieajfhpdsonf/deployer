@@ -18,16 +18,19 @@ export function useProjects() {
   })
 }
 
-export type Attention = { reason: string; tone: 'bad' | 'warn' }
+/** kind: wofür, unabhängig vom Text (Sortierung); tone nach der Farbregel – hoch ist rot wie kritisch (UI-Qualität 7) */
+export type Attention = { kind: 'deploy' | 'down' | 'critical' | 'high' | 'expiry'; reason: string; tone: 'bad' | 'warn' }
 
 /** Braucht das Projekt Aufmerksamkeit? Und warum – für Filter und Hinweise. */
 export function attention(p: ProjectDto): Attention | null {
-  if (deployFailedState(p)) return { reason: 'Deploy fehlgeschlagen', tone: 'bad' }
-  if (p.state.key === 'down') return { reason: 'nichts läuft', tone: 'bad' }
-  if (p.security && p.security.open.critical > 0) return { reason: `${p.security.open.critical} kritische Befunde`, tone: 'bad' }
-  if (p.security && p.security.open.high > 0) return { reason: `${p.security.open.high} hohe Befunde`, tone: 'warn' }
+  if (deployFailedState(p)) return { kind: 'deploy', reason: 'Deploy fehlgeschlagen', tone: 'bad' }
+  if (p.state.key === 'down') return { kind: 'down', reason: 'nichts läuft', tone: 'bad' }
+  const crit = p.security?.open.critical ?? 0
+  const high = p.security?.open.high ?? 0
+  if (crit > 0) return { kind: 'critical', reason: crit === 1 ? '1 kritischer Befund' : `${crit} kritische Befunde`, tone: 'bad' }
+  if (high > 0) return { kind: 'high', reason: high === 1 ? '1 hoher Befund' : `${high} hohe Befunde`, tone: 'bad' }
   const left = ageMs(p.expiresAt)
-  if (left !== null && !p.keep && -left < 7 * 86_400_000) return { reason: 'läuft bald ab', tone: 'warn' }
+  if (left !== null && !p.keep && -left < 7 * 86_400_000) return { kind: 'expiry', reason: 'läuft bald ab', tone: 'warn' }
   return null
 }
 
@@ -51,8 +54,6 @@ export const deployFailedState = (p: ProjectDto) => p.state.key === 'failed_old_
 export function urgency(p: ProjectDto): number {
   const a = attention(p)
   if (!a) return 0
-  if (a.reason.startsWith('Deploy')) return 4
-  if (a.tone === 'bad') return 3
-  if (a.reason.includes('hoch')) return 2
-  return 1
+  // Nach Art, nicht nach Text (vorher traf «hoch» nie, weil der Text «hohe Befunde» lautet)
+  return { deploy: 4, down: 3, critical: 3, high: 2, expiry: 1 }[a.kind]
 }
