@@ -188,7 +188,7 @@ export function GithubSetup() {
       {s.connected && (
         <div className="danger-zone">
           <h2>Verbindung trennen</h2>
-          <p>Löscht Schlüssel und Secrets der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
+          <p>Löscht Schlüssel und geheime Werte der App in Airlock. Die App selbst entfernst du danach bei GitHub (Settings → Developer settings → GitHub Apps).</p>
           {!confirmDisconnect ? (
             <button ref={disconnectRef} type="button" className="button-danger" onClick={() => setConfirmDisconnect(true)}>Verbindung trennen</button>
           ) : (

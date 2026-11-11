@@ -263,7 +263,7 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
           </Field>
           <label className="choice">
             <input type="checkbox" checked={access} onChange={(e) => { setAccess(e.target.checked); setConfirming(false) }} />
-            <span>Cloudflare Access <small>nur nach Login per E-Mail-Code</small></span>
+            <span>Cloudflare Access <small>nur nach Anmeldung per E-Mail-Code</small></span>
           </label>
         </div>
       )}
@@ -278,7 +278,7 @@ function PrivateState({ p, s, actions, defaultZone, titleId }: { p: ProjectDto; 
         {!confirming && <button onClick={() => { setOpen(false); v.reset() }} disabled={actions.pending}>Abbrechen</button>}
         {confirming && (
           <InlineConfirm label="Veröffentlichen bestätigen" className="publication-confirm"
-            note={<span>«{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Login per E-Mail-Code' : ', ohne Login'}. <InternalNote s={s} /></span>}
+            note={<span>«{p.name}» wird {target ? <>unter <code>{target}</code> </> : ''}für alle im Internet erreichbar{access ? ', nach Anmeldung per E-Mail-Code' : ', ohne Anmeldung'}. <InternalNote s={s} /></span>}
             confirmLabel="Ja, veröffentlichen" disabled={actions.pending}
             onCancel={() => setConfirming(false)}
             onConfirm={() => { setConfirming(false); actions.run({ op: 'publish', name, access }) }} />
@@ -357,13 +357,13 @@ function AccessRow({ s, actions }: { s: PublicStatusDto; actions: Actions }) {
         label={<span id={labelId}>Cloudflare Access</span>}
         action={<Switch checked={confirm ?? s.accessProtected} labelledBy={labelId} busy={busy} disabled={actions.pending && !busy} onChange={(next) => setConfirm(next)} />}
       >
-        {s.accessProtected ? <><strong className="set-strong">An</strong> <span className="muted">· nur nach Login per E-Mail-Code</span></> : <><strong className="set-strong">Aus</strong> <span className="muted">· jeder kann die Seite öffnen</span></>}
+        {s.accessProtected ? <><strong className="set-strong">An</strong> <span className="muted">· nur nach Anmeldung per E-Mail-Code</span></> : <><strong className="set-strong">Aus</strong> <span className="muted">· jeder kann die Seite öffnen</span></>}
       </SetRow>
       {confirm !== null && (
         <div className="set-row-block">
           <InlineConfirm label={confirm ? 'Access einschalten bestätigen' : 'Access ausschalten bestätigen'} tone={confirm ? 'primary' : 'danger'}
-            note={<> <span>{confirm ? `${s.hostname} verlangt danach einen Login per E-Mail-Code; wer keinen Zugang hat, sieht die Seite nicht mehr.` : `${s.hostname} ist danach ohne Login für alle erreichbar.`}</span></>}
-            confirmLabel={confirm ? 'Ja, Access einschalten' : 'Ja, ohne Login'} disabled={actions.pending}
+            note={<> <span>{confirm ? `${s.hostname} verlangt danach eine Anmeldung per E-Mail-Code; wer keinen Zugang hat, sieht die Seite nicht mehr.` : `${s.hostname} ist danach ohne Anmeldung für alle erreichbar.`}</span></>}
+            confirmLabel={confirm ? 'Ja, Access einschalten' : 'Ja, ohne Anmeldung'} disabled={actions.pending}
             onCancel={() => setConfirm(null)}
             onConfirm={() => { actions.run({ op: 'access', access: confirm }); setConfirm(null) }} />
         </div>

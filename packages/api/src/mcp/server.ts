@@ -200,7 +200,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     return ok((await listProjects(scope)).map(summarize))
   })
 
-  tool('get_project', 'Ein Projekt mit Adressen, letzten Deployments und Umgebungsvariablen (Secrets ohne Wert)', { project }, async (a) => {
+  tool('get_project', 'Ein Projekt mit Adressen, letzten Deployments und Umgebungsvariablen (geheime ohne Wert)', { project }, async (a) => {
     const p = await findProject(scope, a.project)
     const dto = await toDto(p)
     const deployments = (await listDeployments(p.id, 5)).map((d) => ({
@@ -243,7 +243,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
 
   /* --- Anlegen und Dateien --------------------------------------------------- */
 
-  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}]. Standard-Erreichbarkeit: nur Tailnet (Tailscale ist die Hauptadresse); "lan" auf Wunsch dazu.', {
+  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}]. Standard-Erreichbarkeit: nur Tailnet (das Tailnet ist die Hauptadresse); "lan" auf Wunsch dazu.', {
     name: z.string().min(1).max(120),
     source: z.record(z.unknown()).describe('z.B. {type:"files"}, {type:"image", image:"nginx:alpine"}, {type:"dockerfile", repoUrl}'),
     files: z.array(fileInputSchema).max(2000).optional(),
@@ -504,7 +504,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     public_zone: z.string().optional().describe('Öffentlich: Zone dieser Umgebung (siehe list_domains; Standard: Hauptzone)'),
     public_apex: z.boolean().optional().describe('Öffentlich: direkt unter der Zone statt mit Namen (nur ausdrücklich)'),
     take_over_dns: z.boolean().optional().describe('Öffentlich: einen vorhandenen DNS-Eintrag, der nicht von Airlock stammt, ersetzen (verlangt Bestätigung)'),
-    access: z.boolean().optional().describe('Öffentlich: Cloudflare Access davorschalten (Login per E-Mail-Code)'),
+    access: z.boolean().optional().describe('Öffentlich: Cloudflare Access davorschalten (Anmeldung per E-Mail-Code)'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
     const p = await findProject(scope, a.project)
@@ -554,7 +554,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       if (changes) {
         const c = await confirm('set_targets', {
           project: p.id, targets: [...a.targets].sort(), public_subdomain: label, public_zone: a.public_zone, public_apex: a.public_apex, take_over_dns: a.take_over_dns, access: a.access, confirmation_token: a.confirmation_token,
-        }, `"${p.name}" ÖFFENTLICH im Internet erreichbar machen unter ${plan.hostname}${plan.access ? ' (hinter Cloudflare Access)' : ' (ohne Login)'}?`)
+        }, `"${p.name}" ÖFFENTLICH im Internet erreichbar machen unter ${plan.hostname}${plan.access ? ' (hinter Cloudflare Access)' : ' (ohne Anmeldung)'}?`)
         if (!c.go) return c.result
       }
     }
@@ -635,7 +635,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const pub = await publishability(p.id)
     if (!pub.ok) return fail(`Nicht fortsetzbar: ${pub.reason}`)
     const c = await confirm('resume_public', { project: p.id, confirmation_token: a.confirmation_token },
-      `"${p.name}" wieder ÖFFENTLICH unter ${route.hostname}${route.accessProtected ? ' (hinter Cloudflare Access)' : ' (ohne Login)'}?`)
+      `"${p.name}" wieder ÖFFENTLICH unter ${route.hostname}${route.accessProtected ? ' (hinter Cloudflare Access)' : ' (ohne Anmeldung)'}?`)
     if (!c.go) return c.result
     return publicResult(p.id, await resumeFlow(p, actor))
   })

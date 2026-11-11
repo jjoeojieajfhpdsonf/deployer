@@ -95,7 +95,7 @@ const EVENTS: Record<string, Describe> = {
   },
   'project.env.replace': (p) => {
     const k = list(p.keys)
-    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} ${k.length === 1 ? 'Variable' : 'Variablen'}` : 'keine Variablen'] }
+    return { title: 'Umgebungsvariablen geändert', category: 'config', sub: [k.length ? `${k.length} gesetzt` : 'keine mehr gesetzt'] }
   },
   'project.routes.set': (p) => ({ title: 'Erreichbarkeit geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
   'project.routes.internal': (p) => ({ title: 'Erreichbarkeit intern geändert', category: 'config', sub: [list(p.targets).map((t) => WAY[t] ?? t).join(', ') || null] }),
@@ -188,7 +188,7 @@ const MCP_TOOL: Record<string, string> = {
 const WORD: Record<string, string> = {
   deploy: 'Deploy', failed: 'fehlgeschlagen', done: 'fertig', start: 'gestartet', started: 'gestartet', stop: 'gestoppt', update: 'geändert',
   updated: 'geändert', create: 'angelegt', created: 'angelegt', delete: 'gelöscht', remove: 'entfernt', set: 'gesetzt', check: 'geprüft',
-  scan: 'Scan', project: 'Projekt', env: 'Variablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
+  scan: 'Scan', project: 'Projekt', env: 'Umgebungsvariablen', settings: 'Einstellungen', public: 'öffentlich', error: 'Fehler', unchanged: 'unverändert',
 }
 
 /** Lesbarer Satz für unbekannte Typen: «deploy.failed» → «Deploy fehlgeschlagen» */

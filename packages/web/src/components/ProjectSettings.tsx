@@ -49,7 +49,7 @@ export function ProjectSettings({
   const sections: Section[] = [
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
-    { id: 'set-umgebung', label: 'Umgebung' },
+    { id: 'set-umgebung', label: 'Umgebungsvariablen' },
     { id: 'set-header', label: 'Security-Header' },
     ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
     { id: 'set-ablauf', label: 'Ablauf' },
@@ -125,7 +125,7 @@ function useActiveSection(ids: string[]): string {
   return active
 }
 
-/* --- Umgebung ----------------------------------------------------------------- */
+/* --- Umgebungsvariablen --------------------------------------------------------- */
 
 function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntryDto[]; request: string | null; onShown?: () => void }) {
   const qc = useQueryClient()
@@ -137,7 +137,7 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
   const entries = () => rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))
   const envForm = useFormErrors({ schema: putEnvSchema, values: () => ({ entries: entries() }) })
   const save = useMutation({
-    meta: { errorTitle: 'Variablen nicht gespeichert' },
+    meta: { errorTitle: 'Umgebungsvariablen nicht gespeichert' },
     mutationFn: () => api.putEnv(p.id, entries()),
     onSuccess: () => {
       setSaved(true)
@@ -173,15 +173,15 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
   return (
     <section className="set-card" id="set-umgebung" aria-labelledby={titleId}>
       <div className="set-head">
-        <h2 id={titleId} tabIndex={-1}>Umgebung</h2>
+        <h2 id={titleId} tabIndex={-1}>Umgebungsvariablen</h2>
         {saved && <span className="set-saved set-saved-on" role="status">✓ gespeichert · wirkt beim nächsten Deploy</span>}
         <div className="set-head-actions">
           {!editing && env.length > 0 && <button type="button" className="button-small" onClick={() => setEditing(true)}>Bearbeiten</button>}
-          <button type="button" className="button-small" onClick={add}>Variable hinzufügen</button>
+          <button type="button" className="button-small" onClick={add}>Umgebungsvariable hinzufügen</button>
         </div>
       </div>
       {!editing && (
-        <SetRow label="Variablen">
+        <SetRow label="Gesetzt">
           {env.length === 0
             ? <span className="muted">keine{isStatic ? ' – bei einer statischen Seite nicht nötig' : ''}</span>
             : <><strong className="set-strong">{env.map((e) => e.key).join(', ')}</strong>{secret > 0 && <span className="muted"> · {secret} geheim</span>}</>}
@@ -191,7 +191,7 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
         <form className="set-row-block" noValidate ref={envForm.formRef} onSubmit={(ev) => { ev.preventDefault(); if (envForm.validateAll()) save.mutate() }}>
           <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={envForm.errors} field={envForm.field} />
           <div className="form-actions">
-            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Variablen speichern</button>
+            <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Umgebungsvariablen speichern</button>
             <button type="button" onClick={() => { setEditing(false); setRows(env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret, stored: true }))); envForm.reset() }}>Abbrechen</button>
             <span className="hint">Wirksam beim nächsten Deploy.</span>
           </div>

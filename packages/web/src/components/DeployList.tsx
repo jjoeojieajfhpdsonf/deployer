@@ -141,7 +141,7 @@ export function DeployList({
       <ol className="dl-list">
         {items.map((it) => it.type === 'row' ? row(it.d, it.sameAsActive) : group(it))}
       </ol>
-      {anySame && <p className="dl-note">Zurückrollen erscheint nur bei Versionen mit anderem Code-Stand.</p>}
+      {anySame && <p className="dl-note">«Zurückrollen» erscheint nur bei Versionen mit anderem Code-Stand.</p>}
     </>
   )
 }

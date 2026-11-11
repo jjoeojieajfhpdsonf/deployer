@@ -17,10 +17,10 @@ function load(name: string, extra: Partial<FailureInput> = {}) {
 }
 
 describe('Fehler erklären: Muster aus Log und Healthcheck', () => {
-  test('fehlende Umgebungsvariable (Node) → «Variable X fehlt» + Hinzufügen', () => {
+  test('fehlende Umgebungsvariable (Node) → «Umgebungsvariable X fehlt» + Hinzufügen', () => {
     const e = load('env-fehlt-node')
     assert.equal(e.kind, 'env_missing')
-    assert.equal(e.title, 'Variable DATABASE_URL fehlt')
+    assert.equal(e.title, 'Umgebungsvariable DATABASE_URL fehlt')
     assert.deepEqual(e.action, { kind: 'add_env', name: 'DATABASE_URL', exists: false, label: 'DATABASE_URL hinzufügen' })
     assert.equal(e.linesFrom, 'container')
     assert.ok(e.lines.some((l) => l.includes('Missing required environment variable')))
@@ -39,7 +39,7 @@ describe('Fehler erklären: Muster aus Log und Healthcheck', () => {
 
   test('gesetzte Variable, von der App abgelehnt → ändern statt hinzufügen', () => {
     const e = load('env-fehlt-node', { envKeys: ['DATABASE_URL'] })
-    assert.equal(e.title, 'Variable DATABASE_URL wird nicht akzeptiert')
+    assert.equal(e.title, 'Umgebungsvariable DATABASE_URL wird nicht akzeptiert')
     assert.deepEqual(e.action, { kind: 'add_env', name: 'DATABASE_URL', exists: true, label: 'DATABASE_URL ändern' })
   })
 

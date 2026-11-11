@@ -326,13 +326,13 @@ export function NewProject() {
             <input type="checkbox" checked={tailnet} onChange={(x) => setTailnet(x.target.checked)} />
             <span>
               Tailnet
-              <small>Über Tailscale, im Heimnetz und unterwegs – die Hauptadresse des Servers</small>
+              <small>Im Heimnetz und unterwegs – die Hauptadresse des Servers</small>
             </span>
           </label>
           <label className="choice">
             <input type="checkbox" checked={lan} onChange={(x) => setLan(x.target.checked)} />
             <span>
-              Heimnetz (LAN) ohne Tailscale
+              Heimnetz (LAN) ohne Tailnet
               <small>Für die eigene interne Adresse braucht es einen lokalen DNS (Router, AdGuard, Pi-hole), der sie auf die LAN-IP des Servers zeigt; sonst geht es nur über die nip.io-Adresse mit der LAN-IP, die sich ändern kann</small>
             </span>
           </label>

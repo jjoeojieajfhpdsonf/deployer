@@ -203,7 +203,7 @@ function NameResolution({ env }: { env: EnvironmentDto }) {
       <ul className="check-list">
         <li className={tailscale ? 'check-ok' : 'check-none'}>
           <span className="check-name">Tailnet</span>
-          <span className="check-detail">{tailscale ? `*.${env.baseDomain} → ${tailscale} (Cloudflare, nicht proxied)` : 'keine Tailscale-IP bekannt (Server → Übersicht)'}</span>
+          <span className="check-detail">{tailscale ? `*.${env.baseDomain} → ${tailscale} (Cloudflare, nicht proxied)` : 'keine Tailnet-IP bekannt (Server → Übersicht)'}</span>
         </li>
         <li className={!d ? 'check-none' : d.ok ? 'check-ok' : 'check-fail'}>
           <span className="check-name">Lokaler DNS</span>
@@ -255,7 +255,7 @@ function HeaderTemplates() {
   return (
     <>
       <h2 className="env-section-title">Header-Vorlagen</h2>
-      <p className="hint">Caddy setzt diese Header für jedes Projekt der Umgebung, solange das Projekt keine eigene Regel hat. Eine Änderung wirkt sofort auf alle, ohne Redeploy. Die Content-Security-Policy bleibt pro Projekt.</p>
+      <p className="hint">Caddy setzt diese Header für jedes Projekt der Umgebung, solange das Projekt keine eigene Regel hat. Eine Änderung wirkt sofort auf alle, ohne neuen Deploy. Die Content-Security-Policy bleibt pro Projekt.</p>
       {q.isLoading ? <p className="state state-loading">Wird geladen…</p> : (
         <div className="table-scroll">
           <table className="table">

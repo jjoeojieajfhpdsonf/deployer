@@ -94,7 +94,7 @@ export function registerFixTools({ tool, confirm, actor, scope, ok, fail }: FixT
   tool(
     'get_fix_context',
     'Alles, um einen Befund zu beheben: Befund, Erklärung, empfohlener Weg (header, files, github, repo, image, none) und die betroffenen Dateien. ' +
-      'Werte aus der Projekt-Env und Zeilen mit Secrets sind ersetzt, Env-Dateien fehlen. Danach je nach Weg set_security_header oder propose_fix.',
+      'Werte aus den Umgebungsvariablen des Projekts und Zeilen mit Secrets sind ersetzt, Env-Dateien fehlen. Danach je nach Weg set_security_header oder propose_fix.',
     { project, finding: z.string().uuid() },
     async (a) => ok(await getFixContext(scope, a.project, a.finding)),
   )

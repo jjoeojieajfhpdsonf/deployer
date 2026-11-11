@@ -51,7 +51,7 @@ export async function hostsBlock(): Promise<string | null> {
   const names = [...new Set([primaryHost(UI_HOST_LABEL), ...rows.map((r) => r.hostname)])]
   if (!ip) {
     return [
-      '# Keine IP des Servers bekannt (weder Tailscale noch LAN).',
+      '# Keine IP des Servers bekannt (weder Tailnet noch LAN).',
       '# Tailscale einrichten, siehe docs/INSTALL.md.',
       `# <IP-des-Servers>  ${names.join(' ')}`,
     ].join('\n')
@@ -193,7 +193,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   // M4: Tailnet-Eintrag bei Cloudflare von Hand anstossen (nur mit Anmeldung, siehe auth.ts).
   app.post('/system/tailnet-dns', async (request) => {
     if (!(await tailnetDnsConfigured())) {
-      throw badRequest('Tailnet-DNS braucht eine Umgebung mit Basisdomain und Cloudflare-Token sowie die Tailscale-IP')
+      throw badRequest('Tailnet-DNS braucht eine Umgebung mit Basisdomain und Cloudflare-Token sowie die Tailnet-IP')
     }
     try {
       // M9: ein Eintrag je Umgebung; «record» bleibt der der Standard-Umgebung (erste)

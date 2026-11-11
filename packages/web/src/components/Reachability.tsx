@@ -77,7 +77,7 @@ export function Reachability({ p }: { p: ProjectDto }) {
         <span className="muted"> · im Heimnetz und unterwegs{!want.has('tailnet') ? ' · aus' : ''}</span>
       </SetRow>
       <SetRow label={<span id={lanId}>Heimnetz (LAN)</span>} action={<Switch checked={want.has('lan')} labelledBy={lanId} busy={save.isPending} onChange={(on) => toggle('lan', on)} />}>
-        <strong className="set-strong">ohne Tailscale</strong>
+        <strong className="set-strong">ohne Tailnet</strong>
         <span className="muted"> · braucht lokalen DNS, sonst nip.io{!want.has('lan') ? ' · aus' : ''}</span>
       </SetRow>
       {want.size === 0 && <p className="set-row-note">{hasPublic ? 'Ohne internes Ziel ist das Projekt nur noch öffentlich erreichbar.' : 'Ohne Ziel ist das Projekt nirgends erreichbar.'}</p>}
