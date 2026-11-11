@@ -10,10 +10,11 @@ import { audit } from '../domain/audit.js'
 import { allEnvironments } from '../domain/environments.js'
 import { notify } from '../notify/send.js'
 import {
-  backupArgs, forgetArgs, checkArgs, pgDumpArgs, prepareStagingCmd, cleanStagingCmd, targetSecrets, errorTail, maskCredentials,
+  backupArgs, forgetArgs, checkArgs, targetSecrets, errorTail, maskCredentials,
   parseBackupSummary, volumeCopyCmd, BACKUP_PARTIAL_EXIT, STAGING_DIR,
 } from './restic.js'
 import { checkDue, isStale, nextSlot } from './rules.js'
+import { abandonJobs } from './dispatch.js'
 import { resolveSettings, getBackupSettings, loadState, patchState, noteRepositoryReached, lastCheckFor, type ResolvedBackupSettings } from './settings.js'
 import {
   T_PROBE, StepError, assertBackupContainer, contextFor, describeTarget, ensureRepository, failText, inBackup, lastBackupSuccess, listRuns, restic, runDto,
@@ -25,10 +26,15 @@ import {
  * Tags, Aufbewahrung (forget --prune), einmal pro Woche restic check;
  * danach Audit, bei Fehlschlag Benachrichtigung.
  *
- * Projekt-Volumes kopiert ein Wegwerf-Container im Projekt-Netz ins Staging;
- * er geht wie jeder andere Container durch die Erlaubnisliste
- * (drivers/policy.ts), mit dem Staging-Volume als ausdrücklich erlaubtem
- * Zusatz-Volume.
+ * restic, pg_dump und das Staging laufen als Aufträge im Backup-Container
+ * (backup/dispatch.ts, kein exec). Projekt-Volumes kopiert ein kurzlebiger
+ * Hilfscontainer im Projekt-Netz ins Staging; er geht über die Create-API
+ * wie jeder andere Container durch die Erlaubnisliste (drivers/policy.ts),
+ * mit dem Staging-Volume als ausdrücklich erlaubtem Zusatz-Volume. Den
+ * Backup-Container selbst die Projekt-Volumes einbinden zu lassen ginge
+ * nicht: sie entstehen zur Laufzeit, compose.yaml kennt sie nicht. Stopp und
+ * Start der Projekt-Container im Modus «stop» macht Airlock selbst über den
+ * Socket-Proxy (CONTAINERS, POST).
  */
 
 const MIN = 60_000
@@ -163,9 +169,9 @@ async function execute(runId: string, s: ResolvedBackupSettings): Promise<Outcom
 
     // 2. Staging leeren, Datenbank abziehen (pg_dump über das interne Netz)
     staged = true
-    const prep = await inBackup(prepareStagingCmd(), null, T_PROBE)
+    const prep = await inBackup('staging-prepare', [], null, T_PROBE)
     if (prep.exitCode !== 0 || prep.timedOut) throw new StepError(failText('Staging nicht bereit', prep, secrets))
-    const dump = await inBackup(pgDumpArgs(), null, T_DUMP)
+    const dump = await inBackup('pg-dump', [], null, T_DUMP)
     if (dump.exitCode !== 0 || dump.timedOut) throw new StepError(failText('Datenbank-Dump (pg_dump) gescheitert', dump, secrets))
 
     // 3. Projekt-Volumes nach Einstellung (live, Stopp, keine)
@@ -198,7 +204,7 @@ async function execute(runId: string, s: ResolvedBackupSettings): Promise<Outcom
     if (!(err instanceof StepError) && !(err instanceof AppError)) log.error('Backup: unerwarteter Fehler', { err: out.error })
   } finally {
     // Staging nicht stehen lassen: Dump und Volume-Kopien belegen sonst dauerhaft Platz
-    if (staged) await inBackup(cleanStagingCmd(), null, T_PROBE).catch(() => {})
+    if (staged) await inBackup('staging-clean', [], null, T_PROBE).catch(() => {})
   }
   out.warnings = out.warnings.map((w) => redactSecrets(maskCredentials(w, secrets)))
   return out
@@ -263,8 +269,13 @@ export async function startBackup(trigger: 'schedule' | 'manual', actor: string)
   return { run: runDto(row!), done }
 }
 
-/** Beim Start: Läufe, die ein Neustart abgebrochen hat, als gescheitert markieren */
+/**
+ * Beim Start: Läufe, die ein Neustart abgebrochen hat, als gescheitert
+ * markieren; ihre Aufträge im Backup-Container abbrechen bzw. zurückziehen.
+ */
 export async function abandonUnfinishedBackups(): Promise<number> {
+  const jobs = await abandonJobs(config.BACKUP_JOBS_DIR).catch(() => 0)
+  if (jobs) log.warn('Backup: Aufträge eines früheren Prozesses abgebrochen', { aufträge: jobs })
   const rows = await db.update(schema.backupRuns)
     .set({ status: 'failed', finishedAt: new Date(), error: 'Abgebrochen: Airlock wurde während der Sicherung neu gestartet' })
     .where(eq(schema.backupRuns.status, 'running')).returning({ id: schema.backupRuns.id })

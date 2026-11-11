@@ -44,7 +44,7 @@ describe('Backup: restic-Argumente', () => {
   test('Tags enthalten nie ein Komma (Trenner bei restic)', () => {
     assert.equal(safeTag('a,b c'), 'a-b-c')
   })
-  test('keine Geheimnisse in den Argumenten (die stehen in docker exec inspect)', () => {
+  test('keine Geheimnisse in den Argumenten (die stehen in der Auftragsdatei und in jeder Prozessliste)', () => {
     const all = [...backupArgs({ version: '1', environments: ['x'] }), ...forgetArgs({ daily: 7, weekly: 4, monthly: 6 })].join(' ')
     assert.ok(!all.includes(PASSWORD))
     assert.ok(!/password|secret/i.test(all))

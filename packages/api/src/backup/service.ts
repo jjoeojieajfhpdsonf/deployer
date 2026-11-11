@@ -7,20 +7,24 @@ import { AppError, badRequest } from '../lib/errors.js'
 import { redactSecrets } from '../lib/redact.js'
 import { audit } from '../domain/audit.js'
 import {
-  catConfigArgs, initArgs, snapshotsArgs, killCmd, resticEnv, targetSecrets, errorTail, maskCredentials, parseSnapshots, classifyRepoProbe,
+  catConfigArgs, initArgs, snapshotsArgs, resticEnv, targetSecrets, errorTail, maskCredentials, parseSnapshots, classifyRepoProbe,
   type ResolvedTarget,
 } from './restic.js'
 import { resolveSettings, noteRepositoryReached, type ResolvedBackupSettings } from './settings.js'
+import { runJob } from './dispatch.js'
+import type { JobOp, JobResult } from './jobs.js'
 
 /**
  * Meilenstein Backup, Etappe 1: Verbindung zum Ziel testen (Repository
  * anlegen, falls es fehlt), Stände und Läufe lesen. Das Sichern selbst
  * steht in backup/run.ts.
  *
- * restic läuft im Backup-Container aus compose.yaml (Service backup), den
- * Airlock per exec über den Socket-Proxy steuert (drivers/docker.ts,
- * execIn – nur dieser Container). Geheimnisse gehen nur über die Umgebung
- * des exec-Prozesses an restic, nie über Argumente.
+ * restic läuft im Backup-Container aus compose.yaml (Service backup). Airlock
+ * hat dorthin kein exec: es legt Aufträge in das gemeinsame Auftrags-Volume
+ * (BACKUP_JOBS_DIR), der Ausführer im Container (backup/runner.sh) führt sie
+ * aus und schreibt das Ergebnis zurück (backup/{jobs,dispatch}.ts).
+ * Geheimnisse reisen nur in der kurzlebigen Datei <id>.env (0600), nie in
+ * Argumenten.
  */
 
 const MIN = 60_000
@@ -80,19 +84,18 @@ export function contextFor(s: ResolvedBackupSettings): Ctx & { target: ResolvedT
   return { target: s.target, password: s.password, env: resticEnv(s.target, s.password), secrets: targetSecrets(s.target, s.password) }
 }
 
-/** Befehl im Backup-Container; beim Zeitlimit wird der Prozess dort beendet */
-export async function inBackup(cmd: string[], ctx: Ctx | null, timeoutMs: number): Promise<docker.ExecResult> {
-  const r = await docker.execIn(config.BACKUP_CONTAINER, cmd, { env: ctx?.env ?? {}, timeoutMs })
-  if (r.timedOut) {
-    // Sonst liefe restic weiter und hielte die Sperre im Repository
-    await docker.execIn(config.BACKUP_CONTAINER, killCmd(), { timeoutMs: 30_000 }).catch(() => {})
-  }
-  return r
+/**
+ * Auftrag an den Backup-Container; beim Zeitlimit bricht der Ausführer den
+ * Befehl selbst ab (sonst liefe restic weiter und hielte die Sperre im
+ * Repository).
+ */
+export function inBackup(op: JobOp, args: string[], ctx: Ctx | null, timeoutMs: number): Promise<JobResult> {
+  return runJob(config.BACKUP_JOBS_DIR, { op, args, env: ctx?.env ?? {}, timeoutMs })
 }
 
-export const restic = (args: string[], ctx: Ctx, timeoutMs: number) => inBackup(['restic', ...args], ctx, timeoutMs)
+export const restic = (args: string[], ctx: Ctx, timeoutMs: number) => inBackup('restic', args, ctx, timeoutMs)
 
-export function failText(what: string, r: docker.ExecResult, secrets: string[]): string {
+export function failText(what: string, r: JobResult, secrets: string[]): string {
   if (r.timedOut) return `${what}: Zeitlimit überschritten`
   const tail = errorTail(r.stderr.length ? r.stderr : r.stdout, secrets)
   return redactSecrets(`${what} (Exit ${r.exitCode})${tail ? `: ${tail}` : ''}`)

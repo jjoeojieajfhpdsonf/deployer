@@ -108,11 +108,13 @@ const envSchema = z.object({
   // Wildcards früherer Probeläufe weg. Fehlt das Volume, entfällt beides.
   CADDY_DATA_DIR: z.string().default('/caddy-data'),
 
-  // Meilenstein Backup: restic-Container aus compose.yaml (Service backup), gesteuert
-  // per exec über den Socket-Proxy, und sein Staging-Volume. Die Projekt-Volumes
-  // kopiert ein Wegwerf-Container dorthin.
+  // Meilenstein Backup: restic-Container aus compose.yaml (Service backup) und sein
+  // Staging-Volume. Kein exec: Airlock legt Aufträge in das gemeinsame
+  // Auftrags-Volume (BACKUP_JOBS_DIR, im Backup-Container /jobs), der Ausführer
+  // dort holt sie ab. Die Projekt-Volumes kopiert ein Wegwerf-Container ins Staging.
   BACKUP_CONTAINER: z.string().default('airlock-backup'),
   BACKUP_STAGING_VOLUME: z.string().default('airlock_backup_staging'),
+  BACKUP_JOBS_DIR: z.string().default('/backup-jobs'),
 
   // M8: GitHub (in Tests durch eine Attrappe ersetzbar)
   GITHUB_API: z.string().url().default('https://api.github.com'),

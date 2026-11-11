@@ -8,9 +8,10 @@ import { BACKUP_LOCAL_ROOT, type BackupRetention } from '@airlock/shared'
  *
  * Reines Modul (kein config.ts, keine Datenbank), damit es testbar bleibt.
  *
- * Grundsatz: Geheimnisse gehen nur über die Umgebung des exec-Prozesses an
- * restic (RESTIC_PASSWORD, AWS_*), nie über Argumente – die stehen in
- * «docker exec inspect» (ProcessConfig.arguments) und in jeder Prozessliste.
+ * Grundsatz: Geheimnisse gehen nur über die Umgebung an restic
+ * (RESTIC_PASSWORD, AWS_*), nie über Argumente – die stehen in der
+ * Auftragsdatei <id>.job und in jeder Prozessliste. Die Umgebung reist in
+ * der kurzlebigen Datei <id>.env (0600) zum Ausführer (backup/jobs.ts).
  */
 
 /* --- Pfade im Backup-Container (compose.yaml, Service backup) -------------------- */
@@ -151,14 +152,9 @@ export const catConfigArgs = (): string[] => ['cat', 'config']
 export const initArgs = (): string[] => ['init']
 export const checkArgs = (): string[] => ['check']
 
-/** pg_dump im Backup-Container: Verbindung über PGHOST/PGUSER/PGPASSWORD aus compose.yaml */
-export const pgDumpArgs = (): string[] => ['pg_dump', '--format=custom', '--no-owner', `--file=${STAGING_DUMP_FILE}`]
-
-/** Staging leeren und neu anlegen (Cache bleibt) */
-export const prepareStagingCmd = (): string[] => [
-  'sh', '-c', `rm -rf ${STAGING_DB_DIR} ${STAGING_VOLUMES_DIR} && mkdir -p ${STAGING_DB_DIR} ${STAGING_VOLUMES_DIR} ${RESTIC_CACHE_DIR}`,
-]
-export const cleanStagingCmd = (): string[] => ['sh', '-c', `rm -rf ${STAGING_DB_DIR} ${STAGING_VOLUMES_DIR}`]
+// pg_dump (nach STAGING_DUMP_FILE) und das Leeren des Staging sind feste
+// Vorgänge des Ausführers (backup/runner.sh: pg-dump, staging-prepare,
+// staging-clean) – Airlock schickt dafür keine Befehle.
 
 /** Name eines Projekt-Volumes im Staging: nur einfache Zeichen (landet in einem Shell-Befehl) */
 const safeName = (s: string): string => s.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^[.-]+/, '').slice(0, 100) || 'volume'
@@ -176,9 +172,6 @@ export function volumeCopyCmd(slug: string, volume: string): string[] {
   const dir = stagingVolumeDir(slug, volume)
   return ['sh', '-c', `rm -rf '${dir}' && mkdir -p '${dir}' && cp -a /from/. '${dir}/'`]
 }
-
-/** Laufende restic/pg_dump im Backup-Container beenden (Zeitlimit) */
-export const killCmd = (): string[] => ['sh', '-c', 'pkill -TERM restic; pkill -TERM pg_dump; true']
 
 /* --- Auswerten -------------------------------------------------------------------- */
 

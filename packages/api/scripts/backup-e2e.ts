@@ -5,11 +5,14 @@
  *
  *   pnpm --filter @airlock/api exec tsx scripts/backup-e2e.ts
  *
- * Braucht Docker (direkt über den Socket, ohne Socket-Proxy) und lädt beim
- * ersten Mal restic/restic, postgres:17-alpine, alpine:3.20 und SeaweedFS.
+ * Braucht Docker und lädt beim ersten Mal restic/restic, postgres:17-alpine,
+ * alpine:3.20 und SeaweedFS. Airlock spricht Docker wie in compose.yaml nur
+ * über einen Socket-Proxy mit EXEC=0; den Backup-Container steuert es über
+ * Aufträge in einem Verzeichnis (hier ein temporärer Host-Ordner, im Stack
+ * das tmpfs-Volume backup_jobs), das der Container unter /jobs sieht.
  * Nichts davon berührt einen laufenden Airlock-Stack: eigene Namen
  * (airlock-backup-e2e*), eigenes Netz, eigene Volumes, kein Host-Port ausser
- * dem der Wegwerf-Datenbank.
+ * dem der Wegwerf-Datenbank und dem des Proxys (nur 127.0.0.1).
  *
  * Abnahme laut docs/MILESTONE-BACKUP.md:
  * - Etappe 1: Ziel lokal und S3 (Plan: MinIO, hier SeaweedFS) einrichten, Repository wird angelegt,
@@ -18,11 +21,16 @@
  *   Aufbewahrung entfernt alte Stände; ein absichtlich falsches Ziel ergibt
  *   Fehlschlag mit Benachrichtigung; «48 h ohne Erfolg» meldet sich.
  * - Dazu: secrets.key ist in keinem Stand; ein Projekt-Volume ist drin.
+ * - Ohne exec: der Proxy lehnt exec ab; nach den Läufen liegt kein
+ *   Geheimnis im Auftrags-Verzeichnis und keins im Log des Ausführers; der
+ *   Ausführer lehnt nicht erlaubte Vorgänge ab.
  */
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { resolve } from 'node:path'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startThrowawayPostgres, checker } from './lib/throwaway-pg.js'
 
@@ -34,7 +42,7 @@ const IMAGE = 'airlock/backup:e2e'
 // S3-kompatibler Testserver. Der Plan nennt MinIO; dessen Images sind nicht mehr
 // öffentlich zu ziehen (Docker Hub und quay.io verweigern es, Stand November 2026).
 const S3_IMAGE = 'chrislusf/seaweedfs:3.97'
-// Wie in compose.yaml: Airlock spricht Docker nur über den Socket-Proxy (exec über HAProxy)
+// Wie in compose.yaml: Airlock spricht Docker nur über den Socket-Proxy (EXEC=0)
 const PROXY = `${P}-proxy`
 const PROXY_IMAGE = 'tecnativa/docker-socket-proxy:0.3.0'
 // Ein «Projekt-Container», der für den Modus «stop» angehalten und wieder gestartet wird
@@ -74,13 +82,19 @@ function cleanup(): void {
 cleanup()
 const pgc = await startThrowawayPostgres(`${P}-pg`)
 const { check, done } = checker()
+// Auftrags-Verzeichnis: Airlock (dieser Prozess) schreibt hier, der Backup-Container sieht es unter /jobs
+const JOBS = mkdtempSync(join(tmpdir(), `${P}-jobs-`))
 
 // DOCKER_HOST setzt der Aufbau unten (Socket-Proxy), vor dem Laden der Module
 Object.assign(process.env, {
   BACKUP_CONTAINER: BACKUP,
   BACKUP_STAGING_VOLUME: VOL.staging,
+  BACKUP_JOBS_DIR: JOBS,
   TZ: 'Europe/Zurich',
 })
+
+/** Inhalt aller Dateien im Auftrags-Verzeichnis (zum Suchen nach Geheimnissen) */
+const jobsDirText = () => readdirSync(JOBS).map((n) => `${n}\n${readFileSync(join(JOBS, n), 'utf8')}`).join('\n')
 
 const PASSWORD = `e2e-${randomBytes(12).toString('hex')}` // allowlist-secret: zufälliger Testwert
 const S3_KEY = 'e2eaccesskey01' // allowlist-secret: S3-Testserver
@@ -118,7 +132,7 @@ try {
   sh(['run', '-d', '--name', BACKUP, '--hostname', 'airlock-backup', '--init', '--network', NET,
     '-e', 'PGHOST=postgres', '-e', 'PGUSER=airlock', '-e', 'PGPASSWORD=test', '-e', 'PGDATABASE=airlock',
     '-v', `${VOL.caddy}:/source/caddy_data:ro`, '-v', `${VOL.sites}:/source/sites:ro`, '-v', `${VOL.data}:/source/data:ro`,
-    '-v', `${VOL.staging}:/staging`, '-v', `${VOL.target}:/target`, IMAGE])
+    '-v', `${VOL.staging}:/staging`, '-v', `${VOL.target}:/target`, '-v', `${JOBS}:/jobs`, IMAGE])
   const s3Config = JSON.stringify({ identities: [{ name: 'e2e', credentials: [{ accessKey: S3_KEY, secretKey: S3_SECRET }], actions: ['Admin', 'Read', 'Write', 'List', 'Tagging'] }] })
   sh(['run', '-d', '--name', S3, '--network', NET, '--network-alias', 's3', '-e', `S3CFG=${s3Config}`, '--entrypoint', 'sh', S3_IMAGE, '-c',
     'printf "%s" "$S3CFG" > /tmp/s3.json && exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json -volume.max=0'])
@@ -127,12 +141,26 @@ try {
   // Socket-Proxy mit denselben Schaltern wie compose.yaml, auf einem freien Port nur für localhost
   if (process.env.E2E_DOCKER_HOST) process.env.DOCKER_HOST = process.env.E2E_DOCKER_HOST
   else {
-    const flags = ['CONTAINERS', 'IMAGES', 'NETWORKS', 'VOLUMES', 'INFO', 'VERSION', 'POST', 'BUILD', 'EXEC'].flatMap((f) => ['-e', `${f}=1`])
+    const flags = [
+      ...['CONTAINERS', 'IMAGES', 'NETWORKS', 'VOLUMES', 'INFO', 'VERSION', 'POST', 'BUILD'].map((f) => `${f}=1`),
+      'EXEC=0',
+    ].flatMap((f) => ['-e', f])
     sh(['run', '-d', '--name', PROXY, ...flags, '-v', '/var/run/docker.sock:/var/run/docker.sock:ro', '-p', '127.0.0.1::2375', PROXY_IMAGE])
     const port = sh(['port', PROXY, '2375']).split('\n')[0]!.split(':').pop()
     process.env.DOCKER_HOST = `tcp://127.0.0.1:${port}`
     await new Promise((r) => setTimeout(r, 1500))
   }
+
+  // exec über den Proxy: Anlegen fällt unter CONTAINERS, Starten unter EXEC – das muss scheitern
+  const api = process.env.DOCKER_HOST!.replace(/^tcp:/, 'http:')
+  const created = await fetch(`${api}/containers/${BACKUP}/exec`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ Cmd: ['true'], AttachStdout: true }),
+  })
+  const execId = created.ok ? ((await created.json()) as { Id: string }).Id : null
+  const startedExec = execId
+    ? await fetch(`${api}/exec/${execId}/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ Detach: true }) })
+    : null
+  check(!created.ok || startedExec?.status === 403, 'Socket-Proxy mit EXEC 0: exec wird abgelehnt', { create: created.status, start: startedExec?.status })
 
   const { pool } = await import('../src/db/index.js')
   const { runMigrations } = await import('../src/db/migrate.js')
@@ -180,6 +208,16 @@ try {
   check(!grep, 'Inhalt von secrets.key nicht im Stand')
   const staging = sh(['exec', BACKUP, 'sh', '-c', 'ls /staging'])
   check(!staging.split('\n').includes('db') && !staging.split('\n').includes('volumes'), 'Staging nach dem Lauf leer (bis auf den Cache)', staging)
+
+  /* --- Aufträge statt exec ------------------------------------------------------------ */
+  check(readdirSync(JOBS).length === 0, 'Auftrags-Verzeichnis nach den Läufen leer', readdirSync(JOBS))
+  const { runJob } = await import('../src/backup/dispatch.js')
+  const masterkey = await runJob(JOBS, { op: 'restic', args: ['cat', 'masterkey'], env: { RESTIC_REPOSITORY: '/target/airlock', RESTIC_PASSWORD: PASSWORD }, timeoutMs: 30_000 })
+  check(masterkey.exitCode === 126 && /nur mit config/.test(masterkey.stderr.join('\n')) && !masterkey.stdout.join('').includes('"encrypt"'),
+    'Ausführer lehnt «restic cat masterkey» ab', masterkey)
+  const repoArg = await runJob(JOBS, { op: 'restic', args: ['snapshots', '--password-command', 'cat /source/data/keys/secrets.key'], timeoutMs: 30_000 })
+  check(repoArg.exitCode === 126, 'Ausführer lehnt --password-command ab', repoArg)
+  check(readdirSync(JOBS).length === 0, 'Auch abgelehnte Aufträge hinterlassen nichts (Geheimnis gelöscht)', readdirSync(JOBS))
 
   /* --- Aufbewahrung ------------------------------------------------------------------ */
   await putBackupSettings({ retention: { daily: 1, weekly: 0, monthly: 0 } }, 'e2e')
@@ -257,6 +295,13 @@ try {
   const audit = (await pool.query("SELECT params_masked::text AS p, coalesce(error, '') AS e FROM audit_events WHERE action LIKE 'backup.%'")).rows as { p: string; e: string }[]
   check(audit.length > 0 && audit.every((a) => ![PASSWORD, S3_SECRET, S3_KEY].some((s) => a.p.includes(s) || a.e.includes(s))), 'Audit-Einträge ohne Passwort und Zugangsdaten', audit.length)
   check(audit.length > 0, 'Audit-Einträge zu Backup vorhanden')
+
+  /* --- Nichts Geheimes im Auftrags-Verzeichnis und im Log des Ausführers ------------------- */
+  const leftover = jobsDirText()
+  check(![PASSWORD, S3_SECRET, S3_KEY].some((s) => leftover.includes(s)) && !readdirSync(JOBS).some((n) => n.endsWith('.env')),
+    'Kein Geheimnis im Auftrags-Verzeichnis liegen geblieben', readdirSync(JOBS))
+  const runnerLog = execFileSync('docker', ['logs', BACKUP], { encoding: 'utf8', env: cliEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+  check(/runner: bereit/.test(runnerLog) && ![PASSWORD, S3_SECRET, S3_KEY].some((s) => runnerLog.includes(s)), 'Log des Ausführers ohne Geheimnisse')
   await pool.end()
 } catch (err) {
   check(false, 'Ablauf ohne Ausnahme', String((err as Error).stack ?? err))
@@ -268,5 +313,6 @@ try {
   pgc.stop()
   // Erst jetzt frei: die Wegwerf-Datenbank hing noch im Netz
   quiet(['network', 'rm', NET])
+  rmSync(JOBS, { recursive: true, force: true })
 }
 done()
