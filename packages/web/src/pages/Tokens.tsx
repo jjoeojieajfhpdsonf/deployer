@@ -10,6 +10,7 @@ import { PageHead } from '../components/PageHead.js'
 import { tokenNameSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
+import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 
 /**
  * API-Tokens für MCP-Clients (z.B. Claude) und Skripte. Der Klartext
@@ -39,6 +40,7 @@ export function Tokens() {
     mutationFn: (n: string) => api.createToken(n),
     onSuccess: (r) => {
       setFresh({ name: r.apiToken.name, token: r.token })
+      setAnyCopied(false)
       setName('')
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
@@ -53,6 +55,7 @@ export function Tokens() {
 
   async function copy(label: string, text: string) {
     const ok = await copyText(text)
+    if (ok) setAnyCopied(true)
     setCopied(ok ? label : `${label}-fehler`)
     setTimeout(() => setCopied(null), ok ? 2000 : 6000)
   }
@@ -62,9 +65,18 @@ export function Tokens() {
     if (form.validateAll()) create.mutate(name.trim())
   }
 
+  // UI-Qualität 8: fertige Einrichtung je Client zum Kopieren (vorher fehlte das Leerzeichen vor der URL)
   const cli = fresh
-    ? `claude mcp add --transport http airlock${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
+    ? `claude mcp add --transport http airlock ${mcpUrl} --header "Authorization: Bearer ${fresh.token}"`
     : ''
+  // Claude Desktop spricht entfernte MCP-Server über mcp-remote an (Eintrag in claude_desktop_config.json)
+  const desktop = fresh
+    ? JSON.stringify({ mcpServers: { airlock: { command: 'npx', args: ['-y', 'mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${fresh.token}`] } } }, null, 2)
+    : ''
+  const [client, setClient] = useState<'code' | 'desktop'>('code')
+  // Das Token steht nur dieses eine Mal da: nicht unbemerkt wegnavigieren, solange nichts kopiert ist
+  const [anyCopied, setAnyCopied] = useState(false)
+  useUnsaved(Boolean(fresh) && !anyCopied, 'neues Token (noch nicht kopiert, wird nicht noch einmal angezeigt)')
 
   return (
     <section className="page page-medium">
@@ -88,18 +100,46 @@ export function Tokens() {
       </form>
 
       {fresh && (
-        <section className="banner banner-warn" role="status">
-          <p><strong>Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</strong></p>
-          <pre className="code-block">{fresh.token}</pre>
+        <section className="banner banner-warn token-fresh" aria-labelledby="token-fresh-h">
+          <h2 id="token-fresh-h" className="token-fresh-h">Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</h2>
+          <pre className="code-block" tabIndex={0} aria-label="Token">{fresh.token}</pre>
           <div className="form-actions">
-            <button onClick={() => copy('token', fresh.token)}>{copied === 'token' ? 'Kopiert' : 'Token kopieren'}</button>
-            <button onClick={() => copy('cli', cli)}>{copied === 'cli' ? 'Kopiert' : 'Befehl für Claude Code kopieren'}</button>
-            <button className="link-button" onClick={() => setFresh(null)}>Ausblenden</button>
+            <button type="button" onClick={() => copy('token', fresh.token)}>Token kopieren</button>
           </div>
+
+          <p className="token-fresh-lede">Oder gleich fertig eingerichtet:</p>
+          <div className="segmented" role="group" aria-label="Client">
+            <button type="button" aria-pressed={client === 'code'} onClick={() => setClient('code')}>Claude Code</button>
+            <button type="button" aria-pressed={client === 'desktop'} onClick={() => setClient('desktop')}>Claude Desktop</button>
+          </div>
+          {client === 'code' ? (
+            <>
+              <p className="hint">Im Terminal ausführen:</p>
+              <pre className="code-block" tabIndex={0} aria-label="Befehl für Claude Code">{cli}</pre>
+              <div className="form-actions">
+                <button type="button" className="button-primary" onClick={() => copy('cli', cli)}>Befehl kopieren</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="hint">In Claude Desktop unter Einstellungen › Entwickler › «Konfiguration bearbeiten» in <code>claude_desktop_config.json</code> einfügen (bestehende Einträge unter <code>mcpServers</code> behalten), dann Claude Desktop neu starten. Braucht Node.js.</p>
+              <pre className="code-block" tabIndex={0} aria-label="Konfiguration für Claude Desktop">{desktop}</pre>
+              <div className="form-actions">
+                <button type="button" className="button-primary" onClick={() => copy('desktop', desktop)}>Konfiguration kopieren</button>
+              </div>
+            </>
+          )}
+          <p role="status" className="fix-note">
+            {copied === 'token' && 'Token kopiert.'}
+            {copied === 'cli' && 'Befehl kopiert.'}
+            {copied === 'desktop' && 'Konfiguration kopiert.'}
+          </p>
           {copied?.endsWith('-fehler') && (
             <p role="alert" className="error">Kopieren ging nicht – bitte den Text oben von Hand markieren.</p>
           )}
-          <pre className="code-block">{cli}</pre>
+          <div className="form-actions">
+            <button type="button" className="link-button" onClick={() => { void confirmLeave().then((ok) => { if (ok) setFresh(null) }) }}>Ausblenden</button>
+          </div>
         </section>
       )}
 

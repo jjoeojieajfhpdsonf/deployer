@@ -1055,6 +1055,8 @@ export type SetupPrefs = z.infer<typeof setupPrefsSchema>
 export const uiPrefsSchema = z.object({
   theme: z.enum(themePrefs, { message: 'Hell, Dunkel oder System' }),
   setup: setupPrefsSchema.optional(),
+  /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
+  bellSeenAt: z.string().datetime().optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
 /** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */

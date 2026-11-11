@@ -354,6 +354,25 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .profile-trigger:hover:not(:disabled),
 .profile-trigger[aria-expanded='true'] { background: var(--surface); border: none; color: var(--ink); box-shadow: var(--sh-card); }
 
+/* UI-Qualität 8: Glocke – ungelesene Ereignisse */
+.bell-trigger { position: relative; display: inline-grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: none; border-radius: var(--r-md); background: transparent; box-shadow: none; color: var(--muted); }
+.bell-trigger:hover:not(:disabled), .bell-trigger[aria-expanded='true'] { background: var(--surface); color: var(--ink); box-shadow: var(--sh-card); }
+.bell-count { position: absolute; top: 4px; right: 3px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-pill); background: var(--bad); color: var(--bg); font-size: var(--fs-12); font-weight: 600; line-height: 18px; text-align: center; }
+.bell-menu { width: 380px; max-height: 70vh; overflow: auto; }
+.bell-head { display: flex; justify-content: space-between; align-items: baseline; }
+.bell-item { display: grid !important; grid-template-columns: 10px minmax(0, 1fr); gap: var(--sp-3); align-items: start; white-space: normal; }
+.bell-item-new { background: var(--surface-2); }
+.bell-dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--muted); }
+.bell-dot-ok { background: var(--ok); }
+.bell-dot-bad { background: var(--bad); }
+.bell-dot-info { background: var(--info); }
+.bell-dot-warn { background: var(--warn); }
+.bell-text { display: grid; gap: 2px; min-width: 0; }
+.bell-meta { font-size: var(--fs-12); color: var(--muted); }
+.bell-new { color: var(--ink); font-weight: 600; }
+.bell-empty { margin: 0; padding: var(--sp-3) var(--sp-4); font-size: var(--fs-13); color: var(--muted); }
+.bell-actions { display: grid; }
+
 /* Kopf rechts: Aktivitätsanzeige, Profil */
 .topbar-actions { display: flex; align-items: center; gap: var(--sp-2); }
 .activity-trigger {
@@ -1460,6 +1479,14 @@ button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
 .login-form h1 { font-size: var(--fs-30); margin-bottom: var(--sp-1); }
 .login-lede { margin: 0 0 var(--sp-2); font-size: var(--fs-14); }
 .login-form button[type='submit'] { width: 100%; margin-top: var(--sp-6); min-height: 40px; border-radius: var(--r-md); }
+/* UI-Qualität 8: Anmeldung im Dialog (Sitzung abgelaufen) – ohne Kartenrahmen der Anmeldeseite */
+.login-form-dialog { width: 100%; padding: 0; box-shadow: none; background: transparent; }
+.login-form-dialog h1 { font-size: var(--fs-24); }
+.session-dialog { width: min(420px, calc(100vw - 32px)); }
+.token-fresh { display: grid; gap: var(--sp-3); }
+.token-fresh-h { margin: 0; font-size: var(--fs-15); font-weight: 600; }
+.token-fresh-lede { margin: var(--sp-2) 0 0; font-weight: 500; }
+.token-fresh .form-actions { margin: 0; }
 
 /* --- Projekt-Karten (Raster) --------------------------------------------------------- */
 

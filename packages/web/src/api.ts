@@ -1,3 +1,4 @@
+import { markSessionExpired } from './lib/session.js'
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs,
@@ -54,6 +55,8 @@ export interface MeDto {
   theme?: ThemePref | null
   /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
   setup?: SetupPrefs | null
+  /** Glocke: bis wann gelesen (UI-Qualität 8) */
+  bellSeenAt?: string | null
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -98,6 +101,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError('bad_response', 'Unerwartete Antwort vom Server.', res.status)
   }
   if (!res.ok) {
+    // UI-Qualität 8: Sitzung abgelaufen → Anmeldedialog über der Seite (nicht bei der Anmeldung selbst)
+    if (res.status === 401 && !path.startsWith('/auth/')) markSessionExpired()
     const e = (data as { error?: { code: string; message: string; details?: unknown } }).error
     throw new ApiError(e?.code ?? 'unknown', e?.message ?? `HTTP ${res.status}`, res.status, e?.details)
   }

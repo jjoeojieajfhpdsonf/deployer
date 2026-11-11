@@ -12,7 +12,7 @@ export const VISUAL_SCENES = [
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
   'neues-projekt-validierung', 'neues-projekt-vorschau', 'neues-projekt-chat','projekte-anzahl-0', 'projekte-anzahl-1',
   // Verwaltung und Security
-  'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto',
+  'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto', 'glocke', 'sitzung-abgelaufen', 'verlassen-rueckfrage', 'tokens-neu',
   // System
   'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
   // Zustände (Etappe 1) und Rückmeldung (Etappe 2)

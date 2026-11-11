@@ -23,7 +23,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | erledigt |
 | 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | erledigt; fester Ort für Tokens offen, Frage Nr. 9 |
 | 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | erledigt |
-| 8 | Sitzung, ungespeicherte Änderungen, Löschen mit Namen, Token-Befehle, Benachrichtigungen | geplant |
+| 8 | Sitzung, ungespeicherte Änderungen, Löschen mit Namen, Token-Befehle, Benachrichtigungen | erledigt; Löschname offen (Frage 10), Auswahl der Glocke offen (Frage 11) |
 
 ## Abnahmekriterien
 
@@ -336,3 +336,24 @@ Umsetzung:
   mit ungespeicherten Änderungen (Pause-Editor, Umgebungsvariablen, Einstellungen). Projekt löschen
   nur nach Eintippen des Namens. Tokens: fertiger Befehl zum Kopieren (Claude Code, Claude Desktop),
   Token nur einmal sichtbar. Glocke im Kopf mit ungelesenen Ereignissen, als gelesen markieren, Link.
+
+Umsetzung:
+- 401 unterwegs (oder Abmeldung in einem anderen Tab): Dialog «Sitzung abgelaufen» über der Seite
+  (`SessionDialog`, `lib/session.ts`); die Seite bleibt gemountet, Eingaben bleiben; nach der
+  Anmeldung lädt alles Sichtbare neu, der Fokus geht zurück. Esc schliesst nicht (ohne Anmeldung geht
+  nichts). Die Anmeldeseite gibt es nur noch beim ersten Öffnen ohne Sitzung.
+- Ungespeicherte Änderungen (`lib/unsaved.ts`, `LeaveGuard`): Umgebungsvariablen, Pause-Seite
+  (Abbrechen, Esc, Klick daneben) und ein neues, noch nicht kopiertes Token. Rückfrage «Änderungen
+  verwerfen?» bei Links der Oberfläche und beim Reiterwechsel, «Bleiben und speichern» vorgewählt;
+  Neu laden/Schliessen fragt der Browser. Der Zurück-Knopf des Browsers wird nicht abgefangen
+  (BrowserRouter ohne Daten-Router).
+- Löschen: verlangt schon das Eintippen des Kurznamens – ob Kurzname oder Anzeigename, ist offen,
+  Frage Nr. 10.
+- Tokens: Token einmal sichtbar wie bisher; dazu fertig zum Kopieren für Claude Code (Befehl; ein
+  fehlendes Leerzeichen vor der URL behoben) und Claude Desktop (Eintrag für
+  `claude_desktop_config.json` über `mcp-remote`).
+- Glocke im Kopf: ungelesene Ereignisse mit Zahl (Name des Knopfs sagt sie in Worten), Liste mit
+  Ton, Zeit und Auslöser, «neu»-Markierung, «Alle als gelesen markieren» (auf dem Server, ohne
+  Audit-Eintrag), Link je Ereignis und «Alle im Audit-Log». Welche Ereignisse hineingehören: offen,
+  Frage Nr. 11.
+- Szenen: `glocke`, `sitzung-abgelaufen`, `verlassen-rueckfrage`, `tokens-neu`.

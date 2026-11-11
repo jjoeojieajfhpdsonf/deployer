@@ -5,6 +5,7 @@ import {
 } from '@airlock/shared'
 import { Field } from './Field.js'
 import { isoOf } from '../lib/dates.js'
+import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
 
 /**
  * Pause-Seite bearbeiten: Felder (Formular) oder eigenes HTML (Code) links,
@@ -195,6 +196,11 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // UI-Qualität 8: Änderungen im Editor nicht still verwerfen (Abbrechen, Esc, Klick daneben, Neu laden)
+  const changed = open && (JSON.stringify(page) !== JSON.stringify(initial ?? template) || back !== toLocalInput(initialBackAt))
+  useUnsaved(changed, 'Pause-Seite')
+  const cancel = () => { void confirmLeave().then((ok) => { if (ok) onCancel() }) }
+
   const custom = !samePage(page, template)
   // Nie werfen: Unlesbares (Jahr 333333, halbe Eingabe) wird zur Feldmeldung
   const parsed = withBackAt ? parseLocalDateTime(back) : { iso: null, error: null }
@@ -215,7 +221,8 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
 
   return (
     <dialog ref={ref} className="dialog pause-dialog" aria-labelledby={`${prefix}-h`} onClose={onCancel}
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+      onCancel={(e) => { if (changed) { e.preventDefault(); cancel() } }}
+      onClick={(e) => { if (e.target === e.currentTarget) cancel() }}>
       <form className="pause-dialog-form" noValidate onSubmit={(e) => { e.preventDefault(); submit() }}>
         <header className="pause-dialog-head">
           <h2 id={`${prefix}-h`}>{title}</h2>
@@ -241,7 +248,7 @@ export function PausePageDialog({ open, title, initial, template, initialBackAt,
             ? <p role="alert" className="error-inline">{error}</p>
             : <span className="hint">{note ?? '«Voraussichtlich zurück» erscheint auf der Seite und als Retry-After-Header.'}</span>}
           <span className="pause-dialog-buttons">
-            <button type="button" onClick={onCancel}>Abbrechen</button>
+            <button type="button" onClick={cancel}>Abbrechen</button>
             <button type="submit" className="button-primary" disabled={saving} aria-busy={saving || undefined}>{saveLabel}</button>
           </span>
         </footer>

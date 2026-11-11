@@ -4,6 +4,7 @@ import { putEnvSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared
 import { api } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
 import { useFormErrors } from '../lib/form.js'
+import { useUnsaved } from '../lib/unsaved.js'
 import { relativeTime } from '../lib/format.js'
 import { fmtDate } from '../lib/dates.js'
 import { ErrorState, Loading, SkLines } from './States.js'
@@ -141,6 +142,10 @@ function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntr
     onError: (err) => void envForm.setServerErrors(err),
   })
   const secret = env.filter((e) => e.isSecret).length
+  // UI-Qualität 8: ungespeicherte Variablen → Rückfrage beim Verlassen
+  const initialRows = JSON.stringify(env.map((e) => ({ key: e.key, value: e.value ?? '', isSecret: e.isSecret })))
+  const dirty = editing && JSON.stringify(rows.map((r) => ({ key: r.key, value: r.value, isSecret: r.isSecret }))) !== initialRows
+  useUnsaved(dirty, 'Umgebungsvariablen')
   const add = () => {
     setEditing(true)
     setRows((r) => [...r, { key: '', value: '', isSecret: false }])

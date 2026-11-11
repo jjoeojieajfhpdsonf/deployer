@@ -39,8 +39,11 @@ export function mergeUiPrefs(current: UiPrefs, patch: UiPrefsPatch): UiPrefs {
 }
 
 export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs> {
-  const prefs = mergeUiPrefs(await getUiPrefs(), uiPrefsPatchSchema.parse(input))
+  const patch = uiPrefsPatchSchema.parse(input)
+  const prefs = mergeUiPrefs(await getUiPrefs(), patch)
   await setSetting(KEY, JSON.stringify(prefs))
-  await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: prefs, result: 'ok' })
+  // «Glocke gelesen» ist keine Einstellung, die jemand im Audit-Log sucht (und erzeugte bei jedem Öffnen einen Eintrag)
+  const onlyBell = Object.keys(patch).every((k) => k === 'bellSeenAt')
+  if (!onlyBell) await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: prefs, result: 'ok' })
   return prefs
 }

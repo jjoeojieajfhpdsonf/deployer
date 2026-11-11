@@ -5,7 +5,20 @@ import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { Logo } from '../components/Logo.js'
 
+/** Anmeldeseite (ohne Sitzung beim Öffnen) */
 export function Login({ onDone }: { onDone: () => void }) {
+  return (
+    <main className="login">
+      <LoginForm onDone={onDone} />
+    </main>
+  )
+}
+
+/**
+ * Formular der Anmeldung – als Seite oder (UI-Qualität 8) im Dialog über der
+ * Seite, wenn die Sitzung unterwegs abläuft.
+ */
+export function LoginForm({ onDone, inDialog = false, headingId }: { onDone: () => void; inDialog?: boolean; headingId?: string }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -33,30 +46,35 @@ export function Login({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main className="login">
-      <form onSubmit={submit} className="login-form" noValidate ref={form.formRef}>
+    <form onSubmit={submit} className={inDialog ? 'login-form login-form-dialog' : 'login-form'} noValidate ref={form.formRef}>
+      {!inDialog && (
         <div className="brand">
           {/* Bildmarke (provisorisch Variante 1, Wahl offen) */}
           <Logo size={28} className="brand-logo" />
           <span className="brand-name">Airlock</span>
         </div>
-        <h1>Anmelden</h1>
-        <p className="muted login-lede">Mit dem Admin-Passwort dieses Servers.</p>
-        <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
-          <input
-            {...form.field('password')}
-            type="password"
-            autoComplete="current-password"
-            autoFocus
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-        {error && <p role="alert" className="error">{error}</p>}
-        <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
-          Anmelden
-        </button>
-      </form>
-    </main>
+      )}
+      <h1 id={headingId} className={inDialog ? 'dialog-title' : undefined}>{inDialog ? 'Sitzung abgelaufen' : 'Anmelden'}</h1>
+      <p className="muted login-lede">
+        {inDialog
+          ? 'Melde dich wieder an – die Seite und deine Eingaben bleiben, wie sie sind.'
+          : 'Mit dem Admin-Passwort dieses Servers.'}
+      </p>
+      <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
+        <input
+          {...form.field('password')}
+          type="password"
+          autoComplete="current-password"
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- einziges Feld, die Anmeldung ist der nächste Schritt
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </Field>
+      {error && <p role="alert" className="error">{error}</p>}
+      <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
+        Anmelden
+      </button>
+    </form>
   )
 }

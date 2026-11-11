@@ -1,4 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { markSessionExpired } from './lib/session.js'
+import { SessionDialog } from './components/SessionDialog.js'
+import { LeaveGuard } from './components/LeaveGuard.js'
+import { Bell } from './components/Bell.js'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Route, Routes, Navigate, Link, useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -8,7 +12,7 @@ import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
 import { ActivityIndicator } from './components/ActivityIndicator.js'
 import { Shortcuts } from './components/Shortcuts.js'
-import { api } from './api.js'
+import { api, type MeDto } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
 import { NewProject } from './pages/NewProject.js'
@@ -34,6 +38,15 @@ export function App() {
   const qc = useQueryClient()
   const location = useLocation()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
+  // UI-Qualität 8: Wer schon in der Oberfläche war, bekommt bei Sitzungsende einen Dialog über der
+  // Seite statt der Anmeldeseite (die Seite und Eingaben bleiben)
+  const hadShell = useRef(false)
+  // Profil der letzten gültigen Sitzung: bleibt im Kopf stehen, solange der Dialog offen ist
+  const lastMe = useRef<MeDto | null>(null)
+  if (me.data?.loggedIn) { hadShell.current = true; lastMe.current = me.data }
+  useEffect(() => {
+    if (me.data && !me.data.loggedIn && hadShell.current) markSessionExpired()
+  }, [me.data])
 
   // Darstellung: die Wahl vom Server gewinnt über die lokale Kopie (anderes Gerät, neuer Browser)
   const serverTheme = me.data?.theme
@@ -70,7 +83,7 @@ export function App() {
     )
   }
 
-  if (!me.data?.loggedIn) {
+  if (!me.data?.loggedIn && !hadShell.current) {
     return <Login onDone={() => void qc.invalidateQueries({ queryKey: ['me'] })} />
   }
 
@@ -83,10 +96,15 @@ export function App() {
           <Crumbs />
           <div className="topbar-actions">
             <ErrorBoundary scope="part"><ActivityIndicator /></ErrorBoundary>
-            <ProfileMenu me={me.data} />
+            <ErrorBoundary scope="part"><Bell me={me.data?.loggedIn ? me.data : lastMe.current!} /></ErrorBoundary>
+            <ProfileMenu me={me.data?.loggedIn ? me.data : lastMe.current!} />
           </div>
         </div>
         <StaleBar />
+        {/* Sitzung abgelaufen: Anmeldung über der Seite (UI-Qualität 8) */}
+        <SessionDialog />
+        {/* Ungespeicherte Änderungen: Rückfrage vor dem Verlassen (UI-Qualität 8) */}
+        <LeaveGuard />
         {/* Tab-Titel, Favicon-Punkt und Ereignisstrom (UI-Qualität 3) */}
         <ErrorBoundary scope="part"><ShellLive /></ErrorBoundary>
         <ErrorBoundary scope="part"><SetupRedirect /></ErrorBoundary>

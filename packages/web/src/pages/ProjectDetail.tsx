@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
+import { confirmLeave } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
@@ -42,7 +43,8 @@ export function ProjectDetail() {
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
-  const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
+  // UI-Qualität 8: Reiterwechsel mit ungespeicherten Eingaben (z.B. Variablen) erst nach Rückfrage
+  const setTab = (t: Tab) => { void confirmLeave().then((ok) => { if (ok) setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false }) }) }
   // UI-Qualität 5: direkt nach «Anlegen und deployen» läuft der Fortschritt des ersten Deploys
   const location = useLocation()
   const [watching, setWatching] = useState<string | null>(() => (location.state as { watch?: string } | null)?.watch ?? null)

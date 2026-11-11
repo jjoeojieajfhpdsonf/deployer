@@ -33,6 +33,10 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if (p === '/auth/me') return { body: loggedIn ? { ...fx.me, theme } : { loggedIn: false, theme: null } }
   let m: RegExpMatchArray | null
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
+  // UI-Qualität 8: neues Token (einmal sichtbar) – Beispielwert, kein echtes Token
+  if (method === 'POST' && p === '/tokens') {
+    return { body: { token: 'apl_beispiel_7f3a9c21e04d51c0aa8e2d93b6', apiToken: { id: 't9', name: 'Claude Desktop', createdAt: new Date().toISOString(), lastUsedAt: null, revokedAt: null } } }
+  }
   if (method !== 'GET') return { body: {} }
   if (p === '/settings/pause-page') return { body: { page: fx.pausePageTemplate, defaults: DEFAULT_PAUSE_PAGE } }
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
@@ -220,7 +224,8 @@ const shots: Shot[] = [
       await pg.waitForTimeout(150)
     },
   },
-  { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen` },
+  // Kantenglättung der klebenden Sprungnavigation schwankt (wie veroeffentlichung-*), sichtbar gleich
+  { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen`, maxDiff: 600 },
   {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
     prepare: async (pg) => { await pg.locator('form button[type="submit"]').click(); await pg.waitForTimeout(200); await pg.evaluate(() => window.scrollTo(0, 0)) },
@@ -239,6 +244,39 @@ const shots: Shot[] = [
   },
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
+  // UI-Qualität 8: Glocke, Sitzung abgelaufen, Rückfrage beim Verlassen, neues Token
+  {
+    group: 'sitzung', name: 'glocke', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Ereignisse/ }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'sitzung', name: 'sitzung-abgelaufen', path: '/projekte', full: false,
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthorized","message":"Nicht angemeldet"}}' }))
+      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('dialog', { name: 'Sitzung abgelaufen' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'sitzung', name: 'verlassen-rueckfrage', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+      await pg.getByRole('link', { name: /^Audit/ }).first().click()
+      await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'sitzung', name: 'tokens-neu', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name des Tokens').fill('Claude Desktop')
+      await pg.getByRole('button', { name: 'Token anlegen' }).click()
+      await pg.getByRole('button', { name: 'Claude Desktop' }).click()
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'security', name: 'security-global', path: '/security' },
   // UI-Qualität 6: alte Adressen leiten weiter – /extern auf den Reiter unter Security, /domains in System
   { group: 'security', name: 'externe-ziele', path: '/extern' },

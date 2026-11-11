@@ -57,7 +57,8 @@ async function perMinute(browser: Browser, path: string, sse: boolean, hidden = 
     page.on('request', (r) => {
       const u = new URL(r.url())
       if (!u.pathname.startsWith('/api/v1/')) return
-      const key = u.pathname.replace(/\/p-[\w-]+/, '/:id').replace(/\/[\w-]+-d\d+/, '/:dep')
+      // Je Abfrage (Pfad mit Parametern): /audit?limit=40 und /audit?…&targetId=… sind zwei Abfragen
+      const key = `${u.pathname}${u.search}`.replace(/p-[\w-]+/g, ':id').replace(/\/[\w-]+-d\d+/, '/:dep')
       byPath[key] = (byPath[key] ?? 0) + 1
       total++
     })
