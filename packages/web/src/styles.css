@@ -350,14 +350,17 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-collapsed .rail-nav a { position: relative; justify-content: center; width: 44px; padding: 0; }
 .rail-collapsed .rail-count { position: absolute; top: 0; right: -2px; min-width: 18px; height: 18px; padding: 0 4px; font-size: var(--fs-12); }
 
-/* --- M9: Umschalter der Umgebung neben «Airlock», Server-Teil der Seitenleiste -------- */
-.env-sep { color: var(--faint); font-size: 20px; line-height: 1; margin: 0 -4px; }
-.env-switch { position: relative; }
-.env-trigger { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: 32px; padding: 0 6px 0 var(--sp-1); border: none; border-radius: var(--r-sm); background: transparent; box-shadow: none; color: var(--ink); cursor: pointer; }
+/* --- M9: Umschalter der Umgebung (Kopfzeile links), Server-Teil der Seitenleiste ------ */
+/* Wie der Profil-Knopf: 40 px hoch, ganze Fläche klickbar; das Kürzel steht bündig mit dem Inhalt */
+.env-switch { position: relative; flex: none; margin-left: calc(var(--sp-2) * -1); }
+.env-trigger { display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 220px; min-height: 40px; padding: 0 10px 0 var(--sp-2); border: none; border-radius: var(--r-md); background: transparent; box-shadow: none; color: var(--ink); cursor: pointer; }
 .env-trigger:hover:not(:disabled), .env-trigger[aria-expanded='true'] { background: var(--surface); box-shadow: var(--sh-card); }
-.env-trigger svg { color: var(--muted); }
+.env-trigger svg { flex: none; color: var(--muted); }
+/* Name und Domain in einer Zeile; zu lang endet mit «…» (voller Name im Tooltip) */
+.env-trigger-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-14); font-weight: 500; }
+.env-trigger-zone { font-size: var(--fs-12); font-weight: 400; color: var(--muted); }
 .env-mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--r-xs); background: var(--surface-2); box-shadow: var(--sh-ring); color: var(--ink-dim); font-size: var(--fs-12); font-weight: 600; letter-spacing: 0.02em; }
-.env-switch .menu-list { left: -4px; right: auto; width: 300px; transform-origin: top left; }
+.env-switch .menu-list { left: 0; right: auto; width: 300px; transform-origin: top left; }
 .menu-list .env-item { min-height: 52px; padding: 6px var(--sp-3) 6px 10px; gap: 10px; }
 .env-item-text { display: grid; gap: 1px; min-width: 0; text-align: left; }
 .env-item-text strong { font-weight: 500; }
@@ -368,7 +371,7 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-divider { display: grid; gap: 1px; padding: var(--sp-3) var(--sp-3) var(--sp-2); border-top: 1px solid var(--line); font-size: var(--fs-13); font-weight: 500; color: var(--ink-dim); }
 .rail-divider-note { font-size: var(--fs-12); font-weight: 400; color: var(--muted); }
 .rail-collapsed .brand { flex-direction: column; gap: var(--sp-2); }
-.rail-collapsed .env-sep, .rail-collapsed .rail-divider span { display: none; }
+.rail-collapsed .rail-divider span { display: none; }
 .rail-collapsed .rail-divider { padding: 0; width: 44px; }
 
 .rail-foot { margin-top: auto; padding: var(--sp-4) var(--sp-3) 0; display: grid; gap: var(--sp-1); font-size: var(--fs-13); color: var(--muted); }
@@ -385,6 +388,9 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 /* Kopfzeile: Brotkrumen links, Darstellung und Profil rechts */
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); max-width: var(--content); margin: 0 auto var(--sp-7); min-height: 52px; }
 .topbar .crumbs { margin: 0; min-width: 0; }
+/* Links: Umschalter der Umgebung, dahinter – mit feinem Trennstrich – die Brotkrumen */
+.topbar-start { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.topbar-start nav.crumbs { padding-left: var(--sp-4); border-left: 1px solid var(--line); }
 .crumbs { font-size: var(--fs-14); color: var(--muted); overflow-wrap: anywhere; }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--ink); }
@@ -2210,6 +2216,8 @@ kbd + kbd { margin-left: 4px; }
   .rail-nav { flex-direction: row; }
   .rail .rail-item svg, .rail-foot { display: none; }
   .rail-nav a { white-space: nowrap; }
+  /* Umschalter nur mit Kürzel und Pfeil; Name und Domain im Tooltip, im Namen und in der Liste */
+  .env-trigger-text { display: none; }
   h1 { font-size: var(--fs-30); }
 }
 
