@@ -55,6 +55,8 @@ export const WIN95_SCENES: readonly string[] = [
   'win95-minimiert', 'win95-maximiert', 'win95-hauptfenster-maximiert', 'win95-startmenue', 'win95-beenden',
   // Ganze App über den Taskleisten-Knopf minimiert und wieder geholt (die Taskleiste muss stehen bleiben)
   'win95-app-minimiert', 'win95-app-zurueck',
+  // Desktop-Symbole: Papierkorb voll (eine Karte geschlossen) und ausgewählt
+  'win95-papierkorb',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

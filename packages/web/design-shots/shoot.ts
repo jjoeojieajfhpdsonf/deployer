@@ -190,6 +190,15 @@ const shots: Shot[] = [
     },
   },
   {
+    // Desktop-Symbole: eine Karte geschlossen → Papierkorb voll, per Klick ausgewählt
+    group: 'win95', name: 'win95-papierkorb', path: `/projekte/${P}`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('section[aria-labelledby="ov-deploys"] .w95-cap-close').click()
+      await pg.locator('.w95-icon').filter({ hasText: 'Papierkorb' }).click()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
     group: 'win95', name: 'win95-startmenue', path: '/projekte', full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Start', exact: true }).click(); await pg.waitForTimeout(250) },
   },

@@ -52,7 +52,10 @@ const checks = [
   ['cm-token', ['cm-token-bg'], 4.5, 'Platzhalter im Editor'],
 ]
 // Nur Windows 95: weisser Titel auf der Titelleiste (Verlauf #000080 → #1084d0; der Text reicht höchstens bis 60 %)
-const win95Checks = [['white', ['title-from', 'title-mid'], 4.5, 'Titel in der Titelleiste']]
+const win95Checks = [
+  ['white', ['title-from', 'title-mid'], 4.5, 'Titel in der Titelleiste'],
+  ['white', ['desktop'], 4.5, 'Beschriftung der Desktop-Symbole'],
+]
 const w95extra = tokens(block(":root[data-theme='win95'] {"))
 win95.white = '#ffffff'
 win95['title-from'] = '#000080'
