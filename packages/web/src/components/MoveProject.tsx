@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, type ProjectDto } from '../api.js'
 import { useEnv } from '../lib/env.js'
+import { leaveWithoutAsking } from '../lib/unsaved.js'
 import { IconWarn } from './Icons.js'
 import { InlineConfirm } from './Confirm.js'
 
@@ -25,6 +26,8 @@ export function MoveProject({ p }: { p: ProjectDto }) {
     mutationFn: () => api.moveProject(p.id, to),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['environments'] })
+      // Bestätigtes Verschieben: das Projekt folgen lassen, ohne Rückfrage (wie bisher)
+      leaveWithoutAsking()
       navigate(`/u/${r.moved.to.slug}/projekte/${p.id}?tab=einstellungen`)
     },
   })

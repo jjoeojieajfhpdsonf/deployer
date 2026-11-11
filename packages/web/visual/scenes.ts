@@ -14,7 +14,7 @@ export const VISUAL_SCENES = [
   'einstellungen-container', 'fehler-grenze-vorschlag', 'security-csp-qualitaet',
   'neues-projekt-validierung', 'neues-projekt-vorschau', 'neues-projekt-chat','projekte-anzahl-0', 'projekte-anzahl-1',
   // Verwaltung und Security
-  'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto', 'glocke', 'sitzung-abgelaufen', 'sitzung-abgelaufen-aktion', 'sitzung-erneut-ausfuehren', 'verlassen-rueckfrage', 'tokens-neu', 'tokens-neu-claude-code',
+  'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto', 'glocke', 'sitzung-abgelaufen', 'sitzung-abgelaufen-aktion', 'sitzung-erneut-ausfuehren', 'verlassen-rueckfrage', 'verlassen-zurueck', 'tokens-neu', 'tokens-neu-claude-code',
   // System
   'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
   // Zustände (Etappe 1) und Rückmeldung (Etappe 2)

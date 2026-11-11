@@ -341,6 +341,24 @@ const shots: Shot[] = [
     },
   },
   {
+    // Antwort 12: auch der Zurück-Knopf des Browsers fragt (Daten-Router, useBlocker). Über einen Link
+    // der Oberfläche zur Projektseite, damit es ein «Zurück» innerhalb der Oberfläche gibt.
+    // Kantenglättung der klebenden Sprungnavigation schwankt (wie projekt-einstellungen), sichtbar gleich
+    group: 'sitzung', name: 'verlassen-zurueck', path: '/domains', full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.locator('td.cell-main').getByRole('link', { name: 'Haushaltsbuch' }).click()
+      await pg.locator('#set-umgebung').getByRole('button', { name: 'Variable hinzufügen' }).click()
+      await pg.locator('#set-umgebung .env-row').last().locator('input').first().fill('API_KEY')
+      await pg.goBack()
+      await pg.getByRole('dialog', { name: 'Änderungen verwerfen?' }).waitFor()
+      // Der Browser stellt beim (angehaltenen) Zurück die Scrollposition wieder her – je nach Zeitpunkt
+      // um ein Pixel anders. Für ein stabiles Bild oben ausrichten.
+      await pg.waitForTimeout(250)
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(100)
+    },
+  },
+  {
     group: 'sitzung', name: 'tokens-neu', path: '/tokens', full: false,
     prepare: async (pg) => {
       await pg.getByLabel('Name des Tokens').fill('Claude Desktop')

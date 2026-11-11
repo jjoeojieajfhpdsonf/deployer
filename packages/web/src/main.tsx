@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { App } from './App.js'
 import { ErrorBoundary } from './components/ErrorBoundary.js'
@@ -36,15 +36,26 @@ const queryClient = new QueryClient({
 // Zustand «Veraltet»: Server antwortet nicht → letzte Daten bleiben, Leiste in der Shell
 watchConnection(queryClient)
 
+// Daten-Router nur als Rahmen: eine Route für alle Adressen, die eigentlichen Routen stehen
+// weiter als <Routes> in App.tsx. Er ist nötig für useBlocker (Rückfrage auch bei Zurück/Vor
+// im Browser, LeaveGuard).
+const router = createBrowserRouter([
+  {
+    path: '*',
+    element: (
+      // Letzte Linie: statt schwarzem Bild eine Fehlerseite mit «Neu laden» (innerhalb der Route,
+      // damit sie vor der eingebauten Fehlerseite des Routers greift)
+      <ErrorBoundary scope="app">
+        <App />
+      </ErrorBoundary>
+    ),
+  },
+])
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        {/* Letzte Linie: statt schwarzem Bild eine Fehlerseite mit «Neu laden» */}
-        <ErrorBoundary scope="app">
-          <App />
-        </ErrorBoundary>
-      </BrowserRouter>
+      <RouterProvider router={router} />
       {/* Einmal, an der Wurzel. Farben aus den eigenen Tokens (styles.css), daher hell und dunkel ohne theme-Prop. */}
       <Toaster position="bottom-right" duration={10_000} gap={8} containerAriaLabel="Meldungen" />
     </QueryClientProvider>
