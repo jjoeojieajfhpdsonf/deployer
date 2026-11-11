@@ -22,6 +22,7 @@ import { probeTargetFor } from '../domain/routes.js'
 import { countOpenFindings, type HeaderRecheckDto } from '@airlock/shared'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
+import { publish } from '../lib/events.js'
 
 /**
  * Scan-Ablauf (M6). Scans laufen nacheinander in einer Warteschlange;
@@ -184,7 +185,10 @@ async function runScan(runId: string): Promise<void> {
   const run = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.id, runId)).limit(1))[0]
   if (!run) return
   const startedAt = new Date()
+  // UI-Qualität 3: Oberfläche lädt bei jedem Zwischenstand nach (SSE statt Polling)
+  const ping = () => publish({ type: 'scan', projectId: run.projectId, targetId: run.externalTargetId })
   await db.update(schema.scanRuns).set({ status: 'running', startedAt }).where(eq(schema.scanRuns.id, runId))
+  ping()
   log.info('Scan gestartet', { scan: runId, project: run.projectId, external: run.externalTargetId, level: run.level, trigger: run.trigger, actor: run.actor })
   // Der Plan aus enqueue*; jede Stufe aktualisiert ihren Eintrag
   const stages: ScanStages = { ...run.stages }
@@ -199,7 +203,7 @@ async function runScan(runId: string): Promise<void> {
     if (!force && Date.now() - lastSave < 1_500) return saving
     lastSave = Date.now()
     const snapshot = structuredClone(stages)
-    saving = saving.then(() => db.update(schema.scanRuns).set({ stages: snapshot }).where(eq(schema.scanRuns.id, runId))).catch(() => {})
+    saving = saving.then(() => db.update(schema.scanRuns).set({ stages: snapshot }).where(eq(schema.scanRuns.id, runId))).then(ping).catch(() => {})
     return saving
   }
 
@@ -263,6 +267,7 @@ async function runScan(runId: string): Promise<void> {
       await finalize(run, findings, stages)
       if (run.projectId) for (const fn of doneListeners) fn(run.projectId)
     }
+    ping()
     log.info('Scan beendet', { scan: runId, status: by ? 'abgebrochen' : 'fertig', dauerMs: Date.now() - startedAt.getTime(), befunde: all.length })
   } catch (err) {
     await saving
@@ -271,6 +276,7 @@ async function runScan(runId: string): Promise<void> {
       .update(schema.scanRuns)
       .set({ status: 'failed', error: (err as Error).message.slice(0, 500), finishedAt: new Date(), stages })
       .where(eq(schema.scanRuns.id, runId))
+    ping()
     log.warn('Scan gescheitert', { scan: runId, dauerMs: Date.now() - startedAt.getTime(), err: String(err) })
   } finally {
     // Auf jedem Weg aufräumen: die Kopie des Quellcodes (kann Secrets

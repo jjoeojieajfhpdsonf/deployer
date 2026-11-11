@@ -4,6 +4,7 @@ import { publicNameFormSchema, publicStateOf, type ProjectDto, type PublicProgre
 import { toast } from 'sonner'
 import { PausePageDialog, pageKind } from './PausePageEditor.js'
 import { api } from '../api.js'
+import { poll } from '../lib/live.js'
 import { useFormErrors } from '../lib/form.js'
 import { usePublicActions } from '../lib/public.js'
 import { relativeTime } from '../lib/format.js'
@@ -60,7 +61,7 @@ function StatePill({ s }: { s: PublicStatusDto }) {
  * bietet «Rückgängig».
  */
 export function Publication({ p }: { p: ProjectDto }) {
-  const q = useQuery({ queryKey: ['public', p.id], queryFn: () => api.publicStatus(p.id), refetchInterval: 10_000 })
+  const q = useQuery({ queryKey: ['public', p.id], queryFn: () => api.publicStatus(p.id), refetchInterval: poll })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const actions = usePublicActions(p)
   const titleId = useId()

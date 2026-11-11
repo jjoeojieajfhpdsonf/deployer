@@ -27,6 +27,7 @@ import { Setup } from './pages/Setup.js'
 import { useSetup } from './lib/setup.js'
 import { ProfileMenu } from './components/ProfileMenu.js'
 import { CrumbsProvider, Crumbs } from './components/PageHead.js'
+import { ShellLive } from './components/DocumentTitle.js'
 import { IconProjects, IconShield, IconGlobe, IconTarget, IconKey, IconList, IconServer } from './components/Icons.js'
 
 export function App() {
@@ -86,6 +87,8 @@ export function App() {
           </div>
         </div>
         <StaleBar />
+        {/* Tab-Titel, Favicon-Punkt und Ereignisstrom (UI-Qualität 3) */}
+        <ErrorBoundary scope="part"><ShellLive /></ErrorBoundary>
         <ErrorBoundary scope="part"><SetupRedirect /></ErrorBoundary>
         {/* ⌘K, «/», «g p/s/a», «?» */}
         <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>

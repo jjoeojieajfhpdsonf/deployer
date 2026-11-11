@@ -5,6 +5,7 @@ import { api, ApiError, type FindingDto, type FixRequestDto } from '../api.js'
 import { ErrorState, Loading, SkLines } from './States.js'
 import { copyText } from '../lib/clipboard.js'
 import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { IconWarn } from './Security.js'
 import { IconSpark } from './Actor.js'
 
@@ -206,8 +207,8 @@ export function FixRequestsSection({ projectId, onDone, watch }: { projectId: st
   const q = useQuery({
     queryKey: fixesKey(projectId),
     queryFn: () => api.fixRequests(projectId),
-    // Wartet ein Vorschlag auf Deploy und Nachscan oder wurde eben ein Auftrag kopiert: oft nachsehen
-    refetchInterval: (query) => (watch || query.state.data?.fixes.some((f) => f.status === 'applied' || f.status === 'merged') ? 5000 : 30_000),
+    // Neue Vorschläge (Audit), Deploy und Nachscan kommen über den Ereignisstrom (UI-Qualität 3)
+    refetchInterval: poll,
   })
   const fixes = q.data?.fixes ?? []
   if (!fixes.length) return null

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { ageMs } from './dates.js'
+import { poll } from './live.js'
 
 /**
  * Alle Projekte, gemeinsam für Seitenleiste, Übersicht und Security.
@@ -12,7 +13,8 @@ export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: api.listProjects,
-    refetchInterval: 5_000,
+    // Änderungen kommen über den Ereignisstrom (UI-Qualität 3); ohne ihn alle 60 s
+    refetchInterval: poll,
   })
 }
 

@@ -470,6 +470,9 @@ const shots: Shot[] = [
     prepare: async (pg) => {
       await pg.route('**/api/v1/**', (r) => r.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' }))
       await pg.waitForTimeout(2200)
+      // Ohne Sekunden-Polling (UI-Qualität 3) lädt nur Veraltetes neu: Uhr 5 s vor, damit die Daten
+      // älter als staleTime sind (die Screenshot-Tests halten die Uhr sonst fest)
+      await pg.clock.setFixedTime(await pg.evaluate(() => Date.now() + 5_000))
       // react-query lauscht auf window «visibilitychange» (Fenster wieder sichtbar → neu laden)
       await pg.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
       await pg.locator('.stale-bar').waitFor({ timeout: 8000 })

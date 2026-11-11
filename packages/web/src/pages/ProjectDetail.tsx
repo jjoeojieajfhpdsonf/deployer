@@ -16,6 +16,7 @@ import { DeployList, useDeployments } from '../components/DeployList.js'
 import { SiteAccess } from '../components/SiteAccess.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { isLive, isPublic } from '../lib/projects.js'
 import { openTotal } from '@airlock/shared'
 import { EmptyState, ErrorState, Loading, SkLog, SkProjectDetail, SkRows } from '../components/States.js'
@@ -59,7 +60,8 @@ export function ProjectDetail() {
   const q = useQuery({
     queryKey: ['project', id],
     queryFn: () => api.getProject(id),
-    refetchInterval: watching ? false : 5_000,
+    // Ereignisstrom statt Polling (UI-Qualität 3); während DeployProgress läuft, meldet der eigene Strom
+    refetchInterval: watching ? false : poll,
   })
 
   const act = useMutation({
@@ -132,6 +134,7 @@ export function ProjectDetail() {
     <section className="page page-project">
       <PageHead
         crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
+        name={p.name}
         title={<><h1>{p.name}</h1><StatusBadge state={p.state} /><PublicPillFor p={p} /></>}
         actions={
           <>

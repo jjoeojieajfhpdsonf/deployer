@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import type { AddressRowInput, ContainerField, DeploymentDto, EnvEntryDto, FailureAction, FailureExplanation, ProjectDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, deployFixPrompt, envTexts, explainFailure, logTail, missingEnvVar, sourceSchema, splitAddresses, updateProjectSchema } from '@airlock/shared'
 import { copyText } from '../lib/clipboard.js'
+import { FALLBACK_MS, poll } from '../lib/live.js'
 import { Field } from './Field.js'
 import { IconSpark } from './Actor.js'
 import { api, probeUrl } from '../api.js'
@@ -31,7 +32,8 @@ export function useProjectHealth(p: ProjectDto) {
     queryKey: ['health', p.id],
     queryFn: () => api.health(p.id, true),
     enabled: Boolean(p.activeDeployment) && p.desiredState === 'running',
-    refetchInterval: 30_000,
+    // Messwerte (CPU, RAM) sind keine Ereignisse: einmal pro Minute, Zustandswechsel kommen über den Strom
+    refetchInterval: FALLBACK_MS,
   })
 }
 
@@ -486,7 +488,7 @@ function DeployTimeline({ projectId, onTab, onRollback }: { projectId: string; o
 const ACTIVITY_SHOWN = 5
 
 function Activity({ projectId }: { projectId: string }) {
-  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: 15_000 })
+  const a = useQuery({ queryKey: ['audit-project', projectId], queryFn: () => api.audit(60, projectId), refetchInterval: poll })
   const items = useMemo(() => bundle((a.data?.events ?? []).filter((e) => !isReadOnly(e))), [a.data])
   const shown = items.slice(0, ACTIVITY_SHOWN)
   const more = items.length - shown.length

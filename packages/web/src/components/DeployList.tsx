@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DeploymentDto } from '@airlock/shared'
 import { deployReasonTitle } from '@airlock/shared'
 import { api } from '../api.js'
+import { poll } from '../lib/live.js'
 import { relativeTime, shortVersion, deployDuration } from '../lib/format.js'
 import { fmtDateTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkLog } from './States.js'
@@ -41,7 +42,7 @@ function markFor(d: DeploymentDto) {
 }
 
 export function useDeployments(projectId: string) {
-  return useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: 10_000 })
+  return useQuery({ queryKey: ['deployments', projectId], queryFn: () => api.listDeployments(projectId), refetchInterval: poll })
 }
 
 export function DeployList({

@@ -18,7 +18,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 |---|---|---|
 | 1 | Widersprüche in den Daten: ein Projektzustand vom Server, eine Befundzählung, Stufen | erledigt; Header-Themen nur in ZAP offen, Frage Nr. 7 |
 | 2 | Fehler erklären: Muster aus Build-/Container-Log und Healthcheck, auch im MCP-Ergebnis | erledigt; Ändern von Port/RAM ausserhalb der Fehlerbox offen, Frage Nr. 8 |
-| 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | geplant |
+| 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | erledigt |
 | 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | geplant |
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | geplant |
 | 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | geplant |
@@ -144,6 +144,30 @@ Befunde aus dem Gutachten (behoben):
   Zertifikats- und Öffentlich-Ereignisse; die Oberfläche invalidiert gezielt. Polling nur noch als
   Rückfall (60 s), pausiert bei verstecktem Tab. Anfragen pro Minute vorher/nachher hier notiert.
   Polling und Heartbeats nicht auf info loggen.
+
+Umsetzung:
+- Tab-Titel «<Seite/Projekt> · Airlock» (Seiten melden ihren Namen über `PageHead`, die Projektseite
+  den Projektnamen); laufende Vorgänge als Präfix: «Deploy läuft · …», «Scan läuft · …»,
+  «Zertifikat wird geholt · …», bei mehreren «2 Vorgänge laufen · …» (`lib/title.ts`).
+- Favicon mit Punkt (hell/dunkel), solange ein Deploy gescheitert oder ein kritischer Befund offen
+  ist. Der Punkt ist ein Zusatz; die Seiten sagen es in Worten.
+- Server: `lib/events.ts` (Bus) und `GET /api/v1/events` (`http/routes/events.ts`). Nur mit
+  Anmeldung (API-Token: 403); bei jedem Herzschlag (25 s) wird die Sitzung geprüft, Abmelden
+  schliesst alle Ströme («session_ended»; die Oberfläche prüft dann ihre Anmeldung und verbindet
+  neu, wenn sie noch gilt). Ereignisse tragen nur, *was* sich geändert hat: Deploy-Schritt und
+  -Ende (journal), Scan-Stufen, -Start und -Ende, Zertifikat/Cloudflare, Container-Zustandswechsel
+  (Monitor) und jeder Audit-Eintrag (fast jede Änderung, auch Öffentlich, Header, Vorschläge von
+  Claude). Ströme loggen auf debug, auch wenn sie Minuten dauern; Heartbeats gar nicht.
+- Oberfläche: `lib/live.ts` lädt je Ereignis gezielt nach (react-query invalidieren). Polling nur
+  als Rückfall ohne Strom: 60 s (`poll`), nicht bei verstecktem Tab. Ausnahmen: Messwerte (CPU/RAM
+  der Projektseite, Server-Status der Seitenleiste) einmal pro Minute auch mit Strom; Fortschritt
+  von «Öffentlich» (500 ms nur während des eigenen Aufrufs); Reiter «Zugriffe» bleibt bis Etappe 4.
+- Anfragen pro Minute bei offener Seite (`visual/anfragen.spec.ts`, Uhr künstlich 60 s vor):
+  Projektliste vorher 42, nachher 1 (mit Strom) bzw. 6 (ohne); Projektseite vorher 59, nachher 2
+  bzw. 9; versteckter Tab ohne Strom 0 Abfragen (nur Wiederverbinden des Stroms).
+- Tests: `events.test.ts` (Token abgelehnt, Ereignisse, Abmelden beendet den Strom),
+  `live.test.ts` (Titel, Favicon, Zuordnung Ereignis → Abfragen), `konsistenz.spec.ts` (Tab-Titel
+  und Favicon in der echten Oberfläche).
 
 ### 4 – Logs
 - Werkzeugleiste: Suche mit Hervorhebung, Filter nach Stufe, Live folgen/Pausieren, Zeilenumbruch,

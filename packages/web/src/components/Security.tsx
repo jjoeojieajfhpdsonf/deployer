@@ -5,6 +5,7 @@ import { acceptFindingSchema, SCAN_STAGE_LABEL, type ScanStageDto } from '@airlo
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
 import { IconBad, IconPending, IconSkipped } from './Icons.js'
@@ -426,9 +427,10 @@ export function ProjectSecurity({ projectId, sourceType }: { projectId: string; 
   const q = useQuery({
     queryKey: ['scan', projectId],
     queryFn: () => api.latestScan(projectId),
+    // Fortschritt kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
     refetchInterval: (query) => {
       const st = query.state.data?.report?.scan.status
-      return st === 'queued' || st === 'running' ? 4000 : false
+      return st === 'queued' || st === 'running' ? poll() : false
     },
   })
   const latest = q.data?.report

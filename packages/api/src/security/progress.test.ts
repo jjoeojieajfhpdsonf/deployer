@@ -119,5 +119,7 @@ describe('Zugriffs-Log', () => {
     assert.equal(requestLogLevel('GET', 404, 30), 'info')
     assert.equal(requestLogLevel('GET', 200, 8_000), 'info')
     assert.equal(requestLogLevel('GET', 502, 30), 'warn')
+    // UI-Qualität 3: ein Ereignisstrom über Minuten ist kein langsamer Aufruf
+    assert.equal(requestLogLevel('GET', 200, 600_000, true), 'debug')
   })
 })

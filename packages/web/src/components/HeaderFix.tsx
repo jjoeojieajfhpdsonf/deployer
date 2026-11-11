@@ -3,6 +3,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/
 import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@airlock/shared'
 import { api, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { copyText } from '../lib/clipboard.js'
 import { IconWarn } from './Security.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -24,8 +25,8 @@ export function useHeaderRules(projectId: string) {
   return useQuery({
     queryKey: headerRulesKey(projectId),
     queryFn: () => api.headerRules(projectId),
-    // Solange die Funktionsprüfung einer scharfen CSP läuft, nachsehen
-    refetchInterval: (q) => (q.state.data?.rules.some((r) => r.check?.state === 'running') ? 3000 : false),
+    // Das Ende der Funktionsprüfung einer scharfen CSP kommt über den Ereignisstrom (Audit); ohne ihn alle 60 s
+    refetchInterval: (q) => (q.state.data?.rules.some((r) => r.check?.state === 'running') ? poll() : false),
   })
 }
 

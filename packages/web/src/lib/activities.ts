@@ -2,6 +2,7 @@ import { useIsMutating, useQuery } from '@tanstack/react-query'
 import type { DeploymentStatus, ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useProjects } from './projects.js'
+import { poll } from './live.js'
 
 /**
  * Lange Vorgänge, die im Kopf als Aktivitätsanzeige erscheinen: Deploy, Scan,
@@ -72,11 +73,11 @@ export function scanActivity(p: ProjectDto): RunningActivity | null {
 
 export function useActivities(): RunningActivity[] {
   const projects = useProjects()
-  // Zertifikat: nur der Cloudflare-Status weiss davon; während es entsteht alle 3 s
+  // Zertifikat: nur der Cloudflare-Status weiss davon; Änderungen kommen über den Ereignisstrom
   const cf = useQuery({
     queryKey: ['cloudflare'],
     queryFn: api.cloudflare,
-    refetchInterval: (q) => (q.state.data?.tls.phase === 'staging' || q.state.data?.tls.phase === 'production' ? 3_000 : 60_000),
+    refetchInterval: poll,
     staleTime: 10_000,
   })
   const tunnel = useIsMutating({ mutationKey: [...MUTATION_TUNNEL] })

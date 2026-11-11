@@ -4,6 +4,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from '../config.js'
 import { redactSecrets } from '../lib/redact.js'
+import { publish } from '../lib/events.js'
 import type { DeploymentStatus } from '@airlock/shared'
 
 /**
@@ -51,10 +52,13 @@ export function appendLine(deploymentId: string, rawLine: string): void {
 export function emitStatus(deploymentId: string, status: DeploymentStatus): void {
   appendLine(deploymentId, `--- ${status} ---`)
   bus.emit(deploymentId, { type: 'status', status, at: new Date().toISOString() } satisfies JournalEvent)
+  // UI-Qualität 3: Projektliste, Kopf und Vorgänge ohne Polling
+  publish({ type: 'deploy', deploymentId, status })
 }
 
 export function emitDone(deploymentId: string, ok: boolean): void {
   bus.emit(deploymentId, { type: 'done', ok, at: new Date().toISOString() } satisfies JournalEvent)
+  publish({ type: 'deploy', deploymentId, status: ok ? 'active' : 'failed' })
 }
 
 export function readLog(deploymentId: string): string {

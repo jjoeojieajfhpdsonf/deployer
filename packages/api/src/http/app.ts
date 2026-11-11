@@ -10,6 +10,7 @@ import { registerAuthGuard, sessionSecret } from './auth.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
+import { eventRoutes } from './routes/events.js'
 import { systemRoutes } from './routes/system.js'
 import { clientErrorRoutes } from './routes/client-errors.js'
 import { uploadRoutes } from './routes/uploads.js'
@@ -64,7 +65,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.addHook('onResponse', async (request, reply) => {
     const ms = reply.elapsedTime
-    const level = requestLogLevel(request.method, reply.statusCode, ms)
+    const stream = String(reply.raw.getHeader('content-type') ?? '').startsWith('text/event-stream')
+    const level = requestLogLevel(request.method, reply.statusCode, ms, stream)
     request.log[level]({ method: request.method, url: request.url.split('?')[0], status: reply.statusCode, ms: Math.round(ms) }, 'Anfrage')
   })
 
@@ -131,6 +133,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(githubRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
+      await api.register(eventRoutes)
       await api.register(systemRoutes)
       await api.register(uploadRoutes)
       await api.register(clientErrorRoutes)

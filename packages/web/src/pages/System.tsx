@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, checkReachable, type SystemStatusDto } from '../api.js'
+import { FALLBACK_MS } from '../lib/live.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtTime } from '../lib/dates.js'
 import { ErrorState, Loading, SkCard } from '../components/States.js'
@@ -36,7 +37,8 @@ const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
  * Benachrichtigungen. Die Unternavigation ist die Reiter-Steuerung der App.
  */
 export function System({ section = 'uebersicht' }: { section?: SystemSection }) {
-  const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: 15_000 })
+  // Messwerte einmal pro Minute (wie die Seitenleiste); Änderungen kommen über den Ereignisstrom
+  const status = useQuery({ queryKey: ['system'], queryFn: api.system, refetchInterval: FALLBACK_MS })
   const [reach, setReach] = useState<Record<string, boolean | null>>({})
   const [copied, setCopied] = useState(false)
 

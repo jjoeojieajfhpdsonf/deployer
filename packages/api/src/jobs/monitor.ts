@@ -5,6 +5,7 @@ import * as docker from '../drivers/docker.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { log } from '../lib/log.js'
+import { publish } from '../lib/events.js'
 import type { ProjectHealthDto, ResourceSample } from '@airlock/shared'
 
 /**
@@ -120,7 +121,11 @@ export function forgetContainer(projectId: string): void {
 async function noteContainer(t: Target): Promise<void> {
   if (!t.containerId || t.kind === 'static') { containerStates.delete(t.projectId); return }
   const state = await docker.inspectContainer(t.containerId).catch(() => null)
-  containerStates.set(t.projectId, state ? { running: state.running, exitCode: state.exitCode } : { running: false, missing: true, exitCode: null })
+  const next = state ? { running: state.running, exitCode: state.exitCode } : { running: false, missing: true, exitCode: null }
+  const prev = containerStates.get(t.projectId)
+  containerStates.set(t.projectId, next)
+  // UI-Qualität 3: Zustandswechsel (z. B. Container beendet) ohne Polling in der Oberfläche
+  if (!prev || prev.running !== next.running || prev.exitCode !== next.exitCode) publish({ type: 'project', projectId: t.projectId })
 }
 
 async function runningProjectIds(): Promise<string[]> {

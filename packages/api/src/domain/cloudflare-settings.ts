@@ -22,6 +22,7 @@ import * as docker from '../drivers/docker.js'
 import { audit } from './audit.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { publish } from '../lib/events.js'
 import { redactSecrets, redactDeep, registerSecret } from '../lib/redact.js'
 
 /**
@@ -73,6 +74,8 @@ async function save(next: Stored): Promise<void> {
   stored = next
   await setSetting(KEY, JSON.stringify(next))
   await applyRuntime()
+  // UI-Qualität 3: Zertifikat und Cloudflare-Stand ohne Polling in der Oberfläche
+  publish({ type: 'cert' })
 }
 
 /** Pfad der Token-Datei für Caddy (gemeinsames Volume). */

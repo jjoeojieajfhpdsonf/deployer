@@ -5,6 +5,7 @@ import { publicStateOf, sumCounts, type ProjectDto, type SystemStatusDto } from 
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api } from '../api.js'
+import { poll } from '../lib/live.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
@@ -531,7 +532,7 @@ function SecurityCell({ p }: { p: ProjectDto }) {
 /* --- Unterer Bereich ------------------------------------------------------------------ */
 
 function Activity({ projects }: { projects: ProjectDto[] }) {
-  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: 10_000 })
+  const audit = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => api.audit(40), refetchInterval: poll })
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const events = (audit.data?.events ?? []).filter((e) => e.action !== 'auth.login').slice(0, 6)
 

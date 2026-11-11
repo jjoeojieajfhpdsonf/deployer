@@ -5,10 +5,12 @@
  * deshalb auf debug; Änderungen, Fehler und langsame Antworten bleiben info,
  * Serverfehler warn.
  */
-export function requestLogLevel(method: string, status: number, ms: number): 'debug' | 'info' | 'warn' {
+export function requestLogLevel(method: string, status: number, ms: number, stream = false): 'debug' | 'info' | 'warn' {
   if (status >= 500) return 'warn'
   if (status >= 400) return 'info'
   const read = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+  // UI-Qualität 3: Ereignisströme (SSE) dauern lange und enden bei jedem Tab-Wechsel – kein «langsam»
+  if (read && stream) return 'debug'
   if (read && ms < 5_000) return 'debug'
   return 'info'
 }

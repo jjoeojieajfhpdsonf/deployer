@@ -6,6 +6,7 @@ import { config } from '../../config.js'
 import { isoOrNull } from '../../lib/dates.js'
 import { audit } from '../../domain/audit.js'
 import { AppError } from '../../lib/errors.js'
+import { publish } from '../../lib/events.js'
 import { getUiPrefs, setUiPrefs } from '../../domain/ui-prefs.js'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
@@ -24,6 +25,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/auth/logout', async (_request, reply) => {
     clearSessionCookie(reply)
+    // UI-Qualität 3: offene Ereignisströme schliessen; jede Oberfläche prüft danach ihre Anmeldung
+    publish({ type: 'session_ended' })
     return { ok: true }
   })
 

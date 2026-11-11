@@ -74,6 +74,18 @@ test('Kennzahl «laufen» = Zähler des Filters «Laufen»', async ({ browser })
   await page.context().close()
 })
 
+test('Tab-Titel: Seite bzw. Projekt · Airlock, mit Präfix für laufende Vorgänge; Favicon-Punkt', async ({ browser }) => {
+  const page = await open(browser, '/projekte/p-foto')
+  // In den Fixtures laufen zwei Vorgänge (Deploy Rezepte-API, Zertifikat) – wie die Anzeige im Kopf
+  const n = num(await page.locator('.activity-trigger, [aria-label$="Vorgänge laufen"]').first().textContent().catch(() => '0'))
+  const expected = n > 1 ? `${n} Vorgänge laufen · Fotoalbum · Airlock` : n === 1 ? /läuft · Fotoalbum · Airlock$|wird .* · Fotoalbum · Airlock$/ : 'Fotoalbum · Airlock'
+  await expect(page).toHaveTitle(expected)
+  // Gescheiterter Deploy (Wetterstation) und kritischer Befund (Kontoauszug): Punkt im Favicon
+  const icon = await page.locator('link[rel="icon"]').getAttribute('href')
+  expect(decodeURIComponent(icon ?? '')).toContain('<circle')
+  await page.context().close()
+})
+
 test('Zustand: Pille der Karte = Pille im Projektkopf', async ({ browser }) => {
   const page = await open(browser, '/projekte')
   await page.locator('.pcards').waitFor()

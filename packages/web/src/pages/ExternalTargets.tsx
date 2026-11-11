@@ -4,6 +4,7 @@ import { api, ApiError, type ExternalTargetDto } from '../api.js'
 import { copyText } from '../lib/clipboard.js'
 import { ScanReport } from '../components/Security.js'
 import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { PageHead } from '../components/PageHead.js'
 import { addExternalTargetSchema } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
@@ -106,9 +107,10 @@ function Target({ t }: { t: ExternalTargetDto }) {
     queryKey: ['external-scan', t.id],
     queryFn: () => api.latestExternalScan(t.id),
     enabled: showReport,
+    // Fortschritt kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
     refetchInterval: (q) => {
       const st = q.state.data?.report?.scan.status
-      return st === 'queued' || st === 'running' ? 4000 : false
+      return st === 'queued' || st === 'running' ? poll() : false
     },
   })
 

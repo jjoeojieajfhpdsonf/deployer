@@ -7,6 +7,7 @@ import { useActivities, type RunningActivity } from '../lib/activities.js'
 import { useProjects } from '../lib/projects.js'
 import { notifyError, notifyOk } from '../lib/feedback.js'
 import { relativeTime } from '../lib/format.js'
+import { poll } from '../lib/live.js'
 import { useMenu } from './useMenu.js'
 
 /**
@@ -66,7 +67,8 @@ function ActivityRow({ a, onPick }: { a: RunningActivity; onPick: () => void }) 
     queryKey: ['scan', a.projectId, 'live'],
     queryFn: () => api.latestScan(a.projectId!),
     enabled: a.kind === 'scan' && Boolean(a.projectId),
-    refetchInterval: 4_000,
+    // Stufen kommen über den Ereignisstrom (UI-Qualität 3); ohne ihn alle 60 s
+    refetchInterval: poll,
   })
   let { detail, progress } = a
   const stages = scan.data?.report?.scan.stages
