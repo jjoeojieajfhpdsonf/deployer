@@ -79,7 +79,7 @@ export function affected(e: ServerEvent): Key[] {
           return [...base, ['tokens']]
         default:
           // System, Cloudflare, Domains, Benachrichtigungen, GitHub, Einstellungen
-          return [...base, ['system'], ['cloudflare'], ['domains'], ['notifications'], ['github'], ['expiry'], ['pause-page-template']]
+          return [...base, ['system'], ['cloudflare'], ['domains'], ['notifications'], ['github'], ['expiry'], ['pause-page-template'], ['backup']]
       }
     }
     default:

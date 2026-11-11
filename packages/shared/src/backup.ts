@@ -120,8 +120,17 @@ export interface BackupSnapshotDto {
   bytesTotal: number | null
 }
 
+/** Projekt mit eigenen Volumes (Compose) für die Einstellung live/stop/skip – aus allen Umgebungen */
+export interface BackupProjectDto {
+  slug: string
+  name: string
+  environment: string
+}
+
 export interface BackupStatusDto {
   settings: BackupSettingsDto
+  /** Compose-Projekte aller Umgebungen (nur sie haben Volumes) */
+  projects: BackupProjectDto[]
   running: boolean
   lastRun: BackupRunDto | null
   lastSuccessAt: string | null

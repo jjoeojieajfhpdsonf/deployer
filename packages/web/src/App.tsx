@@ -127,6 +127,7 @@ export function App() {
           <Route path="/server" element={<System section="uebersicht" />} />
           <Route path="/server/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/server/github" element={<System section="github" />} />
+          <Route path="/server/backup" element={<System section="backup" />} />
           <Route path="/umgebungen" element={<Environments />} />
           <Route path="/umgebungen/neu" element={<NewEnvironment />} />
           <Route path="/konto" element={<Account />} />
@@ -147,6 +148,7 @@ export function App() {
           <Route path="/system/veroeffentlichung" element={<ToEnv path="/einstellungen/standards" />} />
           <Route path="/system/benachrichtigungen" element={<Navigate to="/server/benachrichtigungen" replace />} />
           <Route path="/system/github" element={<Navigate to="/server/github" replace />} />
+          <Route path="/system/backup" element={<Navigate to="/server/backup" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         </ErrorBoundary>

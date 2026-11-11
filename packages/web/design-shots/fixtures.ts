@@ -8,6 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto,
 } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
@@ -961,3 +962,71 @@ export function movePreview(id: string, to: string): MovePreviewDto {
     blocked: null,
   }
 }
+
+/* --- Meilenstein Backup: Server › Backup ------------------------------------------- */
+
+export type BackupVariant = 'ok' | 'leer' | 'veraltet'
+
+/** Ein Lauf heute Nacht um 03:30 (vor `h` Stunden) */
+function backupRun(id: string, h: number, patch: Partial<BackupRunDto> = {}): BackupRunDto {
+  const secs = patch.durationMs !== undefined && patch.durationMs !== null ? patch.durationMs / 1000 : 94
+  return {
+    id, trigger: 'schedule', actor: 'system', status: 'ok',
+    startedAt: ago(h * HOUR), finishedAt: new Date(Date.now() - h * HOUR + secs * 1000).toISOString(), durationMs: secs * 1000,
+    snapshotId: `${id}9f3c2a7b1e04d5c6a8b9`, bytesNew: 38_400_000, bytesTotal: 2_310_000_000, filesNew: 214, error: null, warnings: [],
+    ...patch,
+  }
+}
+
+const backupSettings: BackupSettingsDto = {
+  configured: true, enabled: true,
+  target: { kind: 's3', endpoint: 'https://s3.eu-central-003.backblazeb2.com', bucket: 'heimserver-backup', prefix: 'airlock', region: 'eu-central-003', hasAccessKey: true, hasSecretKey: true },
+  hasPassword: true, time: '03:30', timeZone: 'Europe/Zurich', retention: { daily: 7, weekly: 4, monthly: 6 },
+  projects: { fotoalbum: 'stop' }, repositoryCheckedAt: ago(9 * HOUR), lastCheckAt: ago(3 * DAY + 9 * HOUR),
+}
+
+const backupProjects = [
+  { slug: 'fotoalbum', name: 'Fotoalbum', environment: 'example.ch' },
+  { slug: 'kontoauszug-reader', name: 'Kontoauszug-Reader', environment: 'example.ch' },
+]
+
+export function backupStatus(v: BackupVariant): BackupStatusDto {
+  if (v === 'leer') {
+    return {
+      settings: { ...backupSettings, configured: false, target: null, hasPassword: false, projects: {}, repositoryCheckedAt: null, lastCheckAt: null },
+      projects: backupProjects, running: false, lastRun: null, lastSuccessAt: null, stale: false, nextRunAt: null, runs: [],
+    }
+  }
+  const runs = v === 'veraltet'
+    ? [
+        backupRun('r5', 9, { status: 'failed', snapshotId: null, bytesNew: null, bytesTotal: null, filesNew: null, durationMs: 31_000, error: 'Repository nicht erreichbar (Exit 1): Fatal: unable to open repository: dial tcp: lookup s3.eu-central-003.backblazeb2.com: no such host' }),
+        backupRun('r4', 33, { status: 'failed', snapshotId: null, bytesNew: null, bytesTotal: null, filesNew: null, durationMs: 30_000, error: 'Repository nicht erreichbar (Exit 1): Fatal: unable to open repository: dial tcp: i/o timeout' }),
+        backupRun('r3', 57),
+      ]
+    : [
+        backupRun('r5', 9, { warnings: ['fotoalbum: ein Deploy lief gerade – Volumes live statt gestoppt gesichert'], status: 'warning' }),
+        backupRun('r4', 33, { bytesNew: 12_900_000, durationMs: 81_000 }),
+        backupRun('r3', 57, { bytesNew: 41_200_000, durationMs: 102_000 }),
+        backupRun('r2', 70, { trigger: 'manual', actor: 'ui:joel', bytesNew: 1_880_000_000, bytesTotal: 2_290_000_000, durationMs: 742_000, filesNew: 18_312 }),
+      ]
+  const lastOk = runs.find((r) => r.status !== 'failed')!
+  return {
+    settings: backupSettings,
+    projects: backupProjects,
+    running: false,
+    lastRun: runs[0]!,
+    lastSuccessAt: lastOk.finishedAt,
+    stale: v === 'veraltet',
+    nextRunAt: new Date(Date.now() + 15 * HOUR).toISOString(),
+    runs,
+  }
+}
+
+export const backupSnapshots: BackupSnapshotDto[] = [9, 33, 57, 70, 30 * 24].map((h, i) => ({
+  id: `${['3f9c2a7b', 'a81d0c55', '5be4f019', 'c0d7e2a6', '7e19b4d3'][i]}e04d5c6a8b9f3c2a7b1e04d5c6a8b9f3c2a7b1e04d5c6a8b9f3c2a`,
+  shortId: ['3f9c2a7b', 'a81d0c55', '5be4f019', 'c0d7e2a6', '7e19b4d3'][i]!,
+  time: ago(h * HOUR),
+  tags: ['airlock', 'airlock-0.1.0', 'env-example', ...(i < 2 ? ['env-verein'] : [])],
+  paths: ['/staging/db', '/staging/volumes', '/source/caddy_data', '/source/sites', '/source/data'],
+  bytesTotal: i === 4 ? 2_150_000_000 : 2_310_000_000 - i * 9_000_000,
+}))

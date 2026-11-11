@@ -103,6 +103,8 @@ type Shot = {
   githubConnected?: boolean
   /** Cloudflare fertig eingerichtet (Zertifikat ausgestellt): Zusammenfassung statt Schritte */
   cfDone?: boolean
+  /** Meilenstein Backup: Zustand von Server › Backup (Standard: eingerichtet, mit Läufen) */
+  backup?: fx.BackupVariant
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
@@ -319,6 +321,10 @@ const shots: Shot[] = [
   // M8, Etappe 3
   { group: 'github', name: 'system-github', path: '/system/github' },
   { group: 'github', name: 'system-github-verbunden', path: '/system/github?ok=installiert', githubConnected: true },
+  // Meilenstein Backup, Etappe 3: eingerichtet, noch nicht eingerichtet, über 48 h ohne Erfolg
+  { group: 'backup', name: 'system-backup', path: '/server/backup' },
+  { group: 'backup', name: 'system-backup-leer', path: '/server/backup', backup: 'leer' },
+  { group: 'backup', name: 'system-backup-veraltet', path: '/server/backup', backup: 'veraltet', full: false },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -771,6 +777,9 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            // Meilenstein Backup: Server › Backup
+            if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
+            if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)

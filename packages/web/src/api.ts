@@ -9,6 +9,7 @@ import type {
   LogLinesDto,
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
+  BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
 } from '@airlock/shared'
 
 export type {
@@ -291,6 +292,13 @@ export const api = {
   cloudflareTunnelUpdate: () => call<CfStatusDto>(e('/cloudflare/tunnel/update'), { method: 'POST' }),
   cloudflareTls: () => call<CfStatusDto>(e('/cloudflare/tls'), { method: 'POST' }),
   cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
+
+  /* Backup (serverweit, nur mit Anmeldung) */
+  backup: () => call<BackupStatusDto>('/system/backup'),
+  putBackupSettings: (input: unknown) => call<BackupSettingsDto>('/system/backup/settings', { method: 'PUT', body: body(input) }),
+  testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),
+  runBackup: () => call<{ run: BackupRunDto }>('/system/backup/run', { method: 'POST' }),
+  backupSnapshots: () => call<{ snapshots: BackupSnapshotDto[] }>('/system/backup/snapshots'),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),

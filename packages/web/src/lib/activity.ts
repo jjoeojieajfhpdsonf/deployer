@@ -193,6 +193,7 @@ const MCP_TOOL: Record<string, string> = {
   get_scan_report: 'Scan-Bericht gelesen', accept_finding: 'Befund akzeptiert', set_targets: 'Erreichbarkeit geändert',
   pause_public: 'Öffentlich pausiert', resume_public: 'Wieder öffentlich', unpublish: 'Offline genommen', set_security_header: 'Header gesetzt',
   propose_fix: 'Vorschlag gemacht', apply_fix: 'Vorschlag übernommen', get_fix_context: 'Befund gelesen', list_domains: 'Domains abgefragt',
+  get_backup_status: 'Backup-Stand abgefragt',
   add_external_target: 'Externes Ziel eingetragen', verify_external_target: 'Externes Ziel geprüft',
 }
 

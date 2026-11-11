@@ -1966,6 +1966,18 @@ form.failure-fix .form-actions { margin: 0; }
 .expiry-form .field { margin: 0; width: 160px; }
 .expiry-saved { align-self: center; font-size: var(--fs-13); color: var(--ok); }
 
+/* Server → Backup (Meilenstein Backup) */
+.backup > section + section { margin-top: var(--sp-8); }
+.backup-facts { grid-template-columns: 220px minmax(0, 1fr); }
+.backup-facts code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.backup-table td { vertical-align: top; }
+.backup-table code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); }
+.backup-run-note { display: block; margin-top: var(--sp-1); max-width: 420px; font-size: var(--fs-13); color: var(--muted); overflow-wrap: anywhere; }
+.backup-test-error { margin-top: var(--sp-3); max-width: var(--measure); }
+.backup-kind { display: flex; flex-wrap: wrap; gap: 0 var(--sp-5); }
+.backup-form .backup-time { width: 120px; }
+.backup-retention { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--sp-4); }
+
 /* Ablauf eines Chat-Projekts: neutral, ab 7 Tagen vorher Warnfarbe */
 .kf-expiry { margin-top: var(--sp-5); padding: var(--sp-4) 18px; border-radius: var(--r-md); background: var(--surface-2); }
 .kf-expiry-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }

@@ -36,6 +36,8 @@ import { registerFixTools } from './fix-tools.js'
 import { inEnvironment } from '../lib/scope.js'
 import { environmentById } from '../domain/environments.js'
 import type { DeploymentDto, ProjectDto } from '@airlock/shared'
+import { backupStatus } from '../backup/run.js'
+import { mcpBackupStatus } from '../backup/summary.js'
 
 /**
  * MCP-Server von Airlock. Pro Sitzung eine Instanz mit der Identität des
@@ -239,6 +241,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     if (!publicEnabled(scope.envId)) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
     const domains = await listDomains(scope).then((d) => (d.length ? d : syncDomains(undefined, scope.envId)))
     return ok({ domains: domains.map((d) => ({ name: d.name, default: d.isDefault })) })
+  })
+
+  // Meilenstein Backup, Etappe 3: nur lesen. Sichern, Einstellungen und Wiederherstellen
+  // gehen nur in der Oberfläche mit Anmeldung (kein Restore per MCP).
+  tool('get_backup_status', 'Stand der Sicherung des Servers (nur lesen): letzter Lauf, Alter des letzten erfolgreichen Backups, Art des Ziels (ohne Zugangsdaten), nächster Termin', {}, async () => {
+    return ok(mcpBackupStatus(await backupStatus()))
   })
 
   /* --- Anlegen und Dateien --------------------------------------------------- */

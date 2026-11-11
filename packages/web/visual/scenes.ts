@@ -15,6 +15,8 @@ export const VISUAL_SCENES = [
   'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto', 'glocke', 'sitzung-abgelaufen', 'sitzung-abgelaufen-aktion', 'verlassen-rueckfrage', 'tokens-neu',
   // System
   'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
+  // Meilenstein Backup: Server › Backup
+  'system-backup', 'system-backup-leer', 'system-backup-veraltet',
   // Zustände (Etappe 1) und Rückmeldung (Etappe 2)
   'nicht-gefunden', 'fehlerseite', 'api-offline', 'laden-projekte', 'leer-projekte',
   'zustand-laden-projektseite', 'zustand-laden-audit', 'zustand-fehler-projekte', 'zustand-fehler-karte',

@@ -76,6 +76,18 @@ Nicht gesichert: Images (werden neu gebaut bzw. gezogen), Container-Logs, Caddy-
 - MCP: `get_backup_status` (nur lesen: letzter Lauf, Alter, Ziel-Art ohne Zugangsdaten).
 - Abnahme: Szenen hell/dunkel, axe, Tastatur, Schrift ≥ 12 px.
 
+**Stand (11. November 2026): umgesetzt.**
+
+- Reiter «Backup» unter Server (`/server/backup`, alte Adresse `/system/backup` leitet weiter, Befehlspalette «Backup»): `packages/web/src/components/Backup.tsx`.
+  - Warnungen oben: «Seit über 48 Stunden kein erfolgreiches Backup» (mit letztem Fehler, `role="alert"`), «noch nicht eingerichtet», «nächtlicher Lauf ausgeschaltet».
+  - «Stand»: letztes erfolgreiches Backup (Zeit und Alter), Grösse gesamt und neu, Dauer, Ziel (ohne Zugangsdaten), nächster Lauf, letzte Prüfung (`restic check`). Knöpfe «Jetzt sichern» und «Verbindung testen» (Ergebnis daneben bzw. als Fehlermeldung mit Symbol).
+  - «Jetzt sichern» erscheint unter «Vorgänge» im Kopf (`lib/activities.ts`, Art `backup`) und im Tab-Titel; am Ende ein Toast mit dem Ergebnis. Abgefragt wird `GET /system/backup` nur, solange ein Lauf bekannt ist (alle 3 s) – die übrigen Seiten machen dafür keine Anfrage (Anfragen pro Minute unverändert). Ende eines Laufs kommt zusätzlich über den Ereignisstrom (Audit → `['backup']`).
+  - «Letzte Läufe» (Start, Auslöser, Ergebnis als Pille mit Text, neu/gesamt, Dauer, Fehler bzw. Hinweise), «Stände im Repository» (fragt das Ziel live ab; Zeit, Kennung, Grösse, Inhalt aus den Tags: Version, Umgebungen).
+  - «Einstellungen»: Ziel lokal/NAS oder S3 (Schlüssel nur hinein, «gesetzt – leer lassen für unverändert»), Repository-Passwort mit dem Hinweis, es getrennt aufzubewahren (offener Punkt aus Etappe 1), Zeitplan (an/aus, Uhrzeit mit Zeitzone), Aufbewahrung 7/4/6, Volumes je Compose-Projekt aller Umgebungen (live, kurz stoppen, nicht sichern). Prüfung mit `backupSettingsInputSchema` wie in der API, Rückfrage beim Verlassen mit ungespeicherten Änderungen.
+- API: `GET /system/backup` liefert zusätzlich `projects` (Compose-Projekte aller Umgebungen).
+- MCP `get_backup_status` (nur lesen): konfiguriert, an/aus, läuft, Art des Ziels, letzter Lauf (Status, Auslöser, Zeiten, Dauer, Fehler, Zahl der Hinweise), letzter Erfolg und Alter in Stunden, «48 h ohne Erfolg», nächster Termin. Kein Pfad, kein Endpoint, kein Bucket, keine Projekte (`backup/summary.ts`, Test `summary.test.ts`). In SPEC.md in der Werkzeugliste.
+- Szenen `system-backup`, `system-backup-leer`, `system-backup-veraltet` (hell/dunkel, axe, Schrift ≥ 12 px). Wegen des neuen Reiters neue Referenzbilder: `system-uebersicht`, `system-benachrichtigungen`, `system-github`, `m9-server`, `einrichtung-system`.
+
 ### Etappe 4 – Schlüssel getrennt sichern
 
 - Einmaliger Export von `secrets.key`: als mit einer Passphrase verschlüsselte Datei (age/scrypt) zum Herunterladen, oder als Papier-Anleitung mit QR-Code und Prüfsumme zum Ausdrucken. Der Schlüssel erscheint nie im Backup, nie im Log, nie in einer API-Antwort ohne frische Anmeldung.

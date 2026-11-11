@@ -569,6 +569,7 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | `get_logs` | `project`, `lines` (max. 500), `since` | Nein |
 | `set_targets` | `project`, `targets`, `subdomain` | Ja, wenn `public` dazukommt |
 | `list_domains` | – | Nein |
+| `get_backup_status` | – (nur lesen: letzter Lauf, Alter, Art des Ziels ohne Zugangsdaten) | Nein |
 | `add_external_target` | `hostname` | Nein |
 | `verify_external_target` | `hostname` | Nein |
 | `run_scan` | `project` oder externer `hostname`, `level` (`standard` oder `active`) | Ja bei `active` |

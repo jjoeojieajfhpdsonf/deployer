@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import type { BackupRunDto, BackupStatusDto } from '@airlock/shared'
+import type { BackupProjectDto, BackupRunDto, BackupStatusDto } from '@airlock/shared'
 import { db, schema, tryLockProject, type ProjectLock } from '../db/index.js'
 import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
@@ -7,7 +7,7 @@ import { AppError, badRequest, conflict } from '../lib/errors.js'
 import { redactSecrets } from '../lib/redact.js'
 import { log } from '../lib/log.js'
 import { audit } from '../domain/audit.js'
-import { allEnvironments } from '../domain/environments.js'
+import { allEnvironments, environmentById } from '../domain/environments.js'
 import { notify } from '../notify/send.js'
 import {
   backupArgs, forgetArgs, checkArgs, targetSecrets, errorTail, maskCredentials,
@@ -284,10 +284,18 @@ export async function abandonUnfinishedBackups(): Promise<number> {
 
 /* --- Status ------------------------------------------------------------------------- */
 
+/** Compose-Projekte aller Umgebungen: nur sie haben eigene Volumes (Einstellung live/stop/skip) */
+async function composeProjects(): Promise<BackupProjectDto[]> {
+  const rows = await db.select({ slug: schema.projects.slug, name: schema.projects.name, environmentId: schema.projects.environmentId })
+    .from(schema.projects).where(eq(schema.projects.sourceType, 'compose')).orderBy(schema.projects.slug)
+  return rows.map((r) => ({ slug: r.slug, name: r.name, environment: environmentById(r.environmentId)?.name ?? '' }))
+}
+
 export async function backupStatus(now = new Date()): Promise<BackupStatusDto> {
-  const [settings, runs, success, s] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings()])
+  const [settings, runs, success, s, projects] = await Promise.all([getBackupSettings(), listRuns(20), lastBackupSuccess(), resolveSettings(), composeProjects()])
   return {
     settings,
+    projects,
     running: backupRunning(),
     lastRun: runs[0] ?? null,
     lastSuccessAt: success ? success.toISOString() : null,
