@@ -1,5 +1,6 @@
 import Docker from 'dockerode'
 import type { Readable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import { config } from '../config.js'
 import { assertCreatePolicy } from './policy.js'
 import { AppError } from '../lib/errors.js'
@@ -615,6 +616,53 @@ export function demuxDockerLog(buf: Buffer): string {
     }
   }
   return out.join('')
+}
+
+/**
+ * UI-Qualität 4: Docker-Log eines laufenden Stroms in ganze Zeilen zerlegen.
+ * Anders als demuxDockerLog behält der Decoder angefangene Rahmen und halbe
+ * Zeilen bis zum nächsten Stück (ein Rahmen oder eine Zeile kann über zwei
+ * Stücke gehen). Mit TTY gibt es keine Rahmen, nur Text.
+ */
+export class DockerLogDecoder {
+  private buf: Buffer = Buffer.alloc(0)
+  private tty: boolean | null = null
+  private text = new StringDecoder('utf8')
+  private partial = ''
+
+  /** Neue Bytes; zurück kommen die vollständigen Zeilen */
+  push(chunk: Buffer): string[] {
+    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
+    if (this.tty === null) {
+      if (this.buf.length < 8) return []
+      const b = this.buf
+      this.tty = !(b[0]! <= 2 && b[1] === 0 && b[2] === 0 && b[3] === 0)
+    }
+    let out = ''
+    if (this.tty) {
+      out = this.text.write(this.buf)
+      this.buf = Buffer.alloc(0)
+    } else {
+      let i = 0
+      while (i + 8 <= this.buf.length) {
+        const len = this.buf.readUInt32BE(i + 4)
+        if (i + 8 + len > this.buf.length) break
+        out += this.text.write(this.buf.subarray(i + 8, i + 8 + len))
+        i += 8 + len
+      }
+      this.buf = this.buf.subarray(i)
+    }
+    const lines = (this.partial + out).split('\n')
+    this.partial = lines.pop() ?? ''
+    return lines
+  }
+
+  /** Am Ende: angefangene letzte Zeile */
+  flush(): string[] {
+    const rest = this.partial + this.text.end()
+    this.partial = ''
+    return rest ? [rest] : []
+  }
 }
 
 export async function getLogs(

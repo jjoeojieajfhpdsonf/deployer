@@ -24,9 +24,10 @@ export interface LogLinesDto {
 
 /** Zeitraum im Reiter «Logs» und «Zugriffe» */
 export const LOG_RANGES = [
-  { key: '15m', label: '15 Min.', minutes: 15 },
-  { key: '1h', label: '1 Std.', minutes: 60 },
-  { key: '24h', label: '24 Std.', minutes: 24 * 60 },
+  // label: Knopf; from/within: im Satz («14 Zeilen aus der letzten Stunde», «Keine Ausgabe in der letzten Stunde»)
+  { key: '15m', label: '15 Min.', minutes: 15, from: 'aus den letzten 15 Minuten', within: 'in den letzten 15 Minuten' },
+  { key: '1h', label: '1 Std.', minutes: 60, from: 'aus der letzten Stunde', within: 'in der letzten Stunde' },
+  { key: '24h', label: '24 Std.', minutes: 24 * 60, from: 'aus den letzten 24 Stunden', within: 'in den letzten 24 Stunden' },
 ] as const
 export type LogRange = (typeof LOG_RANGES)[number]['key']
 export const rangeMinutes = (r: string | undefined): number => LOG_RANGES.find((x) => x.key === r)?.minutes ?? 15

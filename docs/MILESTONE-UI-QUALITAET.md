@@ -216,6 +216,27 @@ Umsetzung:
   Treffer (mit «Filter zurücksetzen»), kein Container (Hinweis).
 - Neue Szenen: `logs-suche`, `logs-fehler`, `logs-leer`; Bilder `projekt-logs`, `5-zugriffe` neu.
 
+Befunde aus dem Gutachten (behoben):
+- Docker-Rahmen und Zeilen, die über zwei Stücke gehen, gingen verloren bzw. wurden zerteilt: ein
+  Decoder je Strom hält Angefangenes zurück (`DockerLogDecoder`, Test mit 7-Byte-Stücken und Umlaut).
+- Lücke zwischen Stand und Live-Strom: der Strom schliesst mit `?since=` an die letzte Zeile an
+  (Docker liest ab dort, der Server lässt Älteres weg). Kein Neuladen beim Fokus mehr (das ersetzte
+  den Stand und verlor gesammelte Zeilen); ein neuer Container (Deploy) lädt neu.
+- Abbruch: Wiederverbinden mit wachsender Pause ab der letzten Zeile (`useLiveFeed`), auch bei
+  «Zugriffe»; endet ein Compose-Dienst, laufen die anderen weiter; scheitert das Öffnen eines
+  Dienstes, werden die schon offenen geschlossen.
+- Auto-Scroll auch bei 2000 Zeilen (hängt an der letzten Zeile, nicht an der Anzahl); feste
+  Zeilennummern als Schlüssel; neue Zeilen gesammelt einmal pro Bild; Suchmuster einmal gebaut;
+  Zeilen als memo-Komponente; Suche mit `useDeferredValue`.
+- Screenreader: die Zeilenzahl wird nicht mehr bei jeder Live-Zeile angesagt, nur das Ergebnis von
+  Suche/Filter und ein Abbruch. Knopf heisst fest «Live folgen» (aria-pressed), «Pausiert · n neu»
+  steht daneben. Gruppe statt «toolbar» (keine Pfeiltasten-Navigation gebaut).
+- Deutsch: «aus der letzten Stunde», «Keine Ausgabe in den letzten 24 Stunden» statt «letzte 1
+  Std.»; eigener leerer Zustand für einen verschwundenen Dienst und für «kein Container».
+- Zugriffe: zeitliche Reihenfolge innerhalb eines Stücks; Stand bis 2000 statt still 500 («die
+  neuesten 2000», wenn gekürzt); CSV gegen Formeln abgesichert (= + - @).
+- Dienstname mit vollem Namen als Tooltip; «Herunterladen» mit Hinweis auf gefilterte Zeilen.
+
 ### 5 – Neues Projekt
 - Validierung erst beim Verlassen eines Feldes bzw. beim Absenden. Platzhalter und Fehlermeldung mit
   gleichen Beispielen. Vorschau unter dem Namen (Slug, Adressen) mit Kollisionsprüfung. Fünfte

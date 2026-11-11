@@ -287,13 +287,17 @@ export function subscribeDeployment(id: string, onEvent: (e: DeployEvent) => voi
  * UI-Qualität 4: neue Zeilen live (Zeit, Dienst, Stufe). onState meldet, ob
  * der Strom offen ist – bricht er ab, zeigt der Reiter es an, statt still zu stehen.
  */
-export function subscribeLogs(projectId: string, service: string | null, onLine: (line: LogLineDto) => void, onState?: (open: boolean) => void): () => void {
-  return subscribeJson<LogLineDto>(`/api/v1/projects/${projectId}/logs/stream${service ? `?service=${encodeURIComponent(service)}` : ''}`, onLine, onState)
+export function subscribeLogs(projectId: string, o: { service: string | null; since: string | null }, onLine: (line: LogLineDto) => void, onState?: (open: boolean) => void): () => void {
+  const q = new URLSearchParams()
+  if (o.service) q.set('service', o.service)
+  // Anschluss an den Stand: nur Zeilen danach (nichts doppelt, nichts verloren)
+  if (o.since) q.set('since', o.since)
+  return subscribeJson<LogLineDto>(`/api/v1/projects/${projectId}/logs/stream${q.size ? `?${q}` : ''}`, onLine, onState)
 }
 
 /** UI-Qualität 4: neue Zugriffe einer statischen Seite live */
-export function subscribeAccess(projectId: string, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
-  return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream`, onEntry, onState)
+export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
 }
 
 function subscribeJson<T>(url: string, on: (v: T) => void, onState?: (open: boolean) => void): () => void {

@@ -262,47 +262,69 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const sinceMs = Date.now() - (request.query.range ? rangeMinutes(request.query.range) : 24 * 60) * 60_000
     try {
       const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
-      return { entries: parseSiteAccess(logs, { hosts, sinceMs }), since: new Date(sinceMs).toISOString(), error: null }
+      // Höchstens 2000 (wie der Reiter «Logs»); die Oberfläche sagt «neueste 2000», wenn es mehr gab
+      return { entries: parseSiteAccess(logs, { hosts, sinceMs, limit: ACCESS_MAX }), since: new Date(sinceMs).toISOString(), error: null }
     } catch (err) {
       return { entries: [], since: new Date(sinceMs).toISOString(), error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
     }
   })
 
   /** UI-Qualität 4: neue Zugriffe live (wie der Reiter «Logs»), aus Caddys Log gefiltert auf die Adressen des Projekts */
-  app.get<{ Params: IdParams }>('/projects/:id/access/stream', async (request, reply) => {
+  app.get<{ Params: IdParams; Querystring: { since?: string } }>('/projects/:id/access/stream', async (request, reply) => {
     const project = await findProject(request.params.id)
     const hosts = await siteHosts(project)
-    const stream = await docker.followLogs(config.CADDY_CONTAINER, undefined, { tail: 0 })
+    const since = sinceOf(request.query.since)
+    const stream = await docker.followLogs(config.CADDY_CONTAINER, since ? since.sec : undefined, { tail: since ? undefined : 0 })
     openSse(reply)
-    let rest = ''
-    const send = (chunk: Buffer) => {
-      // Caddy schreibt JSON-Zeilen; ein Stück kann mitten in einer Zeile enden
-      const text = rest + docker.demuxDockerLog(chunk)
-      const cut = text.lastIndexOf('\n')
-      rest = cut < 0 ? text : text.slice(cut + 1)
-      if (cut < 0) return
-      for (const e of parseSiteAccess(text.slice(0, cut), { hosts, sinceMs: 0 })) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`)
+    const decoder = new docker.DockerLogDecoder()
+    const emit = (lines: string[]) => {
+      // Caddy schreibt JSON-Zeilen; parseSiteAccess liefert die neuesten zuerst – gesendet wird in
+      // zeitlicher Reihenfolge, die Oberfläche setzt jeden neuen Aufruf oben ein
+      const entries = parseSiteAccess(lines.join('\n'), { hosts, sinceMs: 0 }).reverse()
+      for (const e of entries) if (!since || e.at > since.iso) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`)
     }
-    followUntilClosed(request, reply, [stream], send)
+    followUntilClosed(request, reply, [stream], (chunk) => emit(decoder.push(chunk)), () => emit(decoder.flush()))
     return reply
   })
 
   /**
-   * Neue Zeilen live, als LogLineDto (Zeit, Dienst, Stufe). Nur neue Zeilen
-   * (tail 0) – den Stand davor holt die Oberfläche über /log-lines, sonst
-   * stünden Zeilen doppelt. Compose: alle Dienste oder ?service=.
+   * Neue Zeilen live, als LogLineDto (Zeit, Dienst, Stufe). Anschluss an den
+   * Stand von /log-lines über ?since= (Zeit der letzten Zeile): nichts doppelt,
+   * nichts verloren. Compose: alle Dienste oder ?service=.
    */
-  app.get<{ Params: IdParams; Querystring: { service?: string } }>('/projects/:id/logs/stream', async (request, reply) => {
+  app.get<{ Params: IdParams; Querystring: { service?: string; since?: string } }>('/projects/:id/logs/stream', async (request, reply) => {
     const project = await findProject(request.params.id)
     const sources = (await logSources(project)).filter((s) => !request.query.service || s.service === request.query.service)
     if (!sources.length) throw notFound('Laufender Container')
-    const streams = await Promise.all(sources.map((s) => docker.followLogs(s.containerId, undefined, { tail: 0, timestamps: true })))
+    const since = sinceOf(request.query.since)
+    // Alle öffnen; scheitert einer, die schon offenen wieder schliessen
+    const opened = await Promise.allSettled(sources.map((s) => docker.followLogs(s.containerId, since?.sec, { tail: since ? undefined : 0, timestamps: true })))
+    const streams = opened.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    if (streams.length < sources.length) {
+      for (const s of streams) (s as unknown as { destroy?: () => void }).destroy?.()
+      throw new AppError('logs_unavailable', 'Die Ausgabe eines Dienstes ist gerade nicht lesbar', 503)
+    }
     openSse(reply)
-    followUntilClosed(request, reply, streams, (chunk, i) => {
-      for (const l of parseDockerLines(docker.demuxDockerLog(chunk), sources[i]!.service)) reply.raw.write(`data: ${JSON.stringify(l)}\n\n`)
-    })
+    const decoders = sources.map(() => new docker.DockerLogDecoder())
+    const emit = (lines: string[], i: number) => {
+      for (const l of parseDockerLines(lines.join('\n'), sources[i]!.service)) {
+        if (since && l.at && l.at <= since.iso) continue
+        reply.raw.write(`data: ${JSON.stringify(l)}\n\n`)
+      }
+    }
+    followUntilClosed(request, reply, streams, (chunk, i) => emit(decoders[i]!.push(chunk), i), (i) => emit(decoders[i]!.flush(), i))
     return reply
   })
+}
+
+const ACCESS_MAX = 2000
+
+/** ?since= (ISO-Zeitpunkt der letzten bekannten Zeile) für Docker (Sekunden mit Bruchteil) und zum Vergleichen */
+function sinceOf(v: string | undefined): { sec: number; iso: string } | null {
+  if (!v) return null
+  const ms = Date.parse(v)
+  if (!Number.isFinite(ms)) return null
+  return { sec: ms / 1000, iso: new Date(ms).toISOString() }
 }
 
 /** Adressen einer statischen Seite (für das Zugriffs-Log) */
@@ -325,13 +347,25 @@ function openSse(reply: FastifyReply): void {
  * sobald der Browser geht oder ein Strom endet. Nach dem Ende wird nichts
  * mehr geschrieben.
  */
-function followUntilClosed(request: FastifyRequest, reply: FastifyReply, streams: Readable[], send: (chunk: Buffer, i: number) => void): void {
+function followUntilClosed(
+  request: FastifyRequest, reply: FastifyReply, streams: Readable[],
+  send: (chunk: Buffer, i: number) => void,
+  /** Ein Strom ist zu Ende: Rest ausgeben */
+  ended?: (i: number) => void,
+): void {
   let closed = false
+  let open = streams.length
   const handlers = streams.map((s, i) => {
     const h = (chunk: Buffer) => { if (!closed) send(chunk, i) }
     s.on('data', h)
     return h
   })
+  // Endet ein Dienst (Compose), laufen die anderen weiter; erst wenn alle zu sind, endet die Antwort
+  const one = (i: number) => {
+    if (closed) return
+    ended?.(i)
+    if (--open <= 0) close()
+  }
   const keepalive = setInterval(() => { if (!closed) reply.raw.write(': ping\n\n') }, 20_000)
   const close = () => {
     if (closed) return
@@ -347,5 +381,10 @@ function followUntilClosed(request: FastifyRequest, reply: FastifyReply, streams
   // Beim Herunterfahren schliessen (sonst wartet app.close())
   const untrack = trackStream(close)
   request.raw.on('close', close)
-  for (const s of streams) { s.on('end', close); s.on('error', close) }
+  streams.forEach((s, i) => {
+    let done = false
+    const fin = () => { if (!done) { done = true; one(i) } }
+    s.on('end', fin)
+    s.on('error', fin)
+  })
 }

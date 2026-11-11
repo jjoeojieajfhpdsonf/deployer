@@ -242,7 +242,7 @@ export function ProjectDetail() {
           }}
         />
       )}
-      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : <LogsTab projectId={id} slug={p.slug} />)}
+      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : <LogsTab projectId={id} slug={p.slug} activeDeploymentId={p.activeDeployment?.id ?? null} />)}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings

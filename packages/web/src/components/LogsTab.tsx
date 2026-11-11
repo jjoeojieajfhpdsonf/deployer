@@ -1,22 +1,26 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { LOG_LINES_MAX, LOG_RANGES, type LogLineDto, type LogRange } from '@airlock/shared'
 import { api, subscribeLogs } from '../api.js'
 import { fmtStamp, fmtTime, fmtUtc, nowIso } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, SkLog } from './States.js'
-import { LogToolbar, Highlight, atBottom, downloadText } from './LogTools.js'
+import { LogToolbar, Highlight, atBottom, downloadText, searchPattern, useLiveFeed } from './LogTools.js'
 
 /**
  * UI-Qualität 4: Reiter «Logs». Zeilen der gewählten Zeitspanne (Server,
- * mit Zeit, Dienst und Stufe), danach live über den Strom. Suche mit
- * Hervorhebung, Filter nach Stufe, Live/Pausieren, Umbruch, Zeilennummern,
- * Herunterladen. Zeit in Ortszeit, UTC im Tooltip. Compose: Dienst wählen,
- * Dienstname als Spalte.
+ * mit Zeit, Dienst und Stufe), danach live über den Strom – angeschlossen an
+ * die letzte Zeile des Stands (nichts doppelt, nichts verloren) und mit
+ * Wiederverbinden. Suche mit Hervorhebung, Filter nach Stufe, Live folgen/
+ * Pausieren, Umbruch, Zeilennummern, Herunterladen. Ortszeit, UTC im Tooltip.
+ * Compose: Dienst wählen, Dienstname als Spalte.
  */
 
 type LevelFilter = 'alle' | 'warn' | 'error'
 const LEVELS: [LevelFilter, string][] = [['alle', 'Alle'], ['warn', 'Warnungen und Fehler'], ['error', 'Nur Fehler']]
 const LEVEL_WORD = { error: 'ERROR', warn: 'WARN' } as const
+
+/** Zeile mit fester Nummer (bleibt auch, wenn vorne gekürzt wird) */
+type Row = { n: number; l: LogLineDto }
 
 const keep = (l: LogLineDto, f: LevelFilter) => f === 'alle' || l.level === 'error' || (f === 'warn' && l.level === 'warn')
 
@@ -26,7 +30,21 @@ function usePref(key: string, initial: boolean): [boolean, (v: boolean) => void]
   return [v, (next) => { setV(next); try { localStorage.setItem(key, next ? '1' : '0') } catch { /* egal */ } }]
 }
 
-export function LogsTab({ projectId, slug }: { projectId: string; slug: string }) {
+const LogRowView = memo(function LogRowView({ row, numbers, multi, re }: { row: Row; numbers: boolean; multi: boolean; re: RegExp | null }) {
+  const { l, n } = row
+  return (
+    <div className={`logv-row${l.level === 'error' ? ' logv-error' : l.level === 'warn' ? ' logv-warn' : ''}`}>
+      {numbers && <span className="logv-n" aria-hidden="true">{n}</span>}
+      <span className="logv-time" title={l.at ? fmtUtc(l.at) : undefined}>{l.at ? fmtTime(l.at, true) : ''}</span>
+      {multi && <span className="logv-service" title={l.service ?? undefined}>{l.service}</span>}
+      {/* Stufe als Wort, Farbe nur zusätzlich */}
+      {l.level === 'error' || l.level === 'warn' ? <span className={`logv-level logv-level-${l.level}`}>{LEVEL_WORD[l.level]}</span> : <span className="logv-level" />}
+      <span className="logv-text"><Highlight text={l.text} re={re} /></span>
+    </div>
+  )
+})
+
+export function LogsTab({ projectId, slug, activeDeploymentId }: { projectId: string; slug: string; activeDeploymentId: string | null }) {
   const [range, setRange] = useState<LogRange>('15m')
   const [service, setService] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -34,115 +52,159 @@ export function LogsTab({ projectId, slug }: { projectId: string; slug: string }
   const [live, setLive] = useState(true)
   const [wrap, setWrap] = usePref('airlock.logs.wrap', true)
   const [numbers, setNumbers] = usePref('airlock.logs.numbers', false)
-  const [streamed, setStreamed] = useState<LogLineDto[]>([])
-  const [pending, setPending] = useState<LogLineDto[]>([])
-  const [streamOpen, setStreamOpen] = useState<boolean | null>(null)
+  const [rows, setRows] = useState<Row[]>([])
+  const [pending, setPending] = useState<Row[]>([])
+  const [announce, setAnnounce] = useState('')
   const liveRef = useRef(live)
   liveRef.current = live
   const box = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
+  const seq = useRef(0)
+  const lastAt = useRef<string | null>(null)
+  const inbox = useRef<Row[]>([])
+  const frame = useRef<number | null>(null)
 
-  const q = useQuery({ queryKey: ['log-lines', projectId, range, service], queryFn: () => api.logLines(projectId, range, service) })
+  // Stand der Zeitspanne – ein neuer Container (Deploy) lädt neu; kein Nachladen beim Fokus
+  // (das ersetzte die Zeilen und verlöre die gesammelten, solange pausiert)
+  const q = useQuery({
+    queryKey: ['log-lines', projectId, range, service, activeDeploymentId],
+    queryFn: () => api.logLines(projectId, range, service),
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  })
 
-  // Neue Zeilen live; pausiert werden sie gesammelt und beim Fortsetzen angehängt
+  // Neuer Stand: Zeilen nummerieren, Anschlusspunkt merken
   useEffect(() => {
-    setStreamed([])
+    if (!q.data) return
+    seq.current = 0
+    const base = q.data.lines.map((l) => ({ n: ++seq.current, l }))
+    setRows(base)
     setPending([])
-    if (!q.data || q.data.hint) return
-    return subscribeLogs(projectId, service, (l) => {
-      if (liveRef.current) setStreamed((s) => [...s, l].slice(-LOG_LINES_MAX))
-      else setPending((p) => [...p, l].slice(-LOG_LINES_MAX))
-    }, setStreamOpen)
-  }, [projectId, service, q.data])
+    lastAt.current = [...q.data.lines].reverse().find((l) => l.at)?.at ?? nowIso()
+    follow.current = true
+  }, [q.data])
+
+  // Neue Zeilen gesammelt einmal pro Bild übernehmen (nicht jede einzeln rendern)
+  const flush = () => {
+    frame.current = null
+    const batch = inbox.current
+    inbox.current = []
+    if (!batch.length) return
+    if (liveRef.current) setRows((r) => [...r, ...batch].slice(-LOG_LINES_MAX))
+    else setPending((p) => [...p, ...batch].slice(-LOG_LINES_MAX))
+  }
+  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current) }, [])
+
+  const streamOpen = useLiveFeed(
+    (onState) => subscribeLogs(projectId, { service, since: lastAt.current }, (l) => {
+      if (l.at) lastAt.current = l.at
+      inbox.current.push({ n: ++seq.current, l })
+      if (frame.current === null) frame.current = requestAnimationFrame(flush)
+    }, onState),
+    [projectId, service, q.data],
+    Boolean(q.data && !q.data.hint),
+  )
 
   const resume = () => {
-    setStreamed((s) => [...s, ...pending].slice(-LOG_LINES_MAX))
+    setRows((r) => [...r, ...pending].slice(-LOG_LINES_MAX))
     setPending([])
     setLive(true)
     follow.current = true
   }
 
-  const all = useMemo(() => [...(q.data?.lines ?? []), ...streamed].slice(-LOG_LINES_MAX), [q.data, streamed])
-  const needle = search.trim().toLowerCase()
+  // Suche und Filter ohne Ruckeln beim Tippen (bei 2000 Zeilen)
+  const deferredSearch = useDeferredValue(search)
+  const needle = deferredSearch.trim().toLowerCase()
+  const re = useMemo(() => searchPattern(deferredSearch), [deferredSearch])
   const shown = useMemo(
-    () => all.map((l, i) => ({ l, n: i + 1 })).filter(({ l }) => keep(l, level) && (!needle || l.text.toLowerCase().includes(needle) || (l.service ?? '').toLowerCase().includes(needle))),
-    [all, level, needle],
+    () => rows.filter(({ l }) => keep(l, level) && (!needle || l.text.toLowerCase().includes(needle))),
+    [rows, level, needle],
   )
   const services = q.data?.services ?? []
   const multi = services.length > 1 && !service
+  const lastN = rows.at(-1)?.n ?? 0
 
   // Am Ende bleiben, solange live und unten (wer hochscrollt, wird nicht zurückgerissen)
   useLayoutEffect(() => {
     if (live && follow.current && box.current) box.current.scrollTop = box.current.scrollHeight
-  }, [shown.length, live])
+  }, [lastN, shown.length, live])
+
+  // Ergebnis von Suche und Filter ansagen – nicht jede neue Live-Zeile
+  useEffect(() => {
+    if (!needle && level === 'alle') { setAnnounce(''); return }
+    setAnnounce(`${shown.length.toLocaleString('de-CH')} ${shown.length === 1 ? 'Zeile' : 'Zeilen'} gefunden`)
+  }, [needle, level]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const download = () => {
     const text = shown.map(({ l }) => [l.at ? fmtStamp(l.at) : '', l.service ? `[${l.service}]` : '', l.level ? l.level.toUpperCase() : '', l.text].filter(Boolean).join(' ')).join('\n')
     downloadText(`${slug}-logs-${fmtStamp(nowIso()).replace(/[ :]/g, '-')}.log`, `${text}\n`)
   }
 
-  const rangeLabel = LOG_RANGES.find((r) => r.key === range)!.label
-  const toolbar = (
-    <LogToolbar
-      search={search}
-      onSearch={setSearch}
-      searchLabel="Im Log suchen"
-      filter={
-        <div className="segmented" role="group" aria-label="Nach Stufe filtern">
-          {LEVELS.map(([k, label]) => <button key={k} type="button" aria-pressed={level === k} onClick={() => setLevel(k)}>{label}</button>)}
-        </div>
-      }
-      range={range}
-      onRange={setRange}
-      live={live}
-      onLive={(on) => (on ? resume() : setLive(false))}
-      pending={pending.length}
-      view={
-        <>
-          <button type="button" className="button-small" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Zeilenumbruch</button>
-          <button type="button" className="button-small" aria-pressed={numbers} onClick={() => setNumbers(!numbers)}>Zeilennummern</button>
-        </>
-      }
-      onDownload={download}
-      canDownload={shown.length > 0}
-      extra={services.length > 1 ? (
-        <label className="logbar-service">
-          <span className="sr-only">Dienst</span>
-          <select value={service ?? ''} onChange={(e) => setService(e.target.value || null)}>
-            <option value="">Alle Dienste</option>
-            {services.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-      ) : undefined}
-    />
-  )
+  const r = LOG_RANGES.find((x) => x.key === range)!
+  const unknownService = Boolean(service && q.data && !q.data.hint && !services.includes(service))
 
   return (
     <div className="tab-panel">
       <section className="panel panel-pad ov-section logs" aria-labelledby="logs-h">
         <div className="ov-head">
           <h2 className="ov-title" id="logs-h">Container-Log</h2>
-          <span className="muted logs-meta" role="status">
-            {q.data && !q.data.hint && (
-              <>{shown.length.toLocaleString('de-CH')} {shown.length === 1 ? 'Zeile' : 'Zeilen'} · letzte {rangeLabel}{live && streamOpen === false ? ' · Live-Verbindung unterbrochen' : ''}</>
-            )}
+          <span className="muted logs-meta">
+            {q.data && !q.data.hint && rows.length > 0 && <>{shown.length.toLocaleString('de-CH')} {shown.length === 1 ? 'Zeile' : 'Zeilen'} {r.from}</>}
+            {live && streamOpen === false && <> · <span className="logs-offline">Live-Verbindung unterbrochen, verbinde neu</span></>}
           </span>
         </div>
-        {toolbar}
+        <p className="sr-only" role="status">{announce}{live && streamOpen === false ? ' Live-Verbindung unterbrochen.' : ''}</p>
+        <LogToolbar
+          label="Log-Werkzeuge"
+          search={search}
+          onSearch={setSearch}
+          searchLabel="Im Log suchen"
+          filter={
+            <div className="segmented" role="group" aria-label="Nach Stufe filtern">
+              {LEVELS.map(([k, label]) => <button key={k} type="button" aria-pressed={level === k} onClick={() => setLevel(k)}>{label}</button>)}
+            </div>
+          }
+          range={range}
+          onRange={setRange}
+          live={live}
+          onLive={(on) => (on ? resume() : setLive(false))}
+          pending={pending.length}
+          view={
+            <>
+              <button type="button" className="button-small" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Zeilenumbruch</button>
+              <button type="button" className="button-small" aria-pressed={numbers} onClick={() => setNumbers(!numbers)}>Zeilennummern</button>
+            </>
+          }
+          onDownload={download}
+          canDownload={shown.length > 0}
+          extra={services.length > 1 ? (
+            <label className="logbar-service">
+              <span className="sr-only">Dienst</span>
+              <select value={service ?? ''} onChange={(e) => setService(e.target.value || null)}>
+                <option value="">Alle Dienste</option>
+                {services.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+          ) : undefined}
+        />
         {!q.data && q.isError ? <ErrorState what="Das Log" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
           : !q.data ? <Loading label="Log wird geladen"><SkLog n={12} /></Loading>
-          : q.data.hint ? (
-            <EmptyState title="Noch keine Ausgabe">{q.data.hint} Läuft er nicht, starte ihn über «⋯» oben rechts.</EmptyState>
-          ) : all.length === 0 ? (
+          : unknownService ? (
+            <EmptyState title={`Den Dienst «${service}» gibt es nicht mehr`} action={<button type="button" className="button-small" onClick={() => setService(null)}>Alle Dienste zeigen</button>}>
+              Nach einem Deploy kann sich die Liste der Dienste ändern.
+            </EmptyState>
+          ) : q.data.hint ? (
+            <EmptyState title="Kein laufender Container">Es gibt noch keine Ausgabe. Läuft das Projekt nicht, starte es über «⋯» oben rechts.</EmptyState>
+          ) : rows.length === 0 ? (
             <EmptyState
-              title={`Keine Ausgabe in den letzten ${rangeLabel}`}
-              action={range !== '24h' ? <button type="button" className="button-small" onClick={() => setRange('24h')}>Letzte 24 Std. zeigen</button> : undefined}
+              title={`Keine Ausgabe ${r.within}`}
+              action={range !== '24h' ? <button type="button" className="button-small" onClick={() => setRange('24h')}>Letzte 24 Stunden zeigen</button> : undefined}
             >
               Neue Zeilen erscheinen hier live, sobald der Container etwas schreibt.
             </EmptyState>
           ) : shown.length === 0 ? (
             <EmptyState
-              title={needle ? `Keine Zeile enthält «${search.trim()}»` : 'Keine Zeilen mit dieser Stufe'}
+              title={needle ? `Keine Zeile enthält «${deferredSearch.trim()}»` : 'Keine Zeilen mit dieser Stufe'}
               action={<button type="button" className="button-small" onClick={() => { setSearch(''); setLevel('alle') }}>Filter zurücksetzen</button>}
             />
           ) : (
@@ -154,16 +216,7 @@ export function LogsTab({ projectId, slug }: { projectId: string; slug: string }
               tabIndex={0}
               onScroll={() => { follow.current = atBottom(box.current) }}
             >
-              {shown.map(({ l, n }) => (
-                <div key={n} className={`logv-row${l.level === 'error' ? ' logv-error' : l.level === 'warn' ? ' logv-warn' : ''}`}>
-                  {numbers && <span className="logv-n" aria-hidden="true">{n}</span>}
-                  <span className="logv-time" title={l.at ? fmtUtc(l.at) : undefined}>{l.at ? fmtTime(l.at, true) : ''}</span>
-                  {multi && <span className="logv-service">{l.service}</span>}
-                  {/* Stufe als Wort, Farbe nur zusätzlich */}
-                  {l.level === 'error' || l.level === 'warn' ? <span className={`logv-level logv-level-${l.level}`}>{LEVEL_WORD[l.level]}</span> : <span className="logv-level" />}
-                  <span className="logv-text"><Highlight text={l.text} query={search} /></span>
-                </div>
-              ))}
+              {shown.map((row) => <LogRowView key={row.n} row={row} numbers={numbers} multi={multi} re={re} />)}
             </div>
           )}
       </section>

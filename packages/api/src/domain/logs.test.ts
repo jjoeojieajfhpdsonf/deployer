@@ -33,6 +33,23 @@ describe('UI-Qualität 4: Logzeilen', () => {
     assert.deepEqual(mergeLogLines([web, db], 2).map((l) => l.text), ['d1', 'w2'])
   })
 
+  test('Decoder: zerrissene Docker-Rahmen und halbe Zeilen über mehrere Stücke', async () => {
+    process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'
+    process.env.ADMIN_PASSWORD ??= 'x'
+    const { DockerLogDecoder } = await import('../drivers/docker.js')
+    const frame = (s: string) => { const b = Buffer.from(s); const h = Buffer.alloc(8); h[0] = 1; h.writeUInt32BE(b.length, 4); return Buffer.concat([h, b]) }
+    const all = Buffer.concat([frame('2026-11-10T12:00:01.000Z erste Zeile\n2026-11-10T12:00:02.000Z zwei'), frame('te Zeile\n'), frame('2026-11-10T12:00:03.000Z äöü\n')])
+    const d = new DockerLogDecoder()
+    const lines: string[] = []
+    // In 7-Byte-Stücken: Köpfe, Rahmen, Zeilen und ein Umlaut werden zerschnitten
+    for (let i = 0; i < all.length; i += 7) lines.push(...d.push(all.subarray(i, i + 7)))
+    lines.push(...d.flush())
+    assert.deepEqual(lines, ['2026-11-10T12:00:01.000Z erste Zeile', '2026-11-10T12:00:02.000Z zweite Zeile', '2026-11-10T12:00:03.000Z äöü'])
+    // Ohne Rahmen (TTY): Text, ebenfalls zeilenweise
+    const t = new DockerLogDecoder()
+    assert.deepEqual([...t.push(Buffer.from('hallo wel')), ...t.push(Buffer.from('t\nzweite')), ...t.flush()], ['hallo welt', 'zweite'])
+  })
+
   test('Zeitraum: 15 Min. als Standard', () => {
     assert.equal(rangeMinutes('1h'), 60)
     assert.equal(rangeMinutes('24h'), 1440)

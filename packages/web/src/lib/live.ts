@@ -72,7 +72,7 @@ export function affected(e: ServerEvent): Key[] {
       const id = e.targetId
       switch (e.targetType) {
         case 'project':
-          return [...base, ['projects'], ...forProject(id, 'project', 'audit-project', 'deployments', 'public', 'header-rules', 'fix-requests', 'scan', 'files', 'auto-deploy', 'log-lines')]
+          return [...base, ['projects'], ...forProject(id, 'project', 'audit-project', 'deployments', 'public', 'header-rules', 'fix-requests', 'scan', 'files', 'auto-deploy')]
         case 'external_target':
           return [...base, ['external-targets'], ['external-scan']]
         case 'token':
