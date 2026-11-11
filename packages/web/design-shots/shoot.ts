@@ -41,8 +41,8 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.allProjects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
   if ((m = p.match(/^\/deployments\/([^/]+)$/))) {
-    const d = fx.projects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
-    return { body: { deployment: d, log: d?.status === 'failed' ? fx.failedLog : fx.deployLog } }
+    const d = fx.allProjects.flatMap((x) => [...fx.deployments(x.id), ...(x.lastDeployment ? [x.lastDeployment] : [])]).find((x) => x.id === m![1])
+    return { body: { deployment: d, log: d?.status === 'failed' ? fx.logForFailure(d.errorMessage, d.id) : fx.deployLog } }
   }
   if ((m = p.match(/^\/projects\/([^/]+)\/health$/))) return { body: fx.health(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
@@ -123,6 +123,16 @@ const shots: Shot[] = [
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
   { group: 'uebergang', name: 'projekt-alte-container', path: `/projekte/${P}`, full: false, legacy: true },
   { group: 'projekte', name: 'projekt-fehler', path: `/projekte/${W}` },
+  // UI-Qualität 2: Fehler erklären – je Muster die Fehlerbox mit ihrer Aktion
+  {
+    group: 'fehler', name: 'fehler-build-claude', path: '/projekte/p-fehler-build', full: false, el: '.failure',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Mit Claude lösen' }).click(); await pg.waitForTimeout(200) },
+  },
+  { group: 'fehler', name: 'fehler-port', path: '/projekte/p-fehler-port', full: false, el: '.failure' },
+  {
+    group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure',
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Grenze erhöhen' }).click(); await pg.waitForTimeout(200) },
+  },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   { group: 'projekte', name: 'projekt-security', path: `/projekte/${S}?tab=security` },

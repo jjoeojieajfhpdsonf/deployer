@@ -15,6 +15,7 @@ import { chatExpiryDays } from './expiry-settings.js'
 import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
 import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
+import { withFailure } from '../deploy/explain.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
 
@@ -26,7 +27,9 @@ export async function toDto(r: Row): Promise<ProjectDto> {
   const active = await activeDeployment(r.id)
   const routes = await routeDtosFor(r.id, r.slug)
   const activeDto = active ? toDeploymentDto(active) : null
-  const last = await lastDeploymentDto(r.id)
+  const lastRaw = await lastDeploymentDto(r.id)
+  // UI-Qualität 2: gescheiterter letzter Deploy mit dem Titel der Fehlererklärung (Pille, Banner)
+  const last = lastRaw ? (await withFailure(r, [lastRaw]))[0]! : null
   return {
     id: r.id,
     name: r.name,

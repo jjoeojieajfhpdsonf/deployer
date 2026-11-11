@@ -345,7 +345,7 @@ function FailedBanner({ p, onLog, onRetry, busy }: { p: ProjectDto; onLog: () =>
       <span className="alert-icon"><IconAlert /></span>
       <div className="alert-body">
         <strong>{p.name}: {d.trigger === 'rollback' ? 'Rollback' : 'Deploy'} fehlgeschlagen</strong>
-        <span>{sentence(firstLine(d.errorMessage ?? 'Ohne Fehlermeldung'))} {still}</span>
+        <span>{sentence(d.failure?.title ?? firstLine(d.errorMessage ?? 'Ohne Fehlermeldung'))} {still}</span>
       </div>
       <div className="alert-actions">
         <button onClick={onLog}>Log ansehen</button>

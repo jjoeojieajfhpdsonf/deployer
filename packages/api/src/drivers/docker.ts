@@ -496,6 +496,8 @@ export interface ContainerState {
   running: boolean
   exitCode: number | null
   startedAt: string | null
+  /** Von Docker wegen der Speichergrenze beendet */
+  oomKilled?: boolean
 }
 
 export async function inspectContainer(id: string): Promise<ContainerState | null> {
@@ -503,7 +505,7 @@ export async function inspectContainer(id: string): Promise<ContainerState | nul
     const info = (await docker.getContainer(id).inspect()) as {
       Id: string
       Name: string
-      State: { Running: boolean; ExitCode: number; StartedAt: string }
+      State: { Running: boolean; ExitCode: number; StartedAt: string; OOMKilled?: boolean }
     }
     return {
       id: info.Id,
@@ -511,6 +513,7 @@ export async function inspectContainer(id: string): Promise<ContainerState | nul
       running: info.State.Running,
       exitCode: info.State.Running ? null : info.State.ExitCode,
       startedAt: info.State.StartedAt ?? null,
+      oomKilled: info.State.OOMKilled === true,
     }
   } catch (err) {
     if ((err as { statusCode?: number }).statusCode === 404) return null

@@ -49,6 +49,12 @@ export function ProjectDetail() {
     setTab('einstellungen')
     setDeleteRequested(true)
   }
+  // Fehlerbox «Variable X fehlt» → «Hinzufügen»: Umgebung in den Einstellungen, Name vorbelegt
+  const [envRequest, setEnvRequest] = useState<string | null>(null)
+  const goToEnv = (name: string) => {
+    setTab('einstellungen')
+    setEnvRequest(name)
+  }
 
   const q = useQuery({
     queryKey: ['project', id],
@@ -218,6 +224,7 @@ export function ProjectDetail() {
             onRollback={(depId) => setWatching(depId)}
             onToggleKeep={() => keep.mutate({ keep: !p.keep })}
             keepBusy={keep.isPending}
+            onAddEnv={goToEnv}
           />
         </div>
       )}
@@ -240,6 +247,8 @@ export function ProjectDetail() {
           onDeleted={() => navigate('/projekte')}
           deleteRequested={deleteRequested}
           onDeleteShown={() => setDeleteRequested(false)}
+          envRequest={envRequest}
+          onEnvShown={() => setEnvRequest(null)}
           onManageHeaders={() => {
             setTab('security')
             // Zur Liste «Header über Caddy» (erscheint, sobald der Reiter geladen ist)

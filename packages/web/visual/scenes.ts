@@ -8,7 +8,7 @@ export const VISUAL_SCENES = [
   // Shell und Anmeldung
   'login', 'shell-profilmenue',
   // Projekte
-  'projekte', 'projekt-uebersicht', 'projekt-fehler', 'projekt-deployments', 'projekt-logs', '5-zugriffe',
+  'projekte', 'projekt-uebersicht', 'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', '5-zugriffe',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
   'neues-projekt-validierung', 'projekte-anzahl-0', 'projekte-anzahl-1',
   // Verwaltung und Security

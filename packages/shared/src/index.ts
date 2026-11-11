@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { PausePage } from './pause-page.js'
+import type { FailureKind } from './failure.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -514,6 +515,8 @@ export interface DeploymentDto {
   sourceRef: string | null
   status: DeploymentStatus
   errorMessage: string | null
+  /** UI-Qualität 2: Erklärung eines gescheiterten Deploys in Kurzform (Titel wie in der Fehlerbox) */
+  failure?: { kind: FailureKind; title: string } | null
   startedAt: string
   finishedAt: string | null
   isActive: boolean
@@ -697,7 +700,7 @@ export function projectState(p: {
   status: ProjectStatus
   desiredState: DesiredState
   activeDeployment: { id: string } | null
-  lastDeployment: { id: string; status: DeploymentStatus; errorMessage?: string | null } | null
+  lastDeployment: { id: string; status: DeploymentStatus; errorMessage?: string | null; failure?: { title: string } | null } | null
   routes: { target: string; pausedAt?: string | null }[]
   container?: { running: boolean; missing?: boolean; exitCode?: number | null } | null
 }): ProjectStateDto {
@@ -722,7 +725,8 @@ export function projectState(p: {
   if (p.routes.some((r) => r.target === 'public' && r.pausedAt)) {
     return make('paused', failedNewer ? 'Öffentlich pausiert; intern läuft die alte Fassung, der letzte Deploy ist gescheitert.' : 'Öffentlich pausiert; intern läuft es weiter.')
   }
-  if (failedNewer) return make('failed_old_running', last?.errorMessage ?? null)
+  // Grund wie in der Fehlerbox (Titel der Erklärung), sonst die rohe Meldung
+  if (failedNewer) return make('failed_old_running', last?.failure?.title ?? last?.errorMessage ?? null)
   return make('running', null)
 }
 
@@ -1163,3 +1167,6 @@ export * from './fix.js'
 
 /* Pause-Seite für pausierte öffentliche Projekte (Renderer für Server und Vorschau) */
 export * from './pause-page.js'
+
+/* UI-Qualität 2: Fehler erklären – eine Erklärung für Oberfläche und MCP */
+export * from './failure.js'

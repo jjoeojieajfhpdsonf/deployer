@@ -422,6 +422,7 @@ async function startAndCheck(deploymentId: string, project: Project, imageRef: s
 
   const ok = await healthcheck(deploymentId, network, containerName, project)
   if (!ok) {
+    await noteExit(deploymentId, containerId)
     const tail = await docker.getLogs(containerId, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Container-Ausgabe:\n${tail}`)
     await docker.stopContainer(containerId)
@@ -429,6 +430,16 @@ async function startAndCheck(deploymentId: string, project: Project, imageRef: s
     throw new Error('Healthcheck nicht bestanden')
   }
   await markActiveExclusively(project.id, deploymentId)
+}
+
+/**
+ * Nach gescheitertem Healthcheck: Hat sich der Container beendet? Exit-Code
+ * und Speicher-Abbruch ins Log (Grundlage der Fehlererklärung, shared/failure.ts).
+ */
+async function noteExit(deploymentId: string, container: string): Promise<void> {
+  const s = await docker.inspectContainer(container).catch(() => null)
+  if (!s || s.running) return
+  appendLine(deploymentId, `Container beendet: Exit-Code ${s.exitCode ?? '?'}${s.oomKilled ? ' (Speichergrenze überschritten, OOMKilled)' : ''}`)
 }
 
 /**
@@ -561,6 +572,7 @@ async function runCompose(
 
   const ok = await healthcheck(deploymentId, network, webContainer, project)
   if (!ok) {
+    await noteExit(deploymentId, webContainer)
     const tail = await docker.getLogs(webContainer, { tail: 30 }).catch(() => '')
     if (tail) appendLine(deploymentId, `Letzte Ausgabe von ${cfg.webService}:\n${tail}`)
     const prevFile = previous[0]?.artifact?.composeFile

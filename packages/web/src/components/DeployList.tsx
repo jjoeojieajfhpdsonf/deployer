@@ -97,7 +97,8 @@ export function DeployList({
             <time dateTime={d.startedAt} title={fmtDateTime(d.startedAt)}>{relativeTime(d.startedAt)}</time>
             {dur && <span className="num">{dur}</span>}
           </div>
-          {s === 'failed' && d.errorMessage && <p className="dl-error">{d.errorMessage.split('\n')[0]}</p>}
+          {/* UI-Qualität 2: Titel der Erklärung wie in der Fehlerbox; ohne Erklärung die rohe Meldung */}
+          {s === 'failed' && (d.failure || d.errorMessage) && <p className="dl-error">{d.failure?.title ?? d.errorMessage!.split('\n')[0]}</p>}
           {withLog && openLog === d.id && <DeployLog id={d.id} />}
         </div>
         <div className="dl-aside">

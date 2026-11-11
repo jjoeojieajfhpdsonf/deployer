@@ -1507,7 +1507,11 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 .failure-log-head { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-12); color: var(--ink-dim); }
 .failure-log-head .link-button { font-size: var(--fs-12); color: var(--ink-dim); }
 .log-failure { margin-top: 6px; max-height: 300px; font-size: var(--fs-12); background: var(--surface); }
-.failure-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.failure-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+/* UI-Qualität 2: Einstellung direkt in der Fehlerbox ändern, Auftrag für Claude */
+form.failure-fix { display: grid; gap: var(--sp-3); max-width: 420px; }
+form.failure-fix .form-actions { margin: 0; }
+.failure .claude-fix { margin-top: 0; display: grid; gap: var(--sp-2); }
 
 /* Zustand */
 .state-rows { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--sp-3) var(--sp-5); margin: 0; }

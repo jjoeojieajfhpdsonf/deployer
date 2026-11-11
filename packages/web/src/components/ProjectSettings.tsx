@@ -29,8 +29,11 @@ const HEADER_SHORT: Record<string, string> = {
 }
 
 export function ProjectSettings({
-  p, env, onDeleted, onManageHeaders, deleteRequested, onDeleteShown,
+  p, env, onDeleted, onManageHeaders, deleteRequested, onDeleteShown, envRequest, onEnvShown,
 }: {
+  /** Fehlerbox «Hinzufügen»: Variable mit diesem Namen vorbelegen und den Wert fokussieren */
+  envRequest?: string | null
+  onEnvShown?: () => void
   p: ProjectDto
   env: EnvEntryDto[]
   onDeleted: () => void
@@ -81,7 +84,7 @@ export function ProjectSettings({
       <div className="set-sections">
         <Publication p={p} />
         <Reachability p={p} />
-        <Environment p={p} env={env} />
+        <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
         {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
         <Expiry p={p} />
@@ -117,7 +120,7 @@ function useActiveSection(ids: string[]): string {
 
 /* --- Umgebung ----------------------------------------------------------------- */
 
-function Environment({ p, env }: { p: ProjectDto; env: EnvEntryDto[] }) {
+function Environment({ p, env, request, onShown }: { p: ProjectDto; env: EnvEntryDto[]; request: string | null; onShown?: () => void }) {
   const qc = useQueryClient()
   const titleId = useId()
   const isStatic = p.runtimeKind === 'static'
@@ -143,6 +146,19 @@ function Environment({ p, env }: { p: ProjectDto; env: EnvEntryDto[] }) {
     setRows((r) => [...r, { key: '', value: '', isSecret: false }])
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#set-umgebung .env-row:last-child input')?.focus())
   }
+  // Aus der Fehlerbox: Zeile mit dem Namen (neu oder vorhanden), Fokus auf den Wert
+  useEffect(() => {
+    if (!request) return
+    setEditing(true)
+    setRows((r) => (r.some((x) => x.key === request) ? r : [...r, { key: request, value: '', isSecret: false }]))
+    requestAnimationFrame(() => {
+      const row = [...document.querySelectorAll<HTMLElement>('#set-umgebung .env-row')].find((el) => el.querySelector('input')?.value === request)
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      row?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' })
+      row?.querySelectorAll('input')[1]?.focus({ preventScroll: true })
+      onShown?.()
+    })
+  }, [request]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <section className="set-card" id="set-umgebung" aria-labelledby={titleId}>
       <div className="set-head">

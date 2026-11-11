@@ -113,7 +113,7 @@ function useFinishedToasts(list: RunningActivity[]) {
       } else if (a.kind === 'deploy' && p) {
         const d = p.lastDeployment
         if (d?.status === 'failed') {
-          notifyError(`Deploy gescheitert · ${p.name}`, new Error(d.errorMessage ?? 'Der neue Stand ist nicht live gegangen.'), {
+          notifyError(`Deploy gescheitert · ${p.name}`, new Error(d.failure?.title ?? d.errorMessage ?? 'Der neue Stand ist nicht live gegangen.'), {
             id: key, action: { label: 'Log ansehen', onClick: () => navigate(`/projekte/${p.id}?tab=deployments`) },
           })
         } else if (d?.status === 'active') {

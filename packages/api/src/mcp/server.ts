@@ -17,6 +17,8 @@ import {
 import { audit } from '../domain/audit.js'
 import { startDeploy, startRollback } from '../deploy/pipeline.js'
 import { readLog } from '../deploy/journal.js'
+import { explainDeployment } from '../deploy/explain.js'
+import { failureNextStep } from '@airlock/shared'
 import * as docker from '../drivers/docker.js'
 import { maskParams } from '../lib/crypto.js'
 import { AppError, badRequest } from '../lib/errors.js'
@@ -86,11 +88,16 @@ async function waitFor(dep: DeploymentDto, timeoutMs = 10 * 60_000) {
     d = { ...d, status: row.status, errorMessage: row.errorMessage, version: row.version }
   }
   const tail = readLog(dep.id).trim().split('\n').slice(-20).join('\n')
+  // UI-Qualität 2: dieselbe Erklärung wie die Fehlerbox der Oberfläche
+  const why = d.status === 'failed'
+    ? await findProject(dep.projectId).then((p) => explainDeployment(p, { id: dep.id, errorMessage: d.errorMessage })).catch(() => null)
+    : null
   return {
     deployment: dep.id,
     status: d.status,
     version: d.version,
     error: d.errorMessage,
+    ...(why ? { explanation: { kind: why.kind, title: why.title, cause: why.cause, next_step: failureNextStep(why), lines: why.lines } } : {}),
     ...(d.status === 'failed' ? { log_tail: tail } : {}),
     ...(['pending', 'pulling', 'starting', 'healthchecking'].includes(d.status) ? { note: 'Läuft noch; get_project zeigt den Stand' } : {}),
   }

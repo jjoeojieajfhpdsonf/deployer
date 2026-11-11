@@ -17,7 +17,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | Nr. | Inhalt | Stand |
 |---|---|---|
 | 1 | Widersprüche in den Daten: ein Projektzustand vom Server, eine Befundzählung, Stufen | erledigt; Header-Themen nur in ZAP offen, Frage Nr. 7 |
-| 2 | Fehler erklären: Muster aus Build-/Container-Log und Healthcheck, auch im MCP-Ergebnis | geplant |
+| 2 | Fehler erklären: Muster aus Build-/Container-Log und Healthcheck, auch im MCP-Ergebnis | erledigt; Ändern von Port/RAM ausserhalb der Fehlerbox offen, Frage Nr. 8 |
 | 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | geplant |
 | 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | geplant |
 | 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | geplant |
@@ -89,6 +89,31 @@ Befunde aus dem Gutachten (behoben):
   (Exit-Code) → Code und letzte Zeilen; npm/pip-Build-Fehler → Build-Log + «Mit Claude lösen»; Image
   nicht gefunden/Pull verweigert; OOMKilled → «Grenze erhöhen». Unbekannt: letzte Zeilen + «Mit
   Claude lösen». Gleiche Erklärung im MCP-Ergebnis von `deploy`. Tests mit Log-Fixtures je Muster.
+
+Umsetzung:
+- Eine Funktion `explainFailure` in `packages/shared/src/failure.ts` (Fehlermeldung + Deploy-Log →
+  Art, Titel, Satz, Aktion, massgebliche Zeilen). Die Oberfläche (Fehlerbox) und der Server
+  (`api/src/deploy/explain.ts`) rufen sie mit denselben Angaben auf. Die alte
+  `web/src/lib/failure.ts` ist weg.
+- Die Pipeline schreibt nach gescheitertem Healthcheck «Container beendet: Exit-Code n» und
+  «OOMKilled» ins Log (`noteExit`, `inspectContainer` liefert jetzt `oomKilled`), die letzte
+  Container-Ausgabe stand schon drin.
+- Muster und Aktion: Variable fehlt (Node, Python-KeyError, envalid-Liste; gesetzte, aber abgelehnte
+  Variable heisst «… wird nicht akzeptiert») → «Hinzufügen» springt in die Einstellungen, die Zeile ist
+  vorbelegt, der Fokus liegt auf dem Wert. Anderer Port im Log → «Port ändern auf 3000» (ein Schritt).
+  Nur 127.0.0.1 → Erklärung + Claude. Container beendet → Exit-Code im Titel, letzte Zeilen.
+  OOMKilled → «Grenze erhöhen» (Eingabefeld). npm-/pip-Build → Meldung im Satz, Build-Log, «Mit
+  Claude lösen». Image nicht gefunden / verweigert → «Image ändern» (bei Image-Quellen). Healthcheck
+  4xx → «Healthcheck-Pfad ändern». Unbekannt → letzte Zeilen + «Mit Claude lösen» (fertiger Auftrag
+  zum Kopieren, `deployFixPrompt`). Port/Pfad/RAM sind sonst in der Oberfläche nicht änderbar:
+  offen, Frage Nr. 8.
+- MCP: `deploy`, `create_project`, `update_files` usw. liefern bei Fehlschlag
+  `explanation {kind, title, cause, next_step, lines}`.
+- Gleicher Titel überall: `DeploymentDto.failure` (Server, `withFailure`) – Unterzeile der Pille,
+  Banner der Projektliste, Deployments-Liste und Meldung nach dem Deploy zeigen ihn statt der rohen
+  Meldung.
+- Tests: `api/src/deploy/failure.test.ts` mit 13 Log-Fixtures (`deploy/fixtures/failure/`), dazu
+  ein Zustandstest. Screenshots je Muster: `fehler-build-claude`, `fehler-port`, `fehler-speicher`.
 
 ### 3 – Seitentitel und Live-Aktualisierung
 - `document.title` «<Seite/Projekt> · Airlock», bei laufendem Vorgang mit Präfix; Favicon mit Punkt

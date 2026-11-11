@@ -8,7 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
 } from '@airlock/shared'
-import { countOpenFindings, fixPrompt, projectState } from '@airlock/shared'
+import { countOpenFindings, explainFailure, fixPrompt, projectState } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -21,7 +21,59 @@ function route(targets: RouteDto['target'][], host: string): RouteDto {
   return { target: targets[0]!, targets, hostname: host, aliases: [], urls: [`https://${host}`] }
 }
 
+/* Deploy-Logs gescheiterter Deploys im Format der Pipeline (Grundlage der Fehlererklärung, UI-Qualität 2) */
+const stamp = (msAgo: number) => `[${new Date(Date.now() - msAgo).toISOString()}]`
+export const HEALTH_FAILED = 'Healthcheck nicht bestanden'
+export const BUILD_FAILED = "Build fehlgeschlagen: The command '/bin/sh -c npm ci' returned a non-zero code: 1"
+
+/** Wetterstation: der Healthcheck scheitert, weil SENSOR_URL fehlt */
+export const failedLog = [
+  `${stamp(14 * MIN)} --- pulling ---`,
+  `${stamp(14 * MIN - 1_000)} Image ghcr.io/example/wetterstation:2.0.1 holen`,
+  `${stamp(14 * MIN - 6_000)} --- starting ---`,
+  `${stamp(14 * MIN - 7_000)} --- healthchecking ---`,
+  `${stamp(14 * MIN - 7_100)} Healthcheck gegen http://wetterstation-d9:8080/health`,
+  `${stamp(14 * MIN - 7_200)} Healthcheck 1: noch nicht erreichbar (connect ECONNREFUSED 172.20.0.7:8080)`,
+  `${stamp(13 * MIN)} Healthcheck nach 58 Versuchen nicht bestanden (getaddrinfo ENOTFOUND wetterstation-d9)`,
+  `${stamp(13 * MIN - 100)} Container beendet: Exit-Code 1`,
+  `${stamp(13 * MIN - 200)} Letzte Container-Ausgabe:`,
+  'Traceback (most recent call last):',
+  '  File "/app/main.py", line 12, in <module>',
+  "    SENSOR_URL = os.environ['SENSOR_URL']",
+  '  File "<frozen os>", line 714, in __getitem__',
+  "KeyError: 'SENSOR_URL'",
+  `${stamp(13 * MIN - 500)} FEHLGESCHLAGEN: ${HEALTH_FAILED}`,
+].join('\n')
+
+/** Build mit npm gescheitert (sharp ohne passende Binärdateien) */
+export const buildFailedLog = [
+  `${stamp(5 * HOUR)} --- pulling ---`,
+  `${stamp(5 * HOUR - 1_000)} Repo klonen (main)`,
+  `${stamp(5 * HOUR - 3_000)} Step 1/7 : FROM node:22-alpine`,
+  `${stamp(5 * HOUR - 3_100)} Step 4/7 : RUN npm ci`,
+  `${stamp(5 * HOUR - 20_000)} npm error code 1`,
+  `${stamp(5 * HOUR - 20_000)} npm error path /app/node_modules/sharp`,
+  `${stamp(5 * HOUR - 20_000)} npm error command failed`,
+  `${stamp(5 * HOUR - 20_000)} npm error sharp: Prebuilt libvips 8.15.3 binaries are not yet available for linuxmusl-arm64v8`,
+  `${stamp(5 * HOUR - 20_000)} npm error A complete log of this run can be found in: /root/.npm/_logs/debug-0.log`,
+  `${stamp(5 * HOUR - 21_000)} FEHLGESCHLAGEN: ${BUILD_FAILED}`,
+].join('\n')
+
+/** Logs einzelner Deployments (Fehlermuster-Projekte unten); sonst nach der Meldung */
+const FAILURE_LOGS: Record<string, string> = {}
+/** Log zu einem gescheiterten Deploy */
+export const logForFailure = (message: string | null, deploymentId?: string) =>
+  (deploymentId && FAILURE_LOGS[deploymentId]) || (message?.startsWith('Build') ? buildFailedLog : failedLog)
+
 function dep(projectId: string, n: number, over: Partial<DeploymentDto> = {}): DeploymentDto {
+  const d = depRaw(projectId, n, over)
+  // Wie der Server (withFailure): gescheiterte mit dem Titel der Erklärung
+  if (d.status !== 'failed' || d.failure !== undefined) return d
+  const e = explainFailure({ message: d.errorMessage, log: logForFailure(d.errorMessage, d.id), port: 8080, healthcheckPath: '/health', memoryLimitMb: 512, envKeys: [] })
+  return { ...d, failure: { kind: e.kind, title: e.title } }
+}
+
+function depRaw(projectId: string, n: number, over: Partial<DeploymentDto> = {}): DeploymentDto {
   const started = ago(over.startedAt ? 0 : (n + 1) * 7 * HOUR)
   return {
     id: `${projectId}-d${n}`,
@@ -88,7 +140,7 @@ export const projects: ProjectDto[] = [
   }),
   project({
     id: 'p-wetter', name: 'Wetterstation', slug: 'wetterstation', status: 'failed',
-    lastDeployment: dep('p-wetter', 9, { status: 'failed', startedAt: ago(14 * MIN), finishedAt: ago(13 * MIN), durationMs: 52_000, errorMessage: 'Healthcheck /health antwortet nicht (Verbindung abgelehnt auf Port 8080 nach 60 s)', canRollback: false }),
+    lastDeployment: dep('p-wetter', 9, { status: 'failed', startedAt: ago(14 * MIN), finishedAt: ago(13 * MIN), durationMs: 52_000, errorMessage: HEALTH_FAILED, canRollback: false }),
     // Note passend zu den gezählten Befunden (zwei niedrige offen)
     security: { scanId: 'p-wetter-s', status: 'done', score: 94, grade: 'A', finishedAt: ago(2 * DAY), open: { critical: 0, high: 0, medium: 0, low: 2 } },
   }),
@@ -127,8 +179,48 @@ export function projectsFor(count: number): ProjectDto[] {
   const byId = (id: string) => projects.find((x) => x.id === id)!
   return [halloWelt, ...['p-foto', 'p-haushalt', 'p-wetter', 'p-rezepte', 'p-notizen', 'p-kontoauszug'].map(byId)].slice(0, count)
 }
+/* --- Fehler erklären (UI-Qualität 2): je Muster ein Projekt, nur für die Projektseite --- */
+
+function failing(id: string, name: string, message: string, log: string, over: Partial<ProjectDto> = {}): ProjectDto {
+  FAILURE_LOGS[`${id}-d9`] = log
+  const active = dep(id, 0, { status: 'active', isActive: true, canRollback: false, startedAt: ago(2 * HOUR), finishedAt: ago(2 * HOUR - 38_000), durationMs: 38_000 })
+  return project({
+    id, name, slug: id.replace(/^p-/, ''), security: null, activeDeployment: active,
+    routes: [route(['tailnet', 'lan'], `${id.replace(/^p-/, '')}.${BASE}`)],
+    lastDeployment: dep(id, 9, { status: 'failed', startedAt: ago(14 * MIN), finishedAt: ago(13 * MIN), durationMs: 52_000, errorMessage: message, canRollback: false }),
+    ...over,
+  })
+}
+
+export const failureProjects: ProjectDto[] = [
+  failing('p-fehler-build', 'Rezeptbuch', BUILD_FAILED, buildFailedLog, {
+    sourceType: 'files', source: { type: 'files' } as ProjectDto['source'], runtimeKind: 'dockerfile',
+  }),
+  failing('p-fehler-port', 'Pegelstand', HEALTH_FAILED, [
+    `${stamp(14 * MIN)} --- starting ---`,
+    `${stamp(14 * MIN - 1_000)} --- healthchecking ---`,
+    `${stamp(14 * MIN - 1_100)} Healthcheck gegen http://pegelstand-d9:8080/health`,
+    `${stamp(14 * MIN - 1_200)} Healthcheck 1: noch nicht erreichbar (connect ECONNREFUSED 172.20.0.8:8080)`,
+    `${stamp(13 * MIN)} Healthcheck nach 60 Versuchen nicht bestanden (connect ECONNREFUSED 172.20.0.8:8080)`,
+    `${stamp(13 * MIN - 200)} Letzte Container-Ausgabe:`,
+    '{"level":30,"msg":"Messstationen geladen (14)"}',
+    '{"level":30,"msg":"Server listening at http://0.0.0.0:3000"}',
+    `${stamp(13 * MIN - 500)} FEHLGESCHLAGEN: ${HEALTH_FAILED}`,
+  ].join('\n')),
+  failing('p-fehler-oom', 'Bildarchiv', HEALTH_FAILED, [
+    `${stamp(14 * MIN)} --- starting ---`,
+    `${stamp(14 * MIN - 1_000)} --- healthchecking ---`,
+    `${stamp(13 * MIN)} Healthcheck nach 41 Versuchen nicht bestanden (getaddrinfo ENOTFOUND bildarchiv-d9)`,
+    `${stamp(13 * MIN - 100)} Container beendet: Exit-Code 137 (Speichergrenze überschritten, OOMKilled)`,
+    `${stamp(13 * MIN - 200)} Letzte Container-Ausgabe:`,
+    'Vorschaubilder werden erzeugt …',
+    'Baue Index auf (48 213 Bilder)',
+    `${stamp(13 * MIN - 500)} FEHLGESCHLAGEN: ${HEALTH_FAILED}`,
+  ].join('\n'), { memoryLimitMb: 512 }),
+]
+
 /** Alle Projekte, die irgendeine Variante zeigt (für Detail-Anfragen) */
-export const allProjects: ProjectDto[] = [...projects, halloWelt]
+export const allProjects: ProjectDto[] = [...projects, halloWelt, ...failureProjects]
 
 /* --- Veröffentlichung: Privat, Öffentlich, Pausiert ------------------------------------ */
 
@@ -279,7 +371,7 @@ export function deployments(id: string): DeploymentDto[] {
   if (id === 'p-foto') {
     return [
       { ...active, seq: 6, reason: { kind: 'auto_merge', detail: 'Galerie lädt Vorschaubilder träge' }, actor: 'system:auto-deploy', message: 'Galerie lädt Vorschaubilder träge' },
-      dep(id, 5, { version: '51c0aa8e2d93', ...at(5 * HOUR, 26), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel', message: 'Bildvorschau mit sharp' }),
+      dep(id, 5, { version: '51c0aa8e2d93', ...at(5 * HOUR, 26), status: 'failed', errorMessage: BUILD_FAILED, canRollback: false, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel', message: 'Bildvorschau mit sharp' }),
       dep(id, 4, { version: 'e04d17b6c2fa', ...at(26 * HOUR, 44), seq: 4, reason: { kind: 'auto_merge', detail: 'Upload-Grenze auf 20 MB' }, actor: 'system:auto-deploy', message: 'Upload-Grenze auf 20 MB' }),
       dep(id, 3, { version: '9be20c4d7f11', ...at(3 * DAY, 39), seq: 3, reason: { kind: 'headers', detail: 'X-Frame-Options' }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
       dep(id, 2, { version: '9be20c4d7f11', ...at(4 * DAY, 41), seq: 2, reason: { kind: 'public', detail: null }, actor: 'ui:joel', message: 'Alben teilen per Link' }),
@@ -294,7 +386,7 @@ export function deployments(id: string): DeploymentDto[] {
     ...newer,
     { ...active, seq: 5, reason: { kind: 'redeploy' }, actor: 'ui:joel' },
     dep(id, 4, { version: same, ...at(9 * HOUR, 37), seq: 4, reason: { kind: 'paused' }, actor: 'token:backup-skript', canRollback: true }),
-    dep(id, 3, { version: '9be20c4d7f11', ...at(2 * DAY, 41), status: 'failed', errorMessage: 'Build fehlgeschlagen: npm ci (exit 1)', canRollback: false, seq: 3, reason: { kind: 'code', detail: 'Abhängigkeiten aktualisiert' }, actor: 'mcp:claude-code-mac' }),
+    dep(id, 3, { version: '9be20c4d7f11', ...at(2 * DAY, 41), status: 'failed', errorMessage: BUILD_FAILED, canRollback: false, seq: 3, reason: { kind: 'code', detail: 'Abhängigkeiten aktualisiert' }, actor: 'mcp:claude-code-mac' }),
     dep(id, 2, { version: 'e04d17b6c2fa', ...at(5 * DAY, 44), seq: 2, reason: { kind: 'rollback' }, actor: 'ui:joel' }),
     dep(id, 1, { version: '7d2e9f03ab58', ...at(12 * DAY, 58), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
   ]
@@ -585,7 +677,7 @@ export function audit(targetId?: string): AuditEventDto[] {
     [4 * MIN, 'ui:joel', 'project.deploy', 'p-rezepte', 'ok', null, { deployment: 'x' }],
     [9 * MIN, 'ui:joel', 'auth.login', null, 'ok', null],
     [13 * MIN, 'ui:joel', 'project.public.resume', H, 'ok', null, { hostname: hh, pausedSince: ago(17 * MIN) }],
-    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck /health antwortet nicht'],
+    [13 * MIN + 30_000, 'system', 'deploy.failed', 'p-wetter', 'error', 'Healthcheck nicht bestanden'],
     [14 * MIN, 'ui:joel', 'project.public.pause_page', H, 'ok', null, { custom: 'Kurz in Wartung', backAt: null }],
     [17 * MIN, 'ui:joel', 'project.public.pause', H, 'ok', null, { hostname: hh }],
     [32 * MIN, 'ui:joel', 'scan.recheck_headers', H, 'ok', null, { scan: 's9', fixed: ['Schutz gegen Einbetten fehlt'], opened: [], before: 90, after: 93, grade: 'A' }],
@@ -708,15 +800,6 @@ export const notifications: NotifySettingsDto = {
   },
 }
 
-export const failedLog = [
-  '[22:31:02] Quelle holen: ghcr.io/example/wetterstation:2.0.1',
-  '[22:31:09] Container starten, Healthcheck /health',
-  '[22:31:10] wetterstation  | Traceback (most recent call last):',
-  '[22:31:10] wetterstation  |   File "/app/main.py", line 12, in <module>',
-  '[22:31:10] wetterstation  | KeyError: \'SENSOR_URL\'',
-  '[22:32:10] Healthcheck /health antwortet nicht (Verbindung abgelehnt auf Port 8080 nach 60 s)',
-  '[22:32:10] Deploy fehlgeschlagen – Version a3f9c21 läuft unverändert weiter',
-].join('\n')
 
 export const tokens: ApiTokenDto[] = [
   { id: 't1', name: 'Claude (MacBook)', createdAt: ago(30 * DAY), lastUsedAt: ago(5 * HOUR), revokedAt: null },

@@ -25,6 +25,11 @@ describe('Projektzustand: eine Quelle für Pille, Unterzeile, Fehlerbox, Liste',
     assert.equal(s.detail, 'Healthcheck /health antwortet nicht')
   })
 
+  test('Unterzeile nimmt den Titel der Fehlererklärung, wenn es einen gibt (wie die Fehlerbox)', () => {
+    const last = { ...dep('d2', 'failed', 'Healthcheck nicht bestanden'), failure: { title: 'Variable SENSOR_URL fehlt' } }
+    assert.equal(projectState({ ...base, status: 'failed', lastDeployment: last }).detail, 'Variable SENSOR_URL fehlt')
+  })
+
   test('deployt gerade hat Vorrang, auch wenn der Status noch «running» ist', () => {
     assert.equal(projectState({ ...base, lastDeployment: dep('d2', 'pulling') }).key, 'deploying')
     assert.equal(projectState({ ...base, status: 'deploying' }).key, 'deploying')

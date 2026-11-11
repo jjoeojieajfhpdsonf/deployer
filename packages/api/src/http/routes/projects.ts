@@ -13,6 +13,7 @@ import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
 import { parseSiteAccess } from '../../lib/site-access.js'
 import { planPublic, applyPublic, removePublic } from '../../domain/public.js'
 import { listDeployments } from '../../domain/deployments.js'
+import { withFailure } from '../../deploy/explain.js'
 import { activeDeployment } from '../../domain/deployments.js'
 import { startProject, stopProject, restartProject } from '../../domain/lifecycle.js'
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
@@ -218,7 +219,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: IdParams }>('/projects/:id/deployments', async (request) => {
     const project = await findProject(request.params.id)
-    return { deployments: await listDeployments(project.id) }
+    return { deployments: await withFailure(project, await listDeployments(project.id)) }
   })
 
   /* --- Logs ---------------------------------------------------------------- */
