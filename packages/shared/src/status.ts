@@ -333,7 +333,7 @@ function renderProject(p: PublicStatusProject, tz: string, idx: number): string 
         </div>
         <ol class="days" aria-label="${escapeHtml(p.name)}: Verfügbarkeit der letzten ${p.days.length} Tage, älteste zuerst">${days}</ol>
         <div class="project-foot" aria-hidden="true"><span>vor ${p.days.length} Tagen</span><span>heute</span></div>
-        <p class="availability">${p.availability === null ? 'Noch keine Messung' : `${fmtPercent(p.availability)} verfügbar`}<span class="muted"> · gemessen seit Beginn der Aufzeichnung</span></p>
+        <p class="availability">${p.availability === null ? 'Noch keine Messung' : `${fmtPercent(p.availability)} verfügbar`}<span class="muted"> · über die Tage mit Messung</span></p>
       </li>`
 }
 
@@ -548,7 +548,8 @@ p { margin: 0; }
 .day-keine-daten .bar { height: 4px; background: var(--empty); }
 .day:hover .bar { filter: brightness(1.1); }
 .tip {
-  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  /* Unter dem Balken: verdeckt nur die Achse, nie Name oder Zustand */
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
   width: max-content; max-width: 260px; padding: 8px 10px; font-size: 13px; line-height: 1.4;
   background: var(--ink); color: var(--bg); border-radius: 6px; z-index: 2;
   /* Versteckt, aber für Screenreader lesbar; sichtbar bleibt er auch, wenn der Zeiger darauf wandert */

@@ -15,6 +15,7 @@ import type {
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
   BackupRestoreDto, BackupRestorePreviewDto,
+  StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
 } from '@airlock/shared'
 
 export type {
@@ -162,6 +163,14 @@ export const api = {
   movePreview: (id: string, to: string) => call<{ preview: MovePreviewDto }>(`/projects/${id}/move?to=${encodeURIComponent(to)}`),
   moveProject: (id: string, to: string) => call<{ moved: MovePreviewDto }>(`/projects/${id}/move`, { method: 'POST', body: body({ to, confirm: true }) }),
   setTemplateOff: (id: string, header: string, off: boolean) => call<void>(`/projects/${id}/header-templates/${header}/off`, { method: off ? 'PUT' : 'DELETE' }),
+
+  /* Etappe 5: Statusseite der Umgebung und Störungen */
+  statusPage: () => call<{ statusPage: StatusPageDto }>(e('/status-page')),
+  setStatusPage: (input: StatusSettingsInput) => call<{ statusPage: StatusPageDto }>(e('/status-page'), { method: 'PUT', body: body(input) }),
+  incidents: () => call<{ incidents: IncidentDto[] }>(e('/incidents')),
+  createIncident: (input: Partial<IncidentCreateInput>) => call<{ incidents: IncidentDto[] }>(e('/incidents'), { method: 'POST', body: body(input) }),
+  addIncidentUpdate: (id: string, input: IncidentUpdateInput) => call<{ incidents: IncidentDto[] }>(e(`/incidents/${encodeURIComponent(id)}/updates`), { method: 'POST', body: body(input) }),
+  deleteIncident: (id: string) => call<{ incidents: IncidentDto[] }>(e(`/incidents/${encodeURIComponent(id)}`), { method: 'DELETE' }),
 
   /* Auth */
   me: () => call<MeDto>('/auth/me'),

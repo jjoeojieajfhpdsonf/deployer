@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
-import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
+import { DEFAULT_PAUSE_PAGE, renderStatusFeed, renderStatusPage, STATUS_CSS, STATUS_FILES, STATUS_JS } from '@airlock/shared'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
@@ -43,6 +43,9 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if (envSlug && p === '/cloudflare') return { body: envSlug === 'labor' ? fx.cloudflareLabor : fx.cloudflare }
   if (envSlug && p === '/header-templates') return { body: { templates: fx.headerTemplates } }
   if (envSlug && p === '/lan-dns') return { body: fx.lanDns }
+  // Etappe 5: Statusseite der Umgebung und Störungen
+  if (envSlug && p === '/status-page' && method === 'GET') return { body: { statusPage: fx.statusPage(envSlug) } }
+  if (envSlug && p === '/incidents' && method === 'GET') return { body: { incidents: fx.incidents(envSlug) } }
   if (envSlug === 'labor' && p === '/projects') return { body: { projects: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/move$/)) && method === 'GET') return { body: { preview: fx.movePreview(m[1]!, u.searchParams.get('to') ?? 'verein') } }
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
@@ -157,6 +160,11 @@ type Shot = {
   topo?: fx.TopoVariant
   /** Etappe 4: Live-Strom liefert feste Anfragen (fx.trafficLive), sobald der Aufbau steht */
   live?: boolean
+  /**
+   * Etappe 5: die öffentliche Statusseite selbst (eigenes HTML/CSS/JS aus
+   * @airlock/shared, nicht die Oberfläche) unter /__statusseite/ mit diesen Daten
+   */
+  statusPage?: 'stoerung' | 'ruhig'
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -1098,6 +1106,42 @@ const shots: Shot[] = [
   { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
   { group: 'm9', name: 'm9-server', path: '/server' },
   { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
+  /* Etappe 5: Statusseite – Einstellungen der Umgebung (an, offene und behobene Störung), Störung melden,
+     aus (Umgebung ohne Hauptzone), Abschnitt in den Projekteinstellungen */
+  { group: 'statusseite', name: 'statusseite-einstellungen', path: '/u/example/einstellungen/statusseite' },
+  {
+    group: 'statusseite', name: 'statusseite-melden', path: '/u/example/einstellungen/statusseite', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Störung melden' }).click()
+      await pg.locator('#sp-new-title').fill('Mail-Versand verzögert')
+      await pg.locator('#sp-new-body').fill('Nachrichten kommen mit bis zu 10 Minuten Verspätung an.')
+      await pg.locator('.sp-form').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'statusseite', name: 'statusseite-aus', path: '/u/labor/einstellungen/statusseite', full: false },
+  {
+    group: 'statusseite', name: 'statusseite-projekt', path: `/u/example/projekte/${P}?tab=einstellungen`, full: false, patch: { showOnStatus: true },
+    prepare: async (pg) => {
+      await pg.locator('#set-statusseite').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(300)
+    },
+  },
+  /* Etappe 5: die öffentliche Seite selbst (eigenes HTML/CSS/JS, hell/dunkel nach Gerät), Tooltip per Tastatur, ruhiger Zustand */
+  { group: 'statusseite', name: 'statusseite-oeffentlich', path: '/__statusseite/', statusPage: 'stoerung' },
+  {
+    group: 'statusseite', name: 'statusseite-oeffentlich-tooltip', path: '/__statusseite/', statusPage: 'stoerung', full: false,
+    prepare: async (pg) => {
+      // Per Tastatur: ein Tag zurück und wieder auf heute (Wetterstation, kurze Störung)
+      const days = pg.locator('.project', { hasText: 'Wetterstation' }).locator('.days')
+      await days.locator('.day[tabindex="0"]').focus()
+      await pg.keyboard.press('ArrowLeft')
+      await pg.keyboard.press('ArrowRight')
+      await days.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'statusseite', name: 'statusseite-oeffentlich-ruhig', path: '/__statusseite/', statusPage: 'ruhig' },
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -1106,6 +1150,9 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Erneut deployen' }).first().click(); await pg.waitForTimeout(400); await pg.evaluate(() => window.scrollTo(0, 0)) },
   },
 ]
+
+// Etappe 5: Ergebnisbilder (docs/design-cal/statusseite/umgesetzt-*.png) aus denselben Szenen
+shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s, group: 'statusseite-ergebnis', name: s.name.replace(/^statusseite-/, 'umgesetzt-') })))
 
 export { shots }
 export type { Shot }
@@ -1151,6 +1198,20 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
+          // Etappe 5: öffentliche Statusseite – dieselben Dateien, die Airlock in das Volume schreibt
+          if (s.statusPage && url.pathname.startsWith('/__statusseite/')) {
+            const data = fx.statusPublic(s.statusPage)
+            const file = url.pathname.slice('/__statusseite/'.length) || STATUS_FILES.page
+            const files: Record<string, [string, string]> = {
+              [STATUS_FILES.page]: [renderStatusPage(data), 'text/html; charset=utf-8'],
+              [STATUS_FILES.css]: [STATUS_CSS, 'text/css; charset=utf-8'],
+              [STATUS_FILES.js]: [STATUS_JS, 'text/javascript; charset=utf-8'],
+              [STATUS_FILES.json]: [JSON.stringify(data), 'application/json'],
+              [STATUS_FILES.feed]: [renderStatusFeed(data, data.incidents, 'https://status.example.ch'), 'application/rss+xml'],
+            }
+            const hit = files[file]
+            return hit ? route.fulfill({ status: 200, contentType: hit[1], body: hit[0] }) : route.fulfill({ status: 404, body: '' })
+          }
           if (url.pathname.startsWith('/api/')) {
             // M9: Listen einer Umgebung (/environments/<slug>/projects …) zählen für die Sonderfälle der
             // Szenen wie die alten Pfade ohne Umgebung (/api/v1/projects)

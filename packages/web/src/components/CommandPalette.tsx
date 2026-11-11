@@ -46,6 +46,7 @@ const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
   { label: 'Cloudflare & HTTPS', to: '/einstellungen/cloudflare', env: true, words: 'tunnel zertifikat https' },
   { label: 'Domains', to: '/einstellungen/cloudflare#domains', env: true, words: 'zonen cloudflare' },
   { label: 'Standards', to: '/einstellungen/standards', env: true, words: 'header access pause-seite vorlage veröffentlichung' },
+  { label: 'Statusseite', to: '/einstellungen/statusseite', env: true, words: 'status störung melden verfügbarkeit rss incident' },
   { label: 'Umgebungen', to: '/umgebungen', words: 'umgebung wechseln anlegen' },
   { label: 'Server', to: '/server', words: 'system dienste netz' },
   { label: 'Benachrichtigungen', to: '/server/benachrichtigungen', words: 'ntfy e-mail' },

@@ -1543,6 +1543,38 @@ pre.code-block { margin: var(--sp-2) 0 var(--sp-3); padding: var(--sp-3) 14px; f
 .move-title { margin: var(--sp-6) 0 var(--sp-2); }
 .move-list { box-shadow: var(--sh-ring); }
 .move-list li { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); }
+
+/* Etappe 5: Einstellungen › Statusseite (Schalter, Projekte, Störungen) */
+.sp-settings h2, .sp-incidents h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-16); font-weight: 600; }
+.sp-switch-row { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-2); flex-wrap: wrap; }
+.sp-switch-label { font-size: var(--fs-14); color: var(--ink); }
+.sp-switch-word { font-size: var(--fs-14); min-width: 2.5em; }
+.sp-problem { display: flex; align-items: flex-start; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); color: var(--warn); font-size: var(--fs-14); max-width: var(--measure); }
+.sp-problem svg { flex: none; margin-top: 3px; }
+.sp-address { margin-bottom: var(--sp-4); }
+.sp-address a { display: inline-flex; align-items: center; gap: 4px; }
+.sp-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 var(--sp-5); }
+.sp-incidents .panel-head { margin-bottom: var(--sp-2); }
+.sp-count { font-size: var(--fs-13); color: var(--muted); margin: var(--sp-3) 0 var(--sp-2); }
+.sp-form { border-top: 1px solid var(--line); padding-top: var(--sp-4); margin-top: var(--sp-4); display: grid; gap: var(--sp-3); }
+.sp-form textarea { width: 100%; max-width: var(--measure); resize: vertical; }
+.sp-form input:not([type='checkbox']):not([type='radio']) { max-width: var(--measure); }
+.sp-form-inline { border-top: 0; padding-top: 0; }
+.sp-states { border: 0; padding: 0; margin: 0; min-width: 0; }
+.sp-states legend { padding: 0; font-size: var(--fs-14); font-weight: 600; color: var(--ink); }
+.sp-incident-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+.sp-incident { border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--sp-4) var(--sp-5); background: var(--surface); }
+/* Offen: Kante links dazu (Wort und Zeichen in der Pille tragen den Zustand) */
+.sp-incident-open { box-shadow: inset 3px 0 0 var(--bad); }
+.sp-incident-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.sp-incident-head h3 { margin: 0 var(--sp-2) 0 0; font-size: var(--fs-15); font-weight: 600; }
+.sp-state-open { color: var(--bad); background: var(--bad-bg); }
+.sp-state-done { color: var(--ok); background: var(--ok-bg); }
+.sp-meta { font-size: var(--fs-13); color: var(--muted); margin: var(--sp-1) 0 var(--sp-3); }
+.sp-updates { list-style: none; margin: 0 0 var(--sp-3); padding: 0 0 0 var(--sp-3); border-left: 2px solid var(--line); display: grid; gap: var(--sp-2); }
+.sp-update-head { margin: 0; font-size: var(--fs-13); color: var(--ink-dim); }
+.sp-update-head time { color: var(--muted); }
+.sp-update-body { margin: 2px 0 0; font-size: var(--fs-14); white-space: pre-line; max-width: var(--measure); }
 .move-header { display: block; }
 .move-actions { margin-top: var(--sp-5); }
 

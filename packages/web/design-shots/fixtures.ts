@@ -12,6 +12,8 @@ import type {
   TrafficPointDto, TrafficRange, TrafficRowDto, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
 } from '@airlock/shared'
 import { TRAFFIC_RANGES, TRAFFIC_WAYS } from '@airlock/shared'
+import { addDays, availabilityOf, dayInZone, overallOf, statusDays } from '@airlock/shared'
+import type { IncidentDto, PublicStatusIncident, PublicStatusJson, PublicStatusProject, StatusDayCount, StatusPageDto } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
@@ -1432,3 +1434,82 @@ export function traffic(id: string, range: TrafficRange, way: TrafficWay | 'all'
 
 /** Projektliste: Aufrufe heute (nur mit Besucher-Auswertung) */
 export const trafficToday: TrafficTodayDto = { views: { 'p-foto': 31, 'p-haushalt': 214, 'p-wetter': 4, 'p-kontoauszug': 12, 'p-verein': 57, 'p-hallo': 168 }, ingest: 'ok' }
+
+/* --- Etappe 5: Statusseite --------------------------------------------------------- */
+
+/** Einstellungen › Statusseite: «an» (example), «aus» ohne Hauptzone (labor) */
+export function statusPage(env: string): StatusPageDto {
+  const projects: StatusPageDto['projects'] = [
+    // Wie die Projektliste: öffentlich sind Haushaltsbuch und Vereinsseite
+    { id: 'p-foto', name: 'Fotoalbum', shown: true, explicit: true, public: false },
+    { id: 'p-haushalt', name: 'Haushaltsbuch', shown: false, explicit: true, public: true },
+    { id: 'p-kontoauszug', name: 'Kontoauszug-Reader', shown: false, explicit: false, public: false },
+    { id: 'p-notizen', name: 'Notizen', shown: false, explicit: false, public: false },
+    { id: 'p-rezepte', name: 'Rezepte-API', shown: false, explicit: false, public: false },
+    { id: 'p-verein', name: 'Vereinsseite', shown: true, explicit: false, public: true },
+    { id: 'p-wetter', name: 'Wetterstation', shown: true, explicit: true, public: false },
+  ]
+  if (env === 'labor') {
+    return { enabled: false, title: 'Status', hostname: null, publicReady: false, problem: 'Noch keine Hauptzone gewählt (Einstellungen › Cloudflare & HTTPS).', writtenAt: null, storage: true, projects: [] }
+  }
+  return { enabled: true, title: 'Status example.ch', hostname: 'status.example.ch', publicReady: true, problem: null, writtenAt: ago(40_000), storage: true, projects }
+}
+
+export function incidents(env: string): IncidentDto[] {
+  if (env === 'labor') return []
+  return [
+    {
+      id: 'i-wetter', title: 'Wetterstation nicht erreichbar', state: 'erkannt', auto: true,
+      projects: [{ id: 'p-wetter', name: 'Wetterstation', shown: true }], createdAt: ago(26 * MIN), resolvedAt: null,
+      updates: [
+        { id: 'u2', state: 'erkannt', body: 'Der Sensor-Dienst liefert keine Daten mehr. Ein neues Deployment ist unterwegs.', at: ago(9 * MIN), actor: 'ui:joel' },
+        { id: 'u1', state: 'untersucht', body: 'Wetterstation ist seit mehr als 5 Minuten nicht erreichbar (automatisch erkannt).', at: ago(21 * MIN), actor: 'system' },
+      ],
+    },
+    {
+      id: 'i-wartung', title: 'Kurze Unterbrechung beim Fotoalbum', state: 'behoben', auto: false,
+      projects: [{ id: 'p-foto', name: 'Fotoalbum', shown: true }], createdAt: ago(3 * DAY + 2 * HOUR), resolvedAt: ago(3 * DAY + HOUR),
+      updates: [
+        { id: 'u4', state: 'behoben', body: 'Läuft wieder. Ursache war ein voller Datenträger.', at: ago(3 * DAY + HOUR), actor: 'ui:joel' },
+        { id: 'u3', state: 'untersucht', body: 'Bilder laden nicht. Wir schauen nach.', at: ago(3 * DAY + 2 * HOUR), actor: 'ui:joel' },
+      ],
+    },
+  ]
+}
+
+/**
+ * Öffentliche Seite (eigene Szene): Messung seit 41 Tagen, davor «keine Daten»
+ * – wie nach dem Einführen der Tageswerte. Variante «ruhig»: alles läuft,
+ * keine Störungen, erst 6 Tage gemessen.
+ */
+export function statusPublic(variant: 'stoerung' | 'ruhig'): PublicStatusJson {
+  const tz = 'Europe/Zurich'
+  const now = new Date()
+  const today = dayInZone(now, tz)
+  const measured = variant === 'ruhig' ? 6 : 41
+  const counts = (pattern: (d: number) => { up: number; down: number; paused?: number }): StatusDayCount[] =>
+    Array.from({ length: measured }, (_, i) => {
+      const c = pattern(i)
+      return { date: addDays(today, -i), upMinutes: c.up, downMinutes: c.down, pausedMinutes: c.paused ?? 0 }
+    })
+  const full = (d: number) => (d === 0 ? 840 : 1440)
+  const list: { name: string; state: PublicStatusProject['state']; counts: StatusDayCount[] }[] = variant === 'ruhig'
+    ? [
+        { name: 'Fotoalbum', state: 'ok', counts: counts((d) => ({ up: full(d), down: 0 })) },
+        { name: 'Vereinsseite', state: 'ok', counts: counts((d) => ({ up: full(d), down: 0 })) },
+      ]
+    : [
+        { name: 'Fotoalbum', state: 'ok', counts: counts((d) => ({ up: full(d) - (d === 3 ? 62 : d % 13 === 7 ? 9 : 0), down: d === 3 ? 62 : d % 13 === 7 ? 9 : 0 })) },
+        { name: 'Vereinsseite', state: 'pausiert', counts: counts((d) => (d < 1 ? { up: 0, down: 0, paused: full(d) } : { up: full(d), down: 0 })) },
+        { name: 'Wetterstation', state: 'stoerung', counts: counts((d) => ({ up: full(d) - (d === 0 ? 26 : d === 18 ? 4 : 0), down: d === 0 ? 26 : d === 18 ? 4 : 0 })) },
+      ]
+  const projects: PublicStatusProject[] = list.map((p) => ({ name: p.name, state: p.state, availability: availabilityOf(p.counts), days: statusDays(p.counts, today) }))
+  const incidentsList: PublicStatusIncident[] = variant === 'ruhig' ? [] : incidents('example').map((i, n) => ({
+    key: n === 0 ? '3f9a1c0b7e24' : '8d21e6a4c95f', title: i.title, state: i.state, startedAt: i.createdAt, resolvedAt: i.resolvedAt,
+    projects: i.projects.map((p) => p.name), updates: i.updates.map((u) => ({ at: u.at, state: u.state, text: u.body })),
+  }))
+  return {
+    version: 1, title: 'Status example.ch', generatedAt: now.toISOString(), timeZone: tz,
+    overall: overallOf(projects, incidentsList), incidents: incidentsList, projects,
+  }
+}

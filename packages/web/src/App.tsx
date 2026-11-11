@@ -195,6 +195,7 @@ function EnvRoutes() {
       <Route path="einstellungen" element={<EnvironmentSettings section="allgemein" />} />
       <Route path="einstellungen/cloudflare" element={<EnvironmentSettings section="cloudflare" />} />
       <Route path="einstellungen/standards" element={<EnvironmentSettings section="standards" />} />
+      <Route path="einstellungen/statusseite" element={<EnvironmentSettings section="statusseite" />} />
       <Route path="einrichtung" element={<EnvironmentSetup />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

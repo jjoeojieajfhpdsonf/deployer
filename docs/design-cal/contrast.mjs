@@ -72,5 +72,41 @@ for (const [name, t] of [['Hell', light], ['Dunkel', dark], ['Windows 95', win95
     console.log(`${worst >= min ? 'ok  ' : 'FAIL'} ${fg.padEnd(12)} ≥${min} ${kind}: ${vals.join(' · ')}`)
   }
 }
+// Etappe 5: öffentliche Statusseite – eigene Tokens in packages/shared/src/status.ts (STATUS_CSS),
+// :root = Hell, @media (prefers-color-scheme: dark) = Dunkel. Balken und Rahmen tragen den Zustand
+// zusammen mit der Höhe und dem Text im Tooltip; geprüft wie Statusflächen (≥ 3:1).
+const statusSrc = readFileSync(fileURLToPath(new URL('../../packages/shared/src/status.ts', import.meta.url)), 'utf8')
+const statusCss = statusSrc.slice(statusSrc.indexOf('export const STATUS_CSS'))
+const sBlock = (from) => statusCss.slice(statusCss.indexOf(from), statusCss.indexOf('}', statusCss.indexOf(from)))
+const sLight = tokens(sBlock(':root {'))
+const sDark = { ...sLight, ...tokens(sBlock('@media (prefers-color-scheme: dark) {\n  :root {')) }
+const statusChecks = [
+  ['ink', ['bg', 'surface'], 7, 'Lesetext'],
+  ['muted', ['bg', 'surface'], 4.5, 'Text'],
+  ['ok', ['bg', 'surface'], 4.5, 'Statustext (Läuft, Behoben)'],
+  ['bad', ['bg', 'surface'], 4.5, 'Statustext (Störung)'],
+  ['surface', ['ok', 'bad', 'muted'], 4.5, 'Zeichen im Kreis (Gesamtzustand)'],
+  ['bg', ['ink'], 4.5, 'Tooltip'],
+  ['ok', ['surface'], 3, 'Balken verfügbar'],
+  ['warn', ['surface'], 3, 'Balken kurze Störung'],
+  ['bad', ['surface'], 3, 'Balken Störung'],
+  ['empty', ['surface'], 3, 'Balken keine Daten / Wartung'],
+  ['focus', ['bg', 'surface'], 3, 'Fokusrahmen'],
+  ['line', ['surface'], 1.15, 'Trennlinie (nur Gestaltung)'],
+]
+for (const [name, t] of [['Statusseite Hell', sLight], ['Statusseite Dunkel', sDark]]) {
+  console.log(`\n== ${name}`)
+  for (const [fg, bgs, min, kind] of statusChecks) {
+    const vals = bgs.map((b) => {
+      if (!t[fg] || !t[b]) throw new Error(`Token fehlt in STATUS_CSS: --${!t[fg] ? fg : b}`)
+      const v = cr(t[fg], t[b])
+      if (v < min) fails++
+      return `${b} ${v.toFixed(2)}${v < min ? ' FAIL' : ''}`
+    })
+    const worst = Math.min(...bgs.map((b) => cr(t[fg], t[b])))
+    console.log(`${worst >= min ? 'ok  ' : 'FAIL'} ${fg.padEnd(12)} ≥${min} ${kind}: ${vals.join(' · ')}`)
+  }
+}
+
 console.log(`\n${fails === 0 ? 'Alle Kontraste erfüllt' : `${fails} unter dem Ziel`}`)
 process.exit(fails ? 1 : 0)

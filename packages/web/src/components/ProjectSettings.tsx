@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { putEnvSchema, updateProjectSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared'
+import { putEnvSchema, showsOnStatusPage, updateProjectSchema, type EnvEntryDto, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
 import { useFormErrors } from '../lib/form.js'
@@ -67,6 +67,7 @@ export function ProjectSettings({
   const sections: Section[] = [
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
+    { id: 'set-statusseite', label: 'Statusseite' },
     { id: 'set-umgebung', label: 'Umgebungsvariablen' },
     ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
     { id: 'set-header', label: 'Security-Header' },
@@ -106,6 +107,7 @@ export function ProjectSettings({
       <div className="set-sections">
         <Publication p={p} request={publishRequested} onShown={onPublishShown} />
         <Reachability p={p} />
+        <StatusPageSection p={p} />
         <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
         {hasContainer && (
           <Container p={p} request={containerRequest ?? null} onShown={onContainerShown} onSaved={onContainerSaved} onDeploy={onDeploy} deploying={deploying} />
@@ -519,6 +521,48 @@ function HeaderSection({ projectId, onManage }: { projectId: string; onManage: (
           </div>
         </>
       )}
+    </section>
+  )
+}
+
+/* --- Statusseite (Etappe 5) ------------------------------------------------------- */
+
+function StatusPageSection({ p }: { p: ProjectDto }) {
+  const qc = useQueryClient()
+  const titleId = useId()
+  const labelId = useId()
+  const isPublic = p.routes.some((r) => r.target === 'public')
+  const explicit = p.showOnStatus ?? null
+  const set = useMutation({
+    meta: { errorTitle: 'Statusseite nicht geändert' },
+    mutationFn: ({ show }: { show: boolean | null; before: boolean | null; undo?: boolean }) => api.updateProject(p.id, { showOnStatus: show }),
+    onSuccess: (_r, v) => {
+      void qc.invalidateQueries({ queryKey: ['project', p.id] })
+      void qc.invalidateQueries({ queryKey: ['status-page'] })
+      const on = showsOnStatusPage(v.show, isPublic)
+      notifyOk(`${v.undo ? 'Rückgängig: ' : ''}«${p.name}» ${on ? 'steht auf der Statusseite' : 'nicht auf der Statusseite'}`, {
+        id: `status-page-${p.id}`,
+        description: v.show === null ? 'Wieder der Standard.' : on ? 'Mit Name, Zustand und Verfügbarkeit.' : 'Name und Verlauf erscheinen dort nicht mehr.',
+        undo: v.undo ? undefined : () => set.mutate({ show: v.before, before: v.show, undo: true }),
+      })
+    },
+  })
+  const pendingShow = set.isPending ? set.variables?.show : undefined
+  const value = showsOnStatusPage(pendingShow !== undefined ? pendingShow : explicit, isPublic)
+  return (
+    <section className="set-card" id="set-statusseite" aria-labelledby={titleId}>
+      <div className="set-head">
+        <h2 id={titleId} tabIndex={-1}>Statusseite</h2>
+        {explicit !== null && (
+          <div className="set-head-actions">
+            <button type="button" className="button-small" onClick={() => set.mutate({ show: null, before: explicit })} disabled={set.isPending}>Standard verwenden</button>
+          </div>
+        )}
+      </div>
+      <SetRow label={<span id={labelId}>Auf Statusseite zeigen</span>} action={<Switch checked={value} labelledBy={labelId} busy={set.isPending} onChange={(v) => set.mutate({ show: v, before: explicit })} />}>
+        <strong className="set-strong">{value ? 'An' : 'Aus'}</strong>
+        <span className="muted"> · {explicit === null ? `Standard für ${isPublic ? 'öffentliche' : 'interne'} Projekte` : 'selbst gewählt'} · nur Name, Zustand und Verfügbarkeit, keine Adressen</span>
+      </SetRow>
     </section>
   )
 }
