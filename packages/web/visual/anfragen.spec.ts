@@ -74,10 +74,11 @@ async function perMinute(browser: Browser, path: string, sse: boolean, hidden = 
 
 /*
  * Gemessen vor UI-Qualität 3 (Polling alle 3–15 s): Projektliste 42/min, Projektseite 59/min.
- * Danach: mit Strom 1 bzw. 2/min (nur Messwerte: System, Health), ohne Strom 6 bzw. 9/min.
- * Die Grenzen unten lassen etwas Luft, fangen aber ein Zurückfallen auf Sekunden-Polling.
+ * Danach: mit Strom 2 bzw. 3/min (nur Messwerte: System, Cloudflare/Tunnel, Health), ohne Strom
+ * 6 bzw. 9/min. Die Grenzen unten lassen etwas Luft, fangen aber ein Zurückfallen auf
+ * Sekunden-Polling.
  */
-const LIMIT = { sse: 3, fallback: 12 }
+const LIMIT = { sse: 4, fallback: 12 }
 
 for (const p of PAGES) {
   for (const sse of [true, false]) {
@@ -92,9 +93,11 @@ for (const p of PAGES) {
   }
 }
 
-test('Versteckter Tab: kein Polling, nur Wiederverbinden des Stroms', async ({ browser }) => {
-  const r = await perMinute(browser, '/projekte/p-foto', false, true)
-  console.log(`[anfragen] Projektseite · versteckt, ohne SSE: ${r.total}/min ${JSON.stringify(r.byPath)}`)
-  const polls = Object.entries(r.byPath).filter(([path]) => path !== '/api/v1/events').reduce((a, [, n]) => a + n, 0)
-  expect(polls).toBe(0)
-})
+for (const sse of [true, false]) {
+  test(`Versteckter Tab: kein Polling · ${sse ? 'Ereignisstrom verbunden' : 'ohne Ereignisstrom'}`, async ({ browser }) => {
+    const r = await perMinute(browser, '/projekte/p-foto', sse, true)
+    console.log(`[anfragen] Projektseite · versteckt, ${sse ? 'mit' : 'ohne'} SSE: ${r.total}/min ${JSON.stringify(r.byPath)}`)
+    const polls = Object.entries(r.byPath).filter(([path]) => path !== '/api/v1/events').reduce((a, [, n]) => a + n, 0)
+    expect(polls).toBe(0)
+  })
+}

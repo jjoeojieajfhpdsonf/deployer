@@ -169,6 +169,28 @@ Umsetzung:
   `live.test.ts` (Titel, Favicon, Zuordnung Ereignis → Abfragen), `konsistenz.spec.ts` (Tab-Titel
   und Favicon in der echten Oberfläche).
 
+Befunde aus dem Gutachten (behoben):
+- Herunterfahren hing, solange ein Tab offen war (Fastify schliesst nur ruhende Verbindungen):
+  alle SSE-Antworten melden sich an (`trackStream`), `preClose` schliesst sie (Test).
+- Verbindungslimit von HTTP/1.1 (6 je Server): ein versteckter Tab schliesst den Strom nach 10 s
+  und verbindet beim Zurückkommen neu (holt dann Verpasstes nach); versteckt wird auch nicht neu
+  verbunden.
+- Kein «alles neu laden» mehr: reine Lesezugriffe (MCP get_/list_/read_, Anmeldung) erzeugen kein
+  Ereignis; Audit-Ereignisse laden gezielt nach Ziel (Projekt, Token, externes Ziel, System);
+  Deploy-Ereignisse tragen die Projekt-ID; Scan-Stufen laden nur die Scan-Ansicht, Start/Ende auch
+  Liste und Warteschlange; Nachladen gebündelt (300 ms); im versteckten Tab nur als veraltet
+  markiert. Kein doppeltes Laden beim ersten Verbinden; nach Verbindungsverlust erst nach 5 s und
+  nur beim Wechsel verbunden → getrennt.
+- Log-Stufe der Ströme wirkte nicht (nach writeHead kennt Node den Content-Type nicht): erkannt am
+  Routenmuster (`isStreamRoute`, Test); der Ereignisstrom loggt gar nicht (hijack).
+- Cloudflare-Status (Tunnel, Zertifikatsprobe – Messwerte ohne Ereignis) auch mit Strom einmal pro
+  Minute; Fortschritt von «Öffentlich» als Ereignis je Schritt (auch für andere Tabs und Claude).
+- Abmelden schliesst nur Ströme derselben Sitzung (andere Geräte bleiben verbunden).
+- Titel: Vorgang eines anderen Projekts mit Namen («Deploy Rezepte-API läuft · Fotoalbum · …»);
+  beim Seitenwechsel kein kurzes «Airlock». Titeltest mit fester Erwartung und Fall ohne Punkt.
+- Anfragen pro Minute danach: mit Strom 2 bzw. 3 (Server-Status, Cloudflare, Health), ohne 6 bzw. 9,
+  versteckter Tab 0 (mit und ohne Strom).
+
 ### 4 – Logs
 - Werkzeugleiste: Suche mit Hervorhebung, Filter nach Stufe, Live folgen/Pausieren, Zeilenumbruch,
   Herunterladen, Zeitraum (15 Min., 1 Std., 24 Std.). Ortszeit (Schweizer Format), UTC im Tooltip.

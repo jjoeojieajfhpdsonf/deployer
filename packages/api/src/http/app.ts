@@ -21,7 +21,8 @@ import { githubRoutes } from './routes/github.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 import { redactSecrets, redactDeep } from '../lib/redact.js'
-import { requestLogLevel } from '../lib/request-log.js'
+import { requestLogLevel, isStreamRoute } from '../lib/request-log.js'
+import { closeAllStreams } from '../lib/events.js'
 
 /**
  * Leerer Body mit Content-Type application/json gilt als {} statt als Fehler
@@ -65,10 +66,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.addHook('onResponse', async (request, reply) => {
     const ms = reply.elapsedTime
-    const stream = String(reply.raw.getHeader('content-type') ?? '').startsWith('text/event-stream')
-    const level = requestLogLevel(request.method, reply.statusCode, ms, stream)
+    // Nach writeHead kennt Node den Content-Type nicht mehr: am Routenmuster entscheiden
+    const level = requestLogLevel(request.method, reply.statusCode, ms, isStreamRoute(request.routeOptions.url))
     request.log[level]({ method: request.method, url: request.url.split('?')[0], status: reply.statusCode, ms: Math.round(ms) }, 'Anfrage')
   })
+
+  // UI-Qualität 3: offene SSE-Ströme beim Herunterfahren schliessen, sonst wartet app.close() ewig
+  app.addHook('preClose', async () => closeAllStreams())
 
   acceptEmptyJson(app)
 

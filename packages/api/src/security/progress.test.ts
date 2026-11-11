@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { planStages, progressOf, tailOf, logLines, summary, describeScan, describeStages, StageTimeout, STAGE_INFO } from './progress.js'
-import { requestLogLevel } from '../lib/request-log.js'
+import { requestLogLevel, isStreamRoute } from '../lib/request-log.js'
 
 describe('Stufenplan von Anfang an', () => {
   test('Image-Projekt: alle Stufen warten, testssl mit Grund übersprungen', () => {
@@ -121,5 +121,10 @@ describe('Zugriffs-Log', () => {
     assert.equal(requestLogLevel('GET', 502, 30), 'warn')
     // UI-Qualität 3: ein Ereignisstrom über Minuten ist kein langsamer Aufruf
     assert.equal(requestLogLevel('GET', 200, 600_000, true), 'debug')
+    // … erkannt am Routenmuster (nach writeHead kennt Node den Content-Type nicht mehr)
+    assert.equal(isStreamRoute('/api/v1/events'), true)
+    assert.equal(isStreamRoute('/api/v1/deployments/:id/events'), true)
+    assert.equal(isStreamRoute('/api/v1/projects/:id/logs/stream'), true)
+    assert.equal(isStreamRoute('/api/v1/projects/:id/logs'), false)
   })
 })

@@ -14,6 +14,7 @@ import { audit } from '../domain/audit.js'
 import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
 import { appendLine, emitStatus, emitDone, logPathFor } from './journal.js'
 import { recordFailure } from './explain.js'
+import { noteDeployProject, publish } from '../lib/events.js'
 import { waitForHealthy } from './healthcheck.js'
 import { withProjectNetwork } from './attach.js'
 import { prepareImage, startImageContainer } from './sources/image.js'
@@ -148,6 +149,9 @@ async function startJob(project: Project, actor: string, job: Job, o: StartOptio
       })
       .returning()
     const row = inserted[0]!
+    // UI-Qualität 3: Ereignisse des Deploys tragen die Projekt-ID (gezielt nachladen)
+    noteDeployProject(row.id, project.id)
+    publish({ type: 'deploy', deploymentId: row.id, status: 'pending', projectId: project.id })
     await setDeployment(row.id, { logRef: logPathFor(row.id) })
     // Deploy und Rollback sind Aktivität (Ablauf von Chat-Projekten).
     await touchActivity(project.id)

@@ -2,7 +2,7 @@ import { useIsMutating, useQuery } from '@tanstack/react-query'
 import type { DeploymentStatus, ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useProjects } from './projects.js'
-import { poll } from './live.js'
+import { FALLBACK_MS } from './live.js'
 
 /**
  * Lange Vorgänge, die im Kopf als Aktivitätsanzeige erscheinen: Deploy, Scan,
@@ -24,6 +24,8 @@ export interface RunningActivity {
   to: string
   startedAt: string | null
   projectId?: string
+  /** Für den Tab-Titel: welches Projekt (wenn es nicht die offene Seite ist) */
+  projectName?: string
 }
 
 /** Schlüssel der Mutationen, die als Vorgang zählen, solange sie laufen */
@@ -54,6 +56,7 @@ export function deployActivity(p: ProjectDto): RunningActivity | null {
     to: `/projekte/${p.id}`,
     startedAt: d.startedAt,
     projectId: p.id,
+    projectName: p.name,
   }
 }
 
@@ -68,16 +71,18 @@ export function scanActivity(p: ProjectDto): RunningActivity | null {
     to: `/projekte/${p.id}?tab=security`,
     startedAt: null,
     projectId: p.id,
+    projectName: p.name,
   }
 }
 
 export function useActivities(): RunningActivity[] {
   const projects = useProjects()
-  // Zertifikat: nur der Cloudflare-Status weiss davon; Änderungen kommen über den Ereignisstrom
+  // Zertifikat: nur der Cloudflare-Status weiss davon; Phasen kommen über den Ereignisstrom, der Rest
+  // (Tunnel, Zertifikatsprobe) sind Messwerte – einmal pro Minute, wie auf der Cloudflare-Seite
   const cf = useQuery({
     queryKey: ['cloudflare'],
     queryFn: api.cloudflare,
-    refetchInterval: poll,
+    refetchInterval: FALLBACK_MS,
     staleTime: 10_000,
   })
   const tunnel = useIsMutating({ mutationKey: [...MUTATION_TUNNEL] })

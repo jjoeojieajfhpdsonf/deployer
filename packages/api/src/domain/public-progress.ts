@@ -1,4 +1,5 @@
 import type { PublicOp, PublicProgressDto, PublicStepDto, PublicStepState } from '@airlock/shared'
+import { publish } from '../lib/events.js'
 
 /**
  * Fortschritt eines Übergangs der Veröffentlichung (veröffentlichen,
@@ -44,6 +45,8 @@ export const stepLabel = (op: PublicOp, key: Key): string => {
 
 export class Progress {
   readonly dto: PublicProgressDto
+  /** Nach jeder Änderung (withProgress meldet sie als Ereignis) */
+  onChange: () => void = () => {}
 
   constructor(op: PublicOp, hostname: string | null, keys: Key[], now = new Date()) {
     this.dto = {
@@ -62,6 +65,7 @@ export class Progress {
     for (const s of this.dto.steps) if (s.state === 'current' && s.key !== key) s.state = 'done'
     const s = this.step(key)
     if (s) s.state = 'current'
+    this.onChange()
   }
 
   set(key: Key, state: PublicStepState, detail?: string): void {
@@ -69,6 +73,7 @@ export class Progress {
     if (!s) return
     s.state = state
     if (detail !== undefined) s.detail = detail
+    this.onChange()
   }
 
   hostname(h: string): void {
@@ -85,6 +90,7 @@ export class Progress {
     this.dto.ok = ok
     this.dto.finishedAt = now.toISOString()
     if (error) this.dto.error = error
+    this.onChange()
   }
 }
 
@@ -110,7 +116,10 @@ export async function withProgress<T>(
 ): Promise<T> {
   if (isRunning(projectId)) throw onBusy()
   const p = new Progress(op, hostname, keys)
+  // UI-Qualität 3: jeder Schritt als Ereignis – auch andere Tabs und von Claude gestartete Übergänge zeigen den Fortschritt
+  p.onChange = () => publish({ type: 'public', projectId })
   store.set(projectId, p)
+  p.onChange()
   try {
     const r = await run(p)
     p.finish(true)

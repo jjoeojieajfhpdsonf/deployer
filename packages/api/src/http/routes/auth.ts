@@ -23,10 +23,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true }
   })
 
-  app.post('/auth/logout', async (_request, reply) => {
+  app.post('/auth/logout', async (request, reply) => {
     clearSessionCookie(reply)
-    // UI-Qualität 3: offene Ereignisströme schliessen; jede Oberfläche prüft danach ihre Anmeldung
-    publish({ type: 'session_ended' })
+    // UI-Qualität 3: Ereignisströme *dieser* Sitzung schliessen (andere Geräte bleiben angemeldet)
+    publish({ type: 'session_ended', issued: sessionStart(request) })
     return { ok: true }
   })
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useServerName } from './ServerName.js'
 
@@ -7,15 +7,21 @@ import { useServerName } from './ServerName.js'
  * Profil-Menü). Jede Seite meldet ihre Krumen über PageHead an.
  */
 type Crumb = { label: string; to?: string }
-const CrumbsContext = createContext<{ crumbs: Crumb[]; set: (c: Crumb[]) => void; page: string | null; setPage: (t: string | null) => void }>({
-  crumbs: [], set: () => {}, page: null, setPage: () => {},
-})
+type Ctx = { crumbs: Crumb[]; set: (c: Crumb[]) => void; page: string | null; setPage: (t: string | null) => void; setPageSoon: () => void }
+const CrumbsContext = createContext<Ctx>({ crumbs: [], set: () => {}, page: null, setPage: () => {}, setPageSoon: () => {} })
 
 export function CrumbsProvider({ children }: { children: ReactNode }) {
   const [crumbs, set] = useState<Crumb[]>([])
   // UI-Qualität 3: Name der Seite für document.title («Wetterstation · Airlock»)
-  const [page, setPage] = useState<string | null>(null)
-  return <CrumbsContext.Provider value={{ crumbs, set, page, setPage }}>{children}</CrumbsContext.Provider>
+  const [page, setPageState] = useState<string | null>(null)
+  // Jede Anmeldung zählt hoch; das verzögerte Löschen greift nur, wenn sich seither keine Seite gemeldet hat
+  const gen = useRef(0)
+  const setPage = useCallback((t: string | null) => { gen.current++; setPageState(t) }, [])
+  const setPageSoon = useCallback(() => {
+    const at = gen.current
+    setTimeout(() => { if (gen.current === at) setPageState(null) }, 800)
+  }, [])
+  return <CrumbsContext.Provider value={{ crumbs, set, page, setPage, setPageSoon }}>{children}</CrumbsContext.Provider>
 }
 
 /** Name der aktuellen Seite (aus PageHead), für den Titel des Tabs */
@@ -52,7 +58,7 @@ export function PageHead({
   actions?: ReactNode
   children?: ReactNode
 }) {
-  const { set, setPage } = useContext(CrumbsContext)
+  const { set, setPage, setPageSoon } = useContext(CrumbsContext)
   const key = JSON.stringify(crumbs)
   useEffect(() => {
     set(crumbs)
@@ -62,8 +68,10 @@ export function PageHead({
   const page = name ?? (typeof title === 'string' ? title : null)
   useEffect(() => {
     setPage(page)
-    return () => setPage(null)
-  }, [page, setPage])
+    // Beim Seitenwechsel bleibt der alte Name kurz stehen (kein Aufblitzen von «Airlock»);
+    // meldet sich keine neue Seite an (Seite ohne Kopf), fällt er danach weg
+    return () => setPageSoon()
+  }, [page, setPage, setPageSoon])
   return (
     <header className="page-head">
       <div>

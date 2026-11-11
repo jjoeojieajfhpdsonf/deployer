@@ -76,14 +76,25 @@ test('Kennzahl «laufen» = Zähler des Filters «Laufen»', async ({ browser })
 
 test('Tab-Titel: Seite bzw. Projekt · Airlock, mit Präfix für laufende Vorgänge; Favicon-Punkt', async ({ browser }) => {
   const page = await open(browser, '/projekte/p-foto')
-  // In den Fixtures laufen zwei Vorgänge (Deploy Rezepte-API, Zertifikat) – wie die Anzeige im Kopf
-  const n = num(await page.locator('.activity-trigger, [aria-label$="Vorgänge laufen"]').first().textContent().catch(() => '0'))
-  const expected = n > 1 ? `${n} Vorgänge laufen · Fotoalbum · Airlock` : n === 1 ? /läuft · Fotoalbum · Airlock$|wird .* · Fotoalbum · Airlock$/ : 'Fotoalbum · Airlock'
-  await expect(page).toHaveTitle(expected)
+  // Fixtures: zwei Vorgänge laufen (Deploy Rezepte-API, Zertifikat im Probelauf) – wie die Anzeige im Kopf
+  await expect(page.getByRole('button', { name: '2 Vorgänge laufen' })).toBeVisible()
+  await expect(page).toHaveTitle('2 Vorgänge laufen · Fotoalbum · Airlock')
   // Gescheiterter Deploy (Wetterstation) und kritischer Befund (Kontoauszug): Punkt im Favicon
-  const icon = await page.locator('link[rel="icon"]').getAttribute('href')
-  expect(decodeURIComponent(icon ?? '')).toContain('<circle')
+  expect(decodeURIComponent((await page.locator('link[rel="icon"]').getAttribute('href')) ?? '')).toContain('<circle')
   await page.context().close()
+})
+
+test('Favicon ohne Punkt, wenn nichts gescheitert und nichts kritisch ist', async ({ browser }) => {
+  // Nur «Hallo Welt» (läuft, 1 mittlerer Befund)
+  const s = { ...shots.find((x) => x.name === 'projekte-anzahl-1')!, prepare: undefined }
+  const ctx = await browser.newContext(contextOptions('light'))
+  await installRoutes(ctx, s, 'light', VISUAL_PORT)
+  const page = await ctx.newPage()
+  await page.clock.setFixedTime(FIXED_NOW)
+  await openShot(page, s, VISUAL_PORT)
+  await expect(page).toHaveTitle(/Projekte · Airlock$/)
+  expect(decodeURIComponent((await page.locator('link[rel="icon"]').getAttribute('href')) ?? '')).not.toContain('<circle')
+  await ctx.close()
 })
 
 test('Zustand: Pille der Karte = Pille im Projektkopf', async ({ browser }) => {

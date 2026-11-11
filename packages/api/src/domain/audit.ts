@@ -2,7 +2,7 @@ import { desc, asc, lt, and, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
 import { log } from '../lib/log.js'
-import { publish } from '../lib/events.js'
+import { publish, isReadOnlyAction } from '../lib/events.js'
 import { redactDeep, redactSecrets } from '../lib/redact.js'
 import type { AuditEventDto } from '@airlock/shared'
 
@@ -33,8 +33,9 @@ export async function audit(entry: AuditInput): Promise<void> {
       // Fehlertexte von Caddy/Cloudflare/cloudflared können Tokens enthalten
       error: redactSecrets(entry.error) ?? null,
     })
-    // UI-Qualität 3: fast jede Änderung schreibt einen Eintrag – die Oberfläche lädt gezielt nach
-    publish({ type: 'audit', action: entry.action, targetType: entry.targetType ?? null, targetId: entry.targetId ?? null })
+    // UI-Qualität 3: fast jede Änderung schreibt einen Eintrag – die Oberfläche lädt gezielt nach.
+    // Reine Lesezugriffe (Claude liest ein Projekt, Anmeldung) ändern nichts: kein Ereignis.
+    if (!isReadOnlyAction(entry.action)) publish({ type: 'audit', action: entry.action, targetType: entry.targetType ?? null, targetId: entry.targetId ?? null })
   } catch (err) {
     // Ein kaputtes Audit-Log darf die eigentliche Aktion nicht umwerfen,
     // muss aber laut sein.

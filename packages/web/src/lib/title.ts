@@ -12,13 +12,16 @@ const RUNNING: Record<RunningKind, string> = {
 
 /**
  * UI-Qualität 3: Tab-Titel «<Seite/Projekt> · Airlock», bei laufendem Vorgang
- * mit Präfix («Deploy läuft · Wetterstation · Airlock», bei mehreren
- * «2 Vorgänge laufen · …»).
+ * mit Präfix: «Deploy läuft · Wetterstation · Airlock» auf der Seite des
+ * Projekts, sonst mit Namen («Deploy Rezepte-API läuft · Fotoalbum · Airlock»);
+ * bei mehreren «2 Vorgänge laufen · …».
  */
-export function titleFor(page: string | null, running: { kind: RunningKind }[]): string {
+export function titleFor(page: string | null, running: { kind: RunningKind; projectName?: string }[]): string {
   const base = page ? `${page} · ${PRODUCT_NAME}` : PRODUCT_NAME
   if (running.length === 0) return base
-  const prefix = running.length === 1 ? RUNNING[running[0]!.kind] : `${running.length} Vorgänge laufen`
+  if (running.length > 1) return `${running.length} Vorgänge laufen · ${base}`
+  const a = running[0]!
+  const prefix = a.projectName && a.projectName !== page ? RUNNING[a.kind].replace(' läuft', ` ${a.projectName} läuft`) : RUNNING[a.kind]
   return `${prefix} · ${base}`
 }
 

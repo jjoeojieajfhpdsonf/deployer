@@ -8,7 +8,7 @@ import { IconBad, IconExternal, IconOk, IconPending, IconSkipped } from './Icons
 import { ErrorState, Loading, SkCard } from './States.js'
 import { MUTATION_TUNNEL } from '../lib/activities.js'
 import { relativeTime } from '../lib/format.js'
-import { poll } from '../lib/live.js'
+import { FALLBACK_MS } from '../lib/live.js'
 import { dateOf, fmtDate, fmtTime, msOf } from '../lib/dates.js'
 
 /**
@@ -47,8 +47,9 @@ export function CloudflareSetup() {
   const status = useQuery({
     queryKey: ['cloudflare'],
     queryFn: api.cloudflare,
-    // Fortschritt des Zertifikats kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
-    refetchInterval: poll,
+    // Zertifikat und Einstellungen kommen über den Ereignisstrom; Tunnel, cloudflared und Zertifikatsprobe
+    // sind Messwerte ohne Ereignis – deshalb auch mit Strom einmal pro Minute (UI-Qualität 3)
+    refetchInterval: FALLBACK_MS,
   })
   const [editing, setEditing] = useState<'token' | 'domains' | null>(null)
   const [check, setCheck] = useState<CfTokenCheckDto | null>(null)

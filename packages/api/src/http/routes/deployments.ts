@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { getDeployment, toDeploymentDto } from '../../domain/deployments.js'
 import { readLog, subscribe } from '../../deploy/journal.js'
+import { trackStream } from '../../lib/events.js'
 
 export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>('/deployments/:id', async (request) => {
@@ -38,20 +39,24 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
       return reply
     }
 
-    const unsubscribe = subscribe(row.id, (event) => {
-      write(event)
-      if (event.type === 'done') {
-        clearInterval(keepalive)
-        unsubscribe()
-        reply.raw.end()
-      }
-    })
-    const keepalive = setInterval(() => reply.raw.write(': ping\n\n'), 20_000)
-
-    request.raw.on('close', () => {
+    let closed = false
+    const end = () => {
+      if (closed) return
+      closed = true
       clearInterval(keepalive)
       unsubscribe()
+      untrack()
+      reply.raw.end()
+    }
+    const unsubscribe = subscribe(row.id, (event) => {
+      if (closed) return
+      write(event)
+      if (event.type === 'done') end()
     })
+    const keepalive = setInterval(() => { if (!closed) reply.raw.write(': ping\n\n') }, 20_000)
+    // UI-Qualität 3: beim Herunterfahren schliessen (sonst wartet app.close())
+    const untrack = trackStream(end)
+    request.raw.on('close', end)
 
     return reply
   })
