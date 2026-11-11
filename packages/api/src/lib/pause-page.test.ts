@@ -121,7 +121,9 @@ describe('Pause-Seite: Eingaben', () => {
   })
 
   test('Voraussichtlich zurück: ISO mit Zeitzone', () => {
-    assert.equal(pauseOptionsSchema.safeParse({ backAt: '2026-11-11T08:00:00+01:00' }).success, true)
+    // Relativ zu jetzt (ein festes Datum läge irgendwann in der Vergangenheit): übermorgen, als Ortszeit +01:00
+    const inTwoDays = `${new Date(Date.now() + 2 * 86_400_000 + 3_600_000).toISOString().slice(0, 19)}+01:00`
+    assert.equal(pauseOptionsSchema.safeParse({ backAt: inTwoDays }).success, true)
     assert.equal(pauseOptionsSchema.safeParse({ backAt: 'morgen' }).success, false)
   })
 

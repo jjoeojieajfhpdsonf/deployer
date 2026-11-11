@@ -505,7 +505,7 @@ function Activity({ projectId }: { projectId: string }) {
         : <ActivityList items={shown} />}
       {more > 0 && (
         <p className="act-more">
-          {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={`/audit?projekt=${projectId}`}>Alle anzeigen</Link>
+          {a.data && a.data.events.length >= 60 ? 'Weitere Ereignisse' : `Weitere ${more} ${more === 1 ? 'Ereignis' : 'Ereignisse'}`} · <Link to={ep(`/audit?projekt=${projectId}`)}>Alle anzeigen</Link>
         </p>
       )}
     </section>
