@@ -48,8 +48,10 @@ async function viaProbe(host: string, path: string, method: 'GET' | 'HEAD' = 'GE
 
 /** Namen eines Projekts (alle Ziele, mit nip.io-Aliasen) – für Proxy und Zählung. */
 export async function projectHosts(projectId: string): Promise<string[]> {
-  const rows = await db.select({ hostname: schema.routes.hostname, target: schema.routes.target }).from(schema.routes).where(eq(schema.routes.projectId, projectId))
-  return [...new Set(rows.flatMap((r) => (r.target === 'public' ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname)])))]
+  const rows = await db.select({ hostname: schema.routes.hostname, target: schema.routes.target, envId: schema.projects.environmentId })
+    .from(schema.routes).innerJoin(schema.projects, eq(schema.projects.id, schema.routes.projectId)).where(eq(schema.routes.projectId, projectId))
+  // M9: Aliase nach der Umgebung des Projekts (eigene Basis)
+  return [...new Set(rows.flatMap((r) => (r.target === 'public' ? [r.hostname] : [r.hostname, ...aliasesForHost(r.hostname, r.envId)])))]
 }
 
 const cache = new Map<string, { at: number; value: Omit<CspAnalysisDto, 'conflicts'> & { pageUrls: string[] } }>()

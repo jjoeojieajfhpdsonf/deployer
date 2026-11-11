@@ -6,6 +6,9 @@ import { audit } from './audit.js'
  * Darstellung der Oberfläche (Hell/Dunkel/System), auf dem Server gespeichert,
  * damit die Wahl auf jedem Gerät gilt. Airlock hat genau ein Konto: «pro
  * Nutzer» heisst die Wahl dieses Kontos.
+ *
+ * M9: dazu die zuletzt gewählte Umgebung. Eine Änderung nur daran steht
+ * nicht im Audit (jeder Wechsel der Umgebung wäre sonst ein Eintrag).
  */
 const KEY = 'ui_prefs'
 export const DEFAULT_UI_PREFS: UiPrefs = { theme: 'system' }
@@ -25,9 +28,14 @@ export async function getUiPrefs(): Promise<UiPrefs> {
   return parseUiPrefs(await getSetting(KEY))
 }
 
+/** Teilweise ändern: fehlende Felder bleiben, wie sie sind. */
 export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs> {
-  const prefs = uiPrefsSchema.parse(input)
+  const patch = uiPrefsSchema.partial().parse(input)
+  const before = await getUiPrefs()
+  const prefs = uiPrefsSchema.parse({ ...before, ...patch })
   await setSetting(KEY, JSON.stringify(prefs))
-  await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: prefs, result: 'ok' })
+  if (patch.theme !== undefined && patch.theme !== before.theme) {
+    await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { theme: prefs.theme }, result: 'ok' })
+  }
   return prefs
 }

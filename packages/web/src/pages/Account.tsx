@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
+import { useEnv, useEnvPath } from '../lib/env.js'
 import { api, ApiError } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { relativeTime } from '../lib/format.js'
@@ -13,6 +14,8 @@ import { Field } from '../components/Field.js'
  * Sitzung und Passwort; das Passwort lässt sich ändern.
  */
 export function Account() {
+  const ep = useEnvPath()
+  const { env } = useEnv()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me })
   const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens })
   const location = useLocation()
@@ -48,7 +51,7 @@ export function Account() {
               : 'aus der Konfiguration (.env)'}
           </dd>
           <dt>API-Tokens</dt>
-          <dd>{tokens.isLoading ? '…' : `${activeTokens} gültig`} · <Link to="/tokens">verwalten</Link></dd>
+          <dd>{tokens.isLoading ? '…' : `${activeTokens} gültig in ${env?.name ?? 'dieser Umgebung'}`} · <Link to={ep('/tokens')}>verwalten</Link></dd>
         </dl>
         <p className="hint" style={{ marginTop: 14 }}>
           Name im Profil: <code>ADMIN_NAME</code> in <code>.env</code>.

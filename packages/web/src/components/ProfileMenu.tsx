@@ -35,7 +35,7 @@ export function ProfileMenu({ me }: { me: MeDto }) {
   async function logout() {
     close()
     await api.logout()
-    navigate('/projekte')
+    navigate('/')
     await qc.invalidateQueries({ queryKey: ['me'] })
   }
 

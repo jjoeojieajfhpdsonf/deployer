@@ -12,6 +12,7 @@ import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startMonitorJob } from './jobs/monitor.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
+import { importLegacySettings } from './domain/environments.js'
 import { startNetworkWatch } from './domain/network.js'
 import { scrubAuditSecrets } from './domain/audit.js'
 import { scrubDeploymentLogs } from './deploy/journal.js'
@@ -29,7 +30,9 @@ async function main(): Promise<void> {
   await runMigrations((msg) => log.info(msg))
   loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
   await ensureAdminPassword()
-  // Cloudflare aus der Datenbank (Systemseite), vor allem, was Adressen braucht
+  // M9: Einstellungen von vor den Umgebungen einmalig in die Standard-Umgebung übernehmen
+  await importLegacySettings()
+  // Cloudflare aus der Datenbank (Umgebungen), vor allem, was Adressen braucht
   await loadCloudflareSettings()
   // Tokens aus alten Audit-Einträgen entfernen (bekanntes Token ist jetzt registriert)
   await scrubAuditSecrets().catch((err) => log.warn('Audit-Einträge nicht bereinigt', { err: String(err) }))

@@ -1,6 +1,10 @@
 # Prototyp «Umgebungen»
 
-Konzept: `docs/SPEC.md`, Abschnitt «Umgebungen». Die Umsetzung läuft als Meilenstein 9 (Branch `milestone-9`).
+> **Abgelöst durch Meilenstein 9** (umgesetzt, Screenshots der echten Seiten in `docs/design-cal/m9-etappe4/`).
+> Die Bilder hier bleiben als Stand des Konzepts; das Prototyp-Modul `design-shots/umgebungen.ts` ist entfernt
+> (Git-Verlauf bis Commit `a8a18ae`).
+
+Konzept: `docs/SPEC.md`, Abschnitt «Umgebungen».
 
 Die Bilder sind eine Fixture-Variante des Screenshot-Werkzeugs: Das Skript `packages/web/design-shots/umgebungen.ts`
 blendet Umschalter, Einstellungen und «Projekt verschieben» per DOM über die echte Oberfläche, mit den

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
+import { useEnvPath } from '../lib/env.js'
+import { MoveProject } from '../components/MoveProject.js'
 import { api, ApiError, subscribeLogs, type ProjectDto } from '../api.js'
 import { StatusBadge, relativeTime, duration } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
@@ -26,6 +28,7 @@ export function ProjectDetail() {
   const { id = '' } = useParams()
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
   const TABS: Tab[] = ['uebersicht', 'deployments', 'logs', 'security', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
@@ -80,14 +83,14 @@ export function ProjectDetail() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['project', id] }),
   })
 
-  if (q.isLoading) return <section className="page"><PageHead crumbs={[{ label: 'projekte', to: '/projekte' }, { label: '…' }]} title="Projekt" /><p className="state state-loading">Wird geladen…</p></section>
+  if (q.isLoading) return <section className="page"><PageHead crumbs={[{ label: 'projekte', to: ep('/projekte') }, { label: '…' }]} title="Projekt" /><p className="state state-loading">Wird geladen…</p></section>
   if (q.isError) {
     return (
       <section className="page">
-        <PageHead crumbs={[{ label: 'projekte', to: '/projekte' }]} title="Projekt nicht gefunden" />
+        <PageHead crumbs={[{ label: 'projekte', to: ep('/projekte') }]} title="Projekt nicht gefunden" />
         <div className="state state-empty">
-          <p>Vielleicht wurde es gelöscht, oder die Adresse ist veraltet.</p>
-          <Link className="button" to="/projekte">Zu den Projekten</Link>
+          <p>Vielleicht wurde es gelöscht, in eine andere Umgebung verschoben, oder die Adresse ist veraltet.</p>
+          <Link className="button" to={ep('/projekte')}>Zu den Projekten</Link>
         </div>
       </section>
     )
@@ -104,7 +107,7 @@ export function ProjectDetail() {
   return (
     <section className="page page-project">
       <PageHead
-        crumbs={[{ label: 'projekte', to: '/projekte' }, { label: p.slug }]}
+        crumbs={[{ label: 'projekte', to: ep('/projekte') }, { label: p.slug }]}
         title={<><h1>{p.name}</h1><StatusBadge status={rt.status} /><PublicPillFor p={p} />{rt.deployFailed && rt.status !== 'failed' && <span className="deploy-failed">letzter Deploy fehlgeschlagen</span>}</>}
         actions={
           <>
@@ -218,7 +221,8 @@ export function ProjectDetail() {
           projectId={id}
           slug={p.slug}
           env={env}
-          onDeleted={() => navigate('/projekte')}
+          onDeleted={() => navigate(ep('/projekte'))}
+          beforeDanger={<MoveProject p={p} />}
         />
       )}
       </div>
@@ -402,12 +406,14 @@ function LiveLogs({ projectId }: { projectId: string }) {
 /* --- Einstellungen ----------------------------------------------------------- */
 
 function Settings({
-  projectId, slug, env, onDeleted,
+  projectId, slug, env, onDeleted, beforeDanger,
 }: {
   projectId: string
   slug: string
   env: { key: string; value: string | null; isSecret: boolean }[]
   onDeleted: () => void
+  /** M9: Karte «In andere Umgebung verschieben» vor dem Löschen */
+  beforeDanger?: ReactNode
 }) {
   const qc = useQueryClient()
   const [rows, setRows] = useState<EnvRow[]>(
@@ -447,6 +453,8 @@ function Settings({
       </div>
       </form>
       {save.isError && <p role="alert" className="error">{(save.error as Error).message}</p>}
+
+      {beforeDanger}
 
       <section className="danger-zone">
         <h2>Projekt löschen</h2>

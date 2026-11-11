@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { listScopeFor } from '../scope.js'
 import {
   createProjectSchema, updateProjectSchema, putEnvSchema, putRoutesSchema, deploySchema, rollbackSchema, slugify,
 } from '@airlock/shared'
@@ -33,30 +34,37 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   // Karte «Veröffentlichung» und interne Ziele allein
   await publicRoutes(app)
 
-  app.get('/projects', async () => ({ projects: await listProjects() }))
+  // M9: Liste und Anlegen in einer Umgebung (Pfad /environments/:env/projects
+  // oder ?environment=; ohne Angabe die Standard-Umgebung, beim Token seine).
+  const list = async (request: FastifyRequest) => ({ projects: await listProjects(listScopeFor(request)) })
+  app.get('/projects', list)
+  app.get('/environments/:env/projects', list)
 
-  app.post('/projects', async (request, reply) => {
+  const create = async (request: FastifyRequest, reply: FastifyReply) => {
+    const scope = listScopeFor(request)
     const input = createProjectSchema.parse(request.body)
     assertSourceSupported(input.source.type)
     // Früh prüfen: gesperrte Repo-URL oder unzulässige compose.yaml kommen als
     // 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
     const project = input.source.type === 'files'
-      ? await createFilesProject(input, actorFor(request))
-      : await createProject(input, actorFor(request))
+      ? await createFilesProject(scope, input, actorFor(request))
+      : await createProject(scope, input, actorFor(request))
 
     if (input.deploy) {
-      const deployment = await startDeploy(project.id, actorFor(request))
+      const deployment = await startDeploy(scope, project.id, actorFor(request))
       reply.code(201)
       return { project: await toDto(project), deployment }
     }
     await reconcileCaddy()
     reply.code(201)
     return { project: await toDto(project), deployment: null }
-  })
+  }
+  app.post('/projects', create)
+  app.post('/environments/:env/projects', create)
 
   app.get<{ Params: IdParams }>('/projects/:id', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const dto = await toDto(project)
 
     // Hinweis, ob der Container als root laeuft. Kein Fehler, nur sichtbar.
@@ -75,7 +83,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   /** Zustand: Container, letzter Healthcheck, CPU/RAM der letzten Stunde. */
   app.get<{ Params: IdParams; Querystring: { fresh?: string } }>('/projects/:id/health', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     return projectHealth(project.id, { fresh: request.query.fresh === '1' })
   })
 
@@ -85,7 +93,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
    * darf. Nur Adressen dieses Projekts – kein offener Proxy.
    */
   app.get<{ Params: IdParams; Querystring: { url?: string } }>('/projects/:id/address-check', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const url = request.query.url ?? ''
     const dto = await toDto(project)
     if (!dto.routes.some((r) => r.urls.includes(url))) throw badRequest('Diese Adresse gehört nicht zum Projekt.')
@@ -93,7 +101,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.patch<{ Params: IdParams }>('/projects/:id', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const patch = updateProjectSchema.parse(request.body)
     if (patch.source) {
       assertSourceSupported(patch.source.type)
@@ -115,24 +123,24 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.delete<{ Params: IdParams; Querystring: { purge?: string } }>(
     '/projects/:id',
     async (request, reply) => {
-      const project = await findProject(request.params.id)
-      await deleteProject(project.id, actorFor(request), request.query.purge === 'true')
+      const project = await findProject(request.scope, request.params.id)
+      await deleteProject(request.scope, project.id, actorFor(request), request.query.purge === 'true')
       reply.code(204)
     },
   )
 
   /** M3: Dateien eines Chat-Projekts (nur Liste; Inhalte über MCP read_files). */
-  app.get<{ Params: IdParams }>('/projects/:id/files', async (request) => listProjectFiles(request.params.id))
+  app.get<{ Params: IdParams }>('/projects/:id/files', async (request) => listProjectFiles(request.scope, request.params.id))
 
   /* --- Umgebungsvariablen ------------------------------------------------ */
 
   app.get<{ Params: IdParams }>('/projects/:id/env', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     return { env: await listEnvDto(project.id) }
   })
 
   app.put<{ Params: IdParams }>('/projects/:id/env', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const { entries } = putEnvSchema.parse(request.body)
     const seen = new Set<string>()
     for (const e of entries) {
@@ -150,7 +158,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   /* --- Routen ------------------------------------------------------------- */
 
   app.put<{ Params: IdParams }>('/projects/:id/routes', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const body = putRoutesSchema.parse(request.body)
     const wantsPublic = body.targets.includes('public')
     // Öffentlich schalten nur mit Anmeldung oder über MCP mit Bestätigung –
@@ -173,48 +181,48 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       actor: actorFor(request), action: 'project.routes.set', targetType: 'project',
       targetId: project.id, params: body, result: 'ok',
     })
-    return { project: await toDto(await findProject(project.id)) }
+    return { project: await toDto(await findProject(request.scope, project.id)) }
   })
 
   /* --- Betrieb ------------------------------------------------------------ */
 
   app.post<{ Params: IdParams }>('/projects/:id/deploy', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const { ref } = deploySchema.parse(request.body ?? {})
     // Wirft 409, wenn für dieses Projekt schon ein Deploy läuft.
-    const deployment = await startDeploy(project.id, actorFor(request), ref)
+    const deployment = await startDeploy(request.scope, project.id, actorFor(request), ref)
     return { deployment }
   })
 
   /** M2: ohne deploymentId die zuletzt aktive Fassung vor der jetzigen. 409 bei laufendem Deploy. */
   app.post<{ Params: IdParams }>('/projects/:id/rollback', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const { deploymentId } = rollbackSchema.parse(request.body ?? {})
-    const deployment = await startRollback(project.id, actorFor(request), deploymentId)
+    const deployment = await startRollback(request.scope, project.id, actorFor(request), deploymentId)
     return { deployment }
   })
 
   /** Übergang: aktive Fassung mit den Namen von Airlock neu anlegen (docs/RENAME.md). 409 bei laufendem Deploy. */
   app.post<{ Params: IdParams }>('/projects/:id/recreate', async (request) => {
-    const project = await findProject(request.params.id)
-    const deployment = await startRecreate(project.id, actorFor(request))
+    const project = await findProject(request.scope, request.params.id)
+    const deployment = await startRecreate(request.scope, project.id, actorFor(request))
     return { deployment }
   })
 
   app.post<{ Params: IdParams }>('/projects/:id/start', async (request) => {
-    return startProject(request.params.id, actorFor(request))
+    return startProject(request.scope, request.params.id, actorFor(request))
   })
 
   /** Neu starten: dieselbe Fassung, Container stoppen und starten (kein Deploy). */
-  app.post<{ Params: IdParams }>('/projects/:id/restart', async (request) => restartProject(request.params.id, actorFor(request)))
+  app.post<{ Params: IdParams }>('/projects/:id/restart', async (request) => restartProject(request.scope, request.params.id, actorFor(request)))
 
   app.post<{ Params: IdParams }>('/projects/:id/stop', async (request, reply) => {
-    await stopProject(request.params.id, actorFor(request))
+    await stopProject(request.scope, request.params.id, actorFor(request))
     reply.code(204)
   })
 
   app.get<{ Params: IdParams }>('/projects/:id/deployments', async (request) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     return { deployments: await listDeployments(project.id) }
   })
 
@@ -223,7 +231,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: IdParams; Querystring: { lines?: string; since?: string } }>(
     '/projects/:id/logs',
     async (request) => {
-      const project = await findProject(request.params.id)
+      const project = await findProject(request.scope, request.params.id)
       const active = await activeDeployment(project.id)
       if (!active?.containerId) {
         return { logs: '', hint: 'Kein laufender Container – es gibt noch keine Ausgabe.' }
@@ -235,7 +243,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   )
 
   app.get<{ Params: IdParams }>('/projects/:id/logs/stream', async (request, reply) => {
-    const project = await findProject(request.params.id)
+    const project = await findProject(request.scope, request.params.id)
     const active = await activeDeployment(project.id)
     if (!active?.containerId) throw notFound('Laufender Container')
 

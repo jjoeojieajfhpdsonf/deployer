@@ -1,4 +1,5 @@
-import { desc, lt, and, eq, sql, type SQL } from 'drizzle-orm'
+import { desc, lt, and, eq, or, isNull, sql, type SQL } from 'drizzle-orm'
+import type { ListScope } from '../lib/scope.js'
 import { db, schema } from '../db/index.js'
 import { maskParams } from '../lib/crypto.js'
 import { log } from '../lib/log.js'
@@ -18,11 +19,33 @@ export interface AuditInput {
   params?: unknown
   result: 'ok' | 'error'
   error?: string | null
+  /**
+   * M9: Umgebung des Eintrags. undefined = aus dem Ziel ableiten (Projekt,
+   * Token, Domain, externes Ziel); null = ausdrücklich Server-Ereignis.
+   */
+  environmentId?: string | null
+}
+
+/** Umgebung eines Audit-Ziels; null für Server-Ereignisse oder unbekannte Ziele. */
+async function environmentOfTarget(type: string | null | undefined, id: string | null | undefined): Promise<string | null> {
+  if (!type || !id || !/^[0-9a-f-]{36}$/i.test(id)) return null
+  const table = type === 'project' ? schema.projects
+    : type === 'token' ? schema.apiTokens
+    : type === 'domain' ? schema.domains
+    : type === 'external_target' ? schema.externalTargets
+    : type === 'environment' ? null
+    : undefined
+  if (table === null) return id
+  if (!table) return null
+  const rows = await db.select({ env: table.environmentId }).from(table).where(eq(table.id, id)).limit(1)
+  return rows[0]?.env ?? null
 }
 
 export async function audit(entry: AuditInput): Promise<void> {
   try {
+    const environmentId = entry.environmentId !== undefined ? entry.environmentId : await environmentOfTarget(entry.targetType, entry.targetId)
     await db.insert(schema.auditEvents).values({
+      environmentId,
       actor: entry.actor,
       action: entry.action,
       targetType: entry.targetType ?? null,
@@ -54,9 +77,17 @@ export async function withAudit<T>(
   }
 }
 
-export async function listAudit(opts: { limit?: number; before?: string; action?: string; targetId?: string } = {}): Promise<AuditEventDto[]> {
+/**
+ * M9: Einträge einer Umgebung und dazu die Server-Ereignisse (ohne Umgebung:
+ * Anmeldung, Passwort, Tunnel, …) – SPEC, Entscheidung 6. Einträge anderer
+ * Umgebungen nie.
+ */
+export async function listAudit(scope: ListScope, opts: { limit?: number; before?: string; action?: string; targetId?: string } = {}): Promise<AuditEventDto[]> {
   const limit = Math.min(opts.limit ?? 100, 500)
   const conds: SQL[] = []
+  if (scope.kind === 'env') {
+    conds.push(or(eq(schema.auditEvents.environmentId, scope.envId), isNull(schema.auditEvents.environmentId))!)
+  }
   if (opts.before) conds.push(lt(schema.auditEvents.at, new Date(opts.before)))
   if (opts.action) conds.push(eq(schema.auditEvents.action, opts.action))
   if (opts.targetId) conds.push(eq(schema.auditEvents.targetId, opts.targetId))
@@ -78,6 +109,8 @@ export async function listAudit(opts: { limit?: number; before?: string; action?
     paramsMasked: redactDeep(r.paramsMasked),
     result: r.result,
     error: redactSecrets(r.error) ?? null,
+    environmentId: r.environmentId,
+    server: r.environmentId === null,
   }))
 }
 

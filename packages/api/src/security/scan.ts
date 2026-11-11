@@ -6,7 +6,8 @@ import { db, schema } from '../db/index.js'
 import type { ScanStage, ScanStages } from '../db/schema.js'
 import { cf, config, urlForHost } from '../config.js'
 import * as docker from '../drivers/docker.js'
-import { findProject } from '../domain/projects.js'
+import { findProject, findProjectForServerJob } from '../domain/projects.js'
+import type { Scope } from '../lib/scope.js'
 import { activeDeployment, effectiveKind } from '../domain/deployments.js'
 import { audit } from '../domain/audit.js'
 import { AppError, badRequest, notFound } from '../lib/errors.js'
@@ -135,10 +136,11 @@ function sourceDirFor(deploymentId: string | null, kind: string, slug: string): 
 }
 
 export async function enqueueProjectScan(
+  scope: Scope,
   idOrSlug: string,
   o: { level?: 'standard' | 'active'; deploymentId?: string; actor: string; trigger: ScanTrigger },
 ): Promise<Run> {
-  const project = await findProject(idOrSlug)
+  const project = await findProject(scope, idOrSlug)
   const active = await activeDeployment(project.id)
   if (!active) throw badRequest('Das Projekt hat keine laufende Fassung, die sich scannen liesse')
   const level = o.level ?? 'standard'
@@ -287,7 +289,7 @@ type StageFn = (name: string, fn: (onLogs: OnLogs) => Promise<StageResult>) => P
  * eine Akzeptanz ginge verloren.
  */
 async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels: Record<string, string>): Promise<(loc: string) => string> {
-  const project = await findProject(run.projectId!)
+  const project = await findProjectForServerJob(run.projectId!)
   const active = await activeDeployment(project.id)
   if (!active) throw new Error('Keine laufende Fassung mehr')
   const kind = effectiveKind(project.sourceType, active.artifact)
@@ -475,7 +477,7 @@ async function finalize(run: Run, raw: FindingInput[], stages: ScanStages): Prom
 
   // Neu hinzugekommene kritische und hohe Befunde melden.
   const name = run.projectId
-    ? (await findProject(run.projectId)).name
+    ? (await findProjectForServerJob(run.projectId)).name
     : (await db.select().from(schema.externalTargets).where(eq(schema.externalTargets.id, run.externalTargetId!)))[0]?.hostname ?? '?'
   for (const sev of ['critical', 'high'] as Severity[]) {
     const fresh = open.filter((f) => f.severity === sev && !previousFps.has(f.fingerprint))

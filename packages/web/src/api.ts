@@ -3,11 +3,13 @@ import type {
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
 } from '@airlock/shared'
 
 export type {
   ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
   HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto,
+  EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
 }
 
 export interface PublicFlowResult {
@@ -45,6 +47,8 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
+  /** M9: zuletzt gewählte Umgebung (Slug) */
+  lastEnvironment?: string | null
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -83,19 +87,46 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const body = (v: unknown) => JSON.stringify(v)
 
+/*
+ * M9: Umgebung der Oberfläche. Listen, Anlegen und Einstellungen gehen an
+ * /environments/<slug>/…; Einzelobjekte (Projekt, Deployment, Scan) bleiben
+ * unter ihrer ID. Gesetzt von lib/env.tsx, bevor eine Seite der Umgebung lädt.
+ */
+let envSlug = ''
+export function setApiEnvironment(slug: string): void {
+  envSlug = slug
+}
+export const apiEnvironment = (): string => envSlug
+const e = (p: string, slug = envSlug) => `/environments/${encodeURIComponent(slug)}${p}`
+
 export const api = {
+  /* M9: Umgebungen */
+  environments: () => call<{ environments: EnvironmentDto[] }>('/environments'),
+  createEnvironment: (input: unknown) => call<{ environment: EnvironmentDto }>('/environments', { method: 'POST', body: body(input) }),
+  updateEnvironment: (slug: string, patch: unknown) => call<{ environment: EnvironmentDto }>(e('', slug), { method: 'PATCH', body: body(patch) }),
+  deleteEnvironment: (slug: string) => call<void>(e('', slug), { method: 'DELETE' }),
+  copyStandards: (from: string) => call<{ environment: EnvironmentDto }>(e('/standards/copy'), { method: 'POST', body: body({ from }) }),
+  headerTemplates: () => call<{ templates: HeaderTemplateDto[] }>(e('/header-templates')),
+  setHeaderTemplate: (header: string, value: string) => call<{ templates: HeaderTemplateDto[] }>(e(`/header-templates/${header}`), { method: 'PUT', body: body({ value }) }),
+  removeHeaderTemplate: (header: string) => call<{ templates: HeaderTemplateDto[] }>(e(`/header-templates/${header}`), { method: 'DELETE' }),
+  lanDns: () => call<LanDnsCheckDto>(e('/lan-dns')),
+  movePreview: (id: string, to: string) => call<{ preview: MovePreviewDto }>(`/projects/${id}/move?to=${encodeURIComponent(to)}`),
+  moveProject: (id: string, to: string) => call<{ moved: MovePreviewDto }>(`/projects/${id}/move`, { method: 'POST', body: body({ to, confirm: true }) }),
+  setTemplateOff: (id: string, header: string, off: boolean) => call<void>(`/projects/${id}/header-templates/${header}/off`, { method: off ? 'PUT' : 'DELETE' }),
+
   /* Auth */
   me: () => call<MeDto>('/auth/me'),
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
   login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
-  setPreferences: (prefs: UiPrefs) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
+  /** Teilweise: fehlende Felder bleiben auf dem Server, wie sie sind */
+  setPreferences: (prefs: Partial<UiPrefs>) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
 
   /* Projekte */
-  listProjects: () => call<{ projects: ProjectDto[] }>('/projects'),
+  listProjects: () => call<{ projects: ProjectDto[] }>(e('/projects')),
   getProject: (id: string) => call<{ project: ProjectDto; env: EnvEntryDto[] }>(`/projects/${id}`),
   createProject: (input: unknown) =>
-    call<{ project: ProjectDto; deployment: DeploymentDto | null }>('/projects', { method: 'POST', body: body(input) }),
+    call<{ project: ProjectDto; deployment: DeploymentDto | null }>(e('/projects'), { method: 'POST', body: body(input) }),
   updateProject: (id: string, patch: unknown) =>
     call<{ project: ProjectDto }>(`/projects/${id}`, { method: 'PATCH', body: body(patch) }),
   deleteProject: (id: string, purgeVolumes = false) =>
@@ -129,15 +160,15 @@ export const api = {
   pausePublic: (id: string, opts?: PauseOptions) =>
     call<PublicFlowResult>(`/projects/${id}/public/pause`, { method: 'POST', ...(opts ? { body: body(opts) } : {}) }),
   putPausePage: (id: string, opts: PauseOptions) => call<{ status: PublicStatusDto }>(`/projects/${id}/public/pause-page`, { method: 'PUT', body: body(opts) }),
-  pausePageTemplate: () => call<{ page: PausePage; defaults: PausePage }>('/settings/pause-page'),
-  putPausePageTemplate: (page: PausePage | null) => call<{ page: PausePage; defaults: PausePage }>('/settings/pause-page', { method: 'PUT', body: body({ page }) }),
+  pausePageTemplate: () => call<{ page: PausePage; defaults: PausePage }>(e('/settings/pause-page')),
+  putPausePageTemplate: (page: PausePage | null) => call<{ page: PausePage; defaults: PausePage }>(e('/settings/pause-page'), { method: 'PUT', body: body({ page }) }),
   resumePublic: (id: string) => call<PublicFlowResult>(`/projects/${id}/public/resume`, { method: 'POST' }),
   unpublish: (id: string) => call<PublicFlowResult & { removed: { hostname: string; accessProtected: boolean } }>(`/projects/${id}/public`, { method: 'DELETE' }),
 
   /* Domains (M5) */
-  domains: () => call<{ domains: DomainDto[]; publicEnabled: boolean }>('/domains'),
-  syncDomains: () => call<{ domains: DomainDto[] }>('/domains/sync', { method: 'POST' }),
-  setDefaultDomain: (name: string) => call<{ domains: DomainDto[] }>('/domains/default', { method: 'PUT', body: body({ name }) }),
+  domains: () => call<{ domains: DomainDto[]; publicEnabled: boolean }>(e('/domains')),
+  syncDomains: () => call<{ domains: DomainDto[] }>(e('/domains/sync'), { method: 'POST' }),
+  setDefaultDomain: (name: string) => call<{ domains: DomainDto[] }>(e('/domains/default'), { method: 'PUT', body: body({ name }) }),
 
   /* Betrieb */
   deploy: (id: string, ref?: string) =>
@@ -160,8 +191,8 @@ export const api = {
   },
 
   /* Tokens (M3) */
-  listTokens: () => call<{ tokens: ApiTokenDto[] }>('/tokens'),
-  createToken: (name: string) => call<{ token: string; apiToken: ApiTokenDto }>('/tokens', { method: 'POST', body: body({ name }) }),
+  listTokens: () => call<{ tokens: ApiTokenDto[] }>(e('/tokens')),
+  createToken: (name: string) => call<{ token: string; apiToken: ApiTokenDto }>(e('/tokens'), { method: 'POST', body: body({ name }) }),
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */
@@ -174,8 +205,8 @@ export const api = {
   cancelScan: (scanId: string) => call<{ report: ScanReportDto }>(`/scans/${scanId}/cancel`, { method: 'POST' }),
   acceptFinding: (findingId: string, reason: string) =>
     call<{ ok: true }>(`/findings/${findingId}`, { method: 'PATCH', body: body({ status: 'accepted', reason }) }),
-  externalTargets: () => call<{ targets: ExternalTargetDto[] }>('/external-targets'),
-  addExternalTarget: (hostname: string) => call<{ target: ExternalTargetDto }>('/external-targets', { method: 'POST', body: body({ hostname }) }),
+  externalTargets: () => call<{ targets: ExternalTargetDto[] }>(e('/external-targets')),
+  addExternalTarget: (hostname: string) => call<{ target: ExternalTargetDto }>(e('/external-targets'), { method: 'POST', body: body({ hostname }) }),
   verifyExternalTarget: (id: string) => call<{ target: ExternalTargetDto & { confirmedBy: string[]; errors: string[] } }>(`/external-targets/${id}/verify`, { method: 'POST' }),
   setExternalInterval: (id: string, scanInterval: string) => call<{ target: ExternalTargetDto }>(`/external-targets/${id}`, { method: 'PATCH', body: body({ scanInterval }) }),
   deleteExternalTarget: (id: string) => call<void>(`/external-targets/${id}`, { method: 'DELETE' }),
@@ -209,22 +240,27 @@ export const api = {
   testNotification: (channel: 'push' | 'email') => call<{ ok: true }>('/notifications/test', { method: 'POST', body: body({ channel }) }),
 
   /* Cloudflare verbinden */
-  cloudflare: () => call<CfStatusDto>('/system/cloudflare'),
-  cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>('/system/cloudflare/check', { method: 'POST', body: body({ token }) }),
-  cloudflareToken: (token: string) => call<{ check: CfTokenCheckDto; status: CfStatusDto }>('/system/cloudflare/token', { method: 'PUT', body: body({ token }) }),
-  cloudflareDomains: (d: unknown) => call<CfStatusDto>('/system/cloudflare/domains', { method: 'PUT', body: body(d) }),
-  cloudflareTunnel: () => call<CfStatusDto>('/system/cloudflare/tunnel', { method: 'POST' }),
-  cloudflareTunnelSkip: () => call<CfStatusDto>('/system/cloudflare/tunnel/skip', { method: 'POST' }),
-  cloudflareTunnelRestart: () => call<CfStatusDto>('/system/cloudflare/tunnel/restart', { method: 'POST' }),
-  cloudflareTunnelUpdate: () => call<CfStatusDto>('/system/cloudflare/tunnel/update', { method: 'POST' }),
-  cloudflareTls: () => call<CfStatusDto>('/system/cloudflare/tls', { method: 'POST' }),
-  cloudflareDisconnect: () => call<CfStatusDto>('/system/cloudflare', { method: 'DELETE' }),
+  /* Cloudflare verbinden (M9: je Umgebung) */
+  cloudflare: () => call<CfStatusDto>(e('/cloudflare')),
+  cloudflareCheck: (token: string) => call<{ check: CfTokenCheckDto }>(e('/cloudflare/check'), { method: 'POST', body: body({ token }) }),
+  cloudflareToken: (token: string) => call<{ check: CfTokenCheckDto; status: CfStatusDto }>(e('/cloudflare/token'), { method: 'PUT', body: body({ token }) }),
+  cloudflareDomains: (d: unknown) => call<CfStatusDto>(e('/cloudflare/domains'), { method: 'PUT', body: body(d) }),
+  cloudflareTunnel: () => call<CfStatusDto>(e('/cloudflare/tunnel'), { method: 'POST' }),
+  cloudflareTunnelSkip: () => call<CfStatusDto>(e('/cloudflare/tunnel/skip'), { method: 'POST' }),
+  cloudflareTunnelRestart: () => call<CfStatusDto>(e('/cloudflare/tunnel/restart'), { method: 'POST' }),
+  cloudflareTunnelUpdate: () => call<CfStatusDto>(e('/cloudflare/tunnel/update'), { method: 'POST' }),
+  cloudflareTls: () => call<CfStatusDto>(e('/cloudflare/tls'), { method: 'POST' }),
+  cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
 
   /* System */
   checkNetwork: () => call<{ changed: boolean }>('/system/network/check', { method: 'POST' }),
   system: () => call<SystemStatusDto>('/system/status'),
-  tailnetDns: () => call<{ record: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string } }>('/system/tailnet-dns', { method: 'POST' }),
-  audit: (limit = 100, targetId?: string) => call<{ events: AuditEventDto[] }>(`/audit?limit=${limit}${targetId ? `&targetId=${targetId}` : ''}`),
+  /** M9: Einträge aller Umgebungen; «record» ist der der Standard-Umgebung */
+  tailnetDns: () => call<{
+    record: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string } | null
+    records: { name: string; content: string; action: 'created' | 'updated' | 'unchanged'; zone: string; environment?: string }[]
+  }>('/system/tailnet-dns', { method: 'POST' }),
+  audit: (limit = 100, targetId?: string) => call<{ events: AuditEventDto[] }>(e(`/audit?limit=${limit}${targetId ? `&targetId=${targetId}` : ''}`)),
 }
 
 export type { ProjectDto, DeploymentDto, EnvEntryDto, AuditEventDto, SystemStatusDto, Source }

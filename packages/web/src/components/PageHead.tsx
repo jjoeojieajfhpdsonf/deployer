@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useServerName } from './ServerName.js'
+import { useEnv } from '../lib/env.js'
 
 /**
  * Brotkrumen leben in der globalen Kopfzeile (links, rechts das
@@ -17,9 +18,13 @@ export function CrumbsProvider({ children }: { children: ReactNode }) {
 export function Crumbs() {
   const { crumbs } = useContext(CrumbsContext)
   const server = useServerName()
+  // M9: Auf Seiten einer Umgebung beginnt der Pfad mit ihr (der Umschalter zeigt nur das Kürzel)
+  const { env, fromUrl } = useEnv()
   return (
     <nav className="crumbs" aria-label="Pfad">
-      <Link to="/projekte">{server}</Link>
+      {fromUrl && env
+        ? <Link to={`/u/${env.slug}/projekte`} aria-label={`Umgebung ${env.name}`}>{env.name.toLocaleLowerCase('de-CH')}</Link>
+        : <Link to="/server">{server}</Link>}
       {crumbs.map((c, i) => (
         <span key={i}>
           <span className="crumbs-sep" aria-hidden="true"> / </span>

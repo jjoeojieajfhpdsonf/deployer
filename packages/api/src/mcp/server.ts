@@ -31,6 +31,8 @@ import { pausePageTemplate, setProjectPause, displayTimeZone } from '../domain/p
 import { pausePageSchema, formatBackAt, backAtProblem, PAUSE_HTML_MAX, type PauseOptions } from '@airlock/shared'
 import type { TokenIdentity } from '../domain/tokens.js'
 import { registerFixTools } from './fix-tools.js'
+import { inEnvironment } from '../lib/scope.js'
+import { environmentById } from '../domain/environments.js'
 import type { DeploymentDto, ProjectDto } from '@airlock/shared'
 
 /**
@@ -94,10 +96,17 @@ async function waitFor(dep: DeploymentDto, timeoutMs = 10 * 60_000) {
 
 export function createMcpServer(identity: TokenIdentity): McpServer {
   const actor = `token:${identity.name}`
+  // M9: Alle Werkzeuge sehen und ändern nur die Umgebung des Tokens
+  const scope = inEnvironment(identity.environmentId)
+  const envInfo = environmentById(identity.environmentId)
+  const envLine = envInfo
+    ? `Airlock, Umgebung «${envInfo.name}»${envInfo.baseDomain ? ` (interne Adressen *.${envInfo.baseDomain})` : ''}: Dieses Token sieht und ändert nur Projekte, Domains und externe Ziele dieser Umgebung. `
+    : ''
   const server = new McpServer(
     { name: 'airlock', version: '0.3.0' },
     {
       instructions:
+        envLine +
         'Airlock bringt Projekte auf den Homeserver. Für eine Seite aus dem Chat: create_project mit ' +
         'source {type: "files"} und den Dateien; spätere Änderungen mit update_files. Löschen und Rollback ' +
         'verlangen eine Bestätigung, ebenso öffentlich pausieren (pause_public), fortsetzen (resume_public) ' +
@@ -115,11 +124,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     server.registerTool(name, { description, inputSchema: shape }, (async (args: z.objectOutputType<S, z.ZodTypeAny>) => {
       try {
         const r = await handler(args)
-        await audit({ actor, action: `mcp.${name}`, params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
+        // M9: MCP-Aufrufe gehören zur Umgebung des Tokens
+        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, params: auditParams(args as Record<string, unknown>), result: r.isError ? 'error' : 'ok' })
         return r
       } catch (err) {
         const msg = err instanceof AppError || err instanceof z.ZodError ? (err as Error).message : 'Interner Fehler'
-        await audit({ actor, action: `mcp.${name}`, params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
+        await audit({ actor, action: `mcp.${name}`, environmentId: identity.environmentId, params: auditParams(args as Record<string, unknown>), result: 'error', error: (err as Error).message })
         return fail(msg)
       }
     }) as never)
@@ -169,17 +179,17 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
 
   /* --- Lesen ----------------------------------------------------------------- */
 
-  tool('list_projects', 'Alle Projekte mit Status und Adresse', {}, async () => {
-    return ok((await listProjects()).map(summarize))
+  tool('list_projects', 'Alle Projekte dieser Umgebung mit Status und Adresse', {}, async () => {
+    return ok((await listProjects(scope)).map(summarize))
   })
 
   tool('get_project', 'Ein Projekt mit Adressen, letzten Deployments und Umgebungsvariablen (Secrets ohne Wert)', { project }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const dto = await toDto(p)
     const deployments = (await listDeployments(p.id, 5)).map((d) => ({
       id: d.id, status: d.status, version: d.version, started: d.startedAt, trigger: d.trigger, error: d.errorMessage, can_rollback: d.canRollback,
     }))
-    const files = p.sourceType === 'files' ? await listProjectFiles(p.id).catch(() => null) : null
+    const files = p.sourceType === 'files' ? await listProjectFiles(scope, p.id).catch(() => null) : null
     return ok({
       ...summarize(dto),
       port: dto.port,
@@ -195,7 +205,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     lines: z.number().int().min(1).max(500).default(100),
     since: z.string().optional().describe('ISO-Zeitpunkt, ab dem Logs kommen sollen'),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const row = await activeDeployment(p.id)
     const container = row?.containerId ?? row?.artifact?.webContainer
     if (!container) return ok({ logs: '', note: 'Kein laufender Container (statische Seite oder noch nicht deployt)' })
@@ -209,8 +219,8 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   })
 
   tool('list_domains', 'Domains (Zonen bei Cloudflare) für öffentliche Projekte und welche Standard ist', {}, async () => {
-    if (!publicEnabled()) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
-    const domains = await listDomains().then((d) => (d.length ? d : syncDomains()))
+    if (!publicEnabled(scope.envId)) return ok({ domains: [], note: 'Öffentlich ist nicht eingerichtet (Cloudflare-Konto, Tunnel und Token fehlen). Projekte sind intern erreichbar.' })
+    const domains = await listDomains(scope).then((d) => (d.length ? d : syncDomains(undefined, scope.envId)))
     return ok({ domains: domains.map((d) => ({ name: d.name, default: d.isDefault })) })
   })
 
@@ -230,7 +240,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     wait,
   }, async (a) => {
     const wantsPublic = a.targets.includes('public')
-    if (wantsPublic && !publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen. Projekt ohne "public" anlegen.')
+    if (wantsPublic && !publicEnabled(scope.envId)) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen. Projekt ohne "public" anlegen.')
     const internal = a.targets.filter((t) => t !== 'public')
     const input = createProjectSchema.parse({
       name: a.name, source: sourceSchema.parse(a.source), files: a.files, port: a.port,
@@ -239,15 +249,15 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     })
     assertSourceSupported(input.source.type)
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
-    const p = input.source.type === 'files' ? await createFilesProject(input, actor) : await createProject(input, actor)
+    const p = input.source.type === 'files' ? await createFilesProject(scope, input, actor) : await createProject(scope, input, actor)
     // Öffentlich geht erst nach dem Scan (M6): vormerken statt still verwerfen
     const req = wantsPublic
       ? await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
       : null
-    const dep = await startDeploy(p.id, actor)
+    const dep = await startDeploy(scope, p.id, actor)
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({
-      ...summarize(await toDto(await findProject(p.id))),
+      ...summarize(await toDto(await findProject(scope, p.id))),
       deploy: result,
       ...(req ? { public: mcpRequestInfo(req, await publishability(p.id)) } : {}),
     })
@@ -262,19 +272,19 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     deploy: z.boolean().default(true),
     wait,
   }, async (a) => {
-    const r = await updateProjectFiles(a.project, { files: a.files, delete: a.delete, message: a.message }, actor)
+    const r = await updateProjectFiles(scope, a.project, { files: a.files, delete: a.delete, message: a.message }, actor)
     if (a.port) await updateProject(r.project.id, { port: a.port })
     if (!a.deploy) return ok({ commit: r.commit, changed: r.changed })
     if (!r.changed && !a.port) return ok({ commit: r.commit, changed: false, note: 'Keine Änderung, kein Deploy' })
-    const dep = await startDeploy(r.project.id, actor)
+    const dep = await startDeploy(scope, r.project.id, actor)
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
-    return ok({ commit: r.commit, changed: r.changed, ...summarize(await toDto(await findProject(r.project.id))), deploy: result })
+    return ok({ commit: r.commit, changed: r.changed, ...summarize(await toDto(await findProject(scope, r.project.id))), deploy: result })
   })
 
   tool('read_files', 'Aktueller Stand der Dateien eines Chat-Projekts (optional nur bestimmte Pfade; höchstens 2 MB)', {
     project,
     paths: z.array(z.string()).max(500).optional(),
-  }, async (a) => ok(await readProjectFiles(a.project, a.paths)))
+  }, async (a) => ok(await readProjectFiles(scope, a.project, a.paths)))
 
   tool('export_repo', 'Chat-Projekt als ZIP holen oder auf ein Git-Repo schieben', {
     project,
@@ -284,9 +294,9 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     push_token: z.string().optional().describe('Bei push: Zugangs-Token; wird nie gespeichert oder geloggt'),
   }, async (a) => {
     if (a.format === 'zip') {
-      const { zip, commit } = await exportProjectZip(a.project, actor)
+      const { zip, commit } = await exportProjectZip(scope, a.project, actor)
       if (zip.length > 20 * 1024 * 1024) return fail('ZIP grösser als 20 MB')
-      const p = await findProject(a.project)
+      const p = await findProject(scope, a.project)
       return {
         content: [
           { type: 'text', text: JSON.stringify({ commit, bytes: zip.length }) },
@@ -295,7 +305,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       }
     }
     if (!a.push_url) throw badRequest('push_url fehlt')
-    return ok(await pushProjectRepo(a.project, { url: a.push_url, branch: a.push_branch, token: a.push_token }, actor))
+    return ok(await pushProjectRepo(scope, a.project, { url: a.push_url, branch: a.push_branch, token: a.push_token }, actor))
   })
 
   /* --- Betrieb ---------------------------------------------------------------- */
@@ -303,20 +313,20 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('deploy', 'Neu deployen (optional mit Branch, Tag oder Commit)', {
     project, ref: z.string().max(255).optional(), wait,
   }, async (a) => {
-    const dep = await startDeploy(a.project, actor, a.ref)
+    const dep = await startDeploy(scope, a.project, actor, a.ref)
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
-    return ok({ ...summarize(await toDto(await findProject(a.project))), deploy: result })
+    return ok({ ...summarize(await toDto(await findProject(scope, a.project))), deploy: result })
   })
 
   tool('start', 'Projekt starten', { project }, async (a) => {
-    const r = await startProject(a.project, actor)
+    const r = await startProject(scope, a.project, actor)
     const result = r.deployment ? await waitFor(r.deployment) : null
-    return ok({ ...summarize(await toDto(await findProject(a.project))), ...(result ? { deploy: result } : {}) })
+    return ok({ ...summarize(await toDto(await findProject(scope, a.project))), ...(result ? { deploy: result } : {}) })
   })
 
   tool('stop', 'Projekt stoppen (nicht löschen)', { project }, async (a) => {
-    await stopProject(a.project, actor)
-    return ok(summarize(await toDto(await findProject(a.project))))
+    await stopProject(scope, a.project, actor)
+    return ok(summarize(await toDto(await findProject(scope, a.project))))
   })
 
   tool('rollback', 'Auf eine frühere Fassung zurückrollen (verlangt Bestätigung)', {
@@ -325,12 +335,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     confirmation_token: z.string().optional(),
     wait,
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const c = await confirm('rollback', { project: p.id, version: a.version ?? null, confirmation_token: a.confirmation_token }, `Projekt "${p.name}" auf ${a.version ? `Fassung ${a.version}` : 'die vorherige Fassung'} zurückrollen?`)
     if (!c.go) return c.result
-    const dep = await startRollback(p.id, actor, a.version)
+    const dep = await startRollback(scope, p.id, actor, a.version)
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
-    return ok({ ...summarize(await toDto(await findProject(p.id))), deploy: result })
+    return ok({ ...summarize(await toDto(await findProject(scope, p.id))), deploy: result })
   })
 
   tool('delete_project', 'Projekt löschen mit Containern, Netz, Route und Dateien (verlangt Bestätigung)', {
@@ -338,10 +348,10 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     purge_volumes: z.boolean().default(false).describe('Auch benannte Volumes (Daten) löschen'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const c = await confirm('delete_project', { project: p.id, purge_volumes: a.purge_volumes, confirmation_token: a.confirmation_token }, `Projekt "${p.name}" (${p.slug}) endgültig löschen${a.purge_volumes ? ', samt Daten-Volumes' : ''}?`)
     if (!c.go) return c.result
-    await deleteProject(p.id, actor, a.purge_volumes)
+    await deleteProject(scope, p.id, actor, a.purge_volumes)
     return ok({ deleted: p.slug })
   })
 
@@ -355,7 +365,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   }, async (a) => {
     if (!!a.project === !!a.hostname) return fail('Entweder project oder hostname angeben')
     if (a.hostname) {
-      const t = await findExternalTarget(a.hostname)
+      const t = await findExternalTarget(scope, a.hostname)
       if (a.level === 'active') {
         const c = await confirm('run_scan', { hostname: t.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (Angriffstests) gegen die externe Domain ${t.hostname} starten? Vorher die Bedingungen des Hosters prüfen.`)
         if (!c.go) return c.result
@@ -363,12 +373,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       const run = await enqueueExternalScan(t.id, { level: a.level, actor, trigger: 'mcp' })
       return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report mit dem Hostnamen zeigt das Ergebnis' })
     }
-    const p = await findProject(a.project!)
+    const p = await findProject(scope, a.project!)
     if (a.level === 'active') {
       const c = await confirm('run_scan', { project: p.id, level: a.level, confirmation_token: a.confirmation_token }, `Aktiven Scan (XSS, SQL-Injection) gegen "${p.name}" starten? Er läuft nur gegen den internen Container und kann Daten verändern.`)
       if (!c.go) return c.result
     }
-    const run = await enqueueProjectScan(p.id, { level: a.level, actor, trigger: 'mcp' })
+    const run = await enqueueProjectScan(scope, p.id, { level: a.level, actor, trigger: 'mcp' })
     return ok({ scan: run.id, status: run.status, note: 'Läuft im Hintergrund; get_scan_report zeigt das Ergebnis' })
   })
 
@@ -384,12 +394,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     let id: string | undefined
     let owner: { projectId?: string; externalTargetId?: string }
     if (a.hostname) {
-      const t = await findExternalTarget(a.hostname)
+      const t = await findExternalTarget(scope, a.hostname)
       head = { hostname: t.hostname, url: `https://${t.hostname}`, verified: t.verifiedAt !== null }
       owner = { externalTargetId: t.id }
       id = a.scan ?? (await latestExternalScan(t.id))?.id
     } else {
-      const p = await findProject(a.project!)
+      const p = await findProject(scope, a.project!)
       const dto = await toDto(p)
       head = { project: p.slug, url: dto.routes[0]?.urls[0] ?? null, status: dto.status }
       owner = { projectId: p.id }
@@ -424,7 +434,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     reason: z.string().min(3).max(1000),
     confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     // Vor der Rückfrage prüfen: der Befund muss zu diesem Projekt gehören,
     // sonst nennte die Rückfrage das falsche Projekt (Review M6).
     const own = await findingProject(a.finding)
@@ -439,13 +449,13 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('add_external_target', 'Eigene Domain ausserhalb von Airlock zum Scannen eintragen; liefert den nötigen TXT-Eintrag', {
     hostname: z.string().min(1).max(253),
   }, async (a) => {
-    const t = await addExternalTarget(a.hostname, actor)
+    const t = await addExternalTarget(scope, a.hostname, actor)
     return ok({ ...t, next: `TXT-Eintrag ${t.txt.name} mit dem Wert "${t.txt.value}" setzen, dann verify_external_target aufrufen.` })
   })
 
   tool('verify_external_target', 'TXT-Nachweis einer externen Domain über öffentliche DNS-Resolver prüfen', {
     hostname: z.string().min(1).max(253),
-  }, async (a) => ok(await verifyExternalTarget(a.hostname, actor)))
+  }, async (a) => ok(await verifyExternalTarget(scope, a.hostname, actor)))
 
   tool('set_targets', 'Erreichbarkeit setzen: "lan" und "tailnet" (dieselbe interne Adresse), "public" über Cloudflare Tunnel (Bestätigung nötig; nur mit abgeschlossenem Scan ohne offenen kritischen Befund)', {
     project,
@@ -456,7 +466,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     access: z.boolean().optional().describe('Öffentlich: Cloudflare Access davorschalten (Login per E-Mail-Code)'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const wantsPublic = a.targets.includes('public')
     let plan: Awaited<ReturnType<typeof planPublic>> | null = null
     // Ohne "public", aber gerade öffentlich: das ist «ganz offline nehmen» – mit Rückfrage
@@ -467,7 +477,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       if (!c.go) return c.result
     }
     if (wantsPublic) {
-      if (!publicEnabled()) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
+      if (!publicEnabled(scope.envId)) return fail('Öffentlich ist nicht eingerichtet: Cloudflare-Konto, Tunnel und Token fehlen (Meilenstein 5, siehe compose.public.yaml)')
       // Alles prüfen, bevor gefragt wird: sonst bestätigt man etwas, das dann
       // scheitert – oder ein Teil (interne Ziele) wäre schon umgestellt.
       try {
@@ -486,7 +496,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
         }
         const gate = await publishability(p.id)
         const req = await requestPublic(p.id, { subdomain: a.public_subdomain, hostname: a.public_hostname, accessProtected: a.access }, actor, gate.ok ? 'Schwelle' : gate.why)
-        return ok({ ...summarize(await toDto(await findProject(p.id))), public: mcpRequestInfo(req, gate) })
+        return ok({ ...summarize(await toDto(await findProject(scope, p.id))), public: mcpRequestInfo(req, gate) })
       }
       const before = plan.before
       const changes = !before || before.hostname !== plan.hostname || before.accessProtected !== plan.access
@@ -504,18 +514,18 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     } finally {
       await reconcileCaddy()
     }
-    return ok(summarize(await toDto(await findProject(p.id))))
+    return ok(summarize(await toDto(await findProject(scope, p.id))))
   })
 
   /* --- Veröffentlichung: pausieren, fortsetzen, ganz offline ----------------------- */
 
   const internalNote = async (id: string) => {
-    const s = await publicStatus(await findProject(id))
+    const s = await publicStatus(await findProject(scope, id))
     return s.internalUrl ? `Intern bleibt es unter ${s.internalUrl} erreichbar.` : 'Eine interne Adresse hat das Projekt nicht.'
   }
   const publicResult = async (id: string, r: { hostname: string | null; check: unknown; changed: boolean }) => {
-    const s = await publicStatus(await findProject(id))
-    return ok({ project: (await findProject(id)).slug, public: s.state, hostname: s.hostname, access: s.accessProtected, changed: r.changed, check_from_outside: r.check, internal_url: s.internalUrl })
+    const s = await publicStatus(await findProject(scope, id))
+    return ok({ project: (await findProject(scope, id)).slug, public: s.state, hostname: s.hostname, access: s.accessProtected, changed: r.changed, check_from_outside: r.check, internal_url: s.internalUrl })
   }
 
   tool('pause_public', 'Öffentliches Projekt pausieren: Besucher sehen eine Pause-Seite (HTTP 503); Name, DNS-Eintrag und Tunnel-Regel bleiben. Ohne title/message/html gilt die Vorlage (System → Veröffentlichung); html macht die Seite zu eigenem Code. Verlangt Bestätigung; ist das Projekt schon pausiert, ändern title/message/html/back_at nur die Seite.', {
@@ -526,7 +536,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     html: z.string().max(PAUSE_HTML_MAX).optional().describe('Eigene Seite als ganzes HTML-Dokument mit Inline-CSS (Code-Modus). Kein JavaScript, keine externen Quellen (CSP). Platzhalter: {{back_at}}, {{back_at_iso}}, {{title}}'),
     confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
     // Vor der Rückfrage prüfen: gültig, Zukunft, höchstens ein Jahr voraus
@@ -566,7 +576,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('resume_public', 'Pausiertes öffentliches Projekt wieder online schalten (nur mit abgeschlossenem Scan ohne offenen kritischen Befund). Verlangt Bestätigung.', {
     project, confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
     if (!route.pausedAt) return publicResult(p.id, { hostname: route.hostname, check: null, changed: false })
@@ -582,7 +592,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   tool('unpublish', 'Öffentliches Projekt ganz offline nehmen: Tunnel-Regel, DNS-Eintrag und Access-App werden entfernt, der Name ist frei. Interne Ziele bleiben. Verlangt Bestätigung.', {
     project, confirmation_token: z.string().optional(),
   }, async (a) => {
-    const p = await findProject(a.project)
+    const p = await findProject(scope, a.project)
     const route = await publicRoute(p.id)
     if (!route) return fail(`"${p.name}" ist nicht öffentlich`)
     const c = await confirm('unpublish', { project: p.id, confirmation_token: a.confirmation_token },
@@ -592,7 +602,7 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   })
 
   // M8: Fix-Assistent (eigene Datei, siehe mcp/fix-tools.ts)
-  registerFixTools({ tool, confirm, actor, ok, fail })
+  registerFixTools({ tool, confirm, actor, scope, ok, fail })
 
   return server
 }

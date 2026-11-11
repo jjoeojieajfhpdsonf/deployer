@@ -3,6 +3,10 @@ import { db, schema } from '../db/index.js'
 import { config, primaryHost, urlForHost } from '../config.js'
 import { activeDeployment } from '../domain/deployments.js'
 import { findProject } from '../domain/projects.js'
+import { serverJob } from '../lib/scope.js'
+
+/** Server-Job: alle Umgebungen */
+const JOB = serverJob('auto-deploy')
 import { repoUrlPolicy } from '../domain/git-policy.js'
 import { connectedRepo, repoToken, github } from '../domain/github.js'
 import { audit } from '../domain/audit.js'
@@ -67,7 +71,7 @@ async function checkProjects(): Promise<void> {
       const busy = (await db.select({ s: schema.deployments.status }).from(schema.deployments).where(and(eq(schema.deployments.projectId, p.id), inArray(schema.deployments.status, [...BUSY])))).length > 0
       const d = autoDeployDecision({ head, activeVersion: active?.version, busy, pinnedCommit: pinned })
       if (d.deploy) {
-        const dep = await startDeploy(p.id, 'system:auto-deploy')
+        const dep = await startDeploy(JOB, p.id, 'system:auto-deploy')
         await audit({ actor: 'system:auto-deploy', action: 'project.auto_deploy', targetType: 'project', targetId: p.id, params: { head, deployment: dep.id }, result: 'ok' })
         log.info('Auto-Deploy nach neuem Commit', { project: p.slug, head: head.slice(0, 12) })
       }
@@ -83,7 +87,7 @@ async function checkPullRequests(): Promise<void> {
   const open = await db.select().from(schema.fixRequests).where(and(eq(schema.fixRequests.status, 'pr_open'), isNotNull(schema.fixRequests.prNumber)))
   for (const fx of open) {
     try {
-      const p = await findProject(fx.projectId)
+      const p = await findProject(JOB, fx.projectId)
       const r = await connectedRepo(p)
       if (!r) continue
       const pr = await github().pull(await repoToken(r.repo), r.owner, r.repo, fx.prNumber!)
@@ -104,7 +108,7 @@ async function checkPullRequests(): Promise<void> {
   const done = await db.select().from(schema.fixRequests).where(and(eq(schema.fixRequests.status, 'verified'), isNotNull(schema.fixRequests.prNumber), isNull(schema.fixRequests.prCommentedAt)))
   for (const fx of done) {
     try {
-      const p = await findProject(fx.projectId)
+      const p = await findProject(JOB, fx.projectId)
       const r = await connectedRepo(p)
       if (!r) continue
       const last = (await db.select().from(schema.scanRuns).where(and(eq(schema.scanRuns.projectId, p.id), eq(schema.scanRuns.status, 'done'))).orderBy(schema.scanRuns.startedAt)).pop()
