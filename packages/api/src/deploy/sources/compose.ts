@@ -3,7 +3,7 @@ import { join, posix } from 'node:path'
 import { readFile, writeFile, stat, mkdir } from 'node:fs/promises'
 import { db, schema } from '../../db/index.js'
 import { config } from '../../config.js'
-import { normalizeCompose, withServiceEnv, retargetCompose, type NormalizedCompose } from '../../lib/compose.js'
+import { normalizeCompose, withServiceEnv, withMappedEnv, retargetCompose, type NormalizedCompose } from '../../lib/compose.js'
 import { readRepoFile, resolveInRepo } from '../../lib/repo-files.js'
 import { resolveEnv } from '../../domain/env.js'
 import { badRequest } from '../../lib/errors.js'
@@ -104,7 +104,9 @@ export async function materialize(
 ): Promise<string> {
   // Ältere Artefakte (deployer-Zeit) tragen noch dep_<slug> und deployer.*-Labels.
   const text = retargetCompose(await readFile(artifactFile, 'utf8'), docker.projectNetworkName(project.slug))
-  const withEnv = withServiceEnv(text, webService, await resolveEnv(project.id))
+  const env = await resolveEnv(project.id)
+  // Etappe 4: x-airlock-env in allen Diensten (geheime Werte erst jetzt, nie im Artefakt)
+  const withEnv = withMappedEnv(withServiceEnv(text, webService, env), env)
   await mkdir(workDirPath, { recursive: true })
   const path = join(workDirPath, 'compose.run.yaml')
   await writeFile(path, withEnv, { mode: 0o600 })

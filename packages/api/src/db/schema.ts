@@ -95,6 +95,8 @@ export interface DeploymentArtifact {
   builtImages?: string[]
   /** files (M3): als was das Chat-Projekt in dieser Fassung erkannt wurde */
   filesKind?: FilesKind
+  /** compose (Etappe 4): Dienste mit eigener interner Adresse (x-airlock-internal) */
+  internalRoutes?: { service: string; port: number }[]
 }
 
 /** Erkannte Art eines Chat-Projekts (Quelle "files"). */

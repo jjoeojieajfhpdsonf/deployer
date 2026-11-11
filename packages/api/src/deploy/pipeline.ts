@@ -529,6 +529,7 @@ async function runCompose(
   let artifactFile: string
   let webContainer: string
   let builtImages: string[] = []
+  let internalRoutes: { service: string; port: number }[] = []
   let version: string | null
 
   if (job.kind === 'rollback') {
@@ -544,18 +545,20 @@ async function runCompose(
     // startet sie jetzt unter air_<slug> (Übergang, docs/RENAME.md).
     webContainer = job.target.artifact!.webContainer!.replace(/^dep_/, 'air_')
     builtImages = job.target.artifact?.builtImages ?? []
+    internalRoutes = job.target.artifact?.internalRoutes ?? []
     version = job.target.version
   } else {
     const prepared = await prepare()
     artifactFile = prepared.file
     webContainer = prepared.normalized.webContainer
     builtImages = prepared.normalized.builtImages
+    internalRoutes = prepared.normalized.internal
     version = prepared.version
   }
   await setDeployment(deploymentId, {
     status: 'starting',
     version,
-    artifact: { composeFile: artifactFile, webContainer, builtImages, ...extra },
+    artifact: { composeFile: artifactFile, webContainer, builtImages, ...(internalRoutes.length ? { internalRoutes } : {}), ...extra },
   })
 
   emitStatus(deploymentId, 'starting')

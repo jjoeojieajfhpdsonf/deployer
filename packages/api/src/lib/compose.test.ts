@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { parse } from 'yaml'
-import { normalizeCompose, parseDotenv, withServiceEnv, retargetCompose, type ComposeContext } from './compose.js'
+import { normalizeCompose, parseDotenv, withServiceEnv, withMappedEnv, retargetCompose, type ComposeContext } from './compose.js'
 
 const files: Record<string, string> = {
   'app.env': 'FROM_FILE=1\n# Kommentar\nQUOTED="mit leerzeichen"\n',
@@ -124,6 +124,15 @@ services:
     assert.equal(doc['x-common'], undefined)
     assert.equal(doc.services.web.image, 'alpine')
     assert.equal(doc.services.web['x-note'], undefined)
+  })
+
+  test('Etappe 4: x-airlock-env und x-airlock-internal bleiben (nur Namen und Port)', async () => {
+    const r = await norm('services:\n  web:\n    image: a\n  db:\n    image: postgres:17\n    x-airlock-env:\n      POSTGRES_PASSWORD: DB_PASSWORD\n  adminer:\n    image: adminer:5\n    x-airlock-internal: 8080\n')
+    assert.deepEqual(r.doc.services.db['x-airlock-env'], { POSTGRES_PASSWORD: 'DB_PASSWORD' })
+    assert.equal(r.doc.services.adminer['x-airlock-internal'], 8080)
+    assert.deepEqual(r.internal, [{ service: 'adminer', port: 8080 }])
+    // Kein Wert im Artefakt
+    assert.equal(r.doc.services.db.environment, undefined)
   })
 
   test('restart: always wird zu unless-stopped, no bleibt', async () => {
@@ -253,6 +262,19 @@ describe('Compose: Ausbrüche werden abgelehnt', () => {
     await rejects('services: [\n', /kein gültiges YAML/)
   })
 
+  test('Etappe 4: x-airlock-env mit Wert statt Variablenname', async () => {
+    await rejects('services:\n  web:\n    image: a\n  db:\n    image: b\n    x-airlock-env:\n      POSTGRES_PASSWORD: "geheim 123"\n', /x-airlock-env/)
+  })
+
+  test('Etappe 4: x-airlock-env als Liste', async () => {
+    await rejects('services:\n  web:\n    image: a\n  db:\n    image: b\n    x-airlock-env: [A]\n', /Zuordnung/)
+  })
+
+  test('Etappe 4: x-airlock-internal am Web-Dienst oder ohne gültigen Port', async () => {
+    await rejects('services:\n  web:\n    image: a\n    x-airlock-internal: 80\n', /Web-Dienst/)
+    await rejects('services:\n  web:\n    image: a\n  ui:\n    image: b\n    x-airlock-internal: abc\n', /Portnummer/)
+  })
+
   test('Alias-Bombe', async () => {
     const lines = ['a: &a ["x","x","x","x","x","x","x","x","x","x"]']
     for (let i = 0; i < 12; i++) lines.push(`${String.fromCharCode(98 + i)}: &${String.fromCharCode(98 + i)} [*${String.fromCharCode(97 + i)},*${String.fromCharCode(97 + i)},*${String.fromCharCode(97 + i)},*${String.fromCharCode(97 + i)},*${String.fromCharCode(97 + i)}]`)
@@ -271,6 +293,20 @@ describe('withServiceEnv (Secrets erst beim Start, nicht im Artefakt)', () => {
   test('ungültiger Variablenname', async () => {
     const r = await normalizeCompose(WEB, ctx({ projectEnv: {} }))
     assert.throws(() => withServiceEnv(r.yaml, 'web', { 'A-B': 'x' }), /ungültig/)
+  })
+})
+
+describe('withMappedEnv (Etappe 4: Werte für x-airlock-env erst beim Start)', () => {
+  const file = 'services:\n  web:\n    image: a\n  db:\n    image: postgres:17\n    environment:\n      POSTGRES_USER: app\n    x-airlock-env:\n      POSTGRES_PASSWORD: DB_PASSWORD\n  ui:\n    image: adminer\n    x-airlock-internal: 8080\n'
+  test('setzt Werte aus der Projekt-Env, maskiert "$" und entfernt die Erweiterungen', () => {
+    const doc = parse(withMappedEnv(file, { DB_PASSWORD: 'pa$s' })) as Record<string, any> // allowlist-secret
+    assert.deepEqual(doc.services.db.environment, { POSTGRES_USER: 'app', POSTGRES_PASSWORD: 'pa$$s' })
+    assert.equal(doc.services.db['x-airlock-env'], undefined)
+    assert.equal(doc.services.ui['x-airlock-internal'], undefined)
+    assert.equal(doc.services.web.environment, undefined)
+  })
+  test('fehlende Variable: klare Meldung statt leerem Passwort', () => {
+    assert.throws(() => withMappedEnv(file, {}), /DB_PASSWORD.*fehlt/)
   })
 })
 

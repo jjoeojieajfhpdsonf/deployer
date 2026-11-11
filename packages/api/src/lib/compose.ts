@@ -40,7 +40,24 @@ export interface NormalizedCompose {
   webContainer: string
   services: string[]
   builtImages: string[]
+  /** Etappe 4: Dienste mit eigener interner Adresse (x-airlock-internal), z. B. Adminer */
+  internal: { service: string; port: number }[]
 }
+
+/**
+ * Etappe 4 «Dienst hinzufügen»: zwei eigene Erweiterungen je Dienst.
+ *
+ *   x-airlock-env:      { POSTGRES_PASSWORD: DB_PASSWORD }
+ *     Variable im Container ← Umgebungsvariable des Projekts (Name). Der Wert
+ *     kommt erst beim Start dazu (materialize), nie in die Datei oder das
+ *     Artefakt – so bekommen auch andere Dienste als der Web-Dienst geheime
+ *     Werte, ohne dass ein Passwort in compose.yaml (oder im Git-Repo) steht.
+ *   x-airlock-internal: 8080
+ *     Der Dienst bekommt eine eigene Adresse <dienst>--<projekt>.<int-basis>,
+ *     nur aus LAN und Tailnet (Adminer, Mailpit). Nie öffentlich.
+ */
+export const X_ENV = 'x-airlock-env'
+export const X_INTERNAL = 'x-airlock-internal'
 
 const fail = (field: string, msg: string): never => {
   throw new AppError('compose_rejected', `compose.yaml, ${field}: ${msg}`, 400, { field })
@@ -361,6 +378,7 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
 
   const servicesOut: Record<string, unknown> = {}
   const builtImages: string[] = []
+  const internal: { service: string; port: number }[] = []
 
   for (const name of names) {
     const f = `services.${name}`
@@ -478,11 +496,23 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
 
     const userLabels = s.labels !== undefined ? normalizeLabels(`${f}.labels`, s.labels) : {}
 
+    // Etappe 4: eigene Erweiterungen (nur Namen und eine Portnummer, keine Werte)
+    const ext: Record<string, unknown> = {}
+    if (s[X_ENV] !== undefined) ext[X_ENV] = normalizeEnvMap(`${f}.${X_ENV}`, s[X_ENV])
+    if (s[X_INTERNAL] !== undefined) {
+      if (name === ctx.webService) fail(`${f}.${X_INTERNAL}`, 'der Web-Dienst hat schon die Adressen des Projekts')
+      const port = Number(s[X_INTERNAL])
+      if (!Number.isInteger(port) || port < 1 || port > 65535) fail(`${f}.${X_INTERNAL}`, 'muss eine Portnummer sein (1–65535)')
+      ext[X_INTERNAL] = port
+      internal.push({ service: name, port })
+    }
+
     // Ab hier nur noch eigene Werte: "$" maskieren, bevor sie dazukommen.
     const escaped = escapeDollars(out)
     const restart = normalizeRestart(`${f}.restart`, s.restart)
     servicesOut[name] = {
       ...escaped,
+      ...ext,
       labels: {
         ...escapeDollars(userLabels),
         [LABEL.managed]: 'true',
@@ -517,5 +547,44 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
     webContainer: composeWebContainer(projectName, ctx.webService),
     services: names,
     builtImages,
+    internal,
   }
+}
+
+/** x-airlock-env: Zuordnung Variable im Container → Umgebungsvariable des Projekts (beides gültige Namen) */
+function normalizeEnvMap(field: string, v: unknown): Record<string, string> {
+  if (!isObj(v)) return fail(field, 'muss eine Zuordnung VARIABLE: PROJEKT_VARIABLE sein')
+  const out: Record<string, string> = {}
+  for (const [k, val] of Object.entries(v)) {
+    if (!ENV_KEY_RE.test(k)) fail(field, `Name der Umgebungsvariable "${k}" ist ungültig`)
+    if (typeof val !== 'string' || !ENV_KEY_RE.test(val)) fail(`${field}.${k}`, 'muss der Name einer Umgebungsvariable des Projekts sein')
+    out[k] = val as string
+  }
+  return out
+}
+
+/**
+ * Etappe 4: Werte für x-airlock-env einsetzen (alle Dienste) und die eigenen
+ * Erweiterungen aus der Datei für `compose up` entfernen. Fehlt eine
+ * Variable im Projekt, scheitert der Start mit einer klaren Meldung statt
+ * mit einem leeren Passwort.
+ */
+export function withMappedEnv(normalizedYaml: string, env: Record<string, string>): string {
+  const doc = parse(normalizedYaml) as { services?: Record<string, Record<string, unknown>> }
+  for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    const map = svc[X_ENV]
+    if (isObj(map)) {
+      const add: Record<string, string> = {}
+      for (const [inner, projectVar] of Object.entries(map)) {
+        if (typeof projectVar !== 'string' || !(projectVar in env)) {
+          throw new AppError('compose_env_missing', `Dienst "${name}" braucht die Umgebungsvariable ${String(projectVar)}; sie fehlt im Projekt (Einstellungen › Umgebungsvariablen)`, 400)
+        }
+        add[inner] = env[projectVar]!
+      }
+      svc.environment = { ...((svc.environment as Record<string, string> | undefined) ?? {}), ...escapeDollars(add) }
+    }
+    delete svc[X_ENV]
+    delete svc[X_INTERNAL]
+  }
+  return `${HEADER}${stringify(doc)}`
 }
