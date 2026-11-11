@@ -156,11 +156,42 @@ const Z = fx.pausedProjectId
 const H = 'p-hallo'
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
+  // Windows 95 als Desktop (nur mit --themes win95 sinnvoll): Fenster-Knöpfe, Taskleiste, Startmenü, Beenden
+  {
+    group: 'win95', name: 'win95-minimiert', path: `/projekte/${P}`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('section[aria-labelledby="ov-deploys"] .w95-cap-min').click()
+      await pg.locator('section[aria-labelledby="ov-facts"] .w95-cap-min').click()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'win95', name: 'win95-maximiert', path: `/projekte/${P}`, full: false,
+    prepare: async (pg) => { await pg.locator('section[aria-labelledby="ov-deploys"] .w95-cap-max').click(); await pg.waitForTimeout(150) },
+  },
+  {
+    group: 'win95', name: 'win95-hauptfenster-maximiert', path: `/projekte/${P}`, full: false,
+    prepare: async (pg) => { await pg.locator('.shell > .main > .w95-caption .w95-cap-max').click(); await pg.waitForTimeout(150) },
+  },
+  {
+    group: 'win95', name: 'win95-startmenue', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: 'Start', exact: true }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'win95', name: 'win95-beenden', path: '/projekte', full: false,
+    prepare: async (pg) => { await pg.locator('.shell > .main > .w95-caption .w95-cap-close').click(); await pg.waitForTimeout(250) },
+  },
   {
     // Easter Egg: Konami-Code getippt → Meldung «Windows 95 freigeschaltet», vierte Option im Profilmenü
     group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { win95Unlocked: false },
     prepare: async (pg) => {
-      for (const k of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) await pg.keyboard.press(k)
+      // Tasten als keydown-Ereignisse: derselbe Lauscher, aber ohne das (sanfte, ungleich weite)
+      // Scrollen der echten Pfeiltasten – sonst verrutscht das Bild von Lauf zu Lauf
+      await pg.evaluate(() => {
+        for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+        }
+      })
       await pg.getByText('Windows 95 freigeschaltet').waitFor()
       // Die Pfeiltasten scrollen die Seite unterschiedlich weit (je nach Zeitpunkt): fest nach oben
       // Die Pfeiltasten lösen weiches Scrollen aus, das nach scrollTo noch weiterlaufen kann:

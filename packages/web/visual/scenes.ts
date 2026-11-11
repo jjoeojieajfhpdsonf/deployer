@@ -49,6 +49,10 @@ export const VISUAL_SCENES = [
  * (Bilder *-win95.png), visuell und mit axe. Die wichtigsten Seiten genügen –
  * das Theme ändert nur Tokens und den Zusatz-Block in styles.css.
  */
-export const WIN95_SCENES = ['login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine'] as const satisfies readonly (typeof VISUAL_SCENES)[number][]
+export const WIN95_SCENES: readonly string[] = [
+  'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
+  // Nur in Windows 95: Fenster minimiert (Taskleiste), maximiert, Hauptfenster maximiert, Startmenü, «Airlock beenden»
+  'win95-minimiert', 'win95-maximiert', 'win95-hauptfenster-maximiert', 'win95-startmenue', 'win95-beenden',
+]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

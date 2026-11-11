@@ -10,6 +10,10 @@ Markup und Tastatur bleiben wie in Hell und Dunkel.
 | `umgesetzt-profilmenue.png` | Profilmenü mit vierter Option «Windows 95» (gewählt) |
 | `umgesetzt-freischalten.png` | Freischalten per Konami-Code in Hell: Meldung und neue Option |
 | `umgesetzt-bausteine.png` | Ausschnitt `/design`: Hell, Dunkel, Windows 95 als dritte Spalte |
+| `umgesetzt-minimiert.png` | Zwei Karten minimiert, als Knöpfe in der Taskleiste |
+| `umgesetzt-maximiert.png` | Karte «Deployments» maximiert |
+| `umgesetzt-startmenue.png` | Startmenü |
+| `umgesetzt-beenden.png` | Dialog «Airlock beenden» (Herunterfahren gesperrt) |
 
 ## Freischalten (Easter Egg)
 
@@ -22,6 +26,25 @@ Markup und Tastatur bleiben wie in Hell und Dunkel.
   `theme: 'win95'` ab, und ein gespeichertes `win95` ohne Freischaltung fällt beim Lesen auf
   den Standard zurück. Erstes Freischalten steht im Audit (`ui.win95_unlocked`).
 - Keine Migration nötig: Die Präferenzen liegen als JSON in `settings` (kein CHECK, kein Enum).
+
+## Fenster, Taskleiste, Startmenü (wie in Windows 95)
+
+| Wo | Was passiert |
+|---|---|
+| _ an einer Karte | Karte verschwindet in die Taskleiste; Klick auf ihren Knopf dort holt sie zurück |
+| □ an einer Karte | Karte füllt den Bildschirm über der Taskleiste; derselbe Knopf (jetzt «Wiederherstellen») oder Esc stellt zurück |
+| ✕ an einer Karte | Karte geschlossen; «Geschlossene Fenster wieder öffnen» im Startmenü oder Neuladen bringt sie zurück |
+| Doppelklick auf eine Titelleiste | maximieren bzw. wiederherstellen |
+| _ am Fenster «Airlock» | ganze App minimiert (nur noch Desktop und Taskleiste); Taskleisten-Knopf «Airlock» holt sie zurück |
+| □ am Fenster «Airlock» | maximiert: ohne Seitenleiste und Rand |
+| ✕ am Fenster «Airlock» | Dialog «Airlock beenden»: neu starten (lädt die Seite neu) oder abmelden. «Herunterfahren» steht gesperrt in der Liste – Airlock läuft auf dem Server weiter |
+| Taskleiste | Start, «Airlock», minimierte und maximierte Fenster (aktive gedrückt), Uhr; Klick auf ein offenes Fenster minimiert es |
+| Start | Startmenü nach oben: Projekte, Security, Audit, Einstellungen, Server, Konto, geschlossene Fenster wieder öffnen, Beenden … |
+
+Wie im Original sind die Fenster-Knöpfe Mausbedienung (nicht im Tab-Lauf, für Screenreader
+unsichtbar). Per Tastatur bleibt alles erreichbar: Die Taskleiste hat echte Knöpfe (minimierte
+Fenster zurückholen), Esc stellt eine maximierte Karte zurück, das Startmenü ist ein normales
+Menü. Zustände gelten nur bis zum Neuladen. Fenster verschieben (Ziehen an der Titelleiste) gibt es nicht.
 
 ## Umsetzung
 
@@ -39,9 +62,11 @@ Markup und Tastatur bleiben wie in Hell und Dunkel.
     Titelleiste (Verlauf `#000080 → #1084d0`, weisse fette Schrift, Überschrift der Karte wandert
     in die Leiste); Knöpfe und Felder mit 2-px-Bevel (gedrückt umgekehrt, Fokus gepunktet);
     Seitenleiste als Startmenü mit senkrechtem Band; Menüs mit blauer Auswahl; Taskleiste.
-  - Die Fenster-Knöpfe _ □ ✕ sind ein SVG-Hintergrundbild auf der Titelleiste – reine Deko, für
-    Screenreader unsichtbar, ohne JSX. Einzige Theme-Verzweigung im JSX ist die Taskleiste
-    («Start», laufendes Programm, Uhrzeit; `aria-hidden`).
+  - Fenster-Knöpfe _ □ ✕: `web/components/Win95Desktop.tsx` hängt sie als Fenster-Manager an jede
+    Karte und ans Hauptfenster (MutationObserver, keine Änderung in den Karten-Komponenten).
+    Zustände als reine Funktion in `web/lib/win95-windows.ts` (getestet). Wo kein Manager läuft
+    (Spalte unter `/design`), bleibt das gemalte Bild.
+  - Einzige Theme-Verzweigung im JSX ist die Taskleiste mit Startmenü und Dialog «Airlock beenden».
   - Der Zusatz-Block gilt per `@scope` auch in der Spalte «Windows 95» unter `/design`, aber
     nicht in den Spalten Hell und Dunkel, wenn die Seite selbst in Windows 95 steht.
 - `/design`: dritte Spalte «Windows 95». Drei Spalten sind schmal; Zeilen und Kennzahlen rücken

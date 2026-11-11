@@ -12,7 +12,8 @@ import { Loading, Sk, SkHead, SkStats } from './components/States.js'
 import { StaleBar } from './components/StaleBar.js'
 import { ActivityIndicator } from './components/ActivityIndicator.js'
 import { Shortcuts } from './components/Shortcuts.js'
-import { KonamiUnlock, Taskbar, useVersionClicks } from './components/Win95.js'
+import { KonamiUnlock, useVersionClicks } from './components/Win95.js'
+import { Taskbar } from './components/Win95Desktop.js'
 import { api, type MeDto } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -123,7 +124,7 @@ export function App() {
         <ErrorBoundary scope="part"><SetupRedirect /></ErrorBoundary>
         {/* ⌘K, «/», «g p/s/a», «?» */}
         <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>
-        {/* Verstecktes Theme «Windows 95»: Konami-Code schaltet frei; Taskleiste nur in diesem Theme */}
+        {/* Verstecktes Theme «Windows 95»: Konami-Code schaltet frei; Taskleiste und Fenster-Knöpfe nur in diesem Theme */}
         <ErrorBoundary scope="part"><KonamiUnlock /><Taskbar /></ErrorBoundary>
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
         <ErrorBoundary scope="page" resetKey={location.pathname}>

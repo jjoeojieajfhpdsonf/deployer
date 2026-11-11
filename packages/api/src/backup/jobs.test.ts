@@ -35,7 +35,7 @@ describe('Backup-Auftrag: Format', () => {
   })
   test('Umgebung: nur erlaubte Variablen, keine Zeilenumbrüche', () => {
     assert.throws(() => formatEnvFile({ LD_PRELOAD: '/x.so' }), /nicht erlaubt/)
-    assert.throws(() => formatEnvFile({ RESTIC_PASSWORD: 'a\nAWS_ACCESS_KEY_ID=b' }), /Zeilenumbruch/)
+    assert.throws(() => formatEnvFile({ RESTIC_PASSWORD: 'a\nAWS_ACCESS_KEY_ID=b' }), /Zeilenumbruch/) // Test-Eingabe für Zeilenumbruch-Abwehr, allowlist-secret
     assert.equal(formatEnvFile({}), '')
   })
   test('Kennung: sortierbar, nur a-z, 0-9 und -', () => {

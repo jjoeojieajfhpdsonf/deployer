@@ -265,7 +265,7 @@ try {
   check(r4.status === 'ok' && !!r4.snapshotId, 'S3: Lauf erfolgreich', r4)
   check((await listSnapshots()).length === 1, 'S3: ein Stand im Repository')
   const wrongPw = await (async () => {
-    await putBackupSettings({ password: 'ein-ganz-anderes-passwort' }, 'e2e')
+    await putBackupSettings({ password: 'ein-ganz-anderes-passwort' }, 'e2e') // absichtlich falsches Test-Passwort, allowlist-secret
     const r = await testConnection('e2e')
     await putBackupSettings({ password: PASSWORD }, 'e2e')
     return r
