@@ -8,7 +8,7 @@ import type {
   AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
 } from '@airlock/shared'
-import { countOpenFindings, explainFailure, fixPrompt, projectState } from '@airlock/shared'
+import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
 const MIN = 60_000
@@ -860,6 +860,17 @@ export function logLines(id: string, service: string | null): import('@airlock/s
     .filter(([, s]) => !service || s === service)
     .map(([t, s, text]) => ({ at: ago(t), service: compose ? s : null, text, level: (/\bERROR\b/.test(text) ? 'error' : /\bWARN\b/.test(text) ? 'warn' : null) as import('@airlock/shared').LogLevel | null }))
   return { lines, services: compose ? ['db', 'web', 'worker'] : [], hint: null }
+}
+
+/** UI-Qualität 5: Vorschau von Kurzname und Adresse (wie GET /projects/name-preview) */
+export function namePreview(name: string): import('@airlock/shared').NamePreviewDto {
+  const wanted = slugify(name)
+  if (!wanted) return { wanted: '', slug: '', takenBy: null, reserved: false, host: null, urls: [] }
+  const owner = allProjects.find((p) => p.slug === wanted) ?? null
+  const reserved = (RESERVED_SLUGS as readonly string[]).includes(wanted)
+  const slug = owner || reserved ? `${wanted.slice(0, 37)}-2` : wanted
+  const host = `${slug}.${BASE}`
+  return { wanted, slug, takenBy: owner ? { id: owner.id, name: owner.name } : null, reserved, host, urls: [`https://${host}`] }
 }
 
 /** Dateien eines Chat-Projekts (Eckdaten «Inhalt», Dialog «Dateien ansehen») */

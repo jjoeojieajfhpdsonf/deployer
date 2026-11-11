@@ -1,20 +1,25 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { slugify, createProjectSchema } from '@airlock/shared'
 import { api, ApiError } from '../api.js'
+import { ChatSteps } from '../components/ChatSteps.js'
+import { IconWarn } from '../components/Security.js'
 import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { PageHead } from '../components/PageHead.js'
-import { Field, FormError } from '../components/Field.js'
+import { Field, FieldError, FormError } from '../components/Field.js'
 import { useFormErrors, type Errors } from '../lib/form.js'
 
-type Kind = 'image' | 'dockerfile' | 'compose' | 'static'
+type Kind = 'image' | 'dockerfile' | 'compose' | 'static' | 'chat'
 type Origin = 'upload' | 'repo'
 
 const KINDS: { kind: Kind; title: string; hint: string }[] = [
-  { kind: 'image', title: 'Fertiges Image', hint: 'Aus einer Registry, z.B. traefik/whoami:latest' },
+  // Beispiele wie in Platzhalter und Fehlermeldung des Felds (UI-Qualität 5)
+  { kind: 'image', title: 'Fertiges Image', hint: 'Aus einer Registry, z.B. nginx:alpine' },
   { kind: 'dockerfile', title: 'Repo mit Dockerfile', hint: 'Wird geklont und gebaut' },
   { kind: 'compose', title: 'Docker Compose', hint: 'Mehrere Dienste, z.B. App und Datenbank' },
   { kind: 'static', title: 'Statische Seite', hint: 'ZIP oder Repo, optional mit Build-Befehl' },
+  { kind: 'chat', title: 'Per Chat', hint: 'Claude legt das Projekt über den MCP-Server an' },
 ]
 
 const MAX_ZIP = 100 * 1024 * 1024
@@ -28,6 +33,47 @@ const PRESET: Record<string, { kind: Kind; origin: Origin }> = {
   git: { kind: 'dockerfile', origin: 'repo' },
   image: { kind: 'image', origin: 'upload' },
   upload: { kind: 'static', origin: 'upload' },
+  chat: { kind: 'chat', origin: 'upload' },
+}
+
+/** Vorschau von Kurzname und Adresse, 300 ms nach der letzten Eingabe */
+function useNamePreview(name: string) {
+  const [debounced, setDebounced] = useState(name)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(name.trim()), 300)
+    return () => clearTimeout(t)
+  }, [name])
+  return useQuery({
+    queryKey: ['name-preview', debounced],
+    queryFn: () => api.namePreview(debounced),
+    enabled: debounced !== '' && slugify(debounced) !== '',
+    staleTime: 10_000,
+    placeholderData: (prev) => prev,
+  })
+}
+
+/** Unter dem Namen: Kurzname, Adresse, und ob der Kurzname schon belegt ist */
+function NamePreview({ name, id }: { name: string; id: string }) {
+  const q = useNamePreview(name)
+  const p = q.data?.preview
+  if (!name.trim() || !slugify(name)) return <p className="hint" id={id}>Frei wählbar; daraus entstehen Kurzname und Adresse.</p>
+  if (!p) return <p className="hint" id={id}>Kurzname <code>{slugify(name)}</code> …</p>
+  const url = p.urls[0]
+  return (
+    <div className="hint name-preview" id={id} role="status">
+      {p.takenBy || p.reserved ? (
+        <p>
+          <IconWarn /> {p.reserved
+            ? <>Der Kurzname <code>{p.wanted}</code> ist für Airlock reserviert.</>
+            : <>Den Kurznamen <code>{p.wanted}</code> hat schon <Link to={`/projekte/${p.takenBy!.id}`}>{p.takenBy!.name}</Link>.</>}
+          {' '}{p.slug ? <>Dieses Projekt bekommt <code>{p.slug}</code> – oder wähle einen anderen Namen.</> : 'Wähle einen anderen Namen.'}
+        </p>
+      ) : (
+        <p>Kurzname <code>{p.slug}</code></p>
+      )}
+      {url && <p>Adresse <code>{url.replace(/^https?:\/\//, '')}</code>{p.urls.length > 1 && <span className="muted"> · auch {p.urls.slice(1).map((u) => u.replace(/^https?:\/\//, '')).join(', ')}</span>}</p>}
+    </div>
+  )
 }
 
 export function NewProject() {
@@ -98,6 +144,7 @@ export function NewProject() {
     },
   })
   const e = form.errors
+  const showPreview = !e.name || name.trim() !== ''
   // «Upload oder Repo» meldet das Schema auf "source"; beim Hochladen gehört die Meldung zum Dateifeld.
   const sourceError = usesUpload ? undefined : e.source
 
@@ -108,8 +155,9 @@ export function NewProject() {
     setBusy(true)
     try {
       const uploadId = usesUpload && file ? (await api.upload(file)).upload.id : undefined
-      const { project } = await api.createProject(payload(uploadId))
-      navigate(`/projekte/${project.id}`)
+      const { project, deployment } = await api.createProject(payload(uploadId))
+      // UI-Qualität 5: auf der Projektseite läuft gleich der Fortschritt des ersten Deploys
+      navigate(`/projekte/${project.id}`, { state: deployment ? { watch: deployment.id } : undefined })
     } catch (err) {
       // Prüft die API anders als erwartet, landet ihre Meldung trotzdem am Feld.
       if (!form.setServerErrors(err)) setError(err instanceof ApiError ? err.message : (err as Error).message)
@@ -152,16 +200,30 @@ export function NewProject() {
           )}
         </fieldset>
 
+        {kind === 'chat' ? (
+          <section className="field-group chat-source" aria-labelledby="chat-source-h">
+            <h2 id="chat-source-h" className="legend">Per Chat</h2>
+            <p className="hint">Ohne Formular: Claude legt das Projekt über den MCP-Server von Airlock an und deployt es. Einmal einrichten:</p>
+            <ChatSteps />
+            <div className="form-actions">
+              <Link className="button button-primary" to="/tokens">Token anlegen</Link>
+            </div>
+          </section>
+        ) : (<>
         <fieldset className="field-group">
           <legend>Projekt</legend>
-          <Field id={form.idFor('name')} label="Name" error={e.name}
-            hint={slug && name ? <>Kurzname <code>{slug}</code> – die vollständige Adresse steht nach dem Anlegen auf der Projektseite.</> : 'Frei wählbar; daraus entsteht der Kurzname für die Adresse.'}>
-            <input {...form.field('name', name ? `${form.idFor('name')}-hint` : undefined)} value={name} onChange={(x) => setName(x.target.value)} maxLength={120} autoComplete="off" />
-          </Field>
+          {/* Vorschau statt Hinweis: Kurzname, Adresse, Kollision (UI-Qualität 5) */}
+          <div className={e.name ? 'field field-invalid' : 'field'}>
+            <label htmlFor={form.idFor('name')}>Name</label>
+            <input {...form.field('name', showPreview ? `${form.idFor('name')}-hint` : undefined)} value={name} onChange={(x) => setName(x.target.value)} maxLength={120} autoComplete="off" placeholder="Solarertrag heute" />
+            {e.name && <FieldError id={form.idFor('name')} message={e.name} />}
+            {/* Wie bei den anderen Feldern: bei einer Meldung kein allgemeiner Hinweis; die Vorschau bleibt, sobald es einen Namen gibt */}
+            {showPreview && <NamePreview name={name} id={`${form.idFor('name')}-hint`} />}
+          </div>
 
           {kind === 'image' && (
             <Field id={form.idFor('source.image')} label="Image" error={e['source.image']} hint="Mit Tag, z.B. nginx:alpine oder ghcr.io/user/app:1.2">
-              <input {...form.field('source.image', `${form.idFor('source.image')}-hint`)} value={image} onChange={(x) => setImage(x.target.value)} placeholder="ghcr.io/user/app:1.2" autoComplete="off" spellCheck={false} />
+              <input {...form.field('source.image', `${form.idFor('source.image')}-hint`)} value={image} onChange={(x) => setImage(x.target.value)} placeholder="nginx:alpine" autoComplete="off" spellCheck={false} />
             </Field>
           )}
 
@@ -270,6 +332,7 @@ export function NewProject() {
             Anlegen und deployen
           </button>
         </div>
+        </>)}
       </form>
     </section>
   )

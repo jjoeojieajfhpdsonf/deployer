@@ -10,7 +10,7 @@ export const VISUAL_SCENES = [
   // Projekte
   'projekte', 'projekt-uebersicht', 'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
-  'neues-projekt-validierung', 'projekte-anzahl-0', 'projekte-anzahl-1',
+  'neues-projekt-validierung', 'neues-projekt-vorschau', 'neues-projekt-chat','projekte-anzahl-0', 'projekte-anzahl-1',
   // Verwaltung und Security
   'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto',
   // System

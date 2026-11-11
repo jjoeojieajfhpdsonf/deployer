@@ -6,6 +6,7 @@ import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api } from '../api.js'
 import { poll } from '../lib/live.js'
+import { ChatSteps } from '../components/ChatSteps.js'
 import { StatusBadge } from '../components/Status.js'
 import { PageHead } from '../components/PageHead.js'
 import { RowMenu } from '../components/RowMenu.js'
@@ -315,18 +316,13 @@ function ChatGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (open && !d.open) d.showModal()
     if (!open && d.open) d.close()
   }, [open])
-  const mcpUrl = `${window.location.origin}/mcp`
   return (
     // Klick auf den abgedunkelten Rand schliesst (das Ziel ist dann das <dialog> selbst)
     <dialog ref={ref} className="dialog" aria-labelledby="chat-guide-h" onClose={onClose} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="dialog-body">
         <h2 id="chat-guide-h">Per Chat deployen</h2>
         <p className="dialog-lede">Claude legt Projekte über den MCP-Server von Airlock an, ohne Repo und ohne Formular. Einmal einrichten:</p>
-        <ol className="dialog-steps">
-          <li>Auf der Seite <Link to="/tokens">Tokens</Link> ein Token für den Client anlegen, z.B. «Claude Desktop».</li>
-          <li>In Claude den MCP-Server <code>{mcpUrl}</code> mit diesem Token eintragen. Für Claude Code steht dort der fertige Befehl.</li>
-          <li>Im Chat sagen, was auf den Server soll, z.B. «Stell diese Seite als hallo-welt online». Das Projekt erscheint danach hier.</li>
-        </ol>
+        <ChatSteps />
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>Schliessen</button>
           <Link className="button button-primary" to="/tokens">Zu den Tokens</Link>

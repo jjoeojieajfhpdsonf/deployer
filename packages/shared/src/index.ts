@@ -311,6 +311,21 @@ export const createProjectSchema = z
   })
 export type CreateProjectInput = z.infer<typeof createProjectSchema>
 
+/** UI-Qualität 5: Vorschau von Kurzname und Adresse beim Anlegen */
+export interface NamePreviewDto {
+  /** Kurzname aus dem Namen */
+  wanted: string
+  /** Kurzname, den das Projekt bekäme (bei Kollision «-2» usw.); leer, wenn keiner frei ist */
+  slug: string
+  /** Projekt, das den gewünschten Kurznamen schon trägt */
+  takenBy: { id: string; name: string } | null
+  /** Für Airlock selbst reserviert */
+  reserved: boolean
+  /** Interne Adresse (Tailnet/LAN) */
+  host: string | null
+  urls: string[]
+}
+
 export const updateProjectSchema = z.object({
   name: projectNameSchema.optional(),
   port: portSchema.optional(),

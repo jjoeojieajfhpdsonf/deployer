@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
-import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type NamePreviewDto, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
 import { containerSnapshot } from '../jobs/monitor.js'
 import { isOwnImage } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
@@ -12,7 +12,8 @@ import { dropArtifactDir } from '../deploy/workdir.js'
 import { activeDeployment, toDeploymentDto, effectiveKind } from './deployments.js'
 import { expiresAt } from '../jobs/expiry-rule.js'
 import { chatExpiryDays } from './expiry-settings.js'
-import { routeDtosFor, setRoutes, reconcileCaddy } from './routes.js'
+import { routeDtosFor, setRoutes, reconcileCaddy, urlsFor } from './routes.js'
+import { primaryHost, aliasHosts } from '../config.js'
 import { removePublic } from './public.js'
 import { replaceEnv } from './env.js'
 import { withFailure } from '../deploy/explain.js'
@@ -145,6 +146,21 @@ async function freeSlug(wanted: string): Promise<string> {
     if (!taken.has(candidate)) return candidate
   }
   throw conflict(`Kein freier Slug für "${wanted}" gefunden`)
+}
+
+/**
+ * UI-Qualität 5: Vorschau für «Neues Projekt» – welcher Kurzname und welche
+ * Adresse entstehen, und ist der gewünschte Kurzname schon belegt (dann gibt
+ * es «-2» usw., wie beim Anlegen). Ändert nichts.
+ */
+export async function previewName(name: string): Promise<NamePreviewDto> {
+  const wanted = slugify(name)
+  if (!wanted) return { wanted: '', slug: '', takenBy: null, reserved: false, host: null, urls: [] }
+  const owner = (await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.slug, wanted)).limit(1))[0] ?? null
+  const reserved = (RESERVED_SLUGS as readonly string[]).includes(wanted)
+  const slug = await freeSlug(wanted).catch(() => '')
+  const host = slug ? primaryHost(slug) : null
+  return { wanted, slug, takenBy: owner, reserved, host, urls: host ? urlsFor(host, aliasHosts(slug)) : [] }
 }
 
 export async function createProject(input: CreateProjectInput, actor: string): Promise<Row> {

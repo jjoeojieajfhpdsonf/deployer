@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { api, ApiError, type ProjectDto } from '../api.js'
 import { LogsTab } from '../components/LogsTab.js'
 import { StatusBadge } from '../components/Status.js'
@@ -43,7 +43,9 @@ export function ProjectDetail() {
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   const setTab = (t: Tab) => setParams(t === 'uebersicht' ? {} : { tab: t }, { replace: false })
-  const [watching, setWatching] = useState<string | null>(null)
+  // UI-Qualität 5: direkt nach «Anlegen und deployen» läuft der Fortschritt des ersten Deploys
+  const location = useLocation()
+  const [watching, setWatching] = useState<string | null>(() => (location.state as { watch?: string } | null)?.watch ?? null)
   const [announce, setAnnounce] = useState('')
   // «Löschen …» aus dem Menü: zur Rückfrage (Kurzname eintippen) in der Gefahrenzone der Einstellungen
   const [deleteRequested, setDeleteRequested] = useState(false)

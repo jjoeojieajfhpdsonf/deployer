@@ -1051,7 +1051,12 @@ a.tab { text-decoration: none; }
 /* Gruppen: Titel in der Karte, nicht als Kerbe in der Kante */
 .field-group, .notify-form fieldset { padding: 26px var(--sp-7) var(--sp-7); margin: 0 0 var(--sp-4); }
 .field-group legend, .notify-form legend { float: left; width: 100%; padding: 0; margin: 0 0 var(--sp-2); font-size: var(--fs-16); font-weight: 600; color: var(--ink); }
-.field-group legend + *, .notify-form legend + * { clear: both; }.field-group > label:first-of-type { margin-top: 6px; }
+.field-group legend + *, .notify-form legend + * { clear: both; }
+/* UI-Qualität 5: «Per Chat» als Abschnitt (kein Formularfeld), Überschrift wie eine Legende */
+.chat-source .legend { margin: 0 0 var(--sp-2); font-size: var(--fs-16); font-weight: 600; color: var(--ink); }
+.name-preview { display: grid; gap: 2px; }
+.name-preview p { margin: 0; }
+.name-preview svg { vertical-align: -3px; color: var(--warn); }.field-group > label:first-of-type { margin-top: 6px; }
 .choice { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 0; color: var(--ink); cursor: pointer; font-size: var(--fs-14); font-weight: 400; }
 .choice input { margin-top: 2px; flex: none; }
 .choice span { display: grid; gap: 2px; min-width: 0; }

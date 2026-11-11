@@ -6,6 +6,7 @@ import type {
   SiteAccessEntryDto,
   LogLineDto,
   LogLinesDto,
+  NamePreviewDto,
 } from '@airlock/shared'
 
 export type {
@@ -117,6 +118,8 @@ export const api = {
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>('/projects'),
   getProject: (id: string) => call<{ project: ProjectDto; env: EnvEntryDto[] }>(`/projects/${id}`),
+  /** UI-Qualität 5: Kurzname und Adresse vor dem Anlegen */
+  namePreview: (name: string) => call<{ preview: NamePreviewDto }>(`/projects/name-preview?name=${encodeURIComponent(name)}`),
   createProject: (input: unknown) =>
     call<{ project: ProjectDto; deployment: DeploymentDto | null }>('/projects', { method: 'POST', body: body(input) }),
   updateProject: (id: string, patch: unknown) =>

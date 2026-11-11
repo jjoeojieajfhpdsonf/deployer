@@ -10,7 +10,7 @@ import { checkSourceEarly } from '../../domain/source-checks.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import {
   listProjects, findProject, toDto, createProject, updateProject, deleteProject,
-  assertSourceSupported,
+  assertSourceSupported, previewName,
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
 import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
@@ -40,6 +40,11 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   await publicRoutes(app)
 
   app.get('/projects', async () => ({ projects: await listProjects() }))
+
+  // UI-Qualität 5: Kurzname und Adresse vor dem Anlegen, mit Kollisionsprüfung
+  app.get<{ Querystring: { name?: string } }>('/projects/name-preview', async (request) => ({
+    preview: await previewName(String(request.query.name ?? '').slice(0, 120)),
+  }))
 
   app.post('/projects', async (request, reply) => {
     const input = createProjectSchema.parse(request.body)

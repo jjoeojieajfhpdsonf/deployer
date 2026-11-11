@@ -38,6 +38,8 @@ function api(path: string, method: string, loggedIn: boolean, theme: 'light' | '
   if ((m = p.match(/^\/projects\/([^/]+)\/public$/))) return { body: fx.publicStatus(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/public\/progress$/))) return { body: { progress: fx.publishProgress(m[1]!) } }
   if (p === '/projects') return { body: { projects: count === undefined ? fx.projects : fx.projectsFor(count) } }
+  // Vor /projects/:id (sonst hielte es «name-preview» für eine Projekt-ID)
+  if (p === '/projects/name-preview') return { body: { preview: fx.namePreview(u.searchParams.get('name') ?? '') } }
   if ((m = p.match(/^\/projects\/([^/]+)$/))) return { body: { project: fx.allProjects.find((x) => x.id === m![1]) ?? fx.projects[0], env: fx.env(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/deployments$/))) return { body: { deployments: fx.deployments(m[1]!) } }
   if ((m = p.match(/^\/deployments\/([^/]+)$/))) {
@@ -219,6 +221,19 @@ const shots: Shot[] = [
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
     prepare: async (pg) => { await pg.locator('form button[type="submit"]').click(); await pg.waitForTimeout(200); await pg.evaluate(() => window.scrollTo(0, 0)) },
   },
+  // UI-Qualität 5: Vorschau mit Kollision (Kurzname «fotoalbum» ist belegt), fünfte Quelle «Per Chat»,
+  // Meldung beim Verlassen eines Felds (ohne Absenden)
+  {
+    group: 'formulare', name: 'neues-projekt-vorschau', path: '/projekte/neu', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('Fotoalbum')
+      await pg.locator('.name-preview code').filter({ hasText: /^fotoalbum-2$/ }).waitFor()
+      await pg.getByLabel('Image', { exact: true }).fill('nginx alpine')
+      await pg.getByLabel('Port im Container').focus()
+      await pg.waitForTimeout(200)
+    },
+  },
+  { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
   { group: 'security', name: 'security-global', path: '/security' },
   { group: 'security', name: 'externe-ziele', path: '/extern' },

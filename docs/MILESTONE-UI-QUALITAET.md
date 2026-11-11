@@ -20,7 +20,7 @@ Aktivität, Deployments-Liste), wird erweitert, nicht doppelt gebaut.
 | 2 | Fehler erklären: Muster aus Build-/Container-Log und Healthcheck, auch im MCP-Ergebnis | erledigt; Ändern von Port/RAM ausserhalb der Fehlerbox offen, Frage Nr. 8 |
 | 3 | Seitentitel, Favicon-Punkt, Server-Sent Events statt Polling | erledigt |
 | 4 | Logs: Werkzeugleiste, Zeiten, Compose-Dienste, Zugriffe im gleichen Muster | erledigt |
-| 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | geplant |
+| 5 | Neues Projekt: Validierung, Vorschau der Adresse, «Per Chat», Deploy-Fortschritt | erledigt |
 | 6 | Informationsarchitektur: Seitenleiste, Weiterleitungen, Badges, Cloudflare-Zusammenfassung, Breadcrumbs | geplant |
 | 7 | Schweregrade und Farbregeln, Schriftskala (nichts unter 12 px) | geplant |
 | 8 | Sitzung, ungespeicherte Änderungen, Löschen mit Namen, Token-Befehle, Benachrichtigungen | geplant |
@@ -242,6 +242,20 @@ Befunde aus dem Gutachten (behoben):
   gleichen Beispielen. Vorschau unter dem Namen (Slug, Adressen) mit Kollisionsprüfung. Fünfte
   Quelle «Per Chat» mit Anleitung und Link zu Tokens. Nach dem Anlegen zur Projektseite mit
   laufendem Deploy-Fortschritt.
+
+Umsetzung:
+- Prüfung beim Verlassen eines Felds, sobald darin getippt wurde (nicht beim blossen Durchtabben,
+  nicht während des Tippens), und beim Absenden alles (`lib/form.ts`, gilt für alle Formulare).
+- Gleiche Beispiele: Platzhalter, Hinweis und Fehlermeldung nennen dasselbe (Name «Solarertrag
+  heute», Image «nginx:alpine», Repo «https://github.com/user/app.git» …); die Quelle «Fertiges
+  Image» nennt ebenfalls nginx:alpine.
+- Vorschau unter dem Namen: Kurzname und Adresse vom Server (`GET /projects/name-preview`, gleiche
+  Regeln wie beim Anlegen); ist der Kurzname belegt oder reserviert, steht es mit Link zum Projekt
+  da und welcher Kurzname stattdessen entsteht («fotoalbum-2»).
+- Fünfte Quelle «Per Chat»: Anleitung (dieselbe wie im Dialog der Projektliste, `ChatSteps`) und
+  «Token anlegen» statt Formular.
+- Nach «Anlegen und deployen» zeigt die Projektseite gleich den Fortschritt des ersten Deploys.
+- Szenen: `neues-projekt-vorschau` (Kollision, Meldung beim Verlassen), `neues-projekt-chat`.
 
 ### 6 – Informationsarchitektur
 - Seitenleiste: Projekte, Security, Audit, System. Domains → System › Cloudflare & HTTPS, Externe
