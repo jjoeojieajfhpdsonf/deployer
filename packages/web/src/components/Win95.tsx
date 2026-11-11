@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, type MeDto } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
 import { currentTheme, subscribeTheme } from '../lib/theme.js'
-import { fmtTime } from '../lib/dates.js'
 import { konamiDone, konamiStep, versionClick, VERSION_CLICKS } from '../lib/easter-egg.js'
 
 /**
@@ -15,7 +14,7 @@ import { konamiDone, konamiStep, versionClick, VERSION_CLICKS } from '../lib/eas
  * «Darstellung». Kein Ton, nur die Meldung.
  *
  * Aussehen: fast alles über Tokens und einen Zusatz-Block in styles.css.
- * Einzige Theme-Verzweigung im JSX ist die Taskleiste (aria-hidden, reine Deko).
+ * Fenster, Taskleiste und Startmenü: Win95Desktop.tsx.
  */
 
 /** Freischalten (einmal): Server speichern, Profil im Cache nachführen, Meldung zeigen. */
@@ -71,25 +70,3 @@ export function useVersionClicks(): () => void {
 }
 
 export const useIsWin95 = () => useSyncExternalStore(subscribeTheme, () => currentTheme() === 'win95', () => false)
-
-const clock = () => fmtTime(Date.now())
-
-/** Taskleiste unten: «Start» und Uhrzeit. Nur bei «Windows 95», reine Deko (aria-hidden). */
-export function Taskbar() {
-  const on = useIsWin95()
-  const [now, setNow] = useState(clock)
-  useEffect(() => {
-    if (!on) return
-    setNow(clock())
-    const t = setInterval(() => setNow(clock()), 15_000)
-    return () => clearInterval(t)
-  }, [on])
-  if (!on) return null
-  return (
-    <div className="w95-taskbar" aria-hidden="true">
-      <span className="w95-start"><span className="w95-logo" />Start</span>
-      <span className="w95-task">Airlock</span>
-      <span className="w95-tray num">{now}</span>
-    </div>
-  )
-}

@@ -2395,14 +2395,59 @@ kbd + kbd { margin-left: 4px; }
 }
 :root[data-theme='win95'] .topbar { margin-bottom: var(--sp-4); }
 
-/* Taskleiste: nur in diesem Theme gerendert (Win95.tsx, aria-hidden) */
+/* Symbole der Fenster-Knöpfe (16×14, schwarz): minimieren, maximieren, wiederherstellen, schliessen */
+:root[data-theme='win95'] {
+  --w95-g-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='14' shape-rendering='crispEdges'%3E%3Crect x='4' y='9' width='6' height='2'/%3E%3C/svg%3E");
+  --w95-g-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='14' shape-rendering='crispEdges'%3E%3Cpath d='M3.5 2.5h8v8h-8z' fill='none' stroke='%23000'/%3E%3Crect x='3' y='2' width='9' height='2'/%3E%3C/svg%3E");
+  --w95-g-restore: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='14' shape-rendering='crispEdges'%3E%3Cpath d='M5.5 1.5h6v6h-6z' fill='none' stroke='%23000'/%3E%3Crect x='5' y='1' width='7' height='2'/%3E%3Crect x='2' y='4' width='7' height='7' fill='%23c0c0c0'/%3E%3Cpath d='M2.5 4.5h6v6h-6z' fill='none' stroke='%23000'/%3E%3Crect x='2' y='4' width='7' height='2'/%3E%3C/svg%3E");
+  --w95-g-close: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='14'%3E%3Cpath d='M4 3l7 7M11 3l-7 7' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");
+  --w95-app: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12' shape-rendering='crispEdges'%3E%3Crect x='0.5' y='0.5' width='13' height='11' fill='%23fff' stroke='%23000'/%3E%3Crect x='1' y='1' width='12' height='3' fill='%23000080'/%3E%3C/svg%3E");
+}
+
+/* --- Fenster-Knöpfe _ □ ✕ (Win95Desktop.tsx hängt sie an; Maus wie im Original) --- */
+.w95-caption { position: absolute; z-index: 3; top: 5px; right: 5px; display: flex; height: 14px; }
+:root[data-theme='win95'] .main > .w95-caption { top: 6px; right: 6px; }
+.w95-cap {
+  width: 16px;
+  height: 14px;
+  background: #c0c0c0 var(--w95-g) 0 0 / 16px 14px no-repeat;
+  box-shadow: inset -1px -1px 0 #000000, inset 1px 1px 0 #ffffff, inset -2px -2px 0 #808080, inset 2px 2px 0 #dfdfdf;
+  cursor: default;
+}
+.w95-cap:active { background-position: 1px 1px; box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 #ffffff, inset 2px 2px 0 #808080, inset -2px -2px 0 #dfdfdf; }
+.w95-cap-min { --w95-g: var(--w95-g-min); }
+.w95-cap-max { --w95-g: var(--w95-g-max); }
+.w95-cap-close { --w95-g: var(--w95-g-close); margin-left: 2px; }
+[data-w95='max'] > .w95-caption .w95-cap-max,
+.shell[data-w95-main='max'] > .main > .w95-caption .w95-cap-max { --w95-g: var(--w95-g-restore); }
+/* Mit echten Knöpfen fällt das gemalte Bild weg */
+:root[data-theme='win95'] :has(> .w95-caption)::after { content: none; }
+
+/* Zustände: minimiert und geschlossen weg, maximiert füllt den Bildschirm über der Taskleiste */
+:root[data-theme='win95'] :is([data-w95='min'], [data-w95='closed']) { display: none !important; }
+:root[data-theme='win95'] [data-w95='max'] {
+  position: fixed !important;
+  inset: 0 0 30px 0;
+  z-index: 35;
+  width: auto;
+  max-width: none;
+  margin: 0 !important;
+  overflow: auto;
+}
+/* Hauptfenster maximiert: ohne Seitenleiste und Rand; minimiert: nur noch Desktop und Taskleiste */
+:root[data-theme='win95'] .shell[data-w95-main='max'] { grid-template-columns: minmax(0, 1fr); }
+:root[data-theme='win95'] .shell[data-w95-main='max'] > .rail { display: none; }
+:root[data-theme='win95'] .shell[data-w95-main='max'] > .main { margin: 0; min-height: calc(100vh - 30px); }
+:root[data-theme='win95'] .shell[data-w95-main='min'] > :is(.rail, .main) { display: none; }
+
+/* Taskleiste: Start, Programme, Uhr (Win95Desktop.tsx) */
 .w95-taskbar {
   position: fixed;
   inset: auto 0 0 0;
   z-index: 40;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   height: 30px;
   padding: 2px 3px;
   background: #c0c0c0;
@@ -2411,20 +2456,58 @@ kbd + kbd { margin-left: 4px; }
   font: 12px/1 var(--font);
   user-select: none;
 }
-.w95-start,
-.w95-task {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 6px;
-  box-shadow: inset -1px -1px 0 #000000, inset 1px 1px 0 #dfdfdf, inset -2px -2px 0 #808080, inset 2px 2px 0 #ffffff;
-}
-.w95-start { font-weight: 700; }
+/* Nur die Knöpfe der Leiste selbst (nicht die im Startmenü, Beenden-Dialog oder Schlussbild) */
+:root[data-theme='win95'] .w95-taskbar > button,
+:root[data-theme='win95'] .w95-taskbar > .w95-start-menu > button { min-height: 22px; height: 22px; gap: 4px; padding: 0 6px; font: 12px/1 var(--font); }
+:root[data-theme='win95'] .w95-taskbar > .w95-start-menu > .w95-start { font-weight: 700; margin-right: 3px; }
+:root[data-theme='win95'] .w95-taskbar > .w95-start-menu > .w95-start[aria-expanded='true'] { box-shadow: var(--w95-sunken); }
 .w95-logo { width: 16px; height: 14px; background: var(--w95-logo); }
-/* Laufendes Programm: gedrückt */
-.w95-task { min-width: 150px; margin-left: 4px; background: #dfdfdf; box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 #ffffff, inset 2px 2px 0 #808080, inset -2px -2px 0 #dfdfdf; font-weight: 700; }
+:root[data-theme='win95'] .w95-taskbar .w95-task { flex: 0 1 160px; min-width: 0; justify-content: flex-start; }
+/* Aktives Fenster: gedrückt, hell gerastert */
+:root[data-theme='win95'] .w95-taskbar .w95-task[aria-pressed='true'] {
+  background: repeating-conic-gradient(#ffffff 0 25%, #c0c0c0 0 50%) 0 0 / 2px 2px;
+  box-shadow: var(--w95-sunken);
+  font-weight: 700;
+}
+.w95-task-icon { flex: none; width: 14px; height: 12px; background: var(--w95-app); }
+.w95-task-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w95-tray { margin-left: auto; height: 22px; padding: 0 10px; display: inline-flex; align-items: center; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff; }
+
+/* Startmenü: öffnet nach oben, links das senkrechte Band */
+:root[data-theme='win95'] .w95-start-menu .menu-list {
+  top: auto;
+  bottom: calc(100% + 5px);
+  left: -3px;
+  right: auto;
+  min-width: 220px;
+  padding: 3px 3px 3px 30px;
+  transform-origin: bottom left;
+}
+:root[data-theme='win95'] .w95-start-menu .menu-list::before {
+  content: 'Airlock 95' / '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 22px;
+  padding: 6px 0;
+  background: linear-gradient(0deg, #000080, #1084d0);
+  color: #c0c0c0;
+  font: 700 16px/22px var(--font);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+/* «Airlock beenden» */
+.w95-quit { width: min(380px, calc(100vw - 32px)); }
+/* Windows-Knöpfe in Dialogen: mindestens 75 px breit */
+:root[data-theme='win95'] .dialog-actions button { min-width: 75px; }
+/* «Herunterfahren» gesperrt: grau mit weissem Schatten wie im Original, Begründung darunter in Lesefarbe */
+.w95-quit-off > span { color: #808080; text-shadow: 1px 1px 0 #ffffff; }
+.w95-quit-off small { display: block; color: var(--muted); text-shadow: none; }
+.w95-quit-options { display: grid; gap: 6px; margin: 4px 0 0; padding: 0; border: none; }
+.w95-quit-options legend { margin-bottom: 6px; padding: 0; }
 
 /* Meldungen über der Taskleiste */
 :root[data-theme='win95'] [data-sonner-toaster][data-y-position='bottom'] { margin-bottom: 30px; }
