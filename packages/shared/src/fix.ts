@@ -62,6 +62,17 @@ export function headerFixFor(f: { tool: string; title: string }): HeaderKey | nu
   return null
 }
 
+/**
+ * Antwort 7: Befund von ZAP zur Qualität einer vorhandenen CSP (Regel 10055,
+ * Titel «CSP: Wildcard Directive», «CSP: script-src unsafe-inline» …; ältere
+ * ZAP-Versionen «CSP Scanner: …»). Bleibt ein ZAP-Befund; die Aktion führt
+ * zum CSP-Ablauf (Report-Only, Vorschlag aus den Meldungen). Die fehlende
+ * CSP (10038) meldet der eigene Header-Check, nicht ZAP.
+ */
+export function isCspQualityFinding(f: { tool: string; title: string }): boolean {
+  return f.tool === 'zap' && /^CSP(?: Scanner)?\s*:/i.test(f.title.trim())
+}
+
 /** Werte prüfen: keine Zeilenumbrüche (Header-Injection), vernünftige Länge. */
 const headerValue = z
   .string()

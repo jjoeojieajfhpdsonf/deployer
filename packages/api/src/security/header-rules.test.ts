@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { headerFixFor, headerValueProblem, needsConfirmation, HEADER_DEFAULT } from '@airlock/shared'
+import { headerFixFor, headerValueProblem, isCspQualityFinding, needsConfirmation, HEADER_DEFAULT } from '@airlock/shared'
+import { parseZap } from './parsers.js'
 import { headerHandlers, xfoFor, parseCspReports, normalizeBlocked, baseDirective, suggestCsp, parsePolicy, type HeaderRuleSpec } from './header-rules.js'
 import { buildCaddyConfig, PROBE_SERVER, type RouteSpec } from '../drivers/caddy-config.js'
 import { checkHeaders } from './headers.js'
@@ -64,6 +65,28 @@ describe('Befund -> Header und Werte', () => {
     assert.equal(map['Referrer-Policy fehlt'], 'referrer-policy')
     assert.equal(map['Strict-Transport-Security fehlt'], 'strict-transport-security')
     assert.equal(headerFixFor({ tool: 'zap', title: 'Referrer-Policy fehlt' }), null, 'nur eigener Header-Check')
+  })
+
+  test('ZAP 10055 (CSP-Qualität) bleibt ZAP-Befund und führt zum CSP-Ablauf', () => {
+    for (const title of ['CSP: Wildcard Directive', 'CSP: script-src unsafe-inline', 'CSP: Failure to Define Directive with No Fallback', 'CSP Scanner: Wildcard Directive']) {
+      assert.equal(isCspQualityFinding({ tool: 'zap', title }), true, title)
+      assert.equal(headerFixFor({ tool: 'zap', title }), null, `${title}: kein «Header setzen»`)
+    }
+    // Fehlende CSP meldet der Header-Check (eigene Aktion); andere ZAP-Befunde und andere Werkzeuge nicht
+    assert.equal(isCspQualityFinding({ tool: 'header-check', title: 'Content-Security-Policy fehlt' }), false)
+    assert.equal(isCspQualityFinding({ tool: 'zap', title: 'Content Security Policy (CSP) Header Not Set' }), false)
+    assert.equal(isCspQualityFinding({ tool: 'zap', title: 'Session-Cookie ohne Secure-Attribut' }), false)
+    assert.equal(isCspQualityFinding({ tool: 'nuclei', title: 'CSP: Wildcard Directive' }), false)
+  })
+
+  test('ZAP-Bericht: 10055 bleibt als Befund mit dem Titel von ZAP stehen', () => {
+    const doc = { site: [{ '@name': 'http://a.example', alerts: [
+      { pluginid: '10055', name: 'CSP: Wildcard Directive', riskcode: '2', desc: 'x', solution: 'y', instances: [{ uri: 'http://a.example/' }] },
+      { pluginid: '10038', name: 'Content Security Policy (CSP) Header Not Set', riskcode: '2', desc: 'x', solution: 'y', instances: [{ uri: 'http://a.example/' }] },
+    ] }] }
+    const out = parseZap(doc)
+    assert.deepEqual(out.map((f) => f.title), ['CSP: Wildcard Directive'])
+    assert.equal(isCspQualityFinding(out[0]!), true)
   })
 
   test('mit allen Regeln (über Caddy) meldet der Check keinen Header-Befund mehr', () => {

@@ -326,10 +326,14 @@ export function failureNextStep(e: FailureExplanation): string {
       ? `Wert der Umgebungsvariable ${a.name} in Airlock prüfen (Projekt › Einstellungen › Umgebung), dann neu deployen.`
       : `Umgebungsvariable ${a.name} in Airlock anlegen (Projekt › Einstellungen › Umgebung), dann neu deployen.`
     case 'set_field': {
+      // Antwort 8: dieselben Felder in der Oberfläche (Einstellungen › Container) und im MCP (update_project)
       const what = a.field === 'port' ? 'Port' : a.field === 'healthcheckPath' ? 'Healthcheck-Pfad' : 'RAM-Grenze'
+      const where = '(update_project oder Projekt › Einstellungen › Container)'
       return a.value !== null
-        ? `${what} des Projekts in Airlock auf ${a.value} ändern (Fehlerbox der Projektseite), dann neu deployen.`
-        : `${what} des Projekts in Airlock anpassen (Fehlerbox der Projektseite), dann neu deployen.`
+        ? `${what} des Projekts in Airlock auf ${a.value} ändern ${where}, dann neu deployen.`
+        : a.field === 'memoryLimitMb'
+        ? `RAM-Grenze des Projekts in Airlock erhöhen, etwa verdoppeln ${where}, dann neu deployen.`
+        : `${what} des Projekts in Airlock anpassen ${where}, dann neu deployen.`
     }
     case 'change_source': return 'Quelle des Projekts prüfen und korrigieren (Image-Name, Tag, Repo).'
     case 'redeploy': return 'Neu deployen (deploy).'

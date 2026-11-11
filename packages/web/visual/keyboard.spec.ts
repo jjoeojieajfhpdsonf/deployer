@@ -184,6 +184,32 @@ test('Cloudflare: «Token ersetzen» aus der Zusammenfassung fokussiert das Feld
   await page.context().close()
 })
 
+test('Fehlerbox «Grenze erhöhen» per Tastatur: Einstellungen › Container, RAM fokussiert mit dem Vorschlag', async ({ browser }) => {
+  const page = await open(browser, 'fehler-speicher')
+  await page.getByRole('button', { name: 'Grenze erhöhen' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/tab=einstellungen/)
+  const ram = page.locator('#ct-memoryLimitMb')
+  await expect(ram).toBeFocused()
+  // 512 MB verdoppelt; der Server hat genug frei
+  await expect(ram).toHaveValue('1024')
+  // «Abbrechen» zeigt wieder den gespeicherten Wert; der Fokus geht auf «Bearbeiten», nicht auf <body>
+  await page.locator('#set-container').getByRole('button', { name: 'Abbrechen' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#set-container')).toContainText('512 MB')
+  await expect(page.locator('#set-container').getByRole('button', { name: 'Bearbeiten' })).toBeFocused()
+  await page.context().close()
+})
+
+test('ZAP-Befund zur CSP-Qualität: «Zum CSP-Ablauf» fokussiert die CSP unter «Header über Caddy»', async ({ browser }) => {
+  const page = await open(browser, 'security-csp-qualitaet')
+  const card = page.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
+  await card.getByRole('button', { name: 'Zum CSP-Ablauf' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#header-caddy-csp-title')).toBeFocused()
+  await page.context().close()
+})
+
 test('Kürzel «g s» führt zu Security', async ({ browser }) => {
   const page = await open(browser, 'projekte')
   await page.locator('body').click({ position: { x: 5, y: 5 } })

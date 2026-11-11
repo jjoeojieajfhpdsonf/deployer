@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets, updateProjectSchema, portSchema, healthcheckPathSchema } from '@airlock/shared'
+import { createProjectSchema, sourceSchema, envEntryInputSchema, fileInputSchema, routeTargets, updateProjectSchema, portSchema, healthcheckPathSchema, cpuLimitSchema, memoryLimitSchema } from '@airlock/shared'
 import { listProjects, findProject, findProjectForServerJob, toDto, createProject, deleteProject, updateProject, assertSourceSupported } from '../domain/projects.js'
 import { listDeployments, getDeployment, activeDeployment, toDeploymentDto } from '../domain/deployments.js'
 import { listEnvDto } from '../domain/env.js'
@@ -346,8 +346,9 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     project,
     port: portSchema.optional().describe('Port, auf dem die App im Container lauscht'),
     healthcheck_path: healthcheckPathSchema.optional().describe('Pfad für den Healthcheck, z.B. /health'),
-    cpu_limit: z.number().min(0.1).max(16).optional().describe('CPU-Grenze in Kernen, 0.1–16'),
-    memory_limit_mb: z.number().int().min(64).max(32768).optional().describe('RAM-Grenze in MB, 64–32768'),
+    // Dieselben Grenzen und deutschen Meldungen wie Oberfläche und REST
+    cpu_limit: cpuLimitSchema.optional().describe('CPU-Grenze in Kernen, 0.1–16'),
+    memory_limit_mb: memoryLimitSchema.optional().describe('RAM-Grenze in MB, 64–32768'),
     deploy: z.boolean().optional().describe('Danach neu deployen, damit die Werte gleich gelten'),
   }, async (a) => {
     const p = await findProject(scope, a.project)

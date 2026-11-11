@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, type HeaderKey, type HeaderMode } from '@airlock/shared'
+import { HEADER_DEFAULT, HEADER_LABEL, headerFixFor, isCspQualityFinding, type HeaderKey, type HeaderMode } from '@airlock/shared'
 import { api, type FindingDto, type HeaderRecheckDto, type HeaderRuleDto, type HeaderRulesDto } from '../api.js'
 import { relativeTime } from '../lib/format.js'
 import { poll } from '../lib/live.js'
@@ -137,6 +137,7 @@ export function HeaderFixAction({
   const key = headerFixFor(finding)
   const c = useConfirm()
   const m = useHeaderMutation(projectId, onDone)
+  if (isCspQualityFinding(finding) && finding.status === 'open' && rules) return <CspFlowAction rules={rules} />
   if (!key || finding.status !== 'open' || !rules) return null
   const rule = rules.rules.find((r) => r.header === key)
 
@@ -189,6 +190,35 @@ export function HeaderFixAction({
         </button>
       )}
       {hstsBlocked && <span id={reasonId} className="fix-note">{rules.hsts.reason}</span>}
+    </>
+  )
+}
+
+/**
+ * Antwort 7: ZAP-Befund zur Qualität der CSP (10055). Bleibt ein ZAP-Befund;
+ * verbessern lässt sich die Regel im CSP-Ablauf unter «Header über Caddy»
+ * (Report-Only, Verstösse, Vorschlag). Setzt die App die CSP selbst, ergänzt
+ * Caddy sie nicht – dann gibt es dort nichts zu tun.
+ */
+function CspFlowAction({ rules }: { rules: HeaderRulesDto }) {
+  const rule = rules.rules.find((r) => r.header === 'content-security-policy')
+  if (!rule) return <span className="fix-note">Die CSP setzt die App selbst; anpassen lässt sie sich nur im Code.</span>
+  return (
+    <>
+      <button
+        type="button"
+        className="button-small button-primary"
+        onClick={() => {
+          const el = document.getElementById('header-caddy-csp')
+          if (!el) return
+          const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+          document.getElementById('header-caddy-csp-title')?.focus({ preventScroll: true })
+        }}
+      >
+        Zum CSP-Ablauf
+      </button>
+      <span className="fix-note">{rule.mode === 'report-only' ? 'CSP läuft über Caddy als Report-Only.' : 'CSP läuft über Caddy.'}</span>
     </>
   )
 }
@@ -298,8 +328,9 @@ export function HeaderRulesSection({ projectId }: { projectId: string }) {
       <div role="status" aria-live="polite" className="fix-live">{notice && <p className="fix-notice">{notice}</p>}</div>
 
       {csp && (
-        <div className="csp-reports">
-          <h3>CSP-Verstösse <span className="muted findings-count">{d.csp.total.toLocaleString('de-CH')}</span></h3>
+        <div className="csp-reports" id="header-caddy-csp">
+          {/* Ziel von «Zum CSP-Ablauf» am ZAP-Befund (Fokus ohne Tab-Stopp) */}
+          <h3 id="header-caddy-csp-title" tabIndex={-1}>CSP-Verstösse <span className="muted findings-count">{d.csp.total.toLocaleString('de-CH')}</span></h3>
           {d.csp.violations.length === 0 ? (
             <p className="hint">
               Noch keine Meldungen. Benutze die Seite im Browser; Browser melden jeden Verstoss an die Seite selbst

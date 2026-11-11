@@ -323,6 +323,19 @@ export const healthcheckPathSchema = z
   .startsWith('/', 'Der Pfad beginnt mit /, z.B. / oder /health')
   .max(512, 'Höchstens 512 Zeichen')
 
+/** CPU-Grenze in Kernen (1 = ein voller Kern) */
+export const cpuLimitSchema = z
+  .number({ invalid_type_error: 'Gib die CPU-Grenze als Zahl an, z.B. 1 oder 0.5', required_error: 'Gib die CPU-Grenze an, z.B. 1' })
+  .min(0.1, 'Mindestens 0.1 CPU')
+  .max(16, 'Höchstens 16 CPU')
+
+/** RAM-Grenze in MB */
+export const memoryLimitSchema = z
+  .number({ invalid_type_error: 'Gib die RAM-Grenze in MB an, z.B. 512', required_error: 'Gib die RAM-Grenze an, z.B. 512' })
+  .int('Ganze Megabyte, z.B. 512 oder 1024')
+  .min(64, 'Mindestens 64 MB')
+  .max(32768, 'Höchstens 32768 MB')
+
 /** Öffentlicher Name (M5): Form hier, Zone und Belegung prüft der Server. */
 export const publicHostnameSchema = z
   .string()
@@ -343,8 +356,8 @@ export const createProjectSchema = z
     // Tailscale ist die Hauptadresse des Servers; LAN braucht für eigene Namen einen lokalen DNS
     targets: z.array(z.enum(routeTargets)).default(['tailnet']),
     subdomain: slugSchema.optional(),
-    cpuLimit: z.number().min(0.1).max(16).optional(),
-    memoryLimitMb: z.number().int().min(64).max(32768).optional(),
+    cpuLimit: cpuLimitSchema.optional(),
+    memoryLimitMb: memoryLimitSchema.optional(),
     keep: z.boolean().default(false),
     deploy: z.boolean().default(true),
     /** M3: Anfangsdateien bei Quelle files. Grenzen prüft der Server. */
@@ -392,8 +405,8 @@ export const updateProjectSchema = z.object({
   name: projectNameSchema.optional(),
   port: portSchema.optional(),
   healthcheckPath: healthcheckPathSchema.optional(),
-  cpuLimit: z.number().min(0.1).max(16).optional(),
-  memoryLimitMb: z.number().int().min(64).max(32768).optional(),
+  cpuLimit: cpuLimitSchema.optional(),
+  memoryLimitMb: memoryLimitSchema.optional(),
   keep: z.boolean().optional(),
   source: sourceSchema.optional(),
 }).superRefine((v, ctx) => {

@@ -105,6 +105,8 @@ type Shot = {
   cfDone?: boolean
   /** CSP-Fix: CSP nach fehlgeschlagener Funktionsprüfung zurück auf Report-Only */
   cspReverted?: boolean
+  /** Antwort 7: Scan-Bericht mit einem ZAP-Befund zur CSP-Qualität (10055) */
+  cspQuality?: boolean
   /** API nicht erreichbar (/auth/me antwortet mit 502) */
   offline?: boolean
   /** Diese API-Pfade antworten nie (Ladezustand) */
@@ -149,10 +151,18 @@ const shots: Shot[] = [
     group: 'fehler', name: 'fehler-build-claude', path: '/projekte/p-fehler-build', full: false, el: '.failure',
     prepare: async (pg) => { await pg.getByRole('button', { name: 'Mit Claude lösen' }).click(); await pg.waitForTimeout(200) },
   },
+  // Antwort 8: Port, Healthcheck-Pfad und RAM ändert man unter Einstellungen › Container; die Box zeigt den Knopf
   { group: 'fehler', name: 'fehler-port', path: '/projekte/p-fehler-port', full: false, el: '.failure' },
+  { group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure' },
   {
-    group: 'fehler', name: 'fehler-speicher', path: '/projekte/p-fehler-oom', full: false, el: '.failure',
-    prepare: async (pg) => { await pg.getByRole('button', { name: 'Grenze erhöhen' }).click(); await pg.waitForTimeout(200) },
+    // «Grenze erhöhen» springt zum Abschnitt Container: RAM fokussiert, mit Vorschlag und Verbrauch
+    // Kantenglättung der klebenden Sprungnavigation schwankt (wie projekt-einstellungen), sichtbar gleich
+    group: 'fehler', name: 'fehler-grenze-vorschlag', path: '/projekte/p-fehler-oom', full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Grenze erhöhen' }).click()
+      await pg.locator('#ct-memoryLimitMb:focus').waitFor()
+      await pg.waitForTimeout(300)
+    },
   },
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
@@ -189,6 +199,16 @@ const shots: Shot[] = [
     group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security`, full: false, cspReverted: true,
     prepare: async (pg) => {
       await pg.locator('#header-caddy-title').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
+      await pg.waitForTimeout(150)
+    },
+  },
+  // Antwort 7: CSP-Qualität (ZAP 10055) bleibt ZAP-Befund, mit «Zum CSP-Ablauf»
+  {
+    group: 'csp', name: 'security-csp-qualitaet', path: `/projekte/${S}?tab=security`, full: false, cspQuality: true,
+    prepare: async (pg) => {
+      const card = pg.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
+      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
@@ -236,6 +256,14 @@ const shots: Shot[] = [
   },
   // Kantenglättung der klebenden Sprungnavigation schwankt (wie veroeffentlichung-*), sichtbar gleich
   { group: 'projekte', name: 'projekt-einstellungen', path: `/projekte/${P}?tab=einstellungen`, maxDiff: 600 },
+  {
+    // Antwort 8: Abschnitt Container (nur bei Projekten mit Container) mit Verbrauch neben den Grenzen
+    group: 'projekte', name: 'einstellungen-container', path: `/projekte/${P}?tab=einstellungen`, full: false, maxDiff: 600,
+    prepare: async (pg) => {
+      await pg.locator('#set-container').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.waitForTimeout(300)
+    },
+  },
   {
     group: 'formulare', name: 'neues-projekt-validierung', path: '/projekte/neu',
     prepare: async (pg) => { await pg.locator('form button[type="submit"]').click(); await pg.waitForTimeout(200); await pg.evaluate(() => window.scrollTo(0, 0)) },
@@ -818,6 +846,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: 'light' | '
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             if (s.cfDone && (path === '/api/v1/cloudflare' || url.pathname === '/api/v1/system/cloudflare')) return json(route, { ...fx.cloudflare, tls: { ...fx.cloudflare.tls, phase: 'done' } })
             if (s.cspReverted && url.pathname.endsWith('/header-rules')) return json(route, fx.headerRules(fx.securityProjectId, true))
+            if (s.cspQuality && url.pathname.endsWith(`/projects/${fx.securityProjectId}/scans/latest`)) {
+              const r = api(url.pathname + url.search, 'GET', true, t, s.count).body as { report: import('@airlock/shared').ScanReportDto | null }
+              return json(route, { report: r.report ? fx.withCspQuality(r.report) : null })
+            }
             const r = api(url.pathname + url.search, route.request().method(), s.loggedIn !== false, t, s.count)
             if (s.legacy && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') {
               const b = r.body as { project: object }

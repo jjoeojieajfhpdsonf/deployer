@@ -799,6 +799,12 @@ a.tab { text-decoration: none; }
 .set-row-note { margin: 0; padding: var(--sp-4) var(--sp-7); font-size: var(--fs-13); color: var(--muted); }
 .set-inline-form { display: grid; gap: var(--sp-2); max-width: 560px; }
 .set-inline-form .field { margin: 0; }
+/* Antwort 8: Container – Port und Healthcheck, darunter CPU und RAM */
+.ct-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--sp-6); max-width: 760px; }
+.ct-fields .hint { margin-bottom: 0; }
+.ct-fields label { margin-top: var(--sp-4); }
+.ct-fields .field:nth-child(-n + 2) label { margin-top: 0; }
+.set-row-block .ct-fields + .form-actions { margin-top: var(--sp-6); }
 .set-disclose { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-13) !important; color: var(--muted) !important; text-decoration: none !important; }
 .set-disclose svg { transition: transform 200ms var(--ease-out); }
 .set-disclose[aria-expanded='true'] svg { transform: rotate(180deg); }
@@ -1520,7 +1526,8 @@ details > summary:hover { color: var(--ink); }
 .header-value { font-size: var(--fs-13); overflow-wrap: anywhere; }
 .header-rules-table td { white-space: nowrap; }
 .header-rules-table td:nth-child(2) { white-space: normal; width: 100%; }
-.csp-reports { margin-top: var(--sp-6); }
+.csp-reports { margin-top: var(--sp-6); scroll-margin-top: var(--sp-6); }
+.csp-reports h3:focus { outline: none; }
 .csp-reports h3 { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-3); font-size: var(--fs-16); }
 .csp-reports .table-scroll { margin-bottom: var(--sp-3); }
 .csp-notes { padding-left: var(--sp-5); max-width: none; }

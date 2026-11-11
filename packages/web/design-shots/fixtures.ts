@@ -404,10 +404,12 @@ export const deployLog = [
 
 export function health(id: string): ProjectHealthDto {
   const failed = id === 'p-wetter'
+  // Antwort 8: Bildarchiv (Speichergrenze 512 MB) läuft mit der alten Fassung knapp unter der Grenze
+  const tight = id === 'p-fehler-oom'
   const samples = Array.from({ length: 60 }, (_, i) => ({
     at: new Date(Date.now() - (59 - i) * MIN).toISOString(),
     cpu: Math.round((0.12 + 0.08 * Math.sin(i / 5) + (i > 44 && i < 50 ? 0.35 : 0)) * 100) / 100,
-    memMb: Math.round(310 + 40 * Math.sin(i / 9) + i * 1.2),
+    memMb: tight ? Math.round(402 + i * 1.5 + 8 * Math.sin(i / 4)) : Math.round(310 + 40 * Math.sin(i / 9) + i * 1.2),
   }))
   return {
     kind: 'compose',
@@ -501,6 +503,25 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
 }
 
 /** Befunde des letzten abgeschlossenen Scans je Projekt */
+/** Antwort 7: ZAP-Befund zur Qualität der CSP (Regel 10055) – nur in der Szene «security-csp-qualitaet» */
+export const cspQualityFinding: FindingDto = {
+  id: 'f10', tool: 'zap', severity: 'medium', title: 'CSP: Failure to Define Directive with No Fallback', location: 'https://kontoauszug-reader.int.example.ch/',
+  description: 'Die Content-Security-Policy legt frame-ancestors nicht fest; für diese Direktive gilt default-src nicht.',
+  fix: 'Die fehlende Direktive in der CSP ergänzen.', status: 'open', acceptReason: null,
+}
+
+/** Bericht mit dem CSP-Befund von ZAP (Zählung und Stufe passend) */
+export function withCspQuality(r: ScanReportDto): ScanReportDto {
+  const all = [...r.findings, cspQualityFinding]
+  const zap = r.scan.stages['zap-baseline']
+  return {
+    ...r,
+    scan: { ...r.scan, stages: zap ? { ...r.scan.stages, 'zap-baseline': { ...zap, findings: (zap.findings ?? 0) + 1 } } : r.scan.stages },
+    counts: countOpenFindings(all),
+    findings: all,
+  }
+}
+
 function findingsFor(id: string): FindingDto[] {
   return id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
 }

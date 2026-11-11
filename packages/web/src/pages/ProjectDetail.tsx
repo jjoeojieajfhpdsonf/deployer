@@ -9,7 +9,7 @@ import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/Security.js'
 import { PublicPillFor } from '../components/Publication.js'
-import { ProjectSettings, useKeepToggle } from '../components/ProjectSettings.js'
+import { ProjectSettings, useKeepToggle, type ContainerPatch, type ContainerRequest } from '../components/ProjectSettings.js'
 import { notifyOk } from '../lib/feedback.js'
 import { ProjectOverview, useProjectHealth } from '../components/ProjectOverview.js'
 import { PageHead } from '../components/PageHead.js'
@@ -77,6 +77,13 @@ export function ProjectDetail() {
   const goToEnv = (name: string) => {
     void setTab('einstellungen').then((ok) => { if (ok) setEnvRequest(name) })
   }
+  // Antwort 8: Fehlerbox «Port ändern», «Grenze erhöhen» … → Abschnitt Container, Feld vorbelegt
+  const [containerRequest, setContainerRequest] = useState<ContainerRequest | null>(null)
+  const goToContainer = (r: ContainerRequest) => {
+    void setTab('einstellungen').then((ok) => { if (ok) setContainerRequest(r) })
+  }
+  // Seit dem letzten Deploy dort gespeichert: die Fehlerbox sagt dann «… ist jetzt …» statt erneut zu fragen
+  const [containerSaved, setContainerSaved] = useState<ContainerPatch>({})
 
   const q = useQuery({
     queryKey: ['project', id],
@@ -108,6 +115,10 @@ export function ProjectDetail() {
       void qc.invalidateQueries({ queryKey: ['project', id] })
     },
   })
+
+  // Neuer Deploy (auch per MCP oder Auto-Deploy): die gespeicherten Änderungen sind darin enthalten
+  const lastDeployId = q.data?.project.lastDeployment?.id
+  useEffect(() => { setContainerSaved({}) }, [lastDeployId])
 
   const health = useProjectHealth(q.data?.project ?? ({ id, activeDeployment: null, desiredState: 'stopped' } as unknown as ProjectDto))
   // Zähler im Reiter «Deployments» (dieselbe Abfrage wie die Liste)
@@ -254,6 +265,8 @@ export function ProjectDetail() {
             onToggleKeep={() => keep.mutate({ keep: !p.keep })}
             keepBusy={keep.isPending}
             onAddEnv={goToEnv}
+            onContainerField={goToContainer}
+            containerSaved={containerSaved}
           />
         </div>
       )}
@@ -278,6 +291,15 @@ export function ProjectDetail() {
           onDeleteShown={() => setDeleteRequested(false)}
           envRequest={envRequest}
           onEnvShown={() => setEnvRequest(null)}
+          containerRequest={containerRequest}
+          onContainerShown={() => setContainerRequest(null)}
+          onContainerSaved={(patch, undo) => setContainerSaved((s) => {
+            const next = { ...s, ...patch }
+            if (undo) for (const k of Object.keys(patch) as (keyof ContainerPatch)[]) delete next[k]
+            return next
+          })}
+          onDeploy={() => act.mutate('deploy')}
+          deploying={act.isPending || p.status === 'deploying'}
           onManageHeaders={() => {
             void setTab('security').then((ok) => {
               if (!ok) return
