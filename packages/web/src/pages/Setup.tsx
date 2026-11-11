@@ -49,7 +49,8 @@ export function Setup() {
         <button type="button" onClick={later}>{finished ? 'Fertig' : 'Später fortsetzen'}</button>
       </div>
 
-      <ol className="setup-steps">
+      {/* role=list: Safari/VoiceOver nimmt Listen ohne Aufzählungszeichen sonst die Semantik */}
+      <ol className="setup-steps" role="list">
         {s.steps.map((step, i) => (
           <StepCard key={step.key} n={i + 1} step={step} current={step.key === s.current} onSkip={(skip) => setSkipped(step.key, skip)} busy={save.isPending} />
         ))}
@@ -61,6 +62,7 @@ export function Setup() {
 function StepCard({ n, step, current, onSkip, busy }: { n: number; step: SetupStepState; current: boolean; onSkip: (skip: boolean) => void; busy: boolean }) {
   // Zustand immer mit Zeichen und Wort
   const state = step.done ? { cls: 'done', word: 'erledigt', icon: <IconOk /> }
+    : step.running ? { cls: 'open', word: 'läuft', icon: <IconPending /> }
     : step.skipped ? { cls: 'skipped', word: 'übersprungen', icon: <IconSkipped /> }
     : { cls: 'open', word: current ? 'als Nächstes' : 'offen', icon: <IconPending /> }
   return (
@@ -76,9 +78,10 @@ function StepCard({ n, step, current, onSkip, busy }: { n: number; step: SetupSt
         {!step.done && (
           <div className="setup-step-actions">
             <Link className={current ? 'button button-primary' : 'button'} to={step.action.to}>{step.action.label}</Link>
+            {/* aria-disabled statt disabled: der Fokus bleibt auf dem Knopf, solange gespeichert wird */}
             {step.skipped
-              ? <button type="button" className="link-button" onClick={() => onSkip(false)} disabled={busy}>Doch einrichten</button>
-              : <button type="button" className="link-button" onClick={() => onSkip(true)} disabled={busy}>Überspringen</button>}
+              ? <button type="button" className="link-button" onClick={() => { if (!busy) onSkip(false) }} aria-disabled={busy || undefined}>Doch einrichten</button>
+              : <button type="button" className="link-button" onClick={() => { if (!busy) onSkip(true) }} aria-disabled={busy || undefined}>Überspringen</button>}
           </div>
         )}
       </div>
@@ -90,7 +93,8 @@ function StepCard({ n, step, current, onSkip, busy }: { n: number; step: SetupSt
 export function SetupSummary() {
   const s = useSetup()
   const save = useSaveSetup()
-  if (!s.ready || s.open === 0) return null
+  // Sichtbar, solange nicht alles erledigt ist – auch wenn der Rest nur übersprungen ist
+  if (!s.ready || s.done === s.total) return null
   return (
     <section className="panel panel-pad setup-summary" aria-labelledby="setup-summary-h">
       <div className="panel-head">
@@ -98,7 +102,7 @@ export function SetupSummary() {
         <span className="muted num">{s.done} von {s.total} erledigt</span>
       </div>
       <p className="muted">
-        Offen: {s.steps.filter((x) => !x.done && !x.skipped).map((x) => x.title).join(', ')}.
+        {s.open > 0 ? <>Offen: {s.steps.filter((x) => !x.done && !x.skipped).map((x) => x.title).join(', ')}.</> : <>Übersprungen: {s.steps.filter((x) => x.skipped).map((x) => x.title).join(', ')}.</>}
         {s.dismissed ? ' Der Assistent erscheint nicht mehr von selbst.' : ''}
       </p>
       <div className="form-actions">

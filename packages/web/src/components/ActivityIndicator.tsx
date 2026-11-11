@@ -40,11 +40,12 @@ export function ActivityIndicator() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        aria-label={n === 1 ? '1 laufender Vorgang' : `${n} laufende Vorgänge`}
+        // Sichtbarer Text («2 Vorgänge») steht vorne im Namen (WCAG 2.5.3 Label in Name)
+        aria-label={n === 1 ? '1 Vorgang läuft' : `${n} Vorgänge laufen`}
         onClick={toggle}
       >
         <span className="activity-spinner" aria-hidden="true" />
-        <span className="num">{n}</span>
+        <span className="num">{n}</span>{' '}
         <span className="activity-trigger-label">{n === 1 ? 'Vorgang' : 'Vorgänge'}</span>
       </button>
       <div {...listProps} role="menu" id={id} aria-label="Laufende Vorgänge">

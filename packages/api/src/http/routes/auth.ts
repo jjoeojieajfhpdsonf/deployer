@@ -31,6 +31,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!isLoggedIn(request)) return { loggedIn: false }
     const pw = await passwordInfo()
     const start = sessionStart(request)
+    const prefs = await getUiPrefs()
     return {
       loggedIn: true,
       name: config.ADMIN_NAME || 'Admin',
@@ -38,7 +39,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       viaHttps: viaHttps(request),
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
-      ...(await (async () => { const p = await getUiPrefs(); return { theme: p.theme, setup: p.setup ?? null } })()),
+      theme: prefs.theme,
+      setup: prefs.setup ?? null,
     }
   })
 

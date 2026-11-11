@@ -184,6 +184,8 @@ function Rail() {
 }
 
 const SETUP_SHOWN = 'airlock.setup.shown'
+/** Merker für diesen Seitenaufruf – auch ohne sessionStorage höchstens einmal */
+let setupShownThisLoad = false
 
 /**
  * Erster Start: Fehlt noch etwas und ist der Assistent nicht mit «Später»
@@ -197,10 +199,12 @@ function SetupRedirect() {
   useEffect(() => {
     if (!s.ready || s.dismissed || s.open === 0) return
     if (location.pathname !== '/' && location.pathname !== '/projekte') return
+    if (setupShownThisLoad) return
+    setupShownThisLoad = true
     try {
       if (sessionStorage.getItem(SETUP_SHOWN)) return
       sessionStorage.setItem(SETUP_SHOWN, '1')
-    } catch { /* ohne Speicher: trotzdem nur, solange die Seite offen ist */ }
+    } catch { /* ohne Speicher: der Merker oben sorgt für «einmal pro Aufruf» */ }
     navigate('/einrichtung', { replace: true })
   }, [s.ready, s.dismissed, s.open, location.pathname, navigate])
   return null

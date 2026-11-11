@@ -31,7 +31,7 @@ hier sind die betroffenen Teile mit «offen, Frage Nr. n» vermerkt.
 | 5 | Sprache und Texte: `docs/TEXTE.md` (Vorschlag, nichts umbenannt) | erledigt; Wahl a/b offen, Frage Nr. 1 |
 | 6 | Befehlspalette und Tastatur | erledigt; Browser-Konflikt offen, Frage Nr. 5 |
 | 7 | Erster Start, Login, Marke | erledigt; Wahl der Marke offen, Frage Nr. 6 |
-| 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | geplant |
+| 8 | Barrierefreiheit (axe-core in den Playwright-Tests) | erledigt |
 | 9 | Handyansicht | **entfällt auf Wunsch** («Handy egal») |
 
 ### Etappe 1 – Zustände
@@ -293,3 +293,28 @@ Abnahme:
 - axe-core in den Playwright-Tests (alle Hauptseiten, Hell/Dunkel), ohne Befunde.
 - Sichtbarer Fokus überall; Bedienung per Tastatur (Menüs, Dialoge, Reiter, Palette).
 - `aria-label` für alle Icon-Knöpfe; Live-Regionen für Statuswechsel.
+
+Umsetzung:
+- `@axe-core/playwright` 4.14.0; `visual/a11y.spec.ts` prüft alle Szenen aus `visual/scenes.ts`
+  (ohne reine Ladezustände) in Hell und Dunkel nach WCAG 2.2 A/AA – 90 Prüfungen. Ausgenommen
+  ist nur die Vorschau der Pause-Seite (Inhalt des Nutzers im abgeschotteten `iframe`). Läuft mit
+  `pnpm test:visual`, einzeln mit `pnpm test:a11y`.
+- Befund und behoben: Der Knopf der Aktivitätsanzeige zeigte «2 Vorgänge», hiess aber «2 laufende
+  Vorgänge» (Label in Name, WCAG 2.5.3) – jetzt «2 Vorgänge laufen». Danach keine Befunde mehr.
+  Icon-Knöpfe ohne Namen gab es keine (axe-Regel `button-name` grün).
+- `visual/keyboard.spec.ts`: Profilmenü (Enter, Pfeile, Esc, Fokus zurück), Zeilenmenü der
+  Projektkarte, Reiter der Projektseite (Pfeile, Ende), Befehlspalette (suchen, Enter, Fokus im
+  Inhalt; Rückfrage mit Esc zurück), Kürzel (?, /, g a; im Feld tippt «g» nur Text), sichtbarer
+  Fokus beim Tab durch den Kopf. 7 Abläufe, alle grün.
+- Sichtbarer Fokus: global `:focus-visible` mit 2 px Tintenfarbe, Felder mit Rahmen in Tintenfarbe,
+  Palette mit Linie unter der Suchzeile (Etappe 6/7).
+- Live-Regionen: Deploy- und Scan-Ende als Toast (Sonners Region ist `aria-live="polite"`, Etappe 2);
+  neu der Deploy-Fortschritt auf der Projektseite («Deploy: Healthcheck (Schritt 3 von 4)»,
+  «Deploy fertig»); Fehlschlag weiter als `role="alert"`.
+- Befunde aus dem Gutachten zu Etappe 7 mit diesem Commit behoben: Weiterleitung auch ohne
+  `sessionStorage` nur einmal pro Aufruf; Karte unter System auch bei nur übersprungenen Schritten;
+  «Cloudflare» erst mit gültigem Token, «Zertifikat» erst mit gültigem Zertifikat, eigener Zustand
+  «läuft»; scheitert eine Abfrage, zeigt nur der betroffene Schritt «nicht abrufbar»;
+  «Überspringen» behält den Fokus (`aria-disabled`); optimistisches Speichern bricht laufende
+  Abrufe ab und setzt bei Fehler zurück; ein kaputter Stand der Einrichtung kostet nicht mehr die
+  Wahl der Darstellung (Test angepasst); `role="list"` für die Schrittliste.

@@ -58,6 +58,10 @@ export function DeployProgress({
         })}
       </ol>
 
+      {/* Statuswechsel für Screenreader: jeder Schritt und das Ende werden angesagt */}
+      <p className="sr-only" role="status">
+        {done ? (done.ok ? 'Deploy fertig. Der neue Stand ist live.' : '') : activeIndex >= 0 ? `Deploy: ${STEPS[activeIndex]!.label} (Schritt ${activeIndex + 1} von ${STEPS.length})` : ''}
+      </p>
       {failed && (
         <p role="alert" className="error">
           Der Deploy ist fehlgeschlagen. Die vorherige Fassung läuft weiter.

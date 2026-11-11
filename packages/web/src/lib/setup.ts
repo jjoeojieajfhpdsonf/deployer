@@ -19,6 +19,8 @@ export interface SetupStepState {
   why: string
   done: boolean
   skipped: boolean
+  /** Wird gerade eingerichtet (Zertifikat) */
+  running?: boolean
   /** Stand in einem Satz */
   detail: string
   action: { label: string; to: string }
@@ -38,7 +40,11 @@ export function useSetup() {
   const cf = useQuery({ queryKey: ['cloudflare'], queryFn: api.cloudflare, staleTime: 10_000 })
   const projects = useProjects()
   const prefs: SetupPrefs = me.data?.setup ?? { dismissed: false, skipped: [] }
-  const ready = Boolean(me.data && system.data && cf.data && projects.data)
+  // Bereit, sobald jede Abfrage Daten oder einen Fehler hat: Fehlt eine, steht der betroffene
+  // Schritt als «nicht abrufbar» da, der Rest normal
+  const settled = (q: { data: unknown; isError: boolean }) => q.data !== undefined || q.isError
+  const ready = Boolean(me.data) && settled(system) && settled(cf) && settled(projects)
+  const unknown = 'Stand gerade nicht abrufbar.'
 
   const s = system.data
   const c = cf.data
@@ -52,29 +58,37 @@ export function useSetup() {
     },
     cloudflare: {
       why: 'Für HTTPS mit eigener Domain, öffentliche Adressen und den Tunnel. Ohne Cloudflare bleibt alles intern.',
-      done: Boolean(c?.token.present),
-      detail: c?.token.present ? `Token gespeichert${c.account?.name ? `, Konto ${c.account.name}` : ''}.` : 'Noch kein API-Token gespeichert.',
+      // Erledigt erst mit gültigem Token (letzte Prüfung nicht gescheitert)
+      done: Boolean(c?.token.present && c.token.lastCheck?.valid !== false),
+      detail: !c ? unknown : !c.token.present ? 'Noch kein API-Token gespeichert.'
+        : c.token.lastCheck?.valid === false ? 'Token gespeichert, aber die letzte Prüfung bei Cloudflare ist gescheitert.'
+        : `Token gespeichert${c.account?.name ? `, Konto ${c.account.name}` : ''}.`,
       action: { label: 'Cloudflare einrichten', to: '/system/cloudflare' },
     },
     adressen: {
       why: 'Eine Basisdomain gibt Projekten feste Namen; die Tailscale-Adresse macht sie unterwegs erreichbar.',
       done: Boolean(s?.baseDomain && s.tls.tailscaleIp),
-      detail: !s ? '' : s.baseDomain && s.tls.tailscaleIp ? `*.${s.baseDomain}, Tailnet über ${s.tls.tailscaleIp}.`
+      detail: !s ? unknown : s.baseDomain && s.tls.tailscaleIp ? `*.${s.baseDomain}, Tailnet über ${s.tls.tailscaleIp}.`
         : !s.baseDomain && !s.tls.tailscaleIp ? 'Weder Basisdomain noch Tailscale-Adresse – Projekte laufen über nip.io im LAN.'
         : !s.baseDomain ? 'Tailscale ist da, die Basisdomain fehlt.' : 'Basisdomain ist da, die Tailscale-Adresse fehlt.',
       action: { label: 'Adressen prüfen', to: '/system' },
     },
     zertifikat: {
       why: 'Ein Wildcard-Zertifikat von Let’s Encrypt, damit interne Adressen über https laufen.',
-      done: c?.tls.phase === 'done' || Boolean(s?.tls.cert?.ok),
-      detail: c?.tls.phase === 'done' || s?.tls.cert?.ok ? `Gültig${s?.tls.cert?.daysLeft != null ? `, noch ${s.tls.cert.daysLeft} Tage` : ''}, erneuert sich selbst.`
-        : c?.tls.phase === 'staging' || c?.tls.phase === 'production' ? 'Wird gerade eingerichtet.' : c?.tls.phase === 'failed' ? 'Letzter Versuch ist gescheitert.' : 'Noch kein Zertifikat – interne Adressen laufen über http.',
+      // Massgebend ist das Zertifikat selbst; «phase done» allein genügt nicht, wenn es ungültig ist
+      done: Boolean(s?.tls.cert?.ok) || (c?.tls.phase === 'done' && c.tls.cert?.ok !== false && s?.tls.cert?.ok !== false),
+      running: c?.tls.phase === 'staging' || c?.tls.phase === 'production',
+      detail: !s && !c ? unknown
+        : s?.tls.cert?.ok || (c?.tls.phase === 'done' && c.tls.cert?.ok !== false) ? `Gültig${s?.tls.cert?.daysLeft != null ? `, noch ${s.tls.cert.daysLeft} Tage` : ''}, erneuert sich selbst.`
+        : c?.tls.phase === 'staging' || c?.tls.phase === 'production' ? 'Wird gerade eingerichtet.'
+        : c?.tls.phase === 'failed' || (c?.tls.phase === 'done' && c.tls.cert?.ok === false) ? 'Letzter Versuch ist gescheitert.'
+        : 'Noch kein Zertifikat – interne Adressen laufen über http.',
       action: { label: 'Zertifikat einrichten', to: '/system/cloudflare' },
     },
     projekt: {
       why: 'Ein Image, ein Repo, eine Compose-Datei oder eine statische Seite – oder direkt aus dem Chat mit Claude.',
       done: list.length > 0,
-      detail: list.length === 0 ? 'Noch kein Projekt.' : list.length === 1 ? '1 Projekt angelegt.' : `${list.length} Projekte angelegt.`,
+      detail: !projects.data ? unknown : list.length === 0 ? 'Noch kein Projekt.' : list.length === 1 ? '1 Projekt angelegt.' : `${list.length} Projekte angelegt.`,
       action: { label: 'Projekt anlegen', to: '/projekte/neu' },
     },
   }
@@ -101,10 +115,14 @@ export function useSaveSetup() {
   return useMutation({
     meta: { errorTitle: 'Einrichtung nicht gespeichert' },
     mutationFn: (setup: SetupPrefs) => api.setPreferences({ setup }),
-    onMutate: (setup) => {
-      // Sofort anzeigen; der Server bestätigt
+    onMutate: async (setup) => {
+      // Sofort anzeigen; ein laufender Abruf darf das nicht überschreiben. Bei Fehler zurück.
+      await qc.cancelQueries({ queryKey: ['me'] })
+      const before = qc.getQueryData<MeDto>(['me'])
       qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, setup } : old))
+      return { before }
     },
+    onError: (_e, _v, ctx) => { if (ctx?.before) qc.setQueryData(['me'], ctx.before) },
     onSettled: () => void qc.invalidateQueries({ queryKey: ['me'] }),
   })
 }

@@ -14,8 +14,13 @@ export const DEFAULT_UI_PREFS: UiPrefs = { theme: 'system' }
 export function parseUiPrefs(raw: string | null): UiPrefs {
   if (!raw) return DEFAULT_UI_PREFS
   try {
-    const r = uiPrefsSchema.safeParse(JSON.parse(raw))
-    return r.success ? r.data : DEFAULT_UI_PREFS
+    const obj = JSON.parse(raw) as Record<string, unknown>
+    // Feld für Feld: Ein kaputter Stand der Einrichtung kostet nicht die Wahl der Darstellung
+    const theme = uiPrefsSchema.shape.theme.safeParse(obj?.theme)
+    const setup = uiPrefsSchema.shape.setup.safeParse(obj?.setup)
+    const out: UiPrefs = { theme: theme.success ? theme.data : DEFAULT_UI_PREFS.theme }
+    if (setup.success && setup.data) out.setup = setup.data
+    return out
   } catch {
     return DEFAULT_UI_PREFS
   }

@@ -16,7 +16,8 @@ describe('Einrichtung (erster Start) neben der Darstellung', () => {
 
   test('gespeicherter Stand wird gelesen; unbekannte Schritte sind ungültig', () => {
     assert.deepEqual(parseUiPrefs('{"theme":"system","setup":{"dismissed":false,"skipped":["adressen"]}}'), { theme: 'system', setup: { dismissed: false, skipped: ['adressen'] } })
-    assert.deepEqual(parseUiPrefs('{"theme":"dark","setup":{"dismissed":false,"skipped":["fliegen"]}}'), { theme: 'system' })
+    // Kaputte Einrichtung: wird verworfen, die Darstellung bleibt
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","setup":{"dismissed":false,"skipped":["fliegen"]}}'), { theme: 'dark' })
     assert.throws(() => mergeUiPrefs(DEFAULT_UI_PREFS, { setup: { dismissed: false, skipped: ['fliegen' as 'projekt'] } }))
   })
 })
