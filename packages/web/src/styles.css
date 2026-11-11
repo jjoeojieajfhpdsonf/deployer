@@ -2438,7 +2438,8 @@ kbd + kbd { margin-left: 4px; }
   padding: 18px 22px 64px;
   background: var(--inset) radial-gradient(var(--line-strong) 1.1px, transparent 1.3px) 0 0 / 20px 20px;
 }
-.topo-cols-head, .topo-body { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 34px; }
+/* Etappe 4: Abstand trägt die Zähler «12/min» an den Linien (vorher 34 px) */
+.topo-cols-head, .topo-body { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 48px; }
 .topo-col-head { min-width: 0; }
 .topo-col-head h3 { font-size: var(--fs-12); font-weight: 500; line-height: 1.4; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
 .topo-col-head span { display: block; margin-top: 2px; font-size: var(--fs-12); color: var(--muted); }
@@ -2509,6 +2510,65 @@ button.topo-link:hover:not(:disabled) { background: none; border: none; text-dec
 .topo-legend { position: absolute; left: 22px; bottom: 16px; z-index: 2; display: flex; flex-wrap: wrap; gap: 18px; padding: 7px 12px; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-12); color: var(--muted); }
 .topo-legend-line { display: inline-block; width: 22px; height: 0; margin-right: 6px; border-top: 2px solid var(--field-line); vertical-align: 3px; }
 .topo-legend-off { border-top-style: dashed; opacity: 0.7; }
+/* Etappe 4: Live-Verkehr in der Legende – Farbe immer mit Wort */
+.topo-legend-live { display: inline-flex; flex-wrap: wrap; gap: 12px; }
+.topo-legend-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 0; }
+.topo-legend-x { margin-right: 5px; font-weight: 700; color: var(--bad); }
+.topo-legend-sum .num { color: var(--ink-dim); }
+
+/* Etappe 4: Live-Verkehr auf der Fläche (components/TopologyLive.tsx). Über den Linien, unter den
+   Knoten (der Punkt geht hinter der Host-Karte durch); nur transform und opacity werden animiert */
+.topo-live { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.topo-live-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.topo-live-track { fill: none; stroke: none; }
+.topo-live-bundle { fill: none; stroke: var(--ink-dim); stroke-width: 5; stroke-linecap: round; opacity: 0; transition: opacity 200ms var(--ease-out); }
+.topo-live-bundle.topo-live-bundle-on { opacity: 0.32; }
+.topo-live-dots { position: absolute; inset: 0; }
+.topo-live-dot { position: absolute; left: 0; top: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: currentColor; opacity: 0; }
+.topo-live-ok { color: var(--ink-dim); }
+.topo-live-4xx { color: var(--warn); }
+.topo-live-5xx { color: var(--bad); }
+.topo-live-x { position: absolute; left: 0; top: 0; font-size: var(--fs-13); font-weight: 700; line-height: 1; color: var(--bad); opacity: 0; }
+/* Zähler «12/min» an den Linien: über den Knoten, damit sie auch knapp am Rand lesbar bleiben */
+.topo-rates { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.topo-rate { position: absolute; left: 0; top: 0; padding: 0 5px; border-radius: var(--r-sm); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: 11px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .topo-live-bundle { transition: none; }
+}
+
+/* Etappe 4: neuer Dienst, noch nicht da – gestrichelt, mit Zustand als Wort («wird erstellt») */
+.topo-node.topo-node-pending, button.topo-node.topo-node-pending:hover:not(:disabled) { background: transparent; box-shadow: none; outline: 1.5px dashed var(--line-strong); outline-offset: -1.5px; }
+button.topo-node.topo-node-pending.topo-node-selected, button.topo-node.topo-node-pending.topo-node-selected:hover:not(:disabled) { box-shadow: 0 0 0 2px var(--ink); }
+.topo-node-pending .topo-icon { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* Kopf: warum «+ Dienst» gesperrt ist, Rückmeldung nach dem Übernehmen */
+.topo-head-note { max-width: none; margin: 0; padding: 10px 22px; border-bottom: 1px solid var(--line); font-size: var(--fs-13); color: var(--muted); }
+.topo-head-note.topo-head-ok { color: var(--ink-dim); }
+.topo-side .topo-side-text.topo-side-gap { margin-top: 18px; }
+
+/* Etappe 4: Dialog «Dienst hinzufügen» (components/ServiceDialog.tsx) */
+.svc-templates, .svc-connect { margin: var(--sp-5) 0 0; padding: 0; border: none; min-width: 0; }
+.svc-templates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.svc-templates legend, .svc-connect legend { padding: 0; margin: 0 0 var(--sp-2); font-size: var(--fs-14); font-weight: 500; color: var(--ink); }
+.svc-template { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 10px 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 400; cursor: pointer; }
+.svc-template.svc-template-on { box-shadow: inset 0 0 0 2px var(--ink); }
+.svc-template input { flex: none; margin-top: 3px; }
+.svc-template > span { display: grid; gap: 2px; min-width: 0; }
+.svc-template strong { font-weight: 600; }
+.svc-template small { font-size: var(--fs-12); line-height: 1.4; color: var(--muted); }
+.svc-connect .hint { margin: 0; }
+.svc-port { max-width: 140px; }
+.svc-var { font-family: var(--mono); }
+.svc-internal { margin-top: var(--sp-4); }
+.svc-sub { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-14); font-weight: 600; }
+.svc-vars { display: grid; gap: var(--sp-3); margin: 0; padding: 0; list-style: none; }
+.svc-vars li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px var(--sp-3); }
+.svc-vars code { font-family: var(--mono); font-size: var(--fs-13); }
+.svc-vars small { grid-column: 1 / -1; font-size: var(--fs-12); color: var(--muted); }
+.svc-var-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.svc-tag { padding: 1px 7px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-12); color: var(--ink-dim); }
+.svc-notes { display: grid; gap: var(--sp-1); margin: var(--sp-4) 0 0; padding-left: 18px; font-size: var(--fs-13); color: var(--ink-dim); }
+.svc-details { margin-top: var(--sp-3); }
+.svc-details summary { cursor: pointer; font-size: var(--fs-13); }
 
 /* Liste unter 700 px: Spalten untereinander, Knoten volle Breite */
 .topo-list { display: grid; gap: var(--sp-6); padding: 18px 22px 72px; background: var(--inset); }
@@ -2557,7 +2617,7 @@ button.topo-link:hover:not(:disabled) { background: none; border: none; text-dec
 }
 /* Schmal: weniger Abstand zwischen den Spalten, damit die Knoten lesbar bleiben */
 @media (max-width: 1000px) {
-  .topo-cols-head, .topo-body { column-gap: 28px; }
+  .topo-cols-head, .topo-body { column-gap: 44px; }
   .topo-canvas { padding-left: 16px; padding-right: 16px; }
 }
 

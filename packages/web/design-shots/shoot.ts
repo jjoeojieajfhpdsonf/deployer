@@ -153,6 +153,10 @@ type Shot = {
    * (keine Karte, keine Zahl in der Liste), die übrigen Szenen bleiben unverändert.
    */
   traffic?: fx.TrafficVariant
+  /** Etappe 4: Aufbau von Fotoalbum in einem Zustand (Dienst wird erstellt, PR offen …) */
+  topo?: fx.TopoVariant
+  /** Etappe 4: Live-Strom liefert feste Anfragen (fx.trafficLive), sobald der Aufbau steht */
+  live?: boolean
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -160,6 +164,60 @@ const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
 const H = 'p-hallo'
+
+/** Etappe 4: Szenen des Aufbaus mit Live-Verkehr und «Dienst hinzufügen/entfernen» (Präfix für die Ergebnisbilder) */
+function aufbau2Shots(group: string, prefix = ''): Shot[] {
+  const path = `/projekte/${P}?tab=aufbau`
+  const n = (name: string) => (prefix ? `${prefix}${name.replace(/^aufbau-/, '')}` : name)
+  const openAdd = async (pg: Page) => {
+    await pg.locator('.topo-head .button-small', { hasText: 'Dienst' }).click()
+    await pg.locator('.dialog .svc-templates').waitFor()
+    await pg.locator('.svc-template', { hasText: 'Redis' }).click()
+    await pg.getByRole('checkbox', { name: 'worker' }).check()
+    await pg.waitForTimeout(250)
+  }
+  const pick = (id: string) => async (pg: Page) => { await pg.locator(`.topo-node[data-node="${id}"]`).first().click(); await pg.waitForTimeout(200) }
+  const shots: Shot[] = [
+    { group, name: n('aufbau-live'), path, live: true, full: false, prepare: async (pg) => { await pg.locator('.topo-rate').first().waitFor(); await pg.waitForTimeout(300) } },
+    {
+      group, name: n('aufbau-live-vergroessert'), path, live: true, full: false,
+      prepare: async (pg) => {
+        await pg.locator('.topo-rate').first().waitFor()
+        await pg.getByRole('button', { name: 'Vergrössern' }).click()
+        await pg.locator('.dialog-full .topo-rate').first().waitFor()
+        await pg.waitForTimeout(300)
+      },
+    },
+    { group, name: n('aufbau-dienst-dialog'), path, full: false, prepare: openAdd },
+    {
+      group, name: n('aufbau-dienst-diff'), path, full: false,
+      prepare: async (pg) => {
+        await openAdd(pg)
+        await pg.getByRole('button', { name: 'Weiter: Änderung ansehen' }).click()
+        await pg.locator('.dialog .diff').waitFor()
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: n('aufbau-dienst-wird-erstellt'), path, full: false, topo: 'wird-erstellt', patch: { sourceType: 'files', source: { type: 'files' } as never }, prepare: pick('pending:c-1') },
+    { group, name: n('aufbau-dienst-pr-offen'), path, full: false, topo: 'pr-offen', prepare: pick('pending:c-2') },
+    { group, name: n('aufbau-dienst-gescheitert'), path, full: false, topo: 'gescheitert', patch: { sourceType: 'files', source: { type: 'files' } as never }, prepare: pick('pending:c-1') },
+    { group, name: n('aufbau-ohne-github'), path, full: false, topo: 'ohne-github' },
+    { group, name: n('aufbau-adminer'), path, full: false, topo: 'adminer', prepare: pick('host:adminer--fotoalbum.int.example.ch') },
+    {
+      // Chat-Projekt: Volume löschen wählbar, standardmässig aus (bei Git-Projekten bleibt es immer)
+      group, name: n('aufbau-dienst-entfernen'), path, full: false, topo: 'chat', patch: { sourceType: 'files', source: { type: 'files' } as never },
+      prepare: async (pg) => {
+        await pick('svc:db')(pg)
+        await pg.getByRole('button', { name: 'Entfernen …' }).click()
+        await pg.locator('.confirm-dialog .choice').waitFor()
+        await pg.waitForTimeout(250)
+      },
+    },
+  ]
+  // Ergebnisbilder: nur die Hauptzustände
+  return prefix ? shots.filter((s) => /live$|dienst-dialog|dienst-diff|wird-erstellt|entfernen|adminer/.test(s.name)) : shots
+}
+
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
   // Windows 95 als Desktop (nur mit --themes win95 sinnvoll): Fenster-Knöpfe, Taskleiste, Startmenü, Beenden
@@ -283,6 +341,12 @@ const shots: Shot[] = [
   },
   // Ergebnisbilder neben der Vorlage (docs/design-cal/aufbau/umgesetzt-*.png): erster Bildschirm wie die Vorlage
   { group: 'aufbau-umgesetzt', name: 'umgesetzt', path: `/projekte/${P}?tab=aufbau`, full: false },
+  // Etappe 4: Live-Verkehr (fester Zustand: reduced-motion → nur Zähler «12/min» und Summe in der Legende),
+  // auch im vergrösserten Dialog; «+ Dienst» (Vorlage, Diff mit Variablen), neuer Dienst gestrichelt
+  // «wird erstellt», Pull Request offen, gescheitert, ohne GitHub-App gesperrt, Adminer mit interner Adresse,
+  // Entfernen mit Eintippen des Namens (Volume standardmässig behalten)
+  ...aufbau2Shots('aufbau-2'),
+  ...aufbau2Shots('aufbau-2-umgesetzt', 'umgesetzt-'),
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand
@@ -1061,13 +1125,25 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
       await ctx.addInitScript({ content: `window.__AIRLOCK_ORIGIN__ = 'https://airlock.int.example.ch'` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
       // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
+      // Etappe 4: ebenso der Live-Verkehr des Aufbaus; mit s.live liefert er feste Anfragen, sobald Knoten da sind
+      if (s.live) await ctx.addInitScript({ content: `window.__AIRLOCK_LIVE__ = ${JSON.stringify(fx.trafficLive())}` })
       await ctx.addInitScript({ content: `(() => {
         const Real = window.EventSource
         window.EventSource = function (url, init) {
-          if (!/\\/(logs|access)\\/stream/.test(String(url))) return new Real(url, init)
+          if (!/\\/(logs|access)\\/stream|\\/traffic\\/live/.test(String(url))) return new Real(url, init)
           const es = { url: String(url), readyState: 0, onopen: null, onmessage: null, onerror: null,
             addEventListener() {}, removeEventListener() {}, close() { es.readyState = 2 } }
-          setTimeout(() => { es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          // Schon wieder geschlossen (StrictMode baut Effekte zweimal auf): wie ein echter Strom stumm bleiben
+          setTimeout(() => { if (es.readyState === 2) return; es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          const live = /\\/traffic\\/live/.test(String(url)) && window.__AIRLOCK_LIVE__
+          if (live) {
+            const wait = setInterval(() => {
+              if (es.readyState === 2) return clearInterval(wait)
+              if (!document.querySelector('.topo-body .topo-node')) return
+              clearInterval(wait)
+              for (const e of live) es.onmessage && es.onmessage({ data: JSON.stringify(e) })
+            }, 50)
+          }
           return es
         }
         window.EventSource.CLOSED = 2; window.EventSource.OPEN = 1; window.EventSource.CONNECTING = 0
@@ -1115,6 +1191,13 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
                 return json(route, fx.traffic(tm[1]!, range, way, s.traffic))
               }
               if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, ingest: 'off' } : fx.trafficToday)
+            }
+            // Etappe 4: Aufbau-Zustände und Vorschau «Dienst hinzufügen/entfernen»
+            if (s.topo && /^\/api\/v1\/projects\/[^/]+\/topology$/.test(path)) {
+              return json(route, { topology: fx.topologyVariant(path.split('/')[4]!, s.topo) })
+            }
+            if (route.request().method() === 'POST' && /^\/api\/v1\/projects\/[^/]+\/services\/plan$/.test(path)) {
+              return json(route, { plan: fx.servicePlan(route.request().postDataJSON(), s.topo && fx.DEPLOY_VARIANTS.includes(s.topo) ? 'deploy' : 'pull_request') })
             }
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))

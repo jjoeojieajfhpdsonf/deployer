@@ -10,6 +10,7 @@ import type {
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   TopologyDto,
+  ServiceChangeDto, ServiceChangeInput, ServicePlanDto,
   TrafficSummaryDto, TrafficTodayDto, TrafficLiveEventDto, TrafficRange, TrafficWay,
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
@@ -238,6 +239,10 @@ export const api = {
   health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),
   /** Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten und die Linien dazwischen */
   topology: (id: string) => call<{ topology: TopologyDto }>(`/projects/${id}/topology`),
+  /** Etappe 4: Dienst hinzufügen/entfernen – Vorschau (ändert nichts), Übernehmen, gescheiterte ausblenden */
+  servicePlan: (id: string, change: ServiceChangeInput) => call<{ plan: ServicePlanDto }>(`/projects/${id}/services/plan`, { method: 'POST', body: body(change) }),
+  serviceApply: (id: string, change: ServiceChangeInput, base: string) => call<{ change: ServiceChangeDto }>(`/projects/${id}/services`, { method: 'POST', body: body({ change, base }) }),
+  dismissServiceChange: (id: string, changeId: string) => call<void>(`/projects/${id}/service-changes/${changeId}`, { method: 'DELETE' }),
   /** Etappe 3: Besucher aus Caddys Zugriffs-Log (Zähler, ohne IP) */
   traffic: (id: string, range: TrafficRange, way: TrafficWay | 'all' = 'all') => call<TrafficSummaryDto>(`/projects/${id}/traffic?range=${range}&way=${way}`),
   /** Aufrufe heute je Projekt der Umgebung (Projektliste) */

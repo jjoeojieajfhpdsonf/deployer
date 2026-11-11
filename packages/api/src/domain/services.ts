@@ -67,6 +67,7 @@ export interface ServiceDeps {
   audit: (action: string, params: Record<string, unknown>, result: 'ok' | 'error', error?: string) => Promise<void>
   /** Passwort-Erzeuger (Tests: fest) */
   password?: () => string
+  slug?: string
 }
 
 export const toChangeDto = (r: ChangeRow): ServiceChangeDto => ({
@@ -87,7 +88,7 @@ interface Planned {
 async function computePlan(change: ServiceChangeInput, d: ServiceDeps): Promise<Planned> {
   const source = await d.source()
   if (change.action === 'add') {
-    const r = await addService(source.text, change, { webService: d.webService, env: await d.env(), password: d.password })
+    const r = await addService(source.text, change, { webService: d.webService, env: await d.env(), password: d.password, slug: d.slug })
     return { source, text: r.text, diff: unifiedDiff(source.path, source.text, r.text), variables: r.variables, notes: r.notes, volumes: r.volume ? [r.volume] : [], dropped: [] }
   }
   // Bei einem Pull Request löscht Airlock nie Daten auf Grund eines Merges

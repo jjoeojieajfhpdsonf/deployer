@@ -33,6 +33,8 @@ export interface EditContext {
   env: Record<string, string>
   /** Erzeugt ein Passwort (Tests: fest) */
   password?: () => string
+  /** Kurzname des Projekts (für den Hinweis auf die interne Adresse) */
+  slug?: string
 }
 
 export interface AddResult {
@@ -323,7 +325,7 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
   if (volume) notes.push(`Die Daten liegen im Volume «${volume}»; es bleibt bei Deploys und Neustarts erhalten.`)
   if (b.passwords.length) notes.push('Passwörter stehen nicht in der Datei: Airlock erzeugt sie und speichert sie als geheime Variablen des Projekts.')
   if (receivers.includes(ctx.webService) && conn.length) notes.push(`Der Web-Dienst «${ctx.webService}» bekommt alle Variablen des Projekts, also auch ${conn.map((c) => c.key).join(', ')}.`)
-  if (b.service[X_INTERNAL]) notes.push(`Die Oberfläche bekommt eine eigene Adresse ${i.name}--<projekt>, nur aus LAN und Tailnet – nie öffentlich.`)
+  if (b.service[X_INTERNAL]) notes.push(`Die Oberfläche bekommt eine eigene Adresse ${i.name}--${ctx.slug ?? '<projekt>'} – nur über die internen Wege des Projekts (LAN, Tailnet), nie öffentlich.`)
   if (variables.some((v) => v.state === 'reuse' && v.secret && b.passwords.some((p) => p.key === v.key))) {
     notes.push('Ein Passwort gibt es schon im Projekt; es wird weiterverwendet (passt zu einem behaltenen Volume).')
   }

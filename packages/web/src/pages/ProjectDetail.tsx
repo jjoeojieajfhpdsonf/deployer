@@ -317,6 +317,7 @@ export function ProjectDetail() {
           onRestart={() => act.mutate('restart')}
           restartBusy={act.isPending}
           onManageHeaders={() => manageHeaders()}
+          onDeployments={() => void setTab('deployments')}
         />
       )}
       {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : (

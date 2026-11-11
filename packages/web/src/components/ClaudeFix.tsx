@@ -110,7 +110,7 @@ export function ClaudeFixAction({
 }
 
 /** Diff mit Vorzeichen; Farbe nur zusätzlich zum + und −. Scrollbar, per Tastatur erreichbar. */
-function Diff({ text }: { text: string }) {
+export function Diff({ text }: { text: string }) {
   return (
     <div className="diff-scroll" role="region" aria-label="Änderung als Diff" tabIndex={0}>
       <pre className="code-block diff">

@@ -468,6 +468,8 @@ export function topology(id: string): Topo {
     ]
     return {
       kind: 'compose', access, hosts, services, main: 'svc:web', limits,
+      // Etappe 4: Git-Repo mit verbundener GitHub-App → Dienste über Pull Request
+      edit: { way: 'pull_request', reason: null, changes: [], webService: 'web' },
       volumes: [
         { id: 'vol:fotos', name: 'fotos', mountPath: '/srv/fotos', sizeBytes: null, usedBy: ['svc:web', 'svc:worker'], paths: { 'svc:web': '/srv/fotos', 'svc:worker': '/data' } },
         { id: 'vol:pgdata', name: 'pgdata', mountPath: '/var/lib/postgresql/data', sizeBytes: null, usedBy: ['svc:db'], paths: { 'svc:db': '/var/lib/postgresql/data' } },
@@ -530,6 +532,97 @@ export function topology(id: string): Topo {
     })],
     volumes: withData ? [{ id: 'vol:haushalt-daten', name: 'haushalt-daten', mountPath: '/data', sizeBytes: null, usedBy: [s], paths: { [s]: '/data' } }] : [],
     edges: [...routeEdges(access, hosts, !failed && !stopped), ...(withData ? [{ from: s, to: 'vol:haushalt-daten', on: true, via: 'mount' as const }] : [])],
+  }
+}
+
+/* --- Etappe 4: Aufbau mit Live-Verkehr und «Dienst hinzufügen/entfernen» --------------- */
+
+export type TopoVariant = 'chat' | 'ohne-github' | 'wird-erstellt' | 'pr-offen' | 'gescheitert' | 'adminer'
+
+/** Varianten, in denen Fotoalbum als Chat-Projekt deployt (statt Pull Request) */
+export const DEPLOY_VARIANTS: TopoVariant[] = ['chat', 'wird-erstellt', 'gescheitert']
+
+type Change = import('@airlock/shared').ServiceChangeDto
+const change = (o: Partial<Change>): Change => ({
+  id: 'c-1', kind: 'add', service: 'cache', template: 'redis', status: 'deploying', deploymentId: 'p-foto-d9', prUrl: null, prNumber: null, note: null, createdAt: ago(40_000), ...o,
+})
+
+/** Aufbau von Fotoalbum in einem Zustand der Etappe 4 (sonst wie topology()) */
+export function topologyVariant(id: string, v: TopoVariant): Topo {
+  const t = topology(id)
+  const edit = t.edit ?? { way: 'pull_request' as const, reason: null, changes: [], webService: 'web' }
+  switch (v) {
+    case 'chat':
+      return { ...t, edit: { ...edit, way: 'deploy' } }
+    case 'ohne-github':
+      return { ...t, edit: { ...edit, way: null, reason: 'Bei Git-Projekten ändert Airlock die compose.yaml nur über einen Pull Request der GitHub-App – für dieses Repo ist sie nicht verbunden (Server › GitHub).' } }
+    case 'wird-erstellt':
+      // Chat-Projekt mit compose.yaml: «Übernehmen & deployen», Deploy läuft
+      return { ...t, edit: { ...edit, way: 'deploy', changes: [change({})] } }
+    case 'pr-offen':
+      return { ...t, edit: { ...edit, changes: [change({ id: 'c-2', service: 'adminer', template: 'adminer', status: 'pr_open', deploymentId: null, prNumber: 12, prUrl: 'https://github.com/example/fotoalbum/pull/12', note: 'Pull Request #12 auf main' })] } }
+    case 'gescheitert':
+      return { ...t, edit: { ...edit, way: 'deploy', changes: [change({ status: 'failed', note: 'Der Deploy ist gescheitert; die vorherige Fassung läuft weiter. Details unter Deployments.' })] } }
+    case 'adminer': {
+      // Nach dem Merge: Adminer mit eigener interner Adresse (nur Tailnet und LAN)
+      const h = host('adminer--fotoalbum.int.example.ch', { headers: 5, service: 'svc:adminer', internal: true })
+      return {
+        ...t,
+        hosts: [...t.hosts, h],
+        services: [...t.services.slice(0, 2), svc('adminer', { image: 'adminer:latest', port: 8080, version: 'latest', usage: { cpu: 0.01, memMb: 24 } }), ...t.services.slice(2)],
+        edges: [
+          ...t.edges,
+          { from: 'way:tailnet', to: h.id, on: true, via: 'route' },
+          { from: 'way:lan', to: h.id, on: true, via: 'route' },
+          { from: h.id, to: 'svc:adminer', on: true, via: 'route' },
+        ],
+      }
+    }
+  }
+}
+
+/** Live-Strom von Fotoalbum: feste Anfragen der letzten Minute (Bilder ohne Animation, reduced-motion) */
+export function trafficLive(): import('@airlock/shared').TrafficLiveEventDto[] {
+  const at = new Date().toISOString()
+  const e = (access: 'tailnet' | 'lan', host: string, status: number, n: number) =>
+    Array.from({ length: n }, () => ({ at, access, host, service: 'web', status, blocked: false, bot: false }))
+  return [
+    ...e('tailnet', 'fotoalbum.int.example.ch', 200, 22),
+    ...e('tailnet', 'fotoalbum.int.example.ch', 404, 2),
+    ...e('lan', 'fotoalbum.int.example.ch', 200, 9),
+    ...e('lan', 'fotoalbum.int.example.ch', 502, 1),
+    ...e('lan', `fotoalbum.${LAN_IP}.nip.io`, 200, 3),
+  ]
+}
+
+const FOTO_COMPOSE_DIFF = {
+  addRedis: '--- a/compose.yaml\n+++ b/compose.yaml\n@@ -2,20 +2,37 @@\n   web:\n     build: .\n     expose: ["8080"]\n-    depends_on: [worker, db]\n+    depends_on: [worker, db, cache]\n     volumes:\n       - fotos:/srv/fotos\n   worker:\n     image: ghcr.io/example/fotoalbum-worker:1.4\n-    depends_on: [db]\n+    depends_on: [db, cache]\n     volumes:\n       - fotos:/data\n+    x-airlock-env:\n+      REDIS_URL: REDIS_URL\n   db:\n     image: postgres:16-alpine\n     environment:\n       POSTGRES_DB: fotoalbum\n     volumes:\n       - pgdata:/var/lib/postgresql/data\n+  cache:\n+    image: redis:7.4\n+    command:\n+      - sh\n+      - -c\n+      - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"\n+    x-airlock-env:\n+      REDIS_PASSWORD: CACHE_PASSWORD\n+    healthcheck:\n+      test:\n+        - CMD-SHELL\n+        - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG\n+      interval: 10s\n+      timeout: 5s\n+      retries: 5\n volumes:\n   fotos: {}\n   pgdata: {}',
+  removeDb: '--- a/compose.yaml\n+++ b/compose.yaml\n@@ -2,20 +2,13 @@\n   web:\n     build: .\n     expose: ["8080"]\n-    depends_on: [worker, db]\n+    depends_on: [worker]\n     volumes:\n       - fotos:/srv/fotos\n   worker:\n     image: ghcr.io/example/fotoalbum-worker:1.4\n-    depends_on: [db]\n     volumes:\n       - fotos:/data\n-  db:\n-    image: postgres:16-alpine\n-    environment:\n-      POSTGRES_DB: fotoalbum\n-    volumes:\n-      - pgdata:/var/lib/postgresql/data\n volumes:\n   fotos: {}\n   pgdata: {}',
+}
+
+/** Vorschau (POST /projects/:id/services/plan) – Diffs wie die API sie für die compose.yaml von Fotoalbum erzeugt */
+export function servicePlan(change: import('@airlock/shared').ServiceChangeInput, way: 'deploy' | 'pull_request' = 'pull_request'): import('@airlock/shared').ServicePlanDto {
+  const base = { way, composePath: 'compose.yaml', base: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', branch: way === 'pull_request' ? 'main' : null }
+  if (change.action === 'remove') {
+    return {
+      ...base, diff: FOTO_COMPOSE_DIFF.removeDb, variables: [], volumes: ['pgdata'],
+      notes: [
+        'depends_on von web, worker verweist nicht mehr auf «db».',
+        'Volume «pgdata» bleibt mit allen Daten erhalten (im Aufbau als «nicht eingehängt»).',
+        'Umgebungsvariablen des Dienstes (Passwörter, Verbindung) bleiben im Projekt; löschen unter Einstellungen › Umgebungsvariablen.',
+      ],
+    }
+  }
+  return {
+    ...base, diff: FOTO_COMPOSE_DIFF.addRedis, volumes: [],
+    variables: [
+      { key: 'CACHE_PASSWORD', secret: true, state: 'new', purpose: 'Passwort von cache' },
+      { key: 'REDIS_URL', secret: true, state: 'new', purpose: 'Verbindung für web, worker' },
+    ],
+    notes: [
+      'Passwörter stehen nicht in der Datei: Airlock erzeugt sie und speichert sie als geheime Variablen des Projekts.',
+      'Der Web-Dienst «web» bekommt alle Variablen des Projekts, also auch REDIS_URL.',
+    ],
   }
 }
 

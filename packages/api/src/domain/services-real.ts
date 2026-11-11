@@ -116,6 +116,7 @@ export function serviceDeps(p: Project, actor: string): ServiceDeps {
   return {
     source: () => (source ??= composeSource(p, actor)),
     webService: webServiceOf(p),
+    slug: p.slug,
     env: () => resolveEnv(p.id),
     addEnv: (vars) => addEnvEntries(p.id, vars),
     newId: randomUUID,
