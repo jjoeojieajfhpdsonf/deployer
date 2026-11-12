@@ -142,7 +142,7 @@ Airlock meldet wichtige Ereignisse per Push und E-Mail. Für Push bietet sich nt
 | Projekt wurde öffentlich geschaltet (auch per MCP) | Push |
 | Besitznachweis einer externen Domain verloren | E-Mail |
 | Tunnel oder Zertifikat mit Problem | Push und E-Mail |
-| Einbruchsindiz (Drift, unerwarteter Prozess) | Push und E-Mail |
+| Einbruchsindiz (Vorfall hoch oder kritisch, gedrosselt; Abschnitt «Einbruchserkennung») | Push und E-Mail |
 | Gehäufte Angriffsversuche auf ein Projekt | Push |
 | Fix-PR geöffnet oder Befund nach Merge bestätigt behoben | Push |
 | Wöchentliche Zusammenfassung (Status, Scores, offene Befunde) | E-Mail |
@@ -247,6 +247,25 @@ Der Scanner beantwortet, ob ein Angriff klappen *würde*. Die Angriffserkennung 
 **Ablage.** Neues Objekt `SecurityEvent` (siehe Datenmodell). Zugriffs-Logs von Caddy werden 30 Tage aufbewahrt; sie enthalten IP-Adressen, also Personendaten von Besuchern öffentlicher Projekte.
 
 **Grenze.** Ob ein Angriff erfolgreich war, lässt sich nie lückenlos beweisen. Airlock liefert Indizien und meldet sie früh; die Beurteilung bleibt bei dir.
+
+### Einbruchserkennung (umgesetzt)
+
+Umgesetzt in Nacht 3, Etappe 5 (Migration 0027, `packages/api/src/intrusion/`), leichtgewichtig: ohne Falco, ohne Kernel-Module, ohne CrowdSec. Was oben als Plan steht (CrowdSec, Cloudflare Security Events, Quarantäne per MCP), ist damit nicht umgesetzt.
+
+- **Quellen:**
+  1. *Anmeldung* (Audit-Log von Nacht 3, Etappe 1, jede Minute): ab 5 Fehlversuchen einer Adresse in 15 Minuten «mittel», ab 20 «hoch»; Sperre einer Adresse «mittel», Sperre des Kontos «hoch»; Anmeldung von einem Gerät (Browser + System aus dem User-Agent), das in den letzten 30 Tagen keine Sitzung hatte, «hoch», über einen neuen Zugang (Heimnetz, Tailnet, …) «mittel». Die allererste Anmeldung meldet nichts.
+  2. *Prozesse* (`docker top` jede Minute, alle laufenden Projekt-Container ohne Wegwerf-Rolle): Ein neuer Container lernt 10 Minuten lang seine Programme (Grundlinie je Container, also je Deployment); Programme seines Healthchecks gehören von Anfang an dazu. Danach: Shells (`sh`, `bash`, `ash` …) und `nc`, `ncat`, `socat`, `curl`, `wget`, `telnet` «hoch», Programme aus `/tmp`, `/var/tmp`, `/dev/shm` «kritisch», andere neue Programme «mittel». Krypto-Miner-Namen (`xmrig` u. a.) sind immer «kritisch», auch beim Lernen.
+  3. *Dateien*: Container – `docker diff` beim Lernen jede Runde, danach alle 5 Minuten; gemeldet werden neue ausführbare Dateien (Rechte über `HEAD …/archive`, auch in `/tmp`), Änderungen in Programm-Ordnern (`/bin`, `/usr/bin` …) und an heiklen Dateien (`/etc/passwd`, Cron, `ld.so.preload`, SSH-Schlüssel …) «hoch», in üblichen Webroots (`/usr/share/nginx/html`, `/var/www` …) «hoch», sonst unter `/etc`, `/usr`, `/lib`, `/opt` «mittel». Laufzeit-Orte und Caches (`/run`, `/var/cache`, `/var/log`, `/tmp` ohne ausführbare Dateien …) zählen nicht, Ordner, in die der Container beim Lernen schrieb, auch nicht. Statische Seiten – SHA-256 aller ausgelieferten Dateien gegen die Prüfsummen der Fassung (beim ersten Prüfen nach dem Deploy festgehalten), stündlich: jede Abweichung «hoch».
+  4. *Netz*: gesperrte Ausgangsversuche aus «Container-Ausgang begrenzen» (`onEgressAttempts`), je Projekt gebündelt, «mittel», ab 10 verschiedenen Zielen in einer Abholung «hoch». Neue lauschende Ports: **nicht umgesetzt** – ohne exec und ohne Zugriff auf den Netz-Namensraum sieht Airlock keine Sockets im Container (eine Shell, die mit `nc -l` lauscht, fällt als Prozess auf).
+  5. *Web*: Scanner-Pfade (`/wp-admin`, `/.git/`, `/.env`, phpMyAdmin …) und 4xx aus dem Besucher-Log je Projekt und Stunde, ab 5 Scanner-Treffern bzw. 200 4xx «Scan von aussen», «niedrig», nur gezählt (ohne gespeicherte IP). Eigene Prüfungen von Airlock zählen nicht.
+  6. *Container*: Neustart durch die Restart-Policy (Docker zählt `RestartCount` nur dort) und Ende wegen Speichergrenze (`OOMKilled`), «mittel».
+- **Bündeln:** gleicher Fingerabdruck (Projekt, Art, Schlüssel wie Dienst + Programm, Adresse oder Dienst bei Dateien) = ein Vorfall mit Zähler, solange er nicht erledigt ist; Beispiele (höchstens 20) mit den neuesten vorn; schwerer geworden → «hochgestuft», ein gesehener Vorfall wird wieder offen. Schon gemeldete PIDs und Pfade zählen je Container nur einmal. Bewertung und Bündelung sind reine Funktionen (`intrusion/rules.ts`, `intrusion/bundle.ts`).
+- **Vorfälle** (Tabelle `incidents`, Verlauf `incident_events`): Schweregrad niedrig/mittel/hoch/kritisch, Status offen/gesehen/erledigt, Notiz, Verlauf (erkannt, erneut – höchstens stündlich –, hochgestuft, Status, Notiz, als normal markiert, gemeldet, Reaktion). Erledigte nach einem Jahr gelöscht.
+- **Melden:** Security › Vorfälle (neuer Reiter) und Projekt › Security (Karte «Einbruchserkennung»: Überwachung, Vorfälle, Reaktion, Isolieren, «als normal markiert»). Hoch und kritisch zusätzlich per ntfy/E-Mail (Ereignis `incident`, Standard Push und E-Mail): je Vorfall einmal, wieder wenn schwerer oder nach einem Tag, insgesamt höchstens 5 Meldungen pro Stunde.
+- **Falsch-Positive:** «Als normal markieren» erweitert die Grundlinie des Projekts (`intrusion_allow`, gilt für künftige Container): Prozesse das Programm (je Dienst), Dateien den Ordner der Beispiele (ausführbare Dateien und Programm-Ordner genau), Netz die Ziele (die Sperre bleibt).
+- **Reaktion:** Standard nur melden. Je Projekt «Bei kritischem Vorfall Container stoppen und Seite pausieren» (Standard aus; je Vorfall einmal, Audit `incident.auto_stop`). «Container jetzt isolieren» (erneute Bestätigung): Ausgang «abgeschottet» + durchsetzen, Restart-Policy `no`, Start/Neustart/Deploy/Rollback mit 409 `isolated` verweigert (auch der Abgleich beim Start lässt das Projekt aus), bis zur Freigabe; die Container laufen weiter. Freigabe (erneute Bestätigung) stellt die Restart-Policies zurück, der Ausgang bleibt «abgeschottet». Notausgang: `docker exec airlock-app node dist/cli.js release-isolation <projekt>`.
+- **Rechte:** `/api/v1/intrusion/*`, `/projects/:id/intrusion*` und `/projects/:id/isolation` nur mit Anmeldung; MCP `list_incidents` liest Vorfälle der Projekte der Umgebung (ohne Anmelde-Vorfälle des Servers, ohne Notizen). Socket-Proxy unverändert (alles unter `CONTAINERS`).
+- **Kommandozeile und Smoke-Test:** `node dist/cli.js intrusion-check [--only-label k=v] [--learn-minutes n]` (eine Runde), `scripts/smoke-einbruch.sh`.
 
 ## Besucher und Herkunft
 
@@ -691,8 +710,8 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | `run_scan` | `project` oder externer `hostname`, `level` (`standard` oder `active`) | Ja bei `active` |
 | `get_scan_report` | `project`, optional `scan` | Nein |
 | `accept_finding` | `project`, `finding`, `reason` | Ja |
-| `list_security_events` | `project`, `since`, `severity` | Nein |
-| `quarantine_project` | `project` | Ja |
+| `list_incidents` | optional `project`, `status` (`aktiv` = offen und gesehen, `offen`, `gesehen`, `erledigt`, `alle`), `limit` – nur lesen: Vorfälle der Einbruchserkennung der Projekte dieser Umgebung (ohne Anmelde-Vorfälle, ohne Notizen); ersetzt das geplante `list_security_events` | Nein |
+| `quarantine_project` | `project` – geplant, nicht umgesetzt (Isolieren nur in der Oberfläche mit erneuter Bestätigung) | Ja |
 | `get_fix_context` | `project`, `finding` | Nein |
 | `set_security_header` | `project`, `header`, `value`, `mode` (`report-only` oder `enforce`) | Ja bei `enforce` für CSP und HSTS |
 
@@ -723,7 +742,11 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 | EgressException | `id`, `project_id`, `target` (IP, CIDR oder Hostname), `port`, `protocol` (`tcp`, `udp`), `note`, `created_at` |
 | EgressAttempt | `project_id`, `verdict` (`beobachtet`, `gesperrt`), `protocol`, `destination`, `port` (0 = ohne), `bucket` (Stunde), `count`, `to_server`, `first_seen`, `last_seen` |
 | FixRequest | `id`, `finding_id`, `way` (`mcp`, `api`), `status` (`proposed`, `applied`, `pr_open`, `merged`, `verified`, `rejected`), `branch`, `pr_url`, `diff`, `created_at` |
-| SecurityEvent | `id`, `project_id`, `source` (`crowdsec`, `cloudflare`, `drift`, `falco`), `severity`, `kind`, `ip`, `details`, `at`, `status` (`open`, `acknowledged`) |
+| SecurityEvent | `id`, `project_id`, `source` (`crowdsec`, `cloudflare`, `drift`, `falco`), `severity`, `kind`, `ip`, `details`, `at`, `status` (`open`, `acknowledged`) – geplant; umgesetzt als Incident (unten) |
+| Incident (Einbruchserkennung) | `id`, `project_id` (leer = Server), `fingerprint`, `source` (`anmeldung`, `prozess`, `datei`, `netz`, `web`, `container`), `kind`, `severity` (`niedrig` … `kritisch`), `status` (`offen`, `gesehen`, `erledigt`), `title`, `subject`, `service`, `samples`, `count`, `first_seen`, `last_seen`, `note`, `notified_at`, `reacted_at`; Verlauf in `incident_events` |
+| IntrusionContainer | `container_id`, `project_id`, `deployment_id`, `service`, `first_seen`, `learn_until`, `processes`, `files` (Grundlinie), `reported_pids`, `reported_files`, `restart_count`, `started_at` |
+| IntrusionAllow | `project_id`, `kind` (`prozess`, `datei`, `netz`), `service`, `value` («als normal markiert») |
+| Project (Reaktion) | `incident_auto_stop` (Standard `false`), `isolated_at`, `isolated_by`, `isolation` (Ausgang und Restart-Policies vorher) |
 | ApiToken | `id`, `name`, `token_hash`, `last_used_at`, `revoked_at` |
 | AuditEvent | `id`, `at`, `actor` (UI oder Token-Name), `action`, `params_masked`, `result` |
 

@@ -58,6 +58,10 @@ services:
       # entfernen und POST /build/prune liegen unter IMAGES, CONTAINERS,
       # VOLUMES und BUILD (oben). Test: storage/compose.test.ts.
       SYSTEM: 1
+      # Nacht 3, Etappe 5 (Einbruchserkennung) braucht nichts Neues: GET
+      # /containers/{id}/top («docker top»), /changes («docker diff»), HEAD
+      # /archive (Rechte einer Datei) und POST /update (Restart-Policy beim
+      # Isolieren) liegen unter CONTAINERS (+ POST). Test: intrusion/cli-notify.test.ts.
       # Ausdruecklich aus:
       # EXEC: der Proxy kann exec nicht auf einen Container beschraenken. Das
       # Backup braucht es nicht: Airlock legt Auftraege in das Volume
