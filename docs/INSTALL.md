@@ -105,6 +105,35 @@ Danach legt Claude über MCP (`propose_fix`) für Projekte aus diesen Repos eine
 
 Wenn etwas schiefgeht: Die Rückleitung ist eine Stunde gültig; danach auf der Seite neu starten. Eine schon angelegte, aber nicht verbundene App bei GitHub unter Settings → Developer settings → GitHub Apps löschen. «Verbindung trennen» in Airlock löscht Schlüssel und Secrets, nicht die App bei GitHub.
 
+## 5. Passkey und zweiter Faktor (empfohlen)
+
+Konto (Profil-Menü) → **Sicherheit**. Jede Änderung dort fragt einmal nach dem Passwort (erneute Bestätigung, gilt 10 Minuten).
+
+1. **Passkey hinzufügen** – geht nur unter der Hauptadresse `https://deployer.<basisdomain>` (mit Zertifikat aus Schritt 3); auf nip.io-Adressen bietet der Browser keine Passkeys an. Mehrere Passkeys mit Namen («MacBook», «iPhone») sind möglich.
+2. **Authenticator-App einrichten** – QR-Code scannen, den angezeigten Code eingeben. Geht auf jeder Adresse und ist der Weg über nip.io.
+3. Beim ersten Faktor zeigt Airlock **10 Wiederherstellungscodes** genau einmal: herunterladen (.txt) oder in den Passwort-Manager kopieren.
+4. «**Zweiter Faktor erforderlich**» ist danach von selbst an: Anmelden geht dann nur mit Passkey oder mit Passwort plus Code (bzw. Wiederherstellungscode). Nach jeder Änderung am zweiten Faktor werden alle anderen Geräte abgemeldet.
+
+API-Tokens und MCP sind davon nicht betroffen; neue Tokens verlangen aber die erneute Bestätigung.
+
+Nach 5 Fehlversuchen (Passwort oder Code) sperrt Airlock die Anmeldung mit Passwort 15 Minuten lang, bei Wiederholung jeweils doppelt so lang (höchstens 24 Stunden) – je Absender-Adresse und für das Konto. Mit einem Passkey geht die Anmeldung trotzdem. Fehlversuche und Sperren stehen im Audit-Log.
+
+### Notausgang: zweiter Faktor verloren
+
+Telefon und Passkeys weg, keine Wiederherstellungscodes mehr – auf dem Server im Ordner des Repos:
+
+```sh
+docker compose exec airlock node dist/cli.js reset-2fa admin
+# gleichwertig, ohne Compose:
+docker exec airlock-app node dist/cli.js reset-2fa admin
+```
+
+Das entfernt alle Passkeys, die Authenticator-App und die Wiederherstellungscodes, setzt «Zweiter Faktor erforderlich» zurück, meldet alle Sitzungen ab und schreibt `auth.2fa.reset` ins Audit-Log. Danach geht die Anmeldung wieder mit dem Passwort allein; den zweiten Faktor neu einrichten. Statt `admin` geht auch der Anzeigename aus `ADMIN_NAME` (ohne Akzente, z. B. `joel`). Läuft eine Sperre nach Fehlversuchen, hebt `docker restart airlock-app` sie sofort auf (Sperren liegen nur im Arbeitsspeicher).
+
+**Passwort vergessen:** `ADMIN_PASSWORD` in `.env` ändern und `docker compose up -d` (Airlock übernimmt ein geändertes Passwort aus `.env` beim Start). Ist zusätzlich ein zweiter Faktor verloren: danach der Befehl oben.
+
+Prüfen, dass der Notausgang im Image steckt (baut das Image, nimmt eine Wegwerf-Datenbank, braucht nur `docker`): `scripts/smoke-notausgang.sh`.
+
 ## Adressen und Wege
 
 | Weg | Adresse | Erreichbar |

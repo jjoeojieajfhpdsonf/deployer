@@ -691,6 +691,20 @@ Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starte
 - **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen.
 - **Audit-Log** für jede Änderung, egal ob aus UI, API oder MCP.
 
+### Anmeldung und zweiter Faktor
+
+Umgesetzt in Nacht 3, Etappe 1 (für das eine Konto; die Stufen für mehrere Benutzer bleiben Konzept).
+
+- **Sitzungen** stehen in `auth_sessions` (Migration 0024): Das Cookie trägt einen Zufallswert, gespeichert ist nur dessen SHA-256. Gültig 7 Tage, «zuletzt aktiv» höchstens minütlich nachgeführt. Konto › Sicherheit listet die Geräte (Browser aus dem User-Agent, Zugang Tailnet/LAN aus der Absenderadresse, Anmeldeart, zuletzt aktiv) mit «Abmelden» und «Alle anderen abmelden». Passwort- und jede 2FA-Änderung beenden alle anderen Sitzungen.
+- **Absenderadresse:** Airlock glaubt `X-Forwarded-For` nur, wenn die Verbindung von Caddy kommt (Adressen des Containers `airlock-caddy`); sonst gilt die Verbindungsadresse.
+- **Passkeys** (WebAuthn, `@simplewebauthn/server`/`browser`): RP-ID ist die Hauptadresse `<UI_HOST_LABEL>.<basis>` (heute `deployer.int.<basis>`), nie die Basis selbst – sonst könnte jede Projektseite unter `*.int.<basis>` eine Anmeldung anstossen. Nur über HTTPS unter genau diesem Namen; auf nip.io sagt die Anmeldung das und bietet Passwort + Code an. Auffindbare Schlüssel (Anmeldung ohne Benutzername und Passwort), Benutzerprüfung verlangt, mehrere je Konto mit Namen, zuletzt benutzt, löschbar.
+- **TOTP** (RFC 6238, eigener Code mit `node:crypto`): SHA-1, 6 Ziffern, 30 s, ±1 Zeitfenster, jedes Fenster nur einmal (atomar über `last_step`). Aktiv erst nach einem richtigen Code; Geheimnis AES-GCM-verschlüsselt mit der Schlüsseldatei.
+- **Wiederherstellungscodes:** 10 × 12 Zeichen (Crockford-Base32, 60 Bit), gespeichert als HMAC-SHA256 mit einem Schlüssel aus der Schlüsseldatei, je einmal gültig; beim ersten Faktor automatisch, sonst «Neue Codes erzeugen». Einmal angezeigt, Download als .txt.
+- **Pflicht:** «Zweiter Faktor erforderlich» ist Standard an, aber nur wirksam, wenn ein Faktor eingerichtet ist (nie aussperren). Dann braucht jede Anmeldung Passkey oder Passwort + TOTP bzw. Wiederherstellungscode (zweiter Schritt über ein kurzes Cookie, 5 Minuten, höchstens 5 Versuche).
+- **Erneute Bestätigung (sudo, 10 Minuten)** serverseitig für: öffentlich schalten (auch Fortsetzen und Anfrage freigeben), Projekt löschen, API-Token anlegen, Backup zurückholen, jede 2FA-Änderung, Passkey hinzufügen/löschen. Antwort ohne Bestätigung: 403 `sudo_required`; die Oberfläche fragt (Passkey oder Passwort, mit Pflicht zusätzlich Code) und wiederholt die Aktion. API-Tokens und MCP bleiben ohne 2FA und ohne sudo.
+- **Sperre:** 5 Fehlversuche (Passwort, Code) je Adresse und je Konto → 15 Minuten, jede weitere Sperre doppelt so lang (höchstens 24 Stunden). Gilt nicht für Passkeys; eine Passkey-Anmeldung hebt Sperren auf. Alles, was ein Passwort prüft, dauert mindestens 800 ms (gleich bei richtig und falsch, auch ohne gespeichertes Passwort). Fehlversuche (`auth.login` mit Grund und Adresse) und Sperren (`auth.lockout`) stehen im Audit-Log.
+- **Notausgang:** `docker exec airlock-app node dist/cli.js reset-2fa admin` (siehe INSTALL.md) entfernt alle Faktoren, meldet alle Sitzungen ab, schreibt `auth.2fa.reset`.
+
 ### Nicht-funktionale Anforderungen
 
 | Anforderung | Ziel |
