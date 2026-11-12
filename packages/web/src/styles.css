@@ -2612,7 +2612,7 @@ a.vs-rank-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 1p
 .vs-map-link { cursor: pointer; }
 .vs-map { margin: 0; }
 .vs-map-plot { position: relative; aspect-ratio: 360 / 141; }
-.vs-map-plot svg { display: block; width: 100%; height: 100%; }
+.vs-map-plot > svg { display: block; width: 100%; height: 100%; }
 .vs-map-0 { --vs-m: var(--map-0); }
 .vs-map-1 { --vs-m: var(--map-1); }
 .vs-map-2 { --vs-m: var(--map-2); }
@@ -2627,6 +2627,13 @@ a.vs-rank-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 1p
 .vs-map-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--ok-line); pointer-events: none; }
 .vs-map-tip { position: absolute; z-index: 2; margin: -38px 0 0; transform: translateX(-50%); padding: 4px var(--sp-2); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--sh-pop); color: var(--ink); font-size: var(--fs-13); white-space: nowrap; pointer-events: none; }
 .vs-map-tip-left { transform: translateX(-100%); }
+/* Zoom: Ziehen verschiebt erst, wenn vergrössert; Knöpfe unten rechts auf der Karte */
+.vs-map-pan { cursor: grab; touch-action: none; }
+.vs-map-dragging, .vs-map-dragging .vs-map-link { cursor: grabbing; user-select: none; }
+.vs-map-zoom { position: absolute; right: var(--sp-2); bottom: var(--sp-2); z-index: 1; display: grid; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); box-shadow: var(--sh-card); cursor: default; }
+.vs-map-zoom .icon-button { width: 28px; height: 28px; }
+.vs-map-zoom .icon-button[aria-disabled='true'] { color: var(--muted); cursor: default; }
+.vs-map-zoom .icon-button[aria-disabled='true']:hover { background: transparent; color: var(--muted); }
 .vs-map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); margin-top: var(--sp-3); font-size: var(--fs-13); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .vs-map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .vs-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--vs-m); }
