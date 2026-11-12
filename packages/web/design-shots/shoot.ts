@@ -1077,6 +1077,11 @@ const shots: Shot[] = [
     prepare: async (pg) => { await pg.getByRole('button', { name: /^Nicht gefunden/ }).click(); await pg.waitForTimeout(250) },
   },
   {
+    // Seiten pro Besuch in Stunden (Messbeginn im Zeitraum): laufender Schnitt seit Mitternacht, nie eine leere Kurve
+    group: 'besucher', name: 'besucher-seiten-pro-besuch', path: `/projekte/${H}?tab=besucher`, traffic: 'jung', full: false, el: '.vs-main',
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Seiten pro Besuch/ }).click(); await pg.waitForTimeout(250) },
+  },
+  {
     group: 'besucher', name: 'besucher-europa', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-geo',
     prepare: async (pg) => {
       await pg.getByRole('group', { name: 'Kartenausschnitt' }).getByRole('button', { name: 'Europa' }).click()

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  activeNow, axisLabels, deltaLabel, flagOf, mapLevel, mapSteps, metricValue, niceMax, rangeFromSlug, rangeSlug, shareLabel, stepLabel,
+  activeNow, axisLabels, deltaLabel, flagOf, mapLevel, mapSteps, metricSeries, metricValue, niceMax, rangeFromSlug, rangeSlug, shareLabel, stepLabel,
   wayFromSlug, waySlug, windowLabel, yTicks,
 } from './traffic-view.js'
 
@@ -18,6 +18,15 @@ describe('Besucher: Kennzahlen und Achse', () => {
     assert.equal(metricValue({ views: 20, visitors: 4, notFound: 0, bots: 0 }, 'pagesPerVisit'), 5)
     assert.equal(metricValue({ views: 20, visitors: 0, notFound: 0, bots: 0 }, 'pagesPerVisit'), null)
     assert.equal(metricValue({ views: 20, visitors: 0, notFound: 3, bots: 0 }, 'notFound'), 3)
+  })
+  test('Seiten pro Besuch in Stunden: laufender Schnitt des Tages, nicht je Stunde (sonst fast immer leer)', () => {
+    // 12.11., 22:00 und 23:00, dann 13.11. ab Mitternacht: der Schnitt beginnt neu
+    const p = (h: number, views: number, visitors: number) => ({ at: new Date(2026, 10, h >= 22 ? 12 : 13, h).toISOString(), views, visitors, notFound: 0, bots: 0 })
+    const s = [p(22, 0, 0), p(23, 6, 2), p(0, 5, 0), p(1, 4, 1), p(2, 3, 0)]
+    assert.deepEqual(metricSeries(s, 'pagesPerVisit', 'hour'), [null, 3, null, 9, 12])
+    // Tage: je Abschnitt
+    assert.deepEqual(metricSeries([p(0, 10, 4)], 'pagesPerVisit', 'day'), [2.5])
+    assert.deepEqual(metricSeries(s, 'views', 'hour'), [0, 6, 5, 4, 3])
   })
   test('Vergleich zum Vorzeitraum nur mit Basis', () => {
     assert.equal(deltaLabel(112, 100), '+12 %')

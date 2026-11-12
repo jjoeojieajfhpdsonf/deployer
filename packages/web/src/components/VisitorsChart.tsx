@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react'
 import { TRAFFIC_WAYS, TRAFFIC_WAY_LABEL, trafficRange, type TrafficPointDto, type TrafficSummaryDto, type TrafficWay } from '@airlock/shared'
 import { fmtDayTime, msOf } from '../lib/dates.js'
 import {
-  BUCKET_WORD, METRIC_LABEL, METRIC_UNIT, axisLabels, fmtDecimal, fmtMetric, measuredFor, metricValue, niceMax, nf, plural, windowLabel, yTicks,
+  BUCKET_WORD, METRIC_LABEL, METRIC_UNIT, axisLabels, fmtDecimal, fmtMetric, measuredFor, metricSeries, niceMax, nf, plural, windowLabel, yTicks,
   type TrafficMetric,
 } from '../lib/traffic-view.js'
 
@@ -44,7 +44,9 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
   const id = useId()
   const series = s.series
   const n = series.length
-  const values = useMemo(() => series.map((p) => metricValue(p, metric)), [series, metric])
+  const values = useMemo(() => metricSeries(series, metric, s.bucket), [series, metric, s.bucket])
+  // Seiten pro Besuch in Stunden: laufender Schnitt seit Mitternacht (traffic-view.ts)
+  const runningPpv = metric === 'pagesPerVisit' && s.bucket === 'hour'
   const showVisitors = metric === 'views' && mode === 'area'
   const stack = mode === 'bars' && metric !== 'pagesPerVisit'
   const ways = s.way === 'all' ? TRAFFIC_WAYS : [s.way]
@@ -55,7 +57,7 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
   const x = (i: number) => (i + 0.5) * slot
   const y = (v: number) => H - (v / max) * (H - 2)
 
-  // Linie in Teilstücken (Seiten pro Besuch: Lücke, wo niemand da war)
+  // Linie in Teilstücken (Seiten pro Besuch: Lücke, wo es noch keinen Besucher gab)
   const line = (vals: (number | null)[]) => {
     let d = ''
     let open = false
@@ -67,6 +69,8 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
     return d
   }
   const mainLine = line(values)
+  // Einzelne Werte ohne Nachbarn: als Linie unsichtbar, darum als Punkt
+  const lonely = values.map((v, i) => (v !== null && (values[i - 1] ?? null) === null && (values[i + 1] ?? null) === null ? i : -1)).filter((i) => i >= 0)
   const firstIdx = values.findIndex((v) => v !== null)
   const lastIdx = values.length - 1 - [...values].reverse().findIndex((v) => v !== null)
   const area = firstIdx >= 0 && n > 1 && metric !== 'pagesPerVisit'
@@ -77,7 +81,7 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
   const hv = hover !== null ? series[hover] : null
   const total = values.reduce<number>((a, v) => a + (v ?? 0), 0)
   const peakIdx = values.reduce<number>((b, v, i) => ((v ?? -1) > (values[b] ?? -1) ? i : b), 0)
-  const word = `${METRIC_LABEL[metric]} ${BUCKET_WORD[s.bucket]}`
+  const word = runningPpv ? `${METRIC_LABEL[metric]}, Ø seit Mitternacht` : `${METRIC_LABEL[metric]} ${BUCKET_WORD[s.bucket]}`
   const summary = n === 0
     ? `${word}: noch keine Werte.`
     : `${word}${metric === 'pagesPerVisit' ? '' : `: ${nf(total)} im Zeitraum`}${series[peakIdx] && (values[peakIdx] ?? 0) > 0 ? `, am meisten ${windowLabel(series[peakIdx]!, s.bucket)} mit ${fmtMetric(values[peakIdx]!, metric)}` : ''}. Pfeiltasten zeigen einzelne Werte.`
@@ -151,7 +155,9 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
                 {area && <path d={area} fill={`url(#${id}-fill)`} />}
                 {visitorsLine && <path d={visitorsLine} className="vs-line-visitors" vectorEffect="non-scaling-stroke" />}
                 <path d={mainLine} className="vs-line" vectorEffect="non-scaling-stroke" />
-                {n === 1 && values[0] !== null && <circle cx={x(0)} cy={y(values[0]!)} r="3" className="vs-dot" />}
+                {lonely.map((i) => (
+                  <line key={i} x1={x(i)} x2={x(i) + 0.01} y1={y(values[i]!)} y2={y(values[i]!)} className="vs-dot" vectorEffect="non-scaling-stroke" />
+                ))}
               </>
             ) : (
               series.map((p, i) => {
@@ -190,7 +196,8 @@ export function VisitorsChart({ s, metric, mode, onMode }: {
           <div className={`vs-tip${hover! > n * 0.62 ? ' vs-tip-left' : ''}`} style={{ left: `${(x(hover!) / W) * 100}%` }} role="status">
             <strong>{windowLabel(hv, s.bucket)}</strong>
             <span>
-              {fmtMetric(metricValue(hv, metric), metric)} {METRIC_UNIT[metric][metricValue(hv, metric) === 1 ? 0 : 1]}
+              {fmtMetric(values[hover!] ?? null, metric)} {METRIC_UNIT[metric][values[hover!] === 1 ? 0 : 1]}
+              {runningPpv && ' (Ø seit Mitternacht)'}
               {metric !== 'visitors' && <> · {plural(hv.visitors, 'Besucher', 'Besucher')}</>}
             </span>
             {metric !== 'pagesPerVisit' && (
