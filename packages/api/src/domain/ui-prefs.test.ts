@@ -7,6 +7,15 @@ process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'
 process.env.ADMIN_PASSWORD ??= 'x'
 const { parseUiPrefs, mergeUiPrefs, clampBellSeen, addUnlock, normalizeUnlocks, funEnabled, DEFAULT_UI_PREFS } = await import('./ui-prefs.js')
 
+describe('Besucher neu: Kurve als Fläche oder Säulen', () => {
+  test('wird gelesen und gespeichert; Unsinn fällt weg', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","trafficChart":"bars"}'), { theme: 'dark', trafficChart: 'bars' })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","trafficChart":"torte"}'), { theme: 'dark' })
+    assert.deepEqual(mergeUiPrefs({ theme: 'light', trafficChart: 'bars' }, { theme: 'dark' }), { theme: 'dark', trafficChart: 'bars' })
+    assert.deepEqual(mergeUiPrefs({ theme: 'light' }, { trafficChart: 'area' }), { theme: 'light', trafficChart: 'area' })
+  })
+})
+
 describe('Glocke: «gelesen bis» (UI-Qualität 8)', () => {
   test('wird beim Lesen mitgegeben, sonst ist nach dem Neuladen alles wieder ungelesen', () => {
     assert.deepEqual(parseUiPrefs('{"theme":"dark","bellSeenAt":"2026-11-10T22:00:00.000Z"}'), { theme: 'dark', bellSeenAt: '2026-11-10T22:00:00.000Z' })

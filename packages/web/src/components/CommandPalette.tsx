@@ -55,6 +55,7 @@ const PAGES: { label: string; to: string; env?: boolean; words?: string }[] = [
   { label: 'Benachrichtigungen', to: '/server/benachrichtigungen', words: 'ntfy e-mail' },
   { label: 'GitHub', to: '/server/github', words: 'app repos' },
   { label: 'Backup', to: '/server/backup', words: 'sicherung restic wiederherstellen schlüssel' },
+  { label: 'Quellen der Besucher', to: '/server/besucher', words: 'besucher städte provider asn db-ip cloudflare standort' },
   { label: 'Einrichtung', to: '/einrichtung', words: 'assistent erster start' },
   { label: 'Konto', to: '/konto', words: 'passwort profil' },
   { label: 'Bausteine', to: '/design', words: 'design komponenten' },

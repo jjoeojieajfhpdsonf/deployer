@@ -144,6 +144,7 @@ export function App() {
           <Route path="/server/benachrichtigungen" element={<System section="benachrichtigungen" />} />
           <Route path="/server/github" element={<System section="github" />} />
           <Route path="/server/backup" element={<System section="backup" />} />
+          <Route path="/server/besucher" element={<System section="besucher" />} />
           <Route path="/umgebungen" element={<Environments />} />
           <Route path="/umgebungen/neu" element={<NewEnvironment />} />
           <Route path="/konto" element={<Account />} />

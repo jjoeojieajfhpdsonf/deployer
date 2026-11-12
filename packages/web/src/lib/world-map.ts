@@ -41,7 +41,18 @@ export interface CountryShape {
   code: string
   name: string
   d: string
+  /** Mitte des grössten Teils (Punkt «letzter Aufruf»; nur Land, keine Koordinaten des Besuchers) */
+  cx: number
+  cy: number
 }
+
+/** Ausschnitte der Karte (viewBox): Welt und Europa */
+export const MAP_VIEWS = {
+  world: { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT },
+  // Europa: 25° W bis 45° O, 72° N bis 34° N
+  europe: { x: 180 - 25, y: MAP_NORTH - 72, w: 70, h: 38 },
+} as const
+export type MapView = keyof typeof MAP_VIEWS
 
 function decodeArcs(t: Topology): [number, number][][] {
   const [sx, sy] = t.transform?.scale ?? [1, 1]
@@ -63,6 +74,8 @@ const project = ([lon, lat]: [number, number]): [number, number] => [lon + 180, 
 /** TopoJSON-Länder → SVG-Pfade (viewBox 0 0 360 141), Antarktis und Länder ohne Code weggelassen */
 export function countryShapes(t: Topology): CountryShape[] {
   const arcs = decodeArcs(t)
+  // Grösster Ring je Land (nach Fläche des Rahmens): seine Mitte trägt den Punkt «letzter Aufruf»
+  let best: { area: number; cx: number; cy: number } | null = null
   const ring = (idx: number[]): string => {
     const pts: [number, number][] = []
     for (const i of idx) {
@@ -70,11 +83,17 @@ export function countryShapes(t: Topology): CountryShape[] {
       // Anschlusspunkt des nächsten Bogens nicht doppelt
       pts.push(...(pts.length ? a.slice(1) : a))
     }
+    const xy = pts.map(project)
+    const xs = xy.map((p) => p[0])
+    const ys = xy.map((p) => p[1])
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    // Ringe über die Datumsgrenze (Rahmen fast so breit wie die Welt) taugen nicht als Mitte
+    const area = x1 - x0 > 180 ? 0 : (x1 - x0) * (y1 - y0)
+    if (!best || area > best.area) best = { area, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 }
     let d = ''
     let last = ''
     let prevX: number | null = null
-    for (const p of pts) {
-      const [x, y] = project(p)
+    for (const [x, y] of xy) {
       const s = `${x.toFixed(1)},${y.toFixed(1)}`
       if (s === last) continue
       // Sprung über die Datumsgrenze (Russland, Fidschi): neues Teilstück statt Linie quer über die Karte
@@ -91,7 +110,10 @@ export function countryShapes(t: Topology): CountryShape[] {
     const code = (g.id && NUMERIC_TO_ALPHA2[g.id]) || BY_NAME[name]
     if (!code || !g.arcs) continue
     const polys = (g.type === 'Polygon' ? [g.arcs] : g.type === 'MultiPolygon' ? g.arcs : []) as number[][][]
-    out.push({ code, name, d: polys.flatMap((poly) => poly.map(ring)).join('') })
+    best = null
+    const d = polys.flatMap((poly) => poly.map(ring)).join('')
+    const c = best as { cx: number; cy: number } | null
+    out.push({ code, name, d, cx: Math.round((c?.cx ?? 0) * 10) / 10, cy: Math.round((c?.cy ?? 0) * 10) / 10 })
   }
   return out
 }

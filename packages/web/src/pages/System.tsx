@@ -13,6 +13,7 @@ import { PageHead } from '../components/PageHead.js'
 import { GithubSetup } from '../components/GithubSetup.js'
 import { ExpirySettings } from '../components/ExpirySettings.js'
 import { BackupSection } from '../components/Backup.js'
+import { TrafficSources } from '../components/TrafficSources.js'
 import { useEnvPath } from '../lib/env.js'
 
 function formatBytes(n: number | null): string {
@@ -21,7 +22,7 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github' | 'backup'
+export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github' | 'backup' | 'besucher'
 
 /**
  * M9: «Server» – was für alle Umgebungen gilt. Cloudflare & HTTPS und die
@@ -34,6 +35,8 @@ const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
   { key: 'github', to: '/server/github', label: 'GitHub' },
   // Meilenstein Backup, Etappe 3
   { key: 'backup', to: '/server/backup', label: 'Backup' },
+  // Besucher neu: Städte, Provider, Cloudflare-Kopfzeilen
+  { key: 'besucher', to: '/server/besucher', label: 'Besucher' },
 ]
 
 /**
@@ -105,6 +108,8 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
       {section === 'github' && <GithubSetup />}
 
       {section === 'backup' && <BackupSection />}
+
+      {section === 'besucher' && <TrafficSources />}
 
       {section === 'uebersicht' && <SetupSummary />}
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}

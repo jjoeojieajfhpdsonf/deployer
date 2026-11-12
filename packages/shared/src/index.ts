@@ -1305,6 +1305,8 @@ export const uiPrefsSchema = z.object({
   matrix: z.boolean().optional(),
   /** Etappe 7: Helferfigur Disketti (nur im Windows-95-Theme). «Nie wieder» setzt false. Fehlt = an */
   disketti: z.boolean().optional(),
+  /** Besucher neu: Kurve als Fläche oder Säulen. Fehlt = Fläche */
+  trafficChart: z.enum(['area', 'bars']).optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
 /**

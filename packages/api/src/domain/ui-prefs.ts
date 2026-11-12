@@ -54,6 +54,9 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
       const v = uiPrefsSchema.shape[k].safeParse(obj?.[k])
       if (v.success && v.data !== undefined) out[k] = v.data
     }
+    // Besucher neu: Fläche oder Säulen
+    const chart = uiPrefsSchema.shape.trafficChart.safeParse(obj?.trafficChart)
+    if (chart.success && chart.data) out.trafficChart = chart.data
     return out
   } catch {
     return DEFAULT_UI_PREFS

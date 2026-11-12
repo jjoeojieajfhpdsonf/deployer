@@ -47,6 +47,13 @@ const checks = [
   ['warn', ['surface-3'], 3, 'Statusbalken'],
   ['bad', ['surface-3'], 3, 'Statusbalken'],
   ['info', ['surface-3'], 3, 'Statusbalken'],
+  // Besucher neu: Kurve (Internet, Tailnet, Besucher gestrichelt) auf der Karte und der gewählten Kennzahl,
+  // stärkste Stufe der Weltkarte gegen «keine Aufrufe» (die übrigen Stufen tragen Zahlen in der Legende)
+  ['chart-public', ['surface', 'surface-2'], 3, 'Diagrammlinie/Säule Internet'],
+  ['chart-tailnet', ['surface'], 3, 'Säule Tailnet'],
+  ['chart-visitors', ['surface'], 3, 'Diagrammlinie Besucher'],
+  ['map-4', ['map-0', 'surface'], 3, 'Weltkarte, stärkste Stufe'],
+  ['seg-1', ['surface', 'surface-2'], 3, 'Gestapelter Balken, grösster Teil'],
   // Projektseite: Claude-Funke als Auslöser (Zeichen neben dem Token-Namen)
   ['claude', ['claude-bg', 'surface', 'surface-2'], 3, 'Auslöser-Zeichen'],
   // Code-Editor der Pause-Seite: Syntaxfarben auf dem Editor-Grund und der aktiven Zeile
