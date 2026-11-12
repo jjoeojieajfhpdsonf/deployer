@@ -198,6 +198,8 @@ function EnvRoutes() {
       {/* UI-Qualität 6: Externe Ziele als Reiter unter Security */}
       <Route path="security" element={<SecurityOverview section="projekte" />} />
       <Route path="security/extern" element={<SecurityOverview section="extern" />} />
+      {/* Nacht 3, Etappe 5: Vorfälle der Einbruchserkennung */}
+      <Route path="security/vorfaelle" element={<SecurityOverview section="vorfaelle" />} />
       {/* UI-Qualität 6: Domains unter Einstellungen › Cloudflare & HTTPS; alte Adressen leiten weiter */}
       <Route path="domains" element={<Navigate to={ep('/einstellungen/cloudflare#domains')} replace />} />
       <Route path="extern" element={<Navigate to={ep('/security/extern')} replace />} />

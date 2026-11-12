@@ -369,7 +369,7 @@ export const isNotifyEvent = (e: AuditEventDto) => e.action.startsWith('notify.'
 const NOTIFY_CATEGORY: Record<string, Category> = {
   deploy_failed: 'error', finding_critical: 'danger', finding_high: 'danger', project_public: 'public',
   external_verification_lost: 'scan', infra_problem: 'error', expiry: 'paused', gateway_warning: 'access',
-  disk_space: 'error',
+  disk_space: 'error', incident: 'danger',
 }
 
 /** Wie weit ein MCP-Aufruf von seinem Ereignis entfernt sein darf (mit wait läuft der Deploy mit) */

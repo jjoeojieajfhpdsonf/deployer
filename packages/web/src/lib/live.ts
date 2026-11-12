@@ -44,6 +44,7 @@ export type ServerEvent =
   | { type: 'cert' }
   | { type: 'public'; projectId: string }
   | { type: 'traffic'; projectIds: string[] }
+  | { type: 'incident'; projectId: string | null }
   | { type: 'session_ended' }
 
 type Key = unknown[]
@@ -71,6 +72,9 @@ export function affected(e: ServerEvent): Key[] {
       return [['traffic-today'], ...e.projectIds.map((id) => ['traffic', id])]
     case 'public':
       return [['projects'], ...forProject(e.projectId, 'project', 'public', 'public-progress', 'topology')]
+    // Nacht 3, Etappe 5: Vorfall erkannt oder geändert
+    case 'incident':
+      return [['intrusion-incidents'], ['intrusion-incident'], ...(e.projectId ? [['intrusion', e.projectId]] : [])]
     case 'audit': {
       const base: Key[] = [['audit']]
       const id = e.targetId

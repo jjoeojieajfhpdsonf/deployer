@@ -202,6 +202,8 @@ type Shot = {
   storage?: fx.StorageVariant
   /** Nacht 3, Etappe 4: Ausgang des Projekts und Firewall-Dienst (Standard: beobachten, mit Treffern) */
   egress?: fx.EgressVariant
+  /** Nacht 3, Etappe 5: Einbruchserkennung (Standard: Vorfälle in der Liste, Projekt ruhig) */
+  intrusion?: fx.IntrusionVariant
 }
 /**
  * Nacht 3, Etappe 2: Ausschnitt-Szenen (el) nach oben gerollt aufnehmen – das Werkzeug schneidet
@@ -952,6 +954,38 @@ const shots: Shot[] = [
       await gitTop(pg)
     },
   },
+  // Nacht 3, Etappe 5: Einbruchserkennung – Security › Vorfälle (mit Vorfällen, leer, ein Vorfall offen),
+  // Projekt › Security (Vorfälle oben, ruhig unten, lernt, isoliert), «Container jetzt isolieren» bestätigen
+  { group: 'einbruch', name: 'vorfaelle', path: '/security/vorfaelle', prepare: async (pg) => { await pg.locator('.incident-table').waitFor() } },
+  { group: 'einbruch', name: 'vorfaelle-leer', path: '/security/vorfaelle', intrusion: 'leer', full: false, prepare: async (pg) => { await pg.locator('.state-empty').waitFor() } },
+  {
+    group: 'einbruch', name: 'vorfall-dialog', path: '/security/vorfaelle', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Ansehen: Shell gestartet: sh (Dienst web)' }).click()
+      await pg.locator('.incident-events li').first().waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  ...([
+    ['projekt-einbruch', 'vorfaelle'],
+    ['projekt-einbruch-ruhig', 'ruhig'],
+    ['projekt-einbruch-lernt', 'lernt'],
+    ['projekt-einbruch-isoliert', 'isoliert'],
+  ] as const).map(([name, intrusion]): Shot => ({
+    group: 'einbruch', name, path: `/projekte/${P}?tab=security`, full: false, el: '.intrusion-card', intrusion,
+    prepare: async (pg) => {
+      await pg.locator('.intrusion-card .intrusion-watch').waitFor()
+      await gitTop(pg)
+    },
+  })),
+  {
+    group: 'einbruch', name: 'isolieren-bestaetigen', path: `/projekte/${P}?tab=security`, full: false, intrusion: 'vorfaelle',
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Container jetzt isolieren …' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -1514,6 +1548,10 @@ shots.push(...shots.filter((s) => s.group === 'speicher').map((s) => ({ ...s, gr
 //   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/ausgang --only ausgang-ergebnis
 shots.push(...shots.filter((s) => s.group === 'ausgang').map((s) => ({ ...s, group: 'ausgang-ergebnis', name: `umgesetzt-${s.name}` })))
 
+// Nacht 3, Etappe 5: Ergebnisbilder (docs/design-cal/einbruch/umgesetzt-*.png): Vorfälle, Dialoge, Projekt › Security
+//   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/einbruch --only einbruch-ergebnis
+shots.push(...shots.filter((s) => s.group === 'einbruch').map((s) => ({ ...s, group: 'einbruch-ergebnis', name: `umgesetzt-${s.name}` })))
+
 export { shots }
 export type { Shot }
 
@@ -1650,6 +1688,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             // Nacht 3, Etappe 4: Ausgang des Projekts (Einstellungen) und Firewall-Dienst (Server › Übersicht)
             if (/^\/api\/v1\/projects\/[^/]+\/egress$/.test(path) && route.request().method() === 'GET') return json(route, { egress: fx.egress(s.egress) })
             if (url.pathname === '/api/v1/system/egress') return json(route, { egress: fx.egressServer(s.egress) })
+            // Nacht 3, Etappe 5: Einbruchserkennung – Security › Vorfälle, ein Vorfall, Projekt › Security
+            if (path === '/api/v1/intrusion/incidents') return json(route, fx.intrusionIncidents(s.intrusion ?? 'vorfaelle', url.searchParams.get('status') ?? 'aktiv'))
+            if (/^\/api\/v1\/intrusion\/incidents\/[^/]+$/.test(path)) return json(route, { incident: fx.intrusionIncident(decodeURIComponent(path.split('/').pop()!)) })
+            if (/^\/api\/v1\/projects\/[^/]+\/intrusion$/.test(path)) return json(route, { intrusion: fx.intrusion(path.includes(`/${P}/`) ? s.intrusion ?? 'ruhig' : 'ruhig') })
             // Nacht 3, Etappe 3: Server › Speicher; bei voller Platte auch die Zahl im Systemstatus
             if (url.pathname === '/api/v1/system/storage') return json(route, { storage: fx.storage(s.storage ?? 'ok') })
             if (url.pathname === '/api/v1/system/storage/cleanup') return json(route, fx.storageCleanupResult())
