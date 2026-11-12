@@ -1441,3 +1441,5 @@ export * from './traffic.js'
 export * from './services.js'
 /* Etappe 5: öffentliche Statusseite (Daten, Renderer für Seite und RSS) */
 export * from './status.js'
+/* Etappe 6: Vorschau-Deploys je Branch bzw. Pull Request (nur intern) */
+export * from './previews.js'

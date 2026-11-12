@@ -1,6 +1,7 @@
 import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
   numeric, bigserial, bigint, uniqueIndex, index, customType, smallint, primaryKey, date,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import type { ScanStageDto, PausePage, DeployReason, FailureExplanation, CfTlsPhase, CfTokenCheckDto } from '@airlock/shared'
 
@@ -43,7 +44,53 @@ export const projects = pgTable('projects', {
   environmentId: uuid('environment_id').notNull().references(() => environments.id),
   // Etappe 5: «Auf Statusseite zeigen»; null = Standard (öffentlich an, intern aus)
   showOnStatus: boolean('show_on_status'),
+  // Etappe 6: Vorschau-Projekt → Projekt, aus dem es stammt (migrations/0022_previews.sql)
+  previewOf: uuid('preview_of').references((): AnyPgColumn => projects.id, { onDelete: 'cascade' }),
+  // Etappe 6: am eigentlichen Projekt – Schalter, letzte Prüfung, bekannte Branch-Köpfe und PRs
+  previewsEnabled: boolean('previews_enabled').notNull().default(false),
+  previewsCheckedAt: timestamp('previews_checked_at', { withTimezone: true }),
+  previewSeen: jsonb('preview_seen').$type<PreviewSeen>(),
 })
+
+/** Etappe 6: was Airlock vom Repo schon kennt (Branch → Kopf, Nummern offener PRs) */
+export interface PreviewSeen {
+  heads: Record<string, string>
+  prs: number[]
+}
+
+/* --- Etappe 6: Vorschau-Deploys (migrations/0022_previews.sql) ------------------ */
+
+export const previews = pgTable('previews', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  parentId: uuid('parent_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  branch: text('branch').notNull(),
+  label: text('label').notNull().unique(),
+  prNumber: integer('pr_number'),
+  prUrl: text('pr_url'),
+  headSha: text('head_sha'),
+  lastPushAt: timestamp('last_push_at', { withTimezone: true }).notNull().defaultNow(),
+  commentId: bigint('comment_id', { mode: 'number' }),
+  commentHash: text('comment_hash'),
+  checkRunId: bigint('check_run_id', { mode: 'number' }),
+  checkSha: text('check_sha'),
+  checkHash: text('check_hash'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('previews_parent_id_branch_key').on(t.parentId, t.branch), index('previews_parent_idx').on(t.parentId)])
+
+/** Variablen-Ebene «Vorschau» eines Projekts (erbt vom Projekt, überschreibt gleichnamige) */
+export const projectPreviewEnv = pgTable(
+  'project_preview_env',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    isSecret: boolean('is_secret').notNull().default(false),
+    value: text('value'),
+    valueEncrypted: bytea('value_encrypted'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('project_preview_env_project_id_key_key').on(t.projectId, t.key)],
+)
 
 export const apiTokens = pgTable('api_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
