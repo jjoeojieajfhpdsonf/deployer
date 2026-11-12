@@ -36,6 +36,8 @@ export function useUnlock(id: UnlockId, notice: { title: string; description: st
     patch((list) => (list.includes(id) ? list : [...list, id]))
     notifyOk(title, { id, description })
     api.unlock(id)
+      // Etappe 7: «Geheimnisse gefunden» könnte jetzt erreicht sein
+      .then(() => qc.invalidateQueries({ queryKey: ['achievements'] }))
       .catch(() => patch((list) => list.filter((x) => x !== id)))
       .finally(() => { busy.current = false })
   }, [qc, id, title, description])

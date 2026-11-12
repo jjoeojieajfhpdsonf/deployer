@@ -23,8 +23,14 @@ import { IconCheck } from './Icons.js'
  */
 export const achievementsKey = ['achievements'] as const
 
+/**
+ * Kein eigenes Polling (Anfragen-Budget, visual/anfragen.spec.ts): neu geprüft wird beim
+ * Laden, wenn das Fenster wieder in den Vordergrund kommt und wenn sich in der Projektliste
+ * etwas ändert, das ein Achievement auslösen kann (AchievementWatcher), sowie nach einer
+ * Freischaltung (useUnlock).
+ */
 export function useAchievements(enabled: boolean) {
-  return useQuery({ queryKey: achievementsKey, queryFn: api.achievements, enabled, refetchInterval: 60_000 })
+  return useQuery({ queryKey: achievementsKey, queryFn: api.achievements, enabled, staleTime: 5 * 60_000, refetchOnWindowFocus: true })
 }
 
 /**
@@ -50,9 +56,13 @@ export function AchievementWatcher() {
   const reduced = useReducedMotion()
   const ach = useAchievements(prefs.fun)
   const projects = useProjects()
-  // Ein Deploy wird fertig (Zustand des letzten Deploys ändert sich): gleich nachsehen
+  // Ein Deploy wird fertig, ein Scan liefert eine Note, ein Projekt wird öffentlich: gleich nachsehen
+  // (die Projektliste kommt über den Ereignisstrom, also ohne eigenes Polling)
   const deploySignature = useMemo(
-    () => (projects.data?.projects ?? []).map((p) => `${p?.lastDeployment?.id}:${p?.lastDeployment?.status}`).join('|'),
+    () => (projects.data?.projects ?? []).map((p) => [
+      p?.lastDeployment?.id, p?.lastDeployment?.status, p?.security?.scanId, p?.security?.status, p?.security?.grade,
+      (p?.routes ?? []).some((r) => r.target === 'public'),
+    ].join(':')).join('|'),
     [projects.data],
   )
   const first = useRef(true)
