@@ -15,7 +15,8 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
-import { DEFAULT_PAUSE_PAGE, renderStatusFeed, renderStatusPage, STATUS_CSS, STATUS_FILES, STATUS_JS } from '@airlock/shared'
+import { createHash } from 'node:crypto'
+import { DEFAULT_PAUSE_PAGE, renderSnakePage, renderStatusFeed, renderStatusPage, snakeCsp, STATUS_CSS, STATUS_FILES, STATUS_JS } from '@airlock/shared'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
@@ -28,12 +29,16 @@ const json = (route: Route, body: unknown, status = 200) =>
 
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
 /** Darstellung einer Aufnahme; «win95» ist das versteckte Theme (dann auch freigeschaltet) */
-export type ShotTheme = 'light' | 'dark' | 'win95'
+export type ShotTheme = 'light' | 'dark' | 'win95' | 'terminal'
+/** Versteckte Themes sind in ihrer Aufnahme freigeschaltet (nur das eigene) */
+const unlocksFor = (t: ShotTheme): import('@airlock/shared').UnlockId[] => (t === 'win95' || t === 'terminal' ? [t] : [])
 
 function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
   const full = u.pathname.replace(/^\/api\/v1/, '')
-  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, unlocks: theme === 'win95' ? ['win95'] : [] } : { loggedIn: false, theme: null } }
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, unlocks: unlocksFor(theme) } : { loggedIn: false, theme: null } }
+  // Etappe 7: Achievements (alle schon gemeldet; Szene «achievement-neu» mit einem frischen)
+  if (full === '/auth/achievements') return { body: fx.achievements() }
   let m: RegExpMatchArray | null
   // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
   if (full === '/environments') return { body: { environments: fx.environments } }
@@ -170,6 +175,14 @@ type Shot = {
   statusPage?: 'stoerung' | 'ruhig'
   /** Etappe 6: Vorschauen am Projekt an (mit drei Vorschauen) oder an und noch leer */
   previews?: fx.PreviewVariant
+  /** Etappe 7: Disketti eingeschaltet (in den Fixtures sonst aus) */
+  disketti?: boolean
+  /** Etappe 7: Matrix-Regen eingeschaltet und als festes Bild gezeichnet (auch bei reduzierter Bewegung) */
+  matrix?: boolean
+  /** Etappe 7: die Snake-Seite für unbekannte interne Namen unter /__snake/ (mit ihrer CSP, fester Zufall) */
+  snake?: boolean
+  /** Etappe 7: ein eben erreichtes, noch nicht gemeldetes Achievement */
+  achievementNew?: boolean
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -217,6 +230,41 @@ function previewShots(group: string): Shot[] {
       },
     },
     { group, name: 'vorschauen-nicht-moeglich', path: `/u/example/projekte/${H}?tab=einstellungen`, el: '#set-vorschauen', prepare: toSettings },
+  ]
+}
+
+/**
+ * Etappe 7: Spass-Paket – Terminal freischalten («sudo» in ⌘K), Matrix-Regen (festes Bild),
+ * Achievements im Konto und als Meldung, Snake-Seite, Disketti (nur Windows 95: Befund,
+ * gescheiterter Deploy, «Ja» öffnet den Ablauf).
+ */
+function spassShots(group: string): Shot[] {
+  const bubble = async (pg: Page) => { await pg.locator('.disketti-bubble').waitFor(); await pg.waitForTimeout(250) }
+  return [
+    {
+      group, name: 'terminal-freigeschaltet', path: '/projekte', full: false, me: { unlocks: [] },
+      prepare: async (pg) => {
+        await pg.keyboard.press('ControlOrMeta+k')
+        await pg.keyboard.type('sudo')
+        await pg.getByRole('option', { name: /Terminal/ }).waitFor()
+        await pg.waitForTimeout(300)
+      },
+    },
+    { group, name: 'matrix-regen', path: '/projekte', full: false, matrix: true, prepare: async (pg) => { await pg.locator('canvas.matrix-rain').waitFor(); await pg.waitForTimeout(250) } },
+    { group, name: 'konto-achievements', path: '/konto', el: 'section[aria-labelledby="ach-title"]' },
+    { group, name: 'achievement-neu', path: '/projekte', full: false, achievementNew: true, prepare: async (pg) => { await pg.getByText('Achievement: Nachtschicht').waitFor(); await pg.waitForTimeout(400) } },
+    { group, name: 'snake-404', path: '/__snake/', snake: true, loggedIn: false, full: false, prepare: async (pg) => { await pg.locator('#game:not([hidden])').waitFor(); await pg.waitForTimeout(200) } },
+    { group, name: 'disketti', path: `/projekte/${S}`, full: false, disketti: true, prepare: bubble },
+    { group, name: 'disketti-fehler', path: '/projekte/p-fehler-build', full: false, disketti: true, prepare: bubble },
+    {
+      group, name: 'disketti-ja', path: `/projekte/${S}`, full: false, disketti: true,
+      prepare: async (pg) => {
+        await bubble(pg)
+        await pg.locator('.disketti-bubble').getByRole('button', { name: 'Ja', exact: true }).click()
+        await pg.locator('.finding .claude-fix').first().waitFor()
+        await pg.waitForTimeout(500)
+      },
+    },
   ]
 }
 
@@ -520,6 +568,8 @@ const shots: Shot[] = [
   },
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
+  // Etappe 7: Spass-Paket
+  ...spassShots('spass'),
   // UI-Qualität 8: Glocke, Sitzung abgelaufen, Rückfrage beim Verlassen, neues Token
   {
     group: 'sitzung', name: 'glocke', path: '/projekte', full: false,
@@ -1212,7 +1262,7 @@ export type { Shot }
 
 /** Optionen des Browser-Kontexts für eine Aufnahme (Desktop, 1440 px) */
 export const contextOptions = (t: ShotTheme) => ({
-  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t === 'dark' ? 'dark' as const : 'light' as const,
+  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t === 'dark' || t === 'terminal' ? 'dark' as const : 'light' as const,
 })
 
 /**
@@ -1221,6 +1271,9 @@ export const contextOptions = (t: ShotTheme) => ({
  */
 export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // Etappe 7: Matrix-Regen als festes Bild; Snake mit festem Zufall (Futter immer am selben Ort)
+      if (s.matrix) await ctx.addInitScript({ content: 'window.__AIRLOCK_MATRIX_STILL__ = true' })
+      if (s.snake) await ctx.addInitScript({ content: `(() => { let x = 42; Math.random = () => { x = (x * 1664525 + 1013904223) % 4294967296; return x / 4294967296 } })()` })
       // Feste Adresse der Oberfläche (MCP-Adresse in Tokens, «Per Chat»): Bilder hängen nicht vom Port ab
       await ctx.addInitScript({ content: `window.__AIRLOCK_ORIGIN__ = 'https://airlock.int.example.ch'` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
@@ -1251,6 +1304,11 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
+          // Etappe 7: Snake-Seite – dieselbe Seite und CSP, die Caddy an unbekannte interne Namen gibt
+          if (s.snake && url.pathname.startsWith('/__snake/')) {
+            const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('base64')
+            return route.fulfill({ status: 404, contentType: 'text/html; charset=utf-8', headers: { 'content-security-policy': snakeCsp(sha) }, body: renderSnakePage() })
+          }
           // Etappe 5: öffentliche Statusseite – dieselben Dateien, die Airlock in das Volume schreibt
           if (s.statusPage && url.pathname.startsWith('/__statusseite/')) {
             const data = fx.statusPublic(s.statusPage)
@@ -1272,7 +1330,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, unlocks: t === 'win95' ? ['win95'] : [], ...s.me })
+            if ((s.me || s.disketti || s.matrix) && s.loggedIn !== false && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') {
+              return json(route, { ...fx.me, theme: t, unlocks: unlocksFor(t), ...(s.disketti ? { disketti: true } : {}), ...(s.matrix ? { matrix: true } : {}), ...s.me })
+            }
+            if (s.achievementNew && url.pathname === '/api/v1/auth/achievements') return json(route, fx.achievements('neu'))
             if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
@@ -1371,7 +1432,7 @@ export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 // --themes hell,dunkel,win95 (Standard: hell,dunkel); --viewport: nur das Fenster (1440×900), nie die ganze Seite
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' }, themes: { type: 'string' }, viewport: { type: 'boolean' } } })
-const THEME_OF = { hell: 'light', dunkel: 'dark', win95: 'win95' } as const
+const THEME_OF = { hell: 'light', dunkel: 'dark', win95: 'win95', terminal: 'terminal' } as const
 const themes = (args.themes ?? 'hell,dunkel').split(',').map((s) => s.trim()).filter((s): s is keyof typeof THEME_OF => s in THEME_OF)
 const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
 mkdirSync(outDir, { recursive: true })

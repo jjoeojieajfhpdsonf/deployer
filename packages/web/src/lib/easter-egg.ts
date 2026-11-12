@@ -49,3 +49,13 @@ export function versionClick(state: { count: number; last: number }, now: number
   const count = now - state.last <= VERSION_CLICK_GAP_MS ? state.count + 1 : 1
   return { count, last: now }
 }
+
+/**
+ * Etappe 7 – Theme «Terminal»: «sudo» in der Befehlspalette (⌘K). Zählt das
+ * Wort allein oder als Anfang eines Befehls («sudo deploy»), egal ob gross
+ * oder klein und mit Leerzeichen rundherum; nicht als Teil eines Worts
+ * («sudoku», «pseudo»).
+ */
+export function isSudo(query: string): boolean {
+  return /^sudo(\s|$)/i.test(query.trim())
+}

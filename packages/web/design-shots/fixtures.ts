@@ -354,7 +354,27 @@ export function pauseResult(id: string): PublicFlowResult {
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'
 
-export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN) }
+// Etappe 7: Disketti in den Fixtures aus – sie erschiene in allen Windows-95-Szenen eines Projekts
+// mit Befund nach knapp einer Sekunde (Bilder liefen je nach Tempo anders); eigene Szenen schalten sie ein
+export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN), fun: true, matrix: false, disketti: false }
+
+/**
+ * Etappe 7: Achievements im Konto. Standard: vier erreicht (alle schon gemeldet –
+ * sonst gäbe es in jeder Szene eine Meldung), drei offen. «neu»: «Nachtschicht»
+ * eben erreicht und noch nicht gemeldet (Meldung; Konfetti nur ohne reduzierte Bewegung).
+ */
+export function achievements(variant: 'standard' | 'neu' = 'standard'): import('@airlock/shared').AchievementsDto {
+  const list = [
+    { id: 'first_deploy', title: 'Erster Deploy', description: 'Ein Projekt ist zum ersten Mal erfolgreich gelaufen.', achievedAt: ago(212 * DAY), seen: true },
+    { id: 'first_public', title: 'Erstes öffentliches Projekt', description: 'Ein Projekt war zum ersten Mal aus dem Internet erreichbar.', achievedAt: ago(180 * DAY), seen: true },
+    { id: 'grade_a', title: 'Note A', description: 'Ein Security-Scan hat die Note A ergeben.', achievedAt: ago(41 * DAY), seen: true },
+    { id: 'uptime_100', title: '100 Tage ohne Ausfall', description: 'Ein Projekt war 100 gemessene Tage am Stück ohne Störung.', achievedAt: null, seen: false },
+    { id: 'all_fixed', title: 'Alle Befunde behoben', description: 'Kein gescanntes Projekt hat mehr einen offenen Befund.', achievedAt: null, seen: false },
+    { id: 'night_shift', title: 'Nachtschicht', description: 'Ein Deploy zwischen 0 und 4 Uhr (Zürcher Zeit) von Hand gestartet.', achievedAt: variant === 'neu' ? ago(2 * MIN) : ago(9 * DAY), seen: variant !== 'neu' },
+    { id: 'secrets', title: 'Geheimnisse gefunden', description: 'Alle versteckten Freischaltungen entdeckt.', achievedAt: null, seen: false },
+  ] as import('@airlock/shared').AchievementDto[]
+  return { achievements: list, enabled: true }
+}
 
 /**
  * Deployments mit Grund und Auslöser (Projektseite). Fotoalbum zeigt alle

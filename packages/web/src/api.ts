@@ -17,6 +17,7 @@ import type {
   BackupRestoreDto, BackupRestorePreviewDto,
   StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
   PreviewsDto,
+  AchievementsDto, AchievementId,
 } from '@airlock/shared'
 
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
@@ -88,6 +89,10 @@ export interface MeDto {
   bellSeenAt?: string | null
   /** M9: zuletzt gewählte Umgebung (Slug) */
   lastEnvironment?: string | null
+  /** Etappe 7: Spass-Funktionen an (Standard), Matrix-Regen auch ausserhalb des Terminals, Disketti an */
+  fun?: boolean
+  matrix?: boolean
+  disketti?: boolean
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -188,6 +193,10 @@ export const api = {
   setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
   /** Freischaltung (Easter Egg) hinzufügen; idempotent */
   unlock: (id: UnlockId) => call<UiPrefs>('/auth/unlocks', { method: 'POST', body: body({ id }) }),
+  /** Etappe 7: Achievements (der Server prüft die Regeln und trägt Neues ein) */
+  achievements: () => call<AchievementsDto>('/auth/achievements'),
+  /** Etappe 7: gemeldet (Konfetti gezeigt) – nicht noch einmal */
+  achievementsSeen: (ids: AchievementId[]) => call<{ ok: true }>('/auth/achievements/seen', { method: 'POST', body: body({ ids }) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>(e('/projects')),

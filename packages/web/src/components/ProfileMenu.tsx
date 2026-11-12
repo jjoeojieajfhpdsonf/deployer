@@ -1,17 +1,26 @@
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { themePrefs, themeUnlocked, type ThemePref } from '@airlock/shared'
+import { themePrefs, themeUnlocked } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
-import { applyTheme, readLocalTheme, THEME_LABEL } from '../lib/theme.js'
+import { readLocalTheme, THEME_LABEL } from '../lib/theme.js'
 import { useMenu } from './useMenu.js'
 import { confirmLeave } from '../lib/unsaved.js'
 import { markLoggedOut } from '../lib/session.js'
+import { funPrefsOf, useChooseTheme, useFunPrefs } from '../lib/fun.js'
+
+const Check = () => (
+  <svg className="menu-check" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+)
 
 /**
  * Profil-Menü oben rechts: Initiale als Avatar, Pfeil nach unten. Einträge
  * Konto, Passwort ändern, Abmelden. Schliesst bei Klick ausserhalb, Escape
  * und nach einer Auswahl; Pfeiltasten wandern durch die Einträge.
+ *
+ * Etappe 7: unter «Darstellung» auch die Spass-Funktionen (an/aus), der
+ * Matrix-Regen ausserhalb des Terminal-Themes und Disketti (nur sichtbar, wenn
+ * Windows 95 freigeschaltet ist) – als Häkchen-Einträge.
  */
 export function ProfileMenu({ me }: { me: MeDto }) {
   const { open, toggle, close, rootRef, triggerRef, listProps } = useMenu()
@@ -21,18 +30,11 @@ export function ProfileMenu({ me }: { me: MeDto }) {
   const name = me.name ?? 'Admin'
   const initial = (name.trim()[0] ?? 'A').toLocaleUpperCase('de-CH')
 
-  // Darstellung: sofort anwenden, dann auf dem Server speichern (gilt auf jedem Gerät)
-  const [theme, setTheme] = useState<ThemePref>(() => me.theme ?? readLocalTheme())
-  async function pickTheme(t: ThemePref) {
-    setTheme(t)
-    applyTheme(t)
-    try {
-      await api.setPreferences({ theme: t })
-      qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, theme: t } : old))
-    } catch {
-      /* lokal gilt die Wahl trotzdem; beim nächsten Laden gewinnt der Server */
-    }
-  }
+  // Darstellung: aus dem Profil (Befehlspalette kann sie auch ändern), sonst die lokale Kopie
+  const theme = me.theme ?? readLocalTheme()
+  const chooseTheme = useChooseTheme()
+  const fun = funPrefsOf(me)
+  const { set: setFun } = useFunPrefs()
 
   async function logout() {
     close()
@@ -76,15 +78,34 @@ export function ProfileMenu({ me }: { me: MeDto }) {
         <div className="menu-sep" />
         <div role="group" aria-label="Darstellung">
           <div className="menu-group-label" aria-hidden="true">Darstellung</div>
-          {/* «Windows 95» erst nach der Freischaltung (Easter Egg) */}
+          {/* «Windows 95» und «Terminal» erst nach der Freischaltung (Easter Eggs) */}
           {themePrefs.filter((t) => themeUnlocked(t, me.unlocks) || theme === t).map((t) => (
-            <button key={t} role="menuitemradio" aria-checked={theme === t} onClick={() => void pickTheme(t)}>
+            <button key={t} role="menuitemradio" aria-checked={theme === t} onClick={() => void chooseTheme(t)}>
               {THEME_LABEL[t]}
-              {theme === t && (
-                <svg className="menu-check" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
-              )}
+              {theme === t && <Check />}
             </button>
           ))}
+        </div>
+        <div className="menu-sep" />
+        {/* Etappe 7: Spass-Funktionen – Matrix-Regen, Disketti, Konfetti, Achievements, Snake auf der 404-Seite */}
+        <div role="group" aria-label="Spass">
+          <button role="menuitemcheckbox" aria-checked={fun.fun} onClick={() => void setFun({ fun: !fun.fun })}>
+            Spass-Funktionen
+            {fun.fun && <Check />}
+          </button>
+          {/* Im Terminal-Theme läuft er ohnehin; der Schalter gilt für die übrigen Themes */}
+          {fun.fun && (
+            <button role="menuitemcheckbox" aria-checked={fun.matrix} onClick={() => void setFun({ matrix: !fun.matrix })}>
+              Matrix-Regen bei Deploys
+              {fun.matrix && <Check />}
+            </button>
+          )}
+          {fun.fun && themeUnlocked('win95', me.unlocks) && (
+            <button role="menuitemcheckbox" aria-checked={fun.disketti} onClick={() => void setFun({ disketti: !fun.disketti })}>
+              Disketti (Windows 95)
+              {fun.disketti && <Check />}
+            </button>
+          )}
         </div>
         <div className="menu-sep" />
         <button role="menuitem" onClick={() => void logout()}>Abmelden</button>

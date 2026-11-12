@@ -22,6 +22,7 @@ import { deployFailedState } from '../lib/projects.js'
 import { IconBad, IconCheck, IconOk, IconPending } from './Icons.js'
 import { EmptyState, ErrorState, Loading, PartialNote, Sk, SkLog, SkRows, errorReason } from './States.js'
 import { useEnvPath } from '../lib/env.js'
+import { useFixRequest } from '../lib/fix-request.js'
 
 type Tab = 'uebersicht' | 'deployments' | 'logs' | 'besucher' | 'security' | 'einstellungen'
 
@@ -260,6 +261,8 @@ function FailureActions({ p, env, f, onDeploy, deploying, fix }: {
     : done || null
   const ownAction = !applied && a && a.kind !== 'redeploy' && !(a.kind === 'change_source' && !isImage)
   const toggle = (k: 'claude' | 'image') => { setDone(''); setOpen((o) => (o === k ? null : k)) }
+  // Etappe 7: Disketti «Ja» öffnet «Mit Claude lösen» (wenn die Box ihn anbietet)
+  useFixRequest(p.lastDeployment ? `deploy:${p.lastDeployment.id}` : null, Boolean(ownAction && a?.kind === 'claude'), () => { setDone(''); setOpen('claude') })
   const panelId = useId()
   // aria-controls nur, solange das Feld existiert
   const controls = (k: 'claude' | 'image') => ({ 'aria-expanded': open === k, 'aria-controls': open === k ? panelId : undefined })

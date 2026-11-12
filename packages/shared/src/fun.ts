@@ -89,7 +89,7 @@ main { max-width: 560px; margin: 0 auto; padding: 64px 24px; }
 h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; }
 p { margin: 0 0 8px; color: var(--muted); }
 code { font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink); overflow-wrap: anywhere; }
-.game { margin-top: 32px; }
+.game { margin-top: 32px; max-width: 400px; }
 .game[hidden] { display: none; }
 .hud { display: flex; justify-content: space-between; margin-bottom: 8px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .hud b { color: var(--ink); font-weight: 600; }

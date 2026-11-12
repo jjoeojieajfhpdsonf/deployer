@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/format.js'
 import { poll } from '../lib/live.js'
 import { IconSpark } from './Actor.js'
 import { InlineConfirm, useConfirmState } from './Confirm.js'
+import { useFixRequest } from '../lib/fix-request.js'
 
 /**
  * M8, Etappe 2: «Mit Claude lösen». Am Befund ein fertiger Auftrag zum
@@ -50,6 +51,8 @@ export function ClaudeFixAction({
   const hint = useQuery({ queryKey: ['fix-hint', projectId, finding.id], queryFn: () => api.fixHint(projectId, finding.id), enabled: open && offered })
   const h = hint.data
   const label = isImageCve(finding, sourceType) || h?.way === 'image' ? 'Abhilfe zeigen' : 'Mit Claude lösen'
+  // Etappe 7: Disketti «Ja» öffnet diesen Ablauf
+  useFixRequest(`finding:${finding.id}`, offered, () => setOpen(true))
 
   return (
     <>

@@ -1,5 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isSudo } from '../lib/easter-egg.js'
+import { useChooseTheme } from '../lib/fun.js'
+import { useUnlock } from './Win95.js'
 import { useGuardedNavigate } from '../lib/unsaved.js'
 import { useEnv, useEnvPath } from '../lib/env.js'
 import { publicStateOf, type ProjectDto } from '@airlock/shared'
@@ -161,12 +164,34 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   // eslint-disable-next-line react-hooks/exhaustive-deps -- ep hängt nur an der Umgebung (slug)
   }, [projects.data, deploy.isPending, deploy.variables, scan.isPending, scan.variables, slug])
 
+  // Etappe 7: «sudo» schaltet das Theme «Terminal» frei (einmal; danach steht es im Profilmenü)
+  const sudo = isSudo(query)
+  const unlockTerminal = useUnlock('terminal', { title: 'Terminal freigeschaltet', description: 'Neu im Profilmenü unter «Darstellung».' })
+  useEffect(() => { if (sudo) unlockTerminal() }, [sudo, unlockTerminal])
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me })
+  const terminalUnlocked = Boolean(me.data?.unlocks?.includes('terminal'))
+  const chooseTheme = useChooseTheme()
+  const terminalItem: Item = {
+    id: 'act:terminal', group: 'Aktionen', label: 'Theme «Terminal» einschalten', words: 'sudo terminal theme darstellung grün',
+    hint: me.data?.theme === 'terminal' ? 'ist schon an' : sudo ? 'freigeschaltet' : 'Darstellung',
+    run: () => { onClose(); void chooseTheme('terminal') },
+  }
+
   // Gefiltert und je Gruppe begrenzt; ohne Suche nur Seiten und Projekte, Aktionen ab dem ersten Zeichen
   const groups = useMemo(() => {
     const q = query.trim()
+    // «sudo …»: nur der eine Eintrag, egal was danach kommt
+    if (sudo) return [{ group: 'Aktionen' as Group, items: [terminalItem] }]
+    const extra = terminalUnlocked && q && matches(terminalItem, q) ? [terminalItem] : []
+    if (extra.length) {
+      const order: Group[] = ['Aktionen', 'Projekte', 'Seiten']
+      return order.map((g) => ({ group: g, items: [...(g === 'Aktionen' ? extra : []), ...items.filter((it) => it.group === g && matches(it, q))].slice(0, PER_GROUP) })).filter((g) => g.items.length > 0)
+    }
     const order: Group[] = q ? ['Aktionen', 'Projekte', 'Seiten'] : ['Seiten', 'Projekte']
     return order.map((g) => ({ group: g, items: items.filter((it) => it.group === g && matches(it, q)).slice(0, PER_GROUP) })).filter((g) => g.items.length > 0)
-  }, [items, query])
+    // terminalItem hängt nur an sudo, Freischaltung und gewähltem Theme
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, query, sudo, terminalUnlocked, terminalItem.hint])
   const shown = groups.flatMap((g) => g.items)
 
   useEffect(() => { setActive(0) }, [query])
