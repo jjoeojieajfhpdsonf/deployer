@@ -257,6 +257,27 @@ export const trafficHourly = pgTable('traffic_hourly', {
   index('traffic_hourly_hour_idx').on(t.hour),
 ])
 
+/** «Besucher neu» (Migration 0024): je Merkmal eine Zählerzeile (Einstieg, Ausstieg, Sprache, Browser, System, Netz, Kampagne) */
+export const trafficDims = pgTable('traffic_dims', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  hour: timestamp('hour', { withTimezone: true }).notNull(),
+  way: text('way').$type<import('@airlock/shared').TrafficWay>().notNull(),
+  dim: text('dim').$type<import('@airlock/shared').TrafficDim>().notNull(),
+  value: text('value').notNull(),
+  bot: boolean('bot').notNull().default(false),
+  views: integer('views').notNull().default(0),
+  visitors: integer('visitors').notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.hour, t.way, t.dim, t.value, t.bot] }),
+  index('traffic_dims_hour_idx').on(t.hour),
+])
+
+/** «Besucher neu»: Messbeginn je Projekt (erster Ingest) */
+export const trafficProjects = pgTable('traffic_projects', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  measuredSince: timestamp('measured_since', { withTimezone: true }).notNull(),
+})
+
 /* --- Meilenstein Backup ------------------------------------------------------ */
 
 export const backupRuns = pgTable('backup_runs', {

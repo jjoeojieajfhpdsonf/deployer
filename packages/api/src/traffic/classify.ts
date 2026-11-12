@@ -1,6 +1,6 @@
 import { isIPv4 } from 'node:net'
 import { isbot } from 'isbot'
-import type { TrafficDevice, TrafficWay } from '@airlock/shared'
+import { INTERNAL_REFERRER, isDatacenterAsn, type TrafficDevice, type TrafficWay } from '@airlock/shared'
 import { isOwnProbe } from '../lib/probe-ua.js'
 import { CSP_REPORT_PREFIX } from '../drivers/caddy-config.js'
 import type { AccessLine } from './parse.js'
@@ -46,6 +46,18 @@ export function isBotAgent(ua: string): boolean {
   return !ua.trim() || isbot(ua)
 }
 
+/**
+ * Warum eine Anfrage als Bot zählt (rein, getestet): «ua» – der User-Agent
+ * sagt es (isbot, oder er fehlt); «datacenter» – Browser-User-Agent, aber
+ * aus dem Netz eines Hosters (DATACENTER_ASNS, «vermutlich Bot»); null –
+ * Mensch. Ohne ASN-Datenbank (asn null) entscheidet nur der User-Agent.
+ */
+export function botReason(ua: string, asn: number | null): 'ua' | 'datacenter' | null {
+  if (isBotAgent(ua)) return 'ua'
+  if (asn !== null && isDatacenterAsn(asn)) return 'datacenter'
+  return null
+}
+
 /** Übliche Pfade von Healthchecks und Uptime-Prüfungen */
 const HEALTH_PATHS = new Set(['/health', '/healthz', '/healthcheck', '/livez', '/readyz', '/ping', '/_health', '/-/healthy', '/-/ready'])
 
@@ -80,16 +92,19 @@ export function deviceOf(ua: string): TrafficDevice {
 
 /**
  * Referrer: nur der Host (ohne «www.», ohne Pfad und Query – die können
- * Personendaten enthalten). Eigene Namen des Projekts zählen als «direkt»
- * (Navigation innerhalb der Seite). Ohne Referer: utm_source bzw. ref aus der
- * Query, falls gesetzt.
+ * Personendaten enthalten). Eigene Namen des Projekts sind ein Klick
+ * innerhalb der Seite (INTERNAL_REFERRER) – bis «Besucher neu» landeten sie
+ * als '' bei «direkt», das machte «direkt» zur grössten Quelle ohne
+ * Besucher. Ohne Referer: utm_source bzw. ref aus der Query, falls gesetzt,
+ * sonst '' (direkt oder Lesezeichen).
  */
 export function referrerOf(referer: string, query: string, ownHosts: ReadonlySet<string>): string {
   if (referer) {
     try {
       const u = new URL(referer)
       const host = u.hostname.toLowerCase()
-      if (!host || ownHosts.has(host)) return ''
+      if (!host) return ''
+      if (ownHosts.has(host)) return INTERNAL_REFERRER
       if (u.protocol === 'android-app:') return host.slice(0, 100)
       return host.replace(/^www\./, '').slice(0, 100)
     } catch {
@@ -128,14 +143,14 @@ export type Verdict = 'ignore' | 'live' | 'bot' | 'page'
 
 export function verdictOf(
   a: Pick<AccessLine, 'userAgent' | 'blocked' | 'method' | 'path' | 'contentType'>,
-  o: { healthPath?: string | null; hasPages: boolean },
+  o: { healthPath?: string | null; hasPages: boolean; asn?: number | null },
 ): Verdict {
   if (isOwnProbe(a.userAgent)) return 'ignore'
   if (a.blocked) return 'live'
   if (a.method !== 'GET') return 'live'
   if (a.path.startsWith(CSP_REPORT_PREFIX) || a.path.startsWith('/.well-known/airlock/')) return 'live'
   if (isHealthcheck(a.path, o.healthPath)) return 'live'
-  if (isBotAgent(a.userAgent)) return 'bot'
+  if (botReason(a.userAgent, o.asn ?? null)) return 'bot'
   // Statische Dateien nur, solange die Seite HTML hat – besteht sie nur aus Dateien, zählen diese
   if (o.hasPages && isAsset(a.path, a.contentType)) return 'live'
   return 'page'

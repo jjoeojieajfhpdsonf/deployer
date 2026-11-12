@@ -1,7 +1,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { INTERNAL_REFERRER, isScannerPath } from '@airlock/shared'
 import {
-  countryOf, deviceOf, inCidr, isAsset, isBotAgent, isHealthcheck, normalizePath, referrerOf, verdictOf, wayOf,
+  botReason, countryOf, deviceOf, inCidr, isAsset, isBotAgent, isHealthcheck, normalizePath, referrerOf, verdictOf, wayOf,
 } from './classify.js'
 
 const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15'
@@ -79,11 +80,11 @@ describe('Besucher: Gerät, Referrer, Land, Pfad', () => {
     assert.equal(deviceOf(IPAD), 'tablet')
     assert.equal(deviceOf(ANDROID_TAB), 'tablet')
   })
-  test('Referrer: nur Host ohne www., eigene Namen = direkt, sonst utm_source', () => {
+  test('Referrer: nur Host ohne www., eigene Namen = Klick innerhalb der Seite (nicht «direkt»), sonst utm_source', () => {
     const own = new Set(['foto.int.example.ch', 'foto.example.ch'])
     assert.equal(referrerOf('https://www.google.com/search?q=geheim', '', own), 'google.com')
     assert.equal(referrerOf('https://news.ycombinator.com/item?id=1', '', own), 'news.ycombinator.com')
-    assert.equal(referrerOf('https://foto.example.ch/galerie', '', own), '')
+    assert.equal(referrerOf('https://foto.example.ch/galerie', '', own), INTERNAL_REFERRER)
     assert.equal(referrerOf('', 'utm_source=Newsletter&x=1', own), 'newsletter')
     assert.equal(referrerOf('', 'ref=<script>', own), '')
     assert.equal(referrerOf('kein url', '', own), '')
@@ -103,6 +104,33 @@ describe('Besucher: Gerät, Referrer, Land, Pfad', () => {
   })
 })
 
+describe('Besucher: Bot-Regel (botReason)', () => {
+  test('User-Agent zuerst: Crawler und fehlender User-Agent → ua, egal aus welchem Netz', () => {
+    assert.equal(botReason('Googlebot/2.1 (+http://www.google.com/bot.html)', 15169), 'ua')
+    assert.equal(botReason('', 13030), 'ua')
+    assert.equal(botReason('curl/8.4.0', null), 'ua')
+  })
+  test('Browser aus bekannten Hoster-Netzen → datacenter (AWS, Hetzner, DigitalOcean, OVH)', () => {
+    for (const asn of [16509, 24940, 14061, 16276]) assert.equal(botReason(SAFARI, asn), 'datacenter', String(asn))
+  })
+  test('Browser von Zugangsanbietern und Cloudflare WARP → Mensch', () => {
+    // Swisscom, Init7, Sunrise, Cloudflare
+    for (const asn of [3303, 13030, 6730, 13335]) assert.equal(botReason(IPHONE, asn), null, String(asn))
+    assert.equal(botReason(SAFARI, null), null)
+  })
+})
+
+describe('Besucher: Scanner-Pfade (bot?)', () => {
+  test('typische Lückensuche erkannt, auch unter Unterordnern und gross geschrieben', () => {
+    for (const p of ['/wp-login.php', '/blog/wp-admin/setup-config.php', '/.git/config', '/.env', '/.env.production', '/phpMyAdmin/index.php', '/xmlrpc.php', '/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php']) {
+      assert.equal(isScannerPath(p), true, p)
+    }
+  })
+  test('normale Tippfehler nicht', () => {
+    for (const p of ['/', '/kontakt', '/blog/wordpress-tipps', '/environment', '/gitlab-anleitung', '/impresum']) assert.equal(isScannerPath(p), false, p)
+  })
+})
+
 describe('Besucher: was gezählt wird', () => {
   const base = { userAgent: SAFARI, blocked: false, method: 'GET', path: '/', contentType: 'text/html' }
   const o = { healthPath: '/health', hasPages: true }
@@ -119,6 +147,11 @@ describe('Besucher: was gezählt wird', () => {
     assert.equal(verdictOf({ ...base, path: '/.well-known/airlock/csp-report/abc' }, o), 'live')
   })
   test('Bot → getrennt gezählt', () => assert.equal(verdictOf({ ...base, userAgent: 'Googlebot/2.1' }, o), 'bot'))
+  test('Browser aus einem Rechenzentrum → vermutlich Bot; Provider und ohne ASN-Datei → Mensch', () => {
+    assert.equal(verdictOf(base, { ...o, asn: 24940 }), 'bot')
+    assert.equal(verdictOf(base, { ...o, asn: 13030 }), 'page')
+    assert.equal(verdictOf(base, { ...o, asn: null }), 'page')
+  })
   test('statische Datei: nicht gezählt – ausser die Seite besteht nur daraus', () => {
     const css = { ...base, path: '/style.css', contentType: 'text/css' }
     assert.equal(verdictOf(css, o), 'live')

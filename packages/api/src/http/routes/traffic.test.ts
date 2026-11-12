@@ -47,6 +47,7 @@ async function start(): Promise<string> {
         listeners.set(id, set)
         return () => set.delete(fn)
       },
+      recent: (id) => (id === 'p1' ? [{ at: '2026-11-11T14:29:00.000Z', access: 'public', host: 'foto.example.ch', service: 'web', status: 200, blocked: false, bot: false, page: true, path: '/', country: 'CH', city: 'Zürich' }] : []),
       visibleProjects: async () => new Set(['p1', 'p2']),
       today: async () => ({ p1: 214, p2: 0, fremd: 99 }),
       ingestState: () => 'ok',
@@ -78,6 +79,7 @@ describe('Routen /projects/:id/traffic', () => {
     assert.deepEqual(await (await fetch(`${base}/api/v1/projects/foto/traffic?range=30d&way=public`)).json(), { range: '30d', way: 'public' })
     assert.deepEqual(asked.at(-1), ['p1', '30d', 'public'])
     assert.equal((await fetch(`${base}/api/v1/projects/foto/traffic?range=1y`)).status, 400)
+    for (const range of ['today', '12m']) assert.deepEqual(await (await fetch(`${base}/api/v1/projects/foto/traffic?range=${range}`)).json(), { range, way: 'all' })
     assert.equal((await fetch(`${base}/api/v1/projects/foto/traffic?way=vpn`)).status, 400)
     assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/traffic`)).status, 404)
   })
@@ -102,6 +104,14 @@ describe('Routen /projects/:id/traffic', () => {
     ctrl.abort()
     for (let i = 0; i < 50 && (listeners.get('p1')?.size ?? 0) > 0; i++) await new Promise((r) => setTimeout(r, 10))
     assert.equal(listeners.get('p1')?.size ?? 0, 0)
+  })
+
+  test('Gerade eben: letzte Seitenaufrufe aus dem Speicher, ohne IP und ohne Kennung', async () => {
+    const base = await start()
+    const r = await (await fetch(`${base}/api/v1/projects/foto/traffic/recent`)).json() as { events: TrafficLiveEventDto[] }
+    assert.equal(r.events.length, 1)
+    assert.deepEqual(Object.keys(r.events[0]!).sort(), ['access', 'at', 'blocked', 'bot', 'city', 'country', 'host', 'page', 'path', 'service', 'status'])
+    assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/traffic/recent`)).status, 404)
   })
 
   test('Aufrufe heute: nur Projekte, die die Anfrage sehen darf', async () => {

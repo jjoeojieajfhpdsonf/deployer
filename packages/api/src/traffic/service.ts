@@ -1,8 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
-import { and, eq } from 'drizzle-orm'
-import type { TrafficLiveEventDto, TrafficRange, TrafficSourceDto, TrafficSummaryDto, TrafficWay } from '@airlock/shared'
-import { config } from '../config.js'
+import { and, eq, isNotNull } from 'drizzle-orm'
+import {
+  UI_HOST_LABEL, trafficRange, daysBefore, rangeStart, startOfToday, summarize,
+  type TrafficGeoSourcesDto, type TrafficLiveEventDto, type TrafficRange, type TrafficSourceDto, type TrafficSummaryDto, type TrafficWay,
+} from '@airlock/shared'
+import { aliasHosts, config, primaryHost } from '../config.js'
 import { db, getSetting, schema, setSetting } from '../db/index.js'
 import { effectiveKind } from '../domain/deployments.js'
 import { aliasesForHost } from '../domain/routes.js'
@@ -10,12 +13,11 @@ import { displayTimeZone } from '../domain/pause-page.js'
 import { publish, subscribe } from '../lib/events.js'
 import { log } from '../lib/log.js'
 import { VISITS_LOG_FILE } from '../drivers/caddy-config.js'
-import { TrafficAggregator } from './aggregate.js'
-import { CityDb, cityDbDue } from './geo.js'
+import { TrafficAggregator, TrafficDimAggregator } from './aggregate.js'
+import { AsnDb, CityDb, dbipDue, type DbipDb } from './geo.js'
 import { TrafficProcessor, type HostInfo } from './ingest.js'
 import { startTrafficRetentionJob } from './retention.js'
 import { pgTrafficStore, type TrafficStore } from './store.js'
-import { rangeStart, startOfToday, summarize } from './summary.js'
 import { LogTail, type TailPosition } from './tail.js'
 import { VisitorCounter } from './visitor.js'
 
@@ -30,14 +32,35 @@ const POLL_MS = 1_000
 const FLUSH_MS = 60_000
 const HOSTS_MS = 60_000
 const POS_KEY = 'traffic_ingest_pos'
+/** «Gerade eben»: so viele Seitenaufrufe je Projekt im Speicher (ohne IP, ohne Kennung) */
+const RECENT_MAX = 50
 
 const store: TrafficStore = pgTrafficStore
 const aggregator = new TrafficAggregator()
+const dimAggregator = new TrafficDimAggregator()
 const visitors = new VisitorCounter(displayTimeZone())
 export const cityDb = new CityDb(join(config.DATA_DIR, 'geoip'))
+export const asnDb = new AsnDb(join(config.DATA_DIR, 'geoip'))
 const hasPages = new Set<string>()
 let hosts = new Map<string, HostInfo>()
 let state: TrafficSourceDto['ingest'] = config.ACCESS_LOG_DIR ? 'waiting' : 'off'
+/** Cloudflare schickt Städte (cf-ipcity) – seit dem Start gesehen */
+let cfLocationSeen = false
+
+/** Messbeginn je Projekt (ms) und noch nicht gespeicherte Änderungen */
+const since = new Map<string, number>()
+const sincePending = new Map<string, number>()
+let sinceLoaded = false
+
+function markMeasured(projectId: string, at: number): void {
+  const cur = since.get(projectId)
+  if (cur !== undefined && cur <= at) return
+  // Vor dem Laden aus der Datenbank nichts überschreiben (least() in markSince regelt es ohnehin)
+  since.set(projectId, at)
+  sincePending.set(projectId, Math.min(at, sincePending.get(projectId) ?? at))
+}
+
+const recent = new Map<string, TrafficLiveEventDto[]>()
 
 const bus = new EventEmitter()
 bus.setMaxListeners(0)
@@ -48,13 +71,30 @@ export function onTrafficLive(projectId: string, fn: (e: TrafficLiveEventDto) =>
   return () => bus.off(projectId, fn)
 }
 
+/** Letzte gezählte Seitenaufrufe eines Projekts (neueste zuerst), nur aus dem Speicher */
+export function trafficRecent(projectId: string, limit = RECENT_MAX): TrafficLiveEventDto[] {
+  return (recent.get(projectId) ?? []).slice(0, limit)
+}
+
 const processor = new TrafficProcessor({
   aggregator,
+  dims: dimAggregator,
   visitors,
   hosts: () => hosts,
   city: (ip) => cityDb.lookup(ip),
+  asn: (ip) => asnDb.lookup(ip),
   hasPages,
-  emit: (projectId, e) => bus.emit(projectId, e),
+  measured: markMeasured,
+  cfLocation: () => { cfLocationSeen = true },
+  emit: (projectId, e) => {
+    if (e.page) {
+      const list = recent.get(projectId) ?? []
+      list.unshift(e)
+      if (list.length > RECENT_MAX) list.length = RECENT_MAX
+      recent.set(projectId, list)
+    }
+    bus.emit(projectId, e)
+  },
 })
 
 /** Namen → Projekt, Dienst, Healthcheck (aus Routen, Projekt und aktivem Deployment) */
@@ -87,8 +127,31 @@ export async function loadHosts(): Promise<Map<string, HostInfo>> {
   return next
 }
 
+/** Namen von Airlock selbst (Oberfläche, Statusseiten) – als Referrer ausgeblendet */
+let airlockHostsCache: { at: number; hosts: Set<string> } | null = null
+export async function airlockHosts(now = Date.now()): Promise<Set<string>> {
+  if (airlockHostsCache && now - airlockHostsCache.at < 60_000) return airlockHostsCache.hosts
+  const names = [primaryHost(UI_HOST_LABEL), ...aliasHosts(UI_HOST_LABEL)]
+  const status = await db.select({ hostname: schema.statusPages.hostname }).from(schema.statusPages).where(isNotNull(schema.statusPages.hostname)).catch(() => [])
+  for (const s of status) if (s.hostname) names.push(s.hostname)
+  // Wie referrerOf: klein, ohne «www.»
+  const hosts = new Set(names.map((n) => n.toLowerCase().replace(/^www\./, '')))
+  airlockHostsCache = { at: now, hosts }
+  return hosts
+}
+
+let hostsMarked = false
+
 async function refreshHosts(): Promise<void> {
   hosts = await loadHosts()
+  hostsMarked = false
+}
+
+/** Messbeginn für Projekte, die das Log gerade erstmals mitliest (auch ohne Aufrufe) */
+function markHostsMeasured(now: number): void {
+  if (hostsMarked || !sinceLoaded) return
+  hostsMarked = true
+  for (const h of hosts.values()) if (!since.has(h.projectId)) markMeasured(h.projectId, now)
 }
 
 let tail: LogTail | null = null
@@ -100,17 +163,29 @@ async function pollOnce(): Promise<void> {
     return
   }
   state = 'ok'
+  markHostsMeasured(Date.now())
   const lines = await tail.poll()
   for (const l of lines) processor.handle(l)
 }
 
 async function flush(): Promise<void> {
+  processor.sweep()
   const rows = aggregator.drain()
+  const dims = dimAggregator.drain()
   try {
-    await store.write(rows)
+    await store.write(rows, dims)
   } catch (err) {
     aggregator.restore(rows)
+    dimAggregator.restore(dims)
     throw err
+  }
+  if (sincePending.size) {
+    const marks = new Map(sincePending)
+    sincePending.clear()
+    await store.markSince(marks).catch((err) => {
+      for (const [k, v] of marks) sincePending.set(k, Math.min(v, sincePending.get(k) ?? v))
+      throw err
+    })
   }
   if (tail?.position) await setSetting(POS_KEY, JSON.stringify(tail.position))
   // Oberfläche lädt Besucherzahlen nach (statt sie jede Minute abzufragen)
@@ -125,7 +200,9 @@ export async function startTrafficIngest(): Promise<void> {
   started = true
   startTrafficRetentionJob(store)
   await cityDb.load().catch((err) => log.warn('Städte-Datenbank nicht lesbar, nur Länder', { err: String(err) }))
-  startCityDbJob()
+  await asnDb.load().catch((err) => log.warn('Provider-Datenbank nicht lesbar, ohne «Netz»', { err: String(err) }))
+  startDbipJob(cityDb, 'Städte-Datenbank')
+  startDbipJob(asnDb, 'Provider-Datenbank')
   if (!config.ACCESS_LOG_DIR) {
     log.info('Besucher-Auswertung aus (ACCESS_LOG_DIR leer)')
     return
@@ -134,6 +211,13 @@ export async function startTrafficIngest(): Promise<void> {
   tail = new LogTail(join(config.ACCESS_LOG_DIR, VISITS_LOG_FILE), saved)
   // Seiten-Projekte der letzten 30 Tage: statische Dateien zählen dort von Anfang an nicht
   for (const id of await store.projectsWithPages(Date.now() - 30 * 24 * 60 * 60_000).catch(() => new Set<string>())) hasPages.add(id)
+  // Gespeicherter Messbeginn (vorher gesehene Zeilen ziehen ihn höchstens vor)
+  try {
+    for (const [id, at] of await store.allSince()) if (!since.has(id) || at < since.get(id)!) since.set(id, at)
+    sinceLoaded = true
+  } catch (err) {
+    log.warn('Messbeginn der Besucher-Auswertung nicht geladen', { err: String(err) })
+  }
   await refreshHosts().catch((err) => log.warn('Namen für die Besucher-Auswertung nicht geladen', { err: String(err) }))
   // Neue oder geänderte Projekte: Namen neu laden (gebündelt)
   let pending: NodeJS.Timeout | null = null
@@ -163,19 +247,20 @@ export async function startTrafficIngest(): Promise<void> {
   log.info('Besucher-Auswertung liest das Zugriffs-Log von Caddy', { datei: join(config.ACCESS_LOG_DIR, VISITS_LOG_FILE) })
 }
 
-/** Beim Herunterfahren: Ausstehendes noch schreiben */
+/** Beim Herunterfahren: offene Besuche als beendet zählen, Ausstehendes noch schreiben */
 export async function stopTrafficIngest(): Promise<void> {
   if (!started) return
+  processor.closeAll()
   await flush().catch((err) => log.warn('Besucher-Zähler beim Beenden nicht gespeichert', { err: String(err) }))
 }
 
 /** Monatlich aktualisieren – nur wenn die Datei schon einmal geladen wurde */
-function startCityDbJob(): void {
+function startDbipJob(file: DbipDb, label: string): void {
   const tick = () => {
-    if (!cityDbDue(cityDb.current, Date.now())) return
-    void cityDb.download()
-      .then((i) => log.info('Städte-Datenbank (DB-IP) aktualisiert', { stand: i.month }))
-      .catch((err) => log.warn('Städte-Datenbank (DB-IP) nicht aktualisiert', { err: String(err) }))
+    if (!dbipDue(file.current, Date.now())) return
+    void file.download()
+      .then((i) => log.info(`${label} (DB-IP) aktualisiert`, { stand: i.month }))
+      .catch((err) => log.warn(`${label} (DB-IP) nicht aktualisiert`, { err: String(err) }))
   }
   setInterval(tick, 24 * 60 * 60_000).unref()
   setTimeout(tick, 10 * 60_000).unref()
@@ -186,24 +271,55 @@ function startCityDbJob(): void {
 /** Liest Airlock das Zugriffs-Log? (ok, waiting: Datei fehlt noch, off: nicht eingerichtet) */
 export const trafficIngestState = (): TrafficSourceDto['ingest'] => state
 
-export async function trafficSource(projectId: string): Promise<TrafficSourceDto> {
+export function trafficGeoSources(): TrafficGeoSourcesDto {
+  return {
+    city: { month: cityDb.month, downloadedAt: cityDb.current?.downloadedAt ?? null },
+    asn: { month: asnDb.month, downloadedAt: asnDb.current?.downloadedAt ?? null },
+    cfLocation: cfLocationSeen,
+  }
+}
+
+/** Messbeginn: gespeichert bzw. im Speicher; ältere Daten ohne Eintrag: ältester Zähler */
+async function measuredSince(projectId: string): Promise<number | null> {
+  const mem = since.get(projectId)
+  if (mem !== undefined) return mem
+  const saved = await store.since(projectId).catch(() => null)
+  if (saved !== null) return saved
   const oldest = await store.oldest(projectId)
-  const mem = aggregator.peek(projectId).reduce<number | null>((m, r) => (m === null || r.hour < m ? r.hour : m), null)
-  const first = [oldest, mem].filter((x): x is number => x !== null)
-  return { ingest: state, since: first.length ? new Date(Math.min(...first)).toISOString() : null, cityDb: cityDb.month }
+  const pending = aggregator.peek(projectId).reduce<number | null>((m, r) => (m === null || r.hour < m ? r.hour : m), null)
+  const first = [oldest, pending].filter((x): x is number => x !== null)
+  return first.length ? Math.min(...first) : null
+}
+
+export async function trafficSource(projectId: string): Promise<TrafficSourceDto> {
+  const s = await measuredSince(projectId)
+  return { ingest: state, since: s === null ? null : new Date(s).toISOString(), cityDb: cityDb.month, asnDb: asnDb.month, cfLocation: cfLocationSeen }
 }
 
 export async function trafficSummary(projectId: string, range: TrafficRange, way: TrafficWay | 'all', now = Date.now()): Promise<TrafficSummaryDto> {
   const tz = displayTimeZone()
   const from = rangeStart(range, now, tz)
-  const rows = [...(await store.read(projectId, from)), ...aggregator.peek(projectId)]
-  return summarize(rows, { range, way, now, timeZone: tz, source: await trafficSource(projectId) })
+  // Für den Vergleich auch den gleich langen Zeitraum davor lesen (12 Monate: keiner, Aufbewahrung 13 Monate)
+  const readFrom = range === '12m' ? from : daysBefore(from, trafficRange(range).days, tz) - 60 * 60_000
+  const [rows, dims, source, hidden] = await Promise.all([
+    store.read(projectId, readFrom),
+    store.readDims(projectId, readFrom),
+    trafficSource(projectId),
+    airlockHosts(now),
+  ])
+  return summarize(
+    [...rows, ...aggregator.peek(projectId)],
+    [...dims, ...dimAggregator.peek(projectId)],
+    { range, way, now, timeZone: tz, source, hiddenReferrers: hidden },
+  )
 }
 
-/** Aufrufe heute (Ortszeit) je Projekt, inklusive der letzten Minute */
+/** Aufrufe heute (Ortszeit, nur 2xx/3xx) je Projekt, inklusive der letzten Minute */
 export async function trafficToday(now = Date.now()): Promise<Record<string, number>> {
   const from = startOfToday(now, displayTimeZone())
   const views = await store.viewsSince(from)
-  for (const r of aggregator.peek()) if (!r.bot && r.hour >= from) views.set(r.projectId, (views.get(r.projectId) ?? 0) + r.views)
+  for (const r of aggregator.peek()) {
+    if (!r.bot && r.hour >= from && r.status > 0 && r.status < 400) views.set(r.projectId, (views.get(r.projectId) ?? 0) + r.views)
+  }
   return Object.fromEntries(views)
 }

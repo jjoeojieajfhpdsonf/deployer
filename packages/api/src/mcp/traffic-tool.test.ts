@@ -14,7 +14,7 @@ const { createMcpServer } = await import('./server.js')
  * traffic/summary.test.ts (mcpTraffic).
  */
 describe('MCP get_traffic', () => {
-  test('registriert, mit project und range (24h, 7d, 30d; Standard 7d)', async () => {
+  test('registriert, mit project, range (heute bis 12 Monate; Standard 7d) und access (Standard alle)', async () => {
     const server = createMcpServer({ id: 't1', name: 'test', environmentId: '00000000-0000-0000-0000-000000000000' } as never)
     const [a, b] = InMemoryTransport.createLinkedPair()
     const client = new Client({ name: 'test', version: '1.0.0' })
@@ -24,9 +24,11 @@ describe('MCP get_traffic', () => {
     assert.ok(t, 'get_traffic fehlt')
     assert.match(t!.description ?? '', /nur lesen/)
     const schema = t!.inputSchema as { properties: Record<string, { enum?: string[]; default?: string }>; required?: string[] }
-    assert.deepEqual(Object.keys(schema.properties).sort(), ['project', 'range'])
-    assert.deepEqual(schema.properties.range!.enum, ['24h', '7d', '30d'])
+    assert.deepEqual(Object.keys(schema.properties).sort(), ['access', 'project', 'range'])
+    assert.deepEqual(schema.properties.range!.enum, ['today', '24h', '7d', '30d', '12m'])
     assert.equal(schema.properties.range!.default, '7d')
+    assert.deepEqual(schema.properties.access!.enum, ['all', 'public', 'tailnet', 'lan'])
+    assert.equal(schema.properties.access!.default, 'all')
     assert.deepEqual(schema.required, ['project'])
     // Ungültiger Zeitraum: abgelehnt, bevor irgendetwas gelesen wird
     const r = await client.callTool({ name: 'get_traffic', arguments: { project: 'foto', range: '1y' } }).catch((err: Error) => ({ isError: true, content: [{ type: 'text', text: err.message }] }))

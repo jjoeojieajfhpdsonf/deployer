@@ -252,3 +252,14 @@ export function cityFromRecord(rec: unknown): { city: string; country: string } 
   if (!city && !country) return null
   return { city, country: /^[A-Z]{2}$/.test(country) ? country : '' }
 }
+
+/** ASN und Name aus einem ASN-Datensatz (GeoLite2-ASN-/DB-IP-Aufbau) */
+export function asnFromRecord(rec: unknown): { asn: number; name: string } | null {
+  if (!rec || typeof rec !== 'object') return null
+  const r = rec as { autonomous_system_number?: unknown; autonomous_system_organization?: unknown }
+  const asn = Number(r.autonomous_system_number)
+  if (!Number.isInteger(asn) || asn <= 0) return null
+  // eslint-disable-next-line no-control-regex
+  const name = typeof r.autonomous_system_organization === 'string' ? r.autonomous_system_organization.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : ''
+  return { asn, name }
+}

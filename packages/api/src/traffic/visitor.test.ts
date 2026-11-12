@@ -53,6 +53,46 @@ describe('Besucher: Hash und Tagessalz', () => {
     assert.equal(h.length, 22)
   })
 
+  test('Besuch: erster Aufruf ist Einstieg, letzter nach 30 Min. Pause der Ausstieg', () => {
+    const v = new VisitorCounter(TZ, T)
+    const w = { way: 'public' as const, track: true }
+    assert.deepEqual(v.see('p1', '1.2.3.4', 'UA', T, { ...w, path: '/' }), { first: true, entry: true })
+    assert.deepEqual(v.see('p1', '1.2.3.4', 'UA', T + 5 * 60_000, { ...w, path: '/blog' }), { first: false, entry: false })
+    assert.deepEqual(v.see('p1', '1.2.3.4', 'UA', T + 10 * 60_000, { ...w, path: '/kontakt' }), { first: false, entry: false })
+    v.sweep(T + 30 * 60_000)
+    assert.equal(v.takeEnded().length, 0)
+    v.sweep(T + 41 * 60_000)
+    assert.deepEqual(v.takeEnded(), [{ projectId: 'p1', at: T + 10 * 60_000, way: 'public', path: '/kontakt' }])
+    assert.equal(v.openVisits, 0)
+    // Später am Tag wieder da: neuer Besuch (Einstieg), aber kein neuer Besucher
+    assert.deepEqual(v.see('p1', '1.2.3.4', 'UA', T + 2 * H, { ...w, path: '/blog' }), { first: false, entry: true })
+  })
+
+  test('neuer Besuch desselben Besuchers ohne Sweep: alter wird beendet', () => {
+    const v = new VisitorCounter(TZ, T)
+    const w = { way: 'tailnet' as const, track: true }
+    v.see('p1', '1.2.3.4', 'UA', T, { ...w, path: '/a' })
+    v.see('p1', '1.2.3.4', 'UA', T + H, { ...w, path: '/b' })
+    assert.deepEqual(v.takeEnded().map((e) => e.path), ['/a'])
+  })
+
+  test('DNT/Sec-GPC (track = false): Besucher ja, Besuch nein', () => {
+    const v = new VisitorCounter(TZ, T)
+    assert.deepEqual(v.see('p1', '1.2.3.4', 'UA', T, { path: '/', way: 'public', track: false }), { first: true, entry: false })
+    assert.equal(v.openVisits, 0)
+    v.closeAll()
+    assert.deepEqual(v.takeEnded(), [])
+  })
+
+  test('Tageswechsel und Herunterfahren beenden offene Besuche', () => {
+    const v = new VisitorCounter(TZ, T)
+    v.see('p1', '1.2.3.4', 'UA', Date.parse('2026-11-11T22:50:00Z'), { path: '/spaet', way: 'lan', track: true })
+    v.see('p1', '5.6.7.8', 'UA', Date.parse('2026-11-11T23:05:00Z'), { path: '/neu', way: 'lan', track: true })
+    assert.deepEqual(v.takeEnded().map((e) => e.path), ['/spaet'])
+    v.closeAll()
+    assert.deepEqual(v.takeEnded().map((e) => e.path), ['/neu'])
+  })
+
   test('localDay in der Zeitzone der Anzeige', () => {
     assert.equal(localDay(Date.parse('2026-11-11T23:30:00Z'), TZ), '2026-11-12')
     assert.equal(localDay(Date.parse('2026-11-11T23:30:00Z'), 'UTC'), '2026-11-11')
