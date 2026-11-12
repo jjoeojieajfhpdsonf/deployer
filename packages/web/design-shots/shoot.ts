@@ -191,21 +191,24 @@ function previewShots(group: string): Shot[] {
     await pg.locator('#set-vorschauen').evaluate((el) => el.scrollIntoView({ block: 'center' }))
     await pg.waitForTimeout(300)
   }
+  // Nur der Abschnitt (el): beim Scrollen ans Seitenende lag die feste Seitenleiste sonst je nach Lauf
+  // um Bruchteile eines Pixels anders (flackernder Vergleich)
+  const section = 'section[aria-labelledby="pv-title"]'
   return [
-    { group, name: 'vorschauen', path: dep, previews: 'an', full: false, prepare: toSection },
+    { group, name: 'vorschauen', path: dep, previews: 'an', el: section, prepare: toSection },
     {
-      group, name: 'vorschauen-loeschen', path: dep, previews: 'an', full: false,
+      group, name: 'vorschauen-loeschen', path: dep, previews: 'an', el: section,
       prepare: async (pg) => {
         await toSection(pg)
         await pg.getByRole('button', { name: 'Vorschau galerie-raster löschen …' }).click()
         await pg.waitForTimeout(250)
       },
     },
-    { group, name: 'vorschauen-leer', path: dep, previews: 'leer', full: false, prepare: toSection },
-    { group, name: 'vorschauen-aus', path: dep, full: false, prepare: toSection },
-    { group, name: 'vorschauen-einstellungen', path: set, previews: 'an', full: false, prepare: toSettings },
+    { group, name: 'vorschauen-leer', path: dep, previews: 'leer', el: section, prepare: toSection },
+    { group, name: 'vorschauen-aus', path: dep, el: section, prepare: toSection },
+    { group, name: 'vorschauen-einstellungen', path: set, previews: 'an', el: '#set-vorschauen', prepare: toSettings },
     {
-      group, name: 'vorschauen-variablen', path: set, previews: 'an', full: false,
+      group, name: 'vorschauen-variablen', path: set, previews: 'an', el: '#set-vorschauen',
       prepare: async (pg) => {
         await toSettings(pg)
         await pg.locator('#set-vorschauen').getByRole('button', { name: 'Bearbeiten' }).click()
@@ -213,7 +216,7 @@ function previewShots(group: string): Shot[] {
         await pg.waitForTimeout(250)
       },
     },
-    { group, name: 'vorschauen-nicht-moeglich', path: `/u/example/projekte/${H}?tab=einstellungen`, full: false, prepare: toSettings },
+    { group, name: 'vorschauen-nicht-moeglich', path: `/u/example/projekte/${H}?tab=einstellungen`, el: '#set-vorschauen', prepare: toSettings },
   ]
 }
 
