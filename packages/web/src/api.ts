@@ -27,6 +27,7 @@ import type {
   IncidentListDto, IntrusionIncidentDetailDto, IntrusionIncidentUpdateInput, ProjectIntrusionDto, IntrusionSettingsInput,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
+import type { TokenScope } from '@airlock/shared'
 import { requestSudo } from './lib/sudo.js'
 
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
@@ -120,6 +121,8 @@ export interface ApiTokenDto {
   createdAt: string
   lastUsedAt: string | null
   revokedAt: string | null
+  /** Abgrenzung HomeBento: voll oder lesen (fehlt bei älteren Antworten: voll) */
+  scope?: TokenScope
 }
 
 export class ApiError extends Error {
@@ -345,7 +348,7 @@ export const api = {
 
   /* Tokens (M3) */
   listTokens: () => call<{ tokens: ApiTokenDto[] }>(e('/tokens')),
-  createToken: (name: string) => call<{ token: string; apiToken: ApiTokenDto }>(e('/tokens'), { method: 'POST', body: body({ name }) }),
+  createToken: (name: string, scope: TokenScope = 'voll') => call<{ token: string; apiToken: ApiTokenDto }>(e('/tokens'), { method: 'POST', body: body({ name, scope }) }),
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */

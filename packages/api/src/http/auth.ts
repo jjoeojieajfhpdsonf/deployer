@@ -9,6 +9,7 @@ import { config, cf, net } from '../config.js'
 import { unauthorized, AppError } from '../lib/errors.js'
 import { bearerFrom } from '../lib/tokens.js'
 import { verifyToken } from '../domain/tokens.js'
+import { READ_TOKEN_ROUTES } from '@airlock/shared'
 import { inEnvironment, sessionScope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 import { audit } from '../domain/audit.js'
@@ -288,6 +289,11 @@ declare module 'fastify' {
   }
 }
 
+/** Abgrenzung HomeBento: darf ein Token «lesen» diese Route? Nur GET auf READ_TOKEN_ROUTES. */
+export function readTokenAllows(method: string, route: string): boolean {
+  return (method === 'GET' || method === 'HEAD') && (READ_TOKEN_ROUTES as readonly string[]).includes(route)
+}
+
 /** Ohne Anmeldung erreichbar (Routenmuster) */
 export const OPEN_ROUTES = new Set([
   '/api/v1/auth/login', '/api/v1/auth/login/second-factor', '/api/v1/auth/passkey/login/options', '/api/v1/auth/passkey/login',
@@ -322,6 +328,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
     if (bearer) {
       const identity = await verifyToken(bearer)
       if (!identity) throw unauthorized()
+      // Abgrenzung HomeBento: ein Token «lesen» kommt nur an die Übersicht – Erlaubnisliste statt
+      // Sperrliste, damit eine neue Route nie aus Versehen für Dashboards offen steht.
+      if (identity.scope === 'lesen' && !readTokenAllows(request.method, route)) {
+        throw new AppError('forbidden', 'Dieses Token darf nur lesen: GET /api/v1/summary', 403)
+      }
       if (route.startsWith('/api/v1/tokens') || route.startsWith('/api/v1/environments/:env/tokens') || route.startsWith('/api/v1/auth/')) {
         throw new AppError('forbidden', 'Tokens lassen sich nur mit einer Anmeldung verwalten, nicht mit einem Token', 403)
       }

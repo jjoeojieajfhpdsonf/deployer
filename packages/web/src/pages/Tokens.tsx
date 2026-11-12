@@ -6,7 +6,7 @@ import { relativeTime } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { fmtDate } from '../lib/dates.js'
 import { EmptyState, ErrorState, Loading, SkRows } from '../components/States.js'
-import { tokenNameSchema } from '@airlock/shared'
+import { tokenNameSchema, TOKEN_SCOPES, TOKEN_SCOPE_LABEL, type TokenScope } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from '../components/Field.js'
 import { confirmLeave, useUnsaved } from '../lib/unsaved.js'
@@ -25,7 +25,9 @@ export function Tokens() {
   const revoked = (tokens.data?.tokens ?? []).filter((t) => t.revokedAt)
   const { env } = useEnv()
   const [name, setName] = useState('')
-  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
+  // Abgrenzung HomeBento: Umfang «voll» (MCP, REST) oder «lesen» (nur GET /api/v1/summary)
+  const [scope, setScope] = useState<TokenScope>('voll')
+  const [fresh, setFresh] = useState<{ name: string; token: string; scope: TokenScope } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
   // Antwort 14: Befehl je Shell (macOS-Standard zsh)
@@ -33,7 +35,8 @@ export function Tokens() {
 
   const mcpUrl = `${appOrigin()}/mcp`
 
-  const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name }) })
+  const form = useFormErrors({ schema: tokenNameSchema, values: () => ({ name, scope }) })
+  const summaryUrl = `${appOrigin()}/api/v1/summary`
   // Aus der Befehlspalette («Token erstellen»): gleich ins Namensfeld
   const [params, setParams] = useSearchParams()
   useEffect(() => {
@@ -42,11 +45,12 @@ export function Tokens() {
     setParams({}, { replace: true })
   }, [params, setParams, form])
   const create = useMutation({
-    mutationFn: (n: string) => api.createToken(n),
+    mutationFn: (v: { name: string; scope: TokenScope }) => api.createToken(v.name, v.scope),
     onSuccess: (r) => {
-      setFresh({ name: r.apiToken.name, token: r.token })
+      setFresh({ name: r.apiToken.name, token: r.token, scope: r.apiToken.scope ?? 'voll' })
       setAnyCopied(false)
       setName('')
+      setScope('voll')
       void qc.invalidateQueries({ queryKey: ['tokens'] })
     },
   })
@@ -71,7 +75,14 @@ export function Tokens() {
 
   function submit(e: FormEvent) {
     e.preventDefault()
-    if (form.validateAll()) create.mutate(name.trim())
+    if (form.validateAll()) create.mutate({ name: name.trim(), scope })
+  }
+
+  // Vorlage «Für HomeBento»: Name und Umfang vorbelegen, dann nur noch «Token anlegen»
+  function homebentoTemplate() {
+    setName('HomeBento')
+    setScope('lesen')
+    document.getElementById(form.idFor('name'))?.focus()
   }
 
   // UI-Qualität 8: fertige Einrichtung je Client zum Kopieren (vorher fehlte das Leerzeichen vor der URL)
@@ -119,12 +130,58 @@ export function Tokens() {
           <input {...form.field('name')} placeholder="Name, z.B. Claude Desktop" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" />
           {form.errors.name && <FieldError id={form.idFor('name')} message={form.errors.name} />}
         </div>
+        <div className="segmented" role="group" aria-label="Umfang des Tokens">
+          {TOKEN_SCOPES.map((s) => (
+            <button key={s} type="button" aria-pressed={scope === s} onClick={() => setScope(s)}>{TOKEN_SCOPE_LABEL[s]}</button>
+          ))}
+        </div>
         <button type="submit" className="button-primary" disabled={create.isPending} aria-busy={create.isPending || undefined}>
           Token anlegen
         </button>
       </form>
+      <p className="hint token-scope-hint">
+        {scope === 'lesen' ? (
+          <>
+            <strong>Nur lesen:</strong> kommt nur an <code>GET /api/v1/summary</code> – Zustand, Adresse, Note, Besucher und
+            Verfügbarkeit der Projekte. Kein MCP, nichts ändern, keine Variablen, Logs oder Befund-Texte.
+            Gedacht für Dashboards wie HomeBento.
+          </>
+        ) : (
+          <>
+            <strong>Voller Zugriff:</strong> MCP und REST-API dieser Umgebung.{' '}
+            Für ein Dashboard reicht weniger:{' '}
+            <button type="button" className="link-button" onClick={homebentoTemplate}>Vorlage «Für HomeBento»</button>
+            {' '}(nur lesen).
+          </>
+        )}
+      </p>
 
-      {fresh && (
+      {fresh && fresh.scope === 'lesen' && (
+        <section className="banner banner-warn token-fresh" aria-labelledby="token-fresh-h">
+          <h2 id="token-fresh-h" className="token-fresh-h">Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</h2>
+          <pre className="code-block" tabIndex={0} role="group" aria-label="Token">{fresh.token}</pre>
+          <div className="form-actions">
+            <button type="button" className="button-primary" onClick={() => copy('token', fresh.token)}>Token kopieren</button>
+          </div>
+          <p className="token-fresh-lede">In HomeBento einrichten:</p>
+          <ol className="hint token-steps">
+            <li>Die Plugin-Datei <code>airlock.js</code> aus dem Airlock-Repo (<code>docs/homebento/airlock.js</code>) nach <code>data/plugins/</code> von HomeBento kopieren und HomeBento neu starten.</li>
+            <li>In HomeBento einen Dienst «Airlock» mit der Adresse <code>{appOrigin()}</code> anlegen und als Art «Airlock» wählen.</li>
+            <li>Das Token oben ins Feld «API-Token» einfügen.</li>
+          </ol>
+          <p className="hint">Prüfen im Terminal (fragt nach dem Token):</p>
+          <pre className="code-block" tabIndex={0} role="group" aria-label="Befehl zum Prüfen">{`read -rs "AIRLOCK_TOKEN?Token: " && curl -s -H "Authorization: Bearer $AIRLOCK_TOKEN" ${summaryUrl}; unset AIRLOCK_TOKEN`}</pre>
+          <p role="status" className="fix-note">{copied === 'token' && 'Token kopiert.'}</p>
+          {copied?.endsWith('-fehler') && (
+            <p role="alert" className="error">Kopieren ging nicht – bitte den Text oben von Hand markieren.</p>
+          )}
+          <div className="form-actions">
+            <button type="button" className="link-button" onClick={() => { void confirmLeave().then((ok) => { if (ok) setFresh(null) }) }}>Ausblenden</button>
+          </div>
+        </section>
+      )}
+
+      {fresh && fresh.scope !== 'lesen' && (
         <section className="banner banner-warn token-fresh" aria-labelledby="token-fresh-h">
           <h2 id="token-fresh-h" className="token-fresh-h">Token «{fresh.name}» – jetzt kopieren, es wird nicht noch einmal angezeigt.</h2>
           <pre className="code-block" tabIndex={0} role="group" aria-label="Token">{fresh.token}</pre>
@@ -218,12 +275,13 @@ function TokenTable({ rows, setConfirming }: {
     <div className="table-scroll">
       <table className="table">
         <thead>
-          <tr><th>Name</th><th>Angelegt</th><th>Zuletzt benutzt</th><th>Status</th><th><span className="visually-hidden">Aktion</span></th></tr>
+          <tr><th>Name</th><th>Umfang</th><th>Angelegt</th><th>Zuletzt benutzt</th><th>Status</th><th><span className="visually-hidden">Aktion</span></th></tr>
         </thead>
         <tbody>
           {rows.map((t) => (
             <tr key={t.id} className={t.revokedAt ? 'row-muted' : undefined}>
               <td>{t.name}</td>
+              <td>{TOKEN_SCOPE_LABEL[t.scope ?? 'voll']}</td>
               <td>{fmtDate(t.createdAt)}</td>
               <td>{t.lastUsedAt ? relativeTime(t.lastUsedAt) : 'nie'}</td>
               <td>

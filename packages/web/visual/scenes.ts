@@ -56,6 +56,8 @@ export const VISUAL_SCENES = [
   'neues-projekt-validierung', 'neues-projekt-vorschau', 'neues-projekt-chat','projekte-anzahl-0', 'projekte-anzahl-1',
   // Verwaltung und Security
   'security-global', 'externe-ziele', 'domains', 'tokens', 'audit', 'konto', 'glocke', 'sitzung-abgelaufen', 'sitzung-abgelaufen-aktion', 'sitzung-erneut-ausfuehren', 'verlassen-rueckfrage', 'verlassen-zurueck', 'tokens-neu', 'tokens-neu-claude-code',
+  // Abgrenzung HomeBento: Vorlage «Für HomeBento» (nur lesen) und das neue Token mit den Schritten für HomeBento
+  'tokens-homebento-vorlage', 'tokens-neu-homebento',
   // System
   'system-uebersicht', 'system-cloudflare', 'system-cloudflare-fertig', 'system-benachrichtigungen', 'system-github', 'pauseseite-vorlage',
   // Meilenstein Backup: Server › Backup

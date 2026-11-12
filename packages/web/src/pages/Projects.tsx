@@ -616,7 +616,7 @@ function DiskBanner({ s }: { s: SystemStatusDto | undefined }) {
   if (typeof p !== 'number' || p < DISK_HINT_PERCENT) return null
   const blocked = p >= DISK_BLOCK_PERCENT
   return (
-    <div className={`alert${blocked ? '' : ' alert-warn'}`} role={blocked ? 'alert' : 'status'}>
+    <div className={`alert disk-banner${blocked ? '' : ' alert-warn'}`} role={blocked ? 'alert' : 'status'}>
       <span className="alert-icon">{blocked ? <IconAlert /> : <IconWarn />}</span>
       <div className="alert-body">
         <strong>Platte zu {p} % belegt{blocked ? ' – Deploys gesperrt' : ''}</strong>

@@ -13,6 +13,7 @@ import { trafficRoutes } from './routes/traffic.js'
 import { serviceRoutes } from './routes/services.js'
 import { statusRoutes } from './routes/status.js'
 import { previewRoutes } from './routes/previews.js'
+import { summaryRoutes } from './routes/summary.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -181,6 +182,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(statusRoutes)
       // Etappe 6: Vorschau-Deploys (Reiter Deployments, Ebene «Vorschau» der Variablen)
       await api.register(previewRoutes)
+      // Abgrenzung HomeBento: lesende Übersicht für Dashboards (Token «lesen»)
+      await api.register(summaryRoutes)
     },
     { prefix: '/api/v1' },
   )

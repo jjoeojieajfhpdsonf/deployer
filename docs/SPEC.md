@@ -512,6 +512,17 @@ Deployment, Route, Secret, ScanRun, Finding, FixRequest, SecurityEvent, PublicRe
 - MCP-Aufrufe landen im Audit der Umgebung des Tokens.
 - Der Endpunkt bleibt `/mcp`; die Umgebung ergibt sich aus dem Token. Bestehende Tokens kommen bei der Migration in die Standard-Umgebung, vorhandene Claude-Konfigurationen funktionieren weiter.
 - **REST-API:** `GET/POST /api/v1/environments`, `GET/PATCH/DELETE /environments/{env}`; Listen unter `/environments/{env}/projects`, `/domains`, `/external-targets`, `/tokens`, `/audit`, `/settings`. Einzelobjekte bleiben unter `/projects/{id}` usw.; der Server prüft, dass das Objekt zur Umgebung des Aufrufers passt (Session: alle Umgebungen, API-Token: nur seine).
+- **Umfang «Nur lesen»** (Abgrenzung HomeBento, Migration 0031): Ein Token hat den Umfang `voll` (Standard, wie bisher) oder `lesen`. Ein Token «lesen» kommt nur an `GET /api/v1/summary` (auch `/environments/{env}/summary`). Jede andere Route antwortet mit 403, ebenso `/mcp`. Geprüft wird an einer Erlaubnisliste im Auth-Wächter, nicht an einer Sperrliste: Eine neue Route ist nie aus Versehen offen. Ein Test geht jede registrierte Route durch (`http/read-token.test.ts`). Die Tokens-Seite bietet die Vorlage «Für HomeBento».
+- **`GET /api/v1/summary`** liefert die lesende Übersicht für Dashboards (`SummaryDto`, `packages/shared/src/summary.ts`). Je Projekt:
+  - Name, Zustand, Hauptadresse und ob es öffentlich ist
+  - Note und offene Befunde
+  - «braucht Aufmerksamkeit» mit Grund (eine Regel mit der Projektliste)
+  - Besucher heute
+  - Verfügbarkeit 24 h und 30 Tage (aus der Messung der Statusseite)
+  - Ablauf des Zertifikats
+  - ob gerade ein Deploy läuft
+
+  Dazu die laufenden Deploys und Summen. Nicht enthalten: Variablen, Quelle (Repo-URL), Logs, Fehlermeldungen, Befund-Texte, Grenzen. Das prüft ein Test.
 
 ### Projekt verschieben
 

@@ -116,6 +116,8 @@ export const apiTokens = pgTable('api_tokens', {
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   // M9: Ein Token gehört zu genau einer Umgebung
   environmentId: uuid('environment_id').notNull().references(() => environments.id),
+  // Abgrenzung HomeBento (0031): 'voll' | 'lesen' (nur GET /summary)
+  scope: text('scope').$type<'voll' | 'lesen'>().notNull().default('voll'),
 })
 
 export const deployments = pgTable(

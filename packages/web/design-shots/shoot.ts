@@ -867,6 +867,24 @@ const shots: Shot[] = [
       await pg.waitForTimeout(200)
     },
   },
+  {
+    // Abgrenzung HomeBento: Vorlage «Für HomeBento» gewählt (Name vorbelegt, «Nur lesen», Hinweis)
+    group: 'sitzung', name: 'tokens-homebento-vorlage', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Vorlage «Für HomeBento»' }).click()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    // Abgrenzung HomeBento: Token «lesen» angelegt – Schritte für HomeBento statt Claude-Einrichtung
+    group: 'sitzung', name: 'tokens-neu-homebento', path: '/tokens', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Vorlage «Für HomeBento»' }).click()
+      await pg.getByRole('button', { name: 'Token anlegen' }).click()
+      await pg.getByRole('heading', { name: /Token «HomeBento»/ }).waitFor()
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'security', name: 'security-global', path: '/security' },
   // UI-Qualität 6: alte Adressen leiten weiter – /extern auf den Reiter unter Security, /domains in System
   // Native Auswahlliste: Breite schwankt je nach Zeitpunkt des Schrift-Ladens um 4 px (Knöpfe rücken mit)
@@ -950,7 +968,8 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
-  { group: 'speicher', name: 'projekte-platte-voll', path: '/projekte', storage: 'voll', full: false, el: 'section[aria-labelledby="server-h"]' },
+  // Abgrenzung HomeBento: ohne Server-Karte – der Hinweis steht als eigene Zeile unter den Kennzahlen
+  { group: 'speicher', name: 'projekte-platte-voll', path: '/projekte', storage: 'voll', full: false, el: '.disk-banner' },
   // Nacht 3, Etappe 4: Ausgang der Container – Einstellungen (beobachten mit Treffern, durchsetzen mit Ausnahmen
   // und gesperrten Versuchen, frei, Firewall-Dienst aus), «Frei» bestätigen, Server › Übersicht, alle durchsetzen
   ...([
@@ -1871,6 +1890,11 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, { check: fx.repoCheck(s.repoCheck ?? 'erreichbar') })
             }
             if (route.request().method() === 'POST' && path === '/api/v1/git/credentials') return json(route, { credential: fx.deployKey(true) }, 201)
+            // Abgrenzung HomeBento: neues Token mit Name und Umfang aus der Anfrage – Beispielwert, kein echtes Token
+            if (route.request().method() === 'POST' && /^\/api\/v1(\/environments\/[^/]+)?\/tokens$/.test(path)) {
+              const b = (route.request().postDataJSON() ?? {}) as { name?: string; scope?: 'voll' | 'lesen' }
+              return json(route, { token: 'apl_beispiel_7f3a9c21e04d51c0aa8e2d93b6', apiToken: { id: 't9', name: b.name ?? 'Claude Desktop', createdAt: new Date().toISOString(), lastUsedAt: null, revokedAt: null, scope: b.scope ?? 'voll' } }, 201)
+            }
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             // Nacht 3, Etappe 4: Ausgang des Projekts (Einstellungen) und Firewall-Dienst (Server › Übersicht)

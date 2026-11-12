@@ -16,8 +16,8 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
 
   const create = async (request: FastifyRequest, reply: FastifyReply) => {
     const scope = listScopeFor(request)
-    const { name } = tokenNameSchema.parse(request.body)
-    const { token, dto } = await createToken(scope, name, actorFor(request))
+    const { name, scope: tokenScope } = tokenNameSchema.parse(request.body)
+    const { token, dto } = await createToken(scope, name, actorFor(request), tokenScope)
     reply.code(201)
     // Der Klartext steht nur in dieser einen Antwort.
     return { token, apiToken: dto }

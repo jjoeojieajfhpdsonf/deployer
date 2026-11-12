@@ -2369,6 +2369,10 @@ button.sec-also > span:nth-child(2) { flex: 1 1 12ch; min-width: 0; }
 .token-fresh-h { margin: 0; font-size: var(--fs-15); font-weight: 600; }
 .token-fresh-lede { margin: var(--sp-2) 0 0; font-weight: 500; }
 .token-fresh .form-actions { margin: 0; }
+/* Abgrenzung HomeBento: Umfang des Tokens erklärt, Schritte für HomeBento */
+.token-scope-hint { margin: var(--sp-3) 0 0; max-width: 72ch; }
+.token-scope-hint + .token-fresh, .token-scope-hint + .table-scroll, .token-scope-hint + .state, .token-scope-hint ~ .revoked-tokens { margin-top: var(--sp-5); }
+.token-steps { margin: 0; padding-left: 1.25em; display: grid; gap: var(--sp-1); }
 /* Nacht 3, Etappe 2: Zugang zu privaten Repos (Neues Projekt, Einstellungen › Repo-Zugang) */
 .repo-access .origin-switch { margin-top: 0; padding-top: 0; }
 .repo-access > .hint { margin-top: var(--sp-3); }

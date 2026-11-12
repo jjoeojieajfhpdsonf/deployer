@@ -1263,9 +1263,10 @@ export function storageCleanupResult(): { result: CleanupResultDto; storage: Sto
 
 
 export const tokens: ApiTokenDto[] = [
-  { id: 't1', name: 'Claude (MacBook)', createdAt: ago(30 * DAY), lastUsedAt: ago(5 * HOUR), revokedAt: null },
-  { id: 't2', name: 'Backup-Skript', createdAt: ago(80 * DAY), lastUsedAt: ago(26 * HOUR), revokedAt: null },
-  { id: 't3', name: 'Altes Notebook', createdAt: ago(200 * DAY), lastUsedAt: ago(120 * DAY), revokedAt: ago(90 * DAY) },
+  { id: 't1', name: 'Claude (MacBook)', createdAt: ago(30 * DAY), lastUsedAt: ago(5 * HOUR), revokedAt: null, scope: 'voll' },
+  { id: 't4', name: 'HomeBento', createdAt: ago(2 * DAY), lastUsedAt: ago(1 * HOUR), revokedAt: null, scope: 'lesen' },
+  { id: 't2', name: 'Backup-Skript', createdAt: ago(80 * DAY), lastUsedAt: ago(26 * HOUR), revokedAt: null, scope: 'voll' },
+  { id: 't3', name: 'Altes Notebook', createdAt: ago(200 * DAY), lastUsedAt: ago(120 * DAY), revokedAt: ago(90 * DAY), scope: 'voll' },
 ]
 
 export const externalTargets: ExternalTargetDto[] = [

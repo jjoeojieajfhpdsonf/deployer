@@ -4,12 +4,15 @@ import type { Scope, EnvScope, ListScope } from '../lib/scope.js'
 import { generateToken, hashToken, looksLikeToken } from '../lib/tokens.js'
 import { notFound, badRequest } from '../lib/errors.js'
 import { audit } from './audit.js'
+import { TOKEN_SCOPES, type TokenScope } from '@airlock/shared'
 
 export interface TokenIdentity {
   id: string
   name: string
   /** M9: Umgebung des Tokens – REST und MCP sehen nur sie */
   environmentId: string
+  /** Abgrenzung HomeBento: «lesen» darf nur GET /summary (http/auth.ts), kein MCP */
+  scope: TokenScope
 }
 
 export interface ApiTokenDto {
@@ -19,6 +22,7 @@ export interface ApiTokenDto {
   lastUsedAt: string | null
   revokedAt: string | null
   environmentId: string
+  scope: TokenScope
 }
 
 type Row = typeof schema.apiTokens.$inferSelect
@@ -30,16 +34,18 @@ const toDto = (r: Row): ApiTokenDto => ({
   lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
   revokedAt: r.revokedAt?.toISOString() ?? null,
   environmentId: r.environmentId,
+  scope: r.scope,
 })
 
 /** Der Klartext kommt genau hier einmal heraus und wird nirgends gespeichert. Das Token gehört zur Umgebung des Scopes. */
-export async function createToken(scope: EnvScope, name: string, actor: string): Promise<{ token: string; dto: ApiTokenDto }> {
+export async function createToken(scope: EnvScope, name: string, actor: string, tokenScope: TokenScope = 'voll'): Promise<{ token: string; dto: ApiTokenDto }> {
   const clean = name.trim()
   if (clean.length < 1 || clean.length > 80) throw badRequest('Name muss 1 bis 80 Zeichen haben')
+  if (!TOKEN_SCOPES.includes(tokenScope)) throw badRequest('Umfang: voll oder lesen')
   const token = generateToken()
-  const rows = await db.insert(schema.apiTokens).values({ name: clean, tokenHash: hashToken(token), environmentId: scope.envId }).returning()
+  const rows = await db.insert(schema.apiTokens).values({ name: clean, tokenHash: hashToken(token), environmentId: scope.envId, scope: tokenScope }).returning()
   const row = rows[0]!
-  await audit({ actor, action: 'token.create', targetType: 'token', targetId: row.id, environmentId: scope.envId, params: { name: clean }, result: 'ok' })
+  await audit({ actor, action: 'token.create', targetType: 'token', targetId: row.id, environmentId: scope.envId, params: { name: clean, scope: tokenScope }, result: 'ok' })
   return { token, dto: toDto(row) }
 }
 
@@ -65,12 +71,19 @@ export async function revokeToken(scope: Scope, id: string, actor: string): Prom
   await audit({ actor, action: 'token.revoke', targetType: 'token', targetId: id, environmentId: rows[0].environmentId, params: { name: rows[0].name }, result: 'ok' })
 }
 
+let testVerifier: ((raw: string) => Promise<TokenIdentity | null>) | null = null
+/** Nur für Tests: Tokens ohne Datenbank prüfen (REST-Wächter und MCP) */
+export function setTokenVerifier(fn: ((raw: string) => Promise<TokenIdentity | null>) | null): void {
+  testVerifier = fn
+}
+
 /**
  * Prüft ein Token. Null bei unbekanntem oder widerrufenem Token. Die Suche
  * läuft über den eindeutigen Hash-Index; der Hash selbst verrät nichts.
  * "zuletzt benutzt" wird höchstens einmal pro Minute geschrieben.
  */
 export async function verifyToken(raw: string): Promise<TokenIdentity | null> {
+  if (testVerifier) return testVerifier(raw)
   if (!looksLikeToken(raw)) return null
   const rows = await db.select().from(schema.apiTokens).where(eq(schema.apiTokens.tokenHash, hashToken(raw))).limit(1)
   const row = rows[0]
@@ -78,7 +91,7 @@ export async function verifyToken(raw: string): Promise<TokenIdentity | null> {
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) {
     await db.update(schema.apiTokens).set({ lastUsedAt: new Date() }).where(eq(schema.apiTokens.id, row.id))
   }
-  return { id: row.id, name: row.name, environmentId: row.environmentId }
+  return { id: row.id, name: row.name, environmentId: row.environmentId, scope: row.scope }
 }
 
 /** Für offene MCP-Sitzungen: ist das Token noch gültig? */

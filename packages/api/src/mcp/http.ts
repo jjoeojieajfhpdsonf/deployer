@@ -59,6 +59,11 @@ export async function mcpRoutes(app: FastifyInstance): Promise<void> {
         })
         return reply
       }
+      // Abgrenzung HomeBento: ein Token «lesen» ist nur für GET /api/v1/summary, nie für MCP
+      if (identity.scope === 'lesen') {
+        reply.code(403).send({ jsonrpc: '2.0', error: { code: -32001, message: 'Dieses Token darf nur lesen (GET /api/v1/summary), nicht MCP benutzen' }, id: null })
+        return reply
+      }
 
       const sid = request.headers['mcp-session-id']
       let session: Session | undefined

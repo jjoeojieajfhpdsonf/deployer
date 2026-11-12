@@ -1282,6 +1282,8 @@ export const tokenNameSchema = z.object({
     .trim()
     .min(1, 'Gib dem Token einen Namen, z.B. Claude Desktop – daran erkennst du es im Audit-Log')
     .max(80, 'Höchstens 80 Zeichen'),
+  // Abgrenzung HomeBento: «lesen» = nur GET /summary (für Dashboards); ohne Angabe wie bisher voll
+  scope: z.enum(['voll', 'lesen']).default('voll'),
 })
 
 const HOST_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
@@ -1537,3 +1539,5 @@ export * from './storage.js'
 export * from './egress.js'
 // Nacht 3, Etappe 5: Einbruchserkennung (Vorfälle, Schweregrad, Status, Grundlinie, Isolieren)
 export * from './incidents.js'
+// Abgrenzung HomeBento: Token-Umfang «lesen», GET /summary, «braucht Aufmerksamkeit»
+export * from './summary.js'
