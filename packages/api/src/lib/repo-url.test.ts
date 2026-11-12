@@ -32,7 +32,6 @@ describe('Repo-URL: Schemata', () => {
 
   for (const url of [
     'file:///etc/passwd',
-    'ssh://git@github.com/x/y.git',
     'git://github.com/x/y.git',
     'ext::sh -c touch% /tmp/pwned',
     'ftp://example.com/x.git',
@@ -44,6 +43,52 @@ describe('Repo-URL: Schemata', () => {
 
   test('Zugangsdaten in der URL werden abgelehnt (landen sonst in Logs)', async () => {
     await rejectsWith('https://user:token@github.com/x/y.git', policy({ 'github.com': ['140.82.121.4'] }), /Zugangsdaten/)
+  })
+})
+
+describe('Repo-URL: SSH (Nacht 3, Etappe 2 – nur mit Deploy-Key)', () => {
+  const gl = policy({ 'gitlab.com': ['172.65.251.78'], 'gitea.lan': ['192.168.1.20'] })
+
+  test('ohne Deploy-Key abgelehnt (ssh:// und scp-Form)', async () => {
+    await rejectsWith('ssh://git@gitlab.com/x/y.git', gl, /Deploy-Key/)
+    await rejectsWith('git@gitlab.com:x/y.git', gl, /Deploy-Key/)
+  })
+
+  test('scp-Form: Benutzer, Host, Port 22, git bekommt die Adresse unverändert', async () => {
+    const r = await checkRepoUrl('git@gitlab.com:gruppe/app.git', gl, { allowSsh: true })
+    assert.equal(r.kind, 'ssh')
+    assert.equal(r.user, 'git')
+    assert.equal(r.host, 'gitlab.com')
+    assert.equal(r.port, 22)
+    assert.equal(r.gitUrl, 'git@gitlab.com:gruppe/app.git')
+    assert.deepEqual(r.addresses, ['172.65.251.78'])
+  })
+
+  test('ssh:// mit eigenem Port (Gitea im LAN)', async () => {
+    const r = await checkRepoUrl('ssh://git@gitea.lan:2222/joel/app.git', gl, { allowSsh: true })
+    assert.equal(r.port, 2222)
+    assert.equal(r.host, 'gitea.lan')
+  })
+
+  for (const [url, re] of [
+    ['ssh://gitlab.com/x/y.git', /Benutzer/],
+    ['ssh://git:pw@gitlab.com/x/y.git', /Zugangsdaten/],
+    ['ssh://git@gitlab.com/-oProxyCommand=x', /Pfad/],
+    ['ssh://-oProxyCommand=x@gitlab.com/x.git', /Benutzer/],
+    ['ssh://git@127.0.0.1/x.git', /gesperrte Adresse/],
+    ['git@airlock-caddy:x.git', /Airlock-Stacks/],
+    ['git@localhost:x.git', /localhost/],
+  ] as const) {
+    test(`abgelehnt: ${url}`, async () => {
+      await assert.rejects(checkRepoUrl(url, gl, { allowSsh: true }), (err: Error) => {
+        assert.match(err.message, re)
+        return true
+      })
+    })
+  }
+
+  test('scp-Form mit Pfad, der mit - beginnt, gilt nicht als SSH-Adresse', async () => {
+    await assert.rejects(checkRepoUrl('git@gitlab.com:-oProxyCommand=x', gl, { allowSsh: true }))
   })
 })
 

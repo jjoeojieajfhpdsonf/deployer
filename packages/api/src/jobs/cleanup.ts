@@ -3,6 +3,7 @@ import { config } from '../config.js'
 import * as docker from '../drivers/docker.js'
 import { pruneOldDeployments } from '../deploy/pipeline.js'
 import { log } from '../lib/log.js'
+import { purgeUnbound } from '../domain/git-access.js'
 import { RESERVED_SLUGS } from '@airlock/shared'
 import { isProjectScoped, isLegacyName, PROJECT_PREFIX, LEGACY_PROJECT_PREFIX } from '../lib/names.js'
 
@@ -54,6 +55,13 @@ export async function runCleanup(): Promise<void> {
       log.warn('Verwaistes Netz nicht entfernt', { name, err: String(err) })
     }
   }
+
+  // Nacht 3, Etappe 2: beim Anlegen erzeugte, nie einem Projekt zugeordnete Repo-Zugänge (24 Stunden)
+  const gone = await purgeUnbound().catch((err) => {
+    log.warn('Unbenutzte Repo-Zugänge nicht entfernt', { err: String(err) })
+    return 0
+  })
+  if (gone) log.info('Unbenutzte Repo-Zugänge entfernt', { count: gone })
 }
 
 export function startCleanupJob(): NodeJS.Timeout {

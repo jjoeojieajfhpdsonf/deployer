@@ -26,7 +26,7 @@ export async function buildFromRepo(
 ): Promise<{ imageTag: string; commit: string }> {
   const cfg = project.sourceConfig as { repoUrl?: string; ref?: string; dockerfile?: string; context?: string }
   if (!cfg.repoUrl) throw badRequest('Dem Projekt fehlt die Repo-URL')
-  const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl, ref ?? cfg.ref)
+  const { dir, commit } = await cloneForDeployment(project, deploymentId, ref ?? cfg.ref)
   const imageTag = await buildFromDir(project, deploymentId, dir, { dockerfile: cfg.dockerfile, context: cfg.context })
   return { imageTag, commit }
 }

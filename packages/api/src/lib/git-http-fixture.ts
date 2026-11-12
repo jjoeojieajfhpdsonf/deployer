@@ -18,11 +18,32 @@ export interface GitHttpServer {
   close(): Promise<void>
 }
 
-export function startGitHttpServer(projectRoot: string, host = '0.0.0.0', port = 0): Promise<GitHttpServer> {
+export interface GitHttpOptions {
+  /**
+   * Nacht 3, Etappe 2: privates Repo – nur mit Basic-Auth (Benutzer, Token),
+   * sonst 401 wie bei GitHub/GitLab. Alle gesehenen Authorization-Werte
+   * landen in seenAuth (für Tests).
+   */
+  auth?: { username?: string; token: string }
+  seenAuth?: string[]
+}
+
+export function startGitHttpServer(projectRoot: string, host = '0.0.0.0', port = 0, opts: GitHttpOptions = {}): Promise<GitHttpServer> {
   const backend = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim() + '/git-http-backend'
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
+    if (opts.auth) {
+      const got = String(req.headers.authorization ?? '')
+      opts.seenAuth?.push(got)
+      const want = `Basic ${Buffer.from(`${opts.auth.username ?? 'x-access-token'}:${opts.auth.token}`).toString('base64')}`
+      if (got !== want) {
+        res.statusCode = 401
+        res.setHeader('www-authenticate', 'Basic realm="privat"')
+        res.end('Unauthorized')
+        return
+      }
+    }
     const child = spawn(backend, [], {
       env: {
         GIT_PROJECT_ROOT: projectRoot,

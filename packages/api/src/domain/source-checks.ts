@@ -6,7 +6,8 @@ import { normalizeCompose } from '../lib/compose.js'
 import { badRequest } from '../lib/errors.js'
 import { repoUrlPolicy } from './git-policy.js'
 import { composeUploadPath, COMPOSE_MAX_BYTES } from '../deploy/sources/compose.js'
-import type { Source } from '@airlock/shared'
+import { repoAddressKind, type Source } from '@airlock/shared'
+import { assertRepoReachable } from './git-access.js'
 import { projectNetwork } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
 import { checkImageInRegistry, parseImageRef } from '../lib/registry.js'
@@ -18,11 +19,21 @@ import { log } from '../lib/log.js'
  * gescheiterter Deploy. Die Pipeline prüft beim Deploy trotzdem erneut
  * (Repo-Inhalte können sich ändern, DNS auch).
  */
-export async function checkSourceEarly(source: Source, slug: string): Promise<void> {
+export async function checkSourceEarly(
+  source: Source,
+  slug: string,
+  /** Nacht 3, Etappe 2: Zugang (eben erzeugt) bzw. das Projekt, dessen Zugang gilt */
+  access: { credentialId?: string; project?: typeof schema.projects.$inferSelect } = {},
+): Promise<void> {
   if (source.type === 'image') await checkImageEarly(source.image)
 
   const repoUrl = 'repoUrl' in source ? source.repoUrl : undefined
-  if (repoUrl) await checkRepoUrl(repoUrl, await repoUrlPolicy())
+  if (repoUrl) {
+    // Gesperrte Ziele (Stack, Loopback) wie bisher sofort; dann «Repo erreichbar?»
+    // über genau den Weg, den der Deploy nimmt (GitHub-App, Deploy-Key, Token, ohne)
+    await checkRepoUrl(repoUrl, await repoUrlPolicy(), { allowSsh: repoAddressKind(repoUrl) === 'ssh' })
+    await assertRepoReachable({ repoUrl, ref: 'ref' in source ? source.ref : undefined, ...access })
+  }
 
   if (source.type === 'compose' && source.uploadId) {
     const rows = await db.select().from(schema.uploads).where(eq(schema.uploads.id, source.uploadId)).limit(1)

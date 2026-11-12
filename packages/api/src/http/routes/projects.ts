@@ -8,6 +8,7 @@ import {
 import { logSources, readLogLines } from '../../domain/logs.js'
 import { trackStream } from '../../lib/events.js'
 import { checkSourceEarly } from '../../domain/source-checks.js'
+import { bindCredential } from '../../domain/git-access.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import { writeEnvironment as writeStatusEnvironment } from '../../status/service.js'
 import {
@@ -78,14 +79,17 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const scope = listScopeFor(request)
     const input = createProjectSchema.parse(request.body)
     assertSourceSupported(input.source.type)
-    // Früh prüfen: gesperrte Repo-URL oder unzulässige compose.yaml kommen als
-    // 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
-    await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
+    // Nacht 3, Etappe 2: Zugänge (Deploy-Key, Token) legt nur eine Anmeldung an und ordnet sie zu
+    if (input.gitCredentialId && request.tokenId) throw new AppError('forbidden', 'Einen Repo-Zugang gibt es nur mit einer Anmeldung, nicht mit einem API-Token', 403)
+    // Früh prüfen: gesperrte Repo-URL, nicht erreichbares Repo oder unzulässige
+    // compose.yaml kommen als 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
+    await checkSourceEarly(input.source, input.slug ?? slugify(input.name), { credentialId: input.gitCredentialId })
     // Öffentlich nach dem ersten Scan: Name vorher prüfen (gleiche Prüfung wie beim Tippen)
     const pubCheck = input.public ? await assertPublicOnCreate(scope.envId, input.public, input.slug ?? slugify(input.name)) : null
     const project = input.source.type === 'files'
       ? await createFilesProject(scope, input, actorFor(request))
       : await createProject(scope, input, actorFor(request))
+    if (input.gitCredentialId) await bindCredential(input.gitCredentialId, project.id, actorFor(request))
     if (input.public && pubCheck) {
       // Beim Anlegen in der Oberfläche ausdrücklich gewählt: vorgemerkt und gleich bestätigt;
       // wirksam nach dem ersten Scan ohne kritischen Befund (nie still)
@@ -165,7 +169,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       if (patch.source.type !== project.sourceType) {
         throw badRequest('Die Art der Quelle lässt sich nicht wechseln – dafür ein neues Projekt anlegen')
       }
-      await checkSourceEarly(patch.source, project.slug)
+      await checkSourceEarly(patch.source, project.slug, { project })
     }
     const updated = await updateProject(project.id, patch)
     await audit({

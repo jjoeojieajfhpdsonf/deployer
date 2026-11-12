@@ -450,6 +450,32 @@ export const gitConnections = pgTable('git_connections', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/**
+ * Nacht 3, Etappe 2: Zugang zu einem privaten Repo ausserhalb der GitHub-App
+ * (Deploy-Key oder HTTPS-Token), höchstens einer pro Projekt. Ohne Projekt:
+ * eben beim Anlegen erzeugt, noch nicht benutzt (verfällt nach 24 Stunden).
+ */
+export const gitCredentials = pgTable('git_credentials', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').unique().references(() => projects.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'ssh_key' | 'https_token'>().notNull(),
+  publicKey: text('public_key'),
+  privateKeyEnc: bytea('private_key_enc'),
+  username: text('username'),
+  tokenEnc: bytea('token_enc'),
+  /** Bestätigter Server (HostKeyAlias) und seine Schlüssel als known_hosts-Zeilen */
+  host: text('host'),
+  knownHosts: text('known_hosts'),
+  hostConfirmedAt: timestamp('host_confirmed_at', { withTimezone: true }),
+  /** Zuletzt gemeldete, noch nicht bestätigte Schlüssel */
+  pendingHost: text('pending_host'),
+  pendingKnownHosts: text('pending_known_hosts'),
+  pendingAt: timestamp('pending_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+})
+
 /* --- M9: Umgebungen (Migration 0015) ----------------------------------------- */
 
 /** Ein Cloudflare-Token; eine oder mehrere Umgebungen nutzen es. */

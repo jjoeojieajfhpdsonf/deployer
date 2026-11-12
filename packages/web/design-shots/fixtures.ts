@@ -1582,3 +1582,52 @@ export const recoveryCodes: import('@airlock/shared').RecoveryCodesDto = {
 }
 
 export const sudoStatus: import('@airlock/shared').SudoStatusDto = { until: null, needs: { password: true, passkey: true, totp: true, recovery: true } }
+
+/* --- Nacht 3, Etappe 2: private Git-Repos ----------------------------------------------- */
+
+/** Nur öffentliche Schlüssel und Fingerabdrücke (Beispielwerte, kein Geheimnis) */
+const ED_PUB = 'AAAAC3NzaC1lZDI1NTE5AAAAIL4YROAWh8lwT3fJvYpHN6lQTfVsfMne6rBWf10pmrsA'
+const gitlabHostKeys: import('@airlock/shared').GitHostKeyDto[] = [
+  { type: 'ssh-ed25519', fingerprint: 'SHA256:eUXGGm1YGsMAS7vkcx6JOJdOGHPem5gQp4taiCfCLB8' },
+  { type: 'ecdsa-sha2-nistp256', fingerprint: 'SHA256:HbW3g8zUjNSksFbqTiUWPWg2Bq1x8xdGUrliXFzSnUw' },
+  { type: 'ssh-rsa', fingerprint: 'SHA256:ROQFvPThGrW4RuWLoL9tq9I9zJ42fK4XywyRtbOz/EQ' },
+]
+
+export type GitAccessVariant = 'deploy-key' | 'deploy-key-neu'
+export type RepoCheckVariant = 'erreichbar' | 'github-kein-zugriff' | 'server-bestaetigen'
+
+export const deployKey = (fresh = false): import('@airlock/shared').GitCredentialDto => ({
+  id: '7d0c6a51-2f7e-4c1a-9b8e-0d3f5a6b7c81',
+  kind: 'ssh_key',
+  publicKey: `ssh-ed25519 ${ED_PUB} airlock-homeserver-fotoalbum-2026-11-12`,
+  keyFingerprint: 'SHA256:1I/Wlmie4RkkJ2wFkgP8SQQ5NZgpcIr1MhEI7UeCyr0',
+  username: null,
+  host: fresh ? null : 'gitlab.com',
+  hostKeys: fresh ? [] : gitlabHostKeys.slice(0, 1),
+  hostConfirmedAt: fresh ? null : ago(9 * DAY),
+  createdAt: ago(fresh ? 1 * MIN : 9 * DAY),
+  lastUsedAt: fresh ? null : ago(2 * HOUR),
+})
+
+/** Einstellungen › Repo-Zugang: GitHub-App (Standard) oder Deploy-Key (GitLab) */
+export function gitAccess(id: string, variant?: GitAccessVariant): import('@airlock/shared').ProjectGitAccessDto {
+  if (variant) return { via: 'deploy_key', credential: deployKey(variant === 'deploy-key-neu'), githubRepo: null, githubAppAccess: false }
+  const repo = id === 'p-foto' ? 'example/fotoalbum' : id === 'p-rezepte' ? 'example/rezepte-api' : null
+  return repo ? { via: 'github_app', credential: null, githubRepo: repo, githubAppAccess: true } : { via: null, credential: null, githubRepo: null, githubAppAccess: false }
+}
+
+export function repoCheck(variant: RepoCheckVariant): import('@airlock/shared').RepoCheckDto {
+  if (variant === 'erreichbar') return { ok: true, via: 'github_app', commit: '3f9c2a17e4b85d06c1a2f3e4d5c6b7a8f9e0d1c2', message: 'Erreichbar über GitHub-App – Standard-Branch steht auf 3f9c2a1.' }
+  if (variant === 'github-kein-zugriff') {
+    return {
+      ok: false, code: 'github_no_access', hostKey: null,
+      message: 'Die GitHub-App hat keinen Zugriff auf dieses Repo – in GitHub unter Installation › Repository access freigeben.',
+      link: { href: 'https://github.com/apps/airlock-homeserver-ab12/installations/new', label: 'In GitHub freigeben', external: true },
+    }
+  }
+  return {
+    ok: false, code: 'host_key_unknown', link: null,
+    message: 'Erste Verbindung zu gitlab.com: Vergleiche den Fingerabdruck mit dem, den der Anbieter veröffentlicht, und bestätige ihn. Danach verbindet Airlock nur noch mit genau diesem Schlüssel.',
+    hostKey: { host: 'gitlab.com', keys: gitlabHostKeys },
+  }
+}

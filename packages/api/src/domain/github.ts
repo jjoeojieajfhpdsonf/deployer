@@ -144,6 +144,38 @@ export async function connectedRepo(p: Project): Promise<{ owner: string; repo: 
   return { ...r, ref: src.ref ?? null }
 }
 
+/**
+ * Nacht 3, Etappe 2: Wie steht die App zu diesem GitHub-Repo? Steht es nicht
+ * in der gespeicherten Liste, wird die Liste einmal frisch geholt (ein eben in
+ * GitHub freigegebenes Repo gilt so sofort). Ohne Audit-Eintrag: reines Lesen.
+ */
+export async function githubAppFor(r: { owner: string; repo: string }): Promise<{ state: 'kein_app' | 'nicht_installiert' | 'kein_zugriff' | 'zugriff'; installUrl: string | null }> {
+  const c = await connection()
+  const web = config.GITHUB_WEB.replace(/\/+$/, '')
+  if (!c) return { state: 'kein_app', installUrl: null }
+  const installUrl = `${web}/apps/${c.appSlug}/installations/new`
+  if (!c.installationId) return { state: 'nicht_installiert', installUrl }
+  const full = `${r.owner}/${r.repo}`.toLowerCase()
+  const listed = (repos: string[]) => repos.some((x) => x.toLowerCase() === full)
+  if (listed(c.repos)) return { state: 'zugriff', installUrl }
+  try {
+    const { token } = await github().installationToken(jwtFor(c), c.installationId)
+    const repos = await github().installationRepos(token)
+    await db.update(schema.gitConnections).set({ repos, updatedAt: new Date() }).where(eq(schema.gitConnections.id, c.id))
+    return { state: listed(repos) ? 'zugriff' : 'kein_zugriff', installUrl }
+  } catch (err) {
+    log.warn('GitHub: Repo-Liste nicht aktualisiert', { err: String(err) })
+    return { state: 'kein_zugriff', installUrl }
+  }
+}
+
+/** Nacht 3, Etappe 2: Token nur zum Lesen (Contents: read), genau dieses Repo, eine Stunde gültig. */
+export async function readToken(repo: string): Promise<string> {
+  const c = await connection()
+  if (!c?.installationId) throw badRequest('Die GitHub App ist nicht installiert')
+  return (await github().readToken(jwtFor(c), c.installationId, repo)).token
+}
+
 /** Installations-Token für genau ein Repo (pro Vorgang, eine Stunde gültig). */
 export async function repoToken(repo: string): Promise<string> {
   const c = await connection()

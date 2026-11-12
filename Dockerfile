@@ -19,7 +19,9 @@ FROM base AS runtime
 ENV NODE_ENV=production
 # M2: git fuer Repo-Quellen, die Compose-CLI fuer die Quelle compose.
 # Die CLI spricht ueber DOCKER_HOST mit dem Socket-Proxy, nicht mit dem Socket.
-RUN apk add --no-cache git docker-cli docker-cli-compose
+# Nacht 3, Etappe 2: ssh und ssh-keyscan (openssh-client-default) fuer private
+# Repos per Deploy-Key; kein ssh-agent, keine Konfiguration im Image.
+RUN apk add --no-cache git openssh-client-default docker-cli docker-cli-compose
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json

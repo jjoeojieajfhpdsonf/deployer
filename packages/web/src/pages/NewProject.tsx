@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useEnv, useEnvPath } from '../lib/env.js'
@@ -12,6 +12,7 @@ import { EnvEditor, type EnvRow } from '../components/EnvEditor.js'
 import { PageHead } from '../components/PageHead.js'
 import { Field, FieldError, FormError } from '../components/Field.js'
 import { useFormErrors, type Errors } from '../lib/form.js'
+import { RepoAccessFields, useRepoAccess } from '../components/RepoAccess.js'
 
 type Kind = 'image' | 'dockerfile' | 'compose' | 'static' | 'chat'
 type Origin = 'upload' | 'repo'
@@ -141,6 +142,9 @@ export function NewProject() {
   const needsPort = kind !== 'static'
   const usesUpload = (kind === 'static' || kind === 'compose') && origin === 'upload'
   const usesRepo = kind === 'dockerfile' || ((kind === 'static' || kind === 'compose') && origin === 'repo')
+  // Nacht 3, Etappe 2: Zugang zum Repo (GitHub-App/öffentlich, Deploy-Key, Token) und «Repo prüfen»
+  const repoAccess = useRepoAccess(repoUrl, ref)
+  const accessRef = useRef<HTMLFieldSetElement>(null)
 
   /** Eingaben in der Form, die die API erwartet – geprüft mit demselben Schema. */
   function payload(uploadId?: string) {
@@ -158,6 +162,8 @@ export function NewProject() {
     return {
       name,
       source,
+      // Nacht 3, Etappe 2: Deploy-Key oder Token (eben erzeugt) geht mit
+      ...(usesRepo && repoAccess.credentialId ? { gitCredentialId: repoAccess.credentialId } : {}),
       ...(needsPort ? { port: port.trim() === '' ? undefined : Number(port) } : {}),
       healthcheckPath,
       env: env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
@@ -191,6 +197,11 @@ export function NewProject() {
     return {}
   }
   const e = form.errors
+  // Deploy-Key erzeugt oder Zugang gewechselt: die Meldung «SSH braucht einen Deploy-Key» am Feld neu prüfen
+  const repoUrlError = Boolean(e['source.repoUrl'])
+  useEffect(() => {
+    if (repoUrlError) form.validateField('source.repoUrl')
+  }, [repoAccess.credentialId]) // eslint-disable-line react-hooks/exhaustive-deps
   const showPreview = !e.name || name.trim() !== ''
   // «Upload oder Repo» meldet das Schema auf "source"; beim Hochladen gehört die Meldung zum Dateifeld.
   const sourceError = usesUpload ? undefined : e.source
@@ -200,6 +211,13 @@ export function NewProject() {
     setError(null)
     if (!form.validateAll()) return
     setBusy(true)
+    // Repo erreichbar? Vor dem Anlegen, mit Meldung und Weg im Abschnitt «Zugang»
+    if (usesRepo && !(await repoAccess.ensureOk())) {
+      setBusy(false)
+      accessRef.current?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+      accessRef.current?.querySelector<HTMLElement>('.repo-access-check button')?.focus({ preventScroll: true })
+      return
+    }
     try {
       const uploadId = usesUpload && file ? (await api.upload(file)).upload.id : undefined
       const { project, deployment } = await api.createProject(payload(uploadId))
@@ -277,7 +295,7 @@ export function NewProject() {
 
           {usesRepo && (
             <>
-              <Field id={form.idFor('source.repoUrl')} label="Repo-URL" error={e['source.repoUrl'] ?? sourceError} hint="Nur öffentliche Repos über https:// (oder http:// im LAN).">
+              <Field id={form.idFor('source.repoUrl')} label="Repo-URL" error={e['source.repoUrl'] ?? sourceError} hint="https:// (http:// im LAN) oder für einen Deploy-Key die SSH-Adresse, z.B. git@gitlab.com:user/app.git.">
                 <input {...form.field('source.repoUrl', `${form.idFor('source.repoUrl')}-hint`)} value={repoUrl} onChange={(x) => setRepoUrl(x.target.value)} placeholder="https://github.com/user/app.git" autoComplete="off" spellCheck={false} inputMode="url" />
               </Field>
               <Field id={form.idFor('source.ref')} label="Branch, Tag oder Commit" optional error={e['source.ref']} hint="Leer = Standard-Branch des Repos.">
@@ -344,6 +362,8 @@ export function NewProject() {
             </div>
           )}
         </fieldset>
+
+        {usesRepo && <RepoAccessFields a={repoAccess} repoUrl={repoUrl} sectionRef={accessRef} />}
 
         <EnvEditor rows={env} onChange={setEnv} prefix="env" errors={e} field={form.field} />
 

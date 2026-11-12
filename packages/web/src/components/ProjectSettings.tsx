@@ -20,6 +20,7 @@ import { Switch } from './Switch.js'
 import { MoveProject } from './MoveProject.js'
 import { PreviewSettings } from './Previews.js'
 import { ConfirmDialog } from './Confirm.js'
+import { RepoAccessSettings } from './RepoAccess.js'
 
 /**
  * Projekt → Einstellungen: Abschnitte als Karten mit kompakten Zeilen
@@ -65,6 +66,8 @@ export function ProjectSettings({
   const auto = useQuery({ queryKey: ['auto-deploy', p.id], queryFn: () => api.autoDeploy(p.id) })
   // Antwort 8: Port, Healthcheck und Grenzen nur bei Projekten mit Container (nicht bei statischen Seiten)
   const hasContainer = p.runtimeKind !== 'static'
+  // Nacht 3, Etappe 2: Repo-Zugang nur bei Projekten aus einem Git-Repo
+  const hasRepo = Boolean(p.source && 'repoUrl' in p.source && p.source.repoUrl)
   const sections: Section[] = [
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
@@ -72,6 +75,7 @@ export function ProjectSettings({
     { id: 'set-umgebung', label: 'Umgebungsvariablen' },
     ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
     { id: 'set-header', label: 'Security-Header' },
+    ...(hasRepo ? [{ id: 'set-repo-zugang', label: 'Repo-Zugang' }] : []),
     ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
     // Etappe 6: immer da – bei Projekten ohne Git-Repo und GitHub-App deaktiviert mit Begründung
     { id: 'set-vorschauen', label: 'Vorschauen' },
@@ -116,6 +120,7 @@ export function ProjectSettings({
           <Container p={p} request={containerRequest ?? null} onShown={onContainerShown} onSaved={onContainerSaved} onDeploy={onDeploy} deploying={deploying} />
         )}
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
+        {hasRepo && <RepoAccessSettings p={p} />}
         {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
         <PreviewSettings projectId={p.id} />
         <Expiry p={p} />
@@ -597,7 +602,7 @@ function AutoDeploy({ projectId, on, checkedAt, viaApp }: { projectId: string; o
       </div>
       <SetRow label={<span id={labelId}>Nach Merge</span>} action={<Switch checked={value} labelledBy={labelId} busy={set.isPending} onChange={(v) => set.mutate({ enabled: v })} />}>
         <strong className="set-strong">{value ? 'An' : 'Aus'}</strong>
-        <span className="muted"> · prüft alle 5 Minuten auf neue Commits{viaApp ? ' (GitHub App)' : ' (öffentliches Repo)'}{value && checkedAt ? ` · zuletzt ${relativeTime(checkedAt)}` : ''}</span>
+        <span className="muted"> · prüft alle 5 Minuten auf neue Commits{viaApp ? ' (GitHub App)' : ' (git ls-remote, mit dem Repo-Zugang)'}{value && checkedAt ? ` · zuletzt ${relativeTime(checkedAt)}` : ''}</span>
       </SetRow>
     </section>
   )

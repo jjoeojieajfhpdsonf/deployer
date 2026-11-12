@@ -197,6 +197,18 @@ type Shot = {
   login?: fx.LoginVariant
   /** Nacht 3: Konto › Sicherheit in einem Zustand (Standard: alles eingerichtet) */
   security?: fx.SecurityVariant
+  /** Nacht 3, Etappe 2: Repo-Zugang des Projekts (Standard: GitHub-App) */
+  gitAccess?: fx.GitAccessVariant
+  /** Nacht 3, Etappe 2: Antwort von «Repo prüfen» (Standard: erreichbar) */
+  repoCheck?: fx.RepoCheckVariant
+}
+/**
+ * Nacht 3, Etappe 2: Ausschnitt-Szenen (el) nach oben gerollt aufnehmen – das Werkzeug schneidet
+ * mit Seitenkoordinaten aus, die visuellen Tests nehmen das Element selbst
+ */
+const gitTop = async (pg: Page) => {
+  await pg.evaluate(() => window.scrollTo(0, 0))
+  await pg.waitForTimeout(250)
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -663,6 +675,55 @@ const shots: Shot[] = [
     },
   },
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
+  // Nacht 3, Etappe 2: private Git-Repos – Deploy-Key erzeugt und Server bestätigen (TOFU), GitHub-App ohne
+  // Zugriff (Meldung mit Link), erreichbar; Einstellungen › Repo-Zugang mit Deploy-Key
+  {
+    group: 'git-privat', name: 'neues-projekt-deploy-key', path: '/projekte/neu?quelle=git', full: false, repoCheck: 'server-bestaetigen', el: 'fieldset.repo-access',
+    prepare: async (pg) => {
+      await pg.getByLabel('Repo-URL').fill('git@gitlab.com:joel/fotoalbum.git')
+      await pg.getByRole('radio', { name: 'Deploy-Key (SSH)' }).check()
+      await pg.getByRole('button', { name: 'Deploy-Key erzeugen' }).click()
+      await pg.locator('.repo-key-value').waitFor()
+      await pg.getByRole('button', { name: 'Repo prüfen' }).click()
+      await pg.locator('.repo-hostkeys').waitFor()
+      await gitTop(pg)
+    },
+  },
+  {
+    group: 'git-privat', name: 'neues-projekt-repo-kein-zugriff', path: '/projekte/neu?quelle=git', full: false, repoCheck: 'github-kein-zugriff', el: 'fieldset.repo-access',
+    prepare: async (pg) => {
+      await pg.getByLabel('Repo-URL').fill('https://github.com/example/geheim.git')
+      await pg.getByRole('button', { name: 'Repo prüfen' }).click()
+      await pg.locator('.repo-check-bad').waitFor()
+      await gitTop(pg)
+    },
+  },
+  {
+    group: 'git-privat', name: 'neues-projekt-repo-erreichbar', path: '/projekte/neu?quelle=git', full: false, el: 'fieldset.repo-access',
+    prepare: async (pg) => {
+      await pg.getByLabel('Repo-URL').fill('https://github.com/example/fotoalbum.git')
+      await pg.getByRole('button', { name: 'Repo prüfen' }).click()
+      await pg.locator('.repo-check-ok').waitFor()
+      await gitTop(pg)
+    },
+  },
+  {
+    group: 'git-privat', name: 'einstellungen-repo-zugang', path: `/projekte/${P}?tab=einstellungen`, full: false, gitAccess: 'deploy-key', el: '#set-repo-zugang',
+    patch: { source: { type: 'compose', repoUrl: 'git@gitlab.com:joel/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as never },
+    prepare: async (pg) => {
+      await pg.locator('#set-repo-zugang .repo-key-value').waitFor()
+      await gitTop(pg)
+    },
+  },
+  {
+    group: 'git-privat', name: 'einstellungen-repo-zugang-pruefen', path: `/projekte/${P}?tab=einstellungen`, full: false, gitAccess: 'deploy-key-neu', repoCheck: 'server-bestaetigen', el: '#set-repo-zugang',
+    patch: { source: { type: 'compose', repoUrl: 'git@gitlab.com:joel/fotoalbum.git', ref: 'main', composePath: 'compose.yaml', webService: 'web' } as never },
+    prepare: async (pg) => {
+      await pg.locator('#set-repo-zugang').getByRole('button', { name: 'Prüfen', exact: true }).click()
+      await pg.locator('#set-repo-zugang .repo-hostkeys').waitFor()
+      await gitTop(pg)
+    },
+  },
   { group: 'formulare', name: 'konto', path: '/konto' },
   // Nacht 3, Etappe 1: Konto › Sicherheit – alles eingerichtet, noch nichts, unter nip.io; Dialoge
   { group: 'sicherheit', name: 'konto-sicherheit', path: '/konto/sicherheit' },
@@ -1651,6 +1712,13 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               const pm = path.match(/^\/api\/v1\/projects\/([^/]+)\/(previews|preview-env)$/)
               if (pm) return json(route, pm[2] === 'previews' ? fx.previews(pm[1]!, s.previews) : fx.previewEnv(pm[1]!, s.previews))
             }
+            // Nacht 3, Etappe 2: Repo-Zugang, «Repo prüfen», Deploy-Key erzeugen
+            const gm = path.match(/^\/api\/v1\/projects\/([^/]+)\/git-access$/)
+            if (gm && route.request().method() === 'GET') return json(route, { access: fx.gitAccess(gm[1]!, s.gitAccess) })
+            if (route.request().method() === 'POST' && (path === '/api/v1/git/check' || /^\/api\/v1\/projects\/[^/]+\/git-access\/check$/.test(path))) {
+              return json(route, { check: fx.repoCheck(s.repoCheck ?? 'erreichbar') })
+            }
+            if (route.request().method() === 'POST' && path === '/api/v1/git/credentials') return json(route, { credential: fx.deployKey(true) }, 201)
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             // Meilenstein Backup: Server › Backup

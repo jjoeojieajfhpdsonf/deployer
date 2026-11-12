@@ -266,6 +266,10 @@ export const SUDO_ROUTES: readonly string[] = [
   'POST /api/v1/tokens',
   'POST /api/v1/environments/:env/tokens',
   'POST /api/v1/system/backup/restore',
+  // Nacht 3, Etappe 2: Repo-Zugang entfernen und bestätigten Server-Schlüssel vergessen.
+  // Ersetzen (PUT …/git-access) fragt der Handler nur, wenn es schon einen Zugang gibt.
+  'DELETE /api/v1/projects/:id/git-access',
+  'DELETE /api/v1/projects/:id/git-access/host-key',
 ]
 const sudoRoutes = new Set(SUDO_ROUTES)
 
@@ -324,6 +328,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
       // M8: ebenso die GitHub App – ein Token könnte sie sonst auf eine fremde App umstellen
       if (route.startsWith('/api/v1/github')) {
         throw new AppError('forbidden', 'Die GitHub-Verbindung lässt sich nur mit einer Anmeldung einrichten', 403)
+      }
+      // Nacht 3, Etappe 2: Repo-Zugänge (Deploy-Key, Token, Server-Schlüssel) nur mit Anmeldung –
+      // ein Token könnte sonst einen eigenen Schlüssel unterschieben oder einen fremden Server bestätigen
+      if (route.startsWith('/api/v1/git/') || route.startsWith('/api/v1/projects/:id/git-access')) {
+        throw new AppError('forbidden', 'Repo-Zugänge lassen sich nur mit einer Anmeldung verwalten, nicht mit einem API-Token', 403)
       }
       // M9: hosts-Block nennt die Namen aller Umgebungen – nur mit Anmeldung
       if (route.startsWith('/api/v1/system/hosts')) {

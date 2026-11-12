@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { PausePage } from './pause-page.js'
 import type { FailureExplanation } from './failure.js'
+import { SCP_REPO_RE, repoAddressKind } from './git.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -153,13 +154,18 @@ export const imageSourceSchema = z.object({
 /**
  * Repo-URL. Hier nur die Form; welche Schemata und Ziele erlaubt sind, prüft
  * der Server (lib/git.ts), weil dafür DNS-Auflösung nötig ist.
+ * Nacht 3, Etappe 2: auch SSH (ssh://git@host/pfad oder git@host:pfad) –
+ * nur zusammen mit einem Deploy-Key.
  */
 export const repoUrlSchema = z
   .string({ required_error: 'Gib die Adresse des Repos an, z.B. https://github.com/user/app.git' })
   .trim()
   .min(1, 'Gib die Adresse des Repos an, z.B. https://github.com/user/app.git')
   .max(2048, 'Die Repo-Adresse ist zu lang (höchstens 2048 Zeichen)')
-  .regex(/^https?:\/\/[^\s]+$/i, 'Die Repo-Adresse muss mit https:// (oder http:// im LAN) beginnen, z.B. https://github.com/user/app.git')
+  .refine(
+    (v) => /^https?:\/\/[^\s]+$/i.test(v) || /^ssh:\/\/[^\s]+$/i.test(v) || SCP_REPO_RE.test(v),
+    'Die Repo-Adresse beginnt mit https:// (http:// im LAN) oder ist eine SSH-Adresse wie git@gitlab.com:user/app.git',
+  )
 
 /** Branch, Tag oder Commit. Nie mit "-" am Anfang (sonst eine Git-Option). */
 export const gitRefSchema = z
@@ -383,8 +389,17 @@ export const createProjectSchema = z
     files: z.array(fileInputSchema).max(2000).optional(),
     /** Nach dem ersten Scan ohne kritischen Befund öffentlich schalten (bestätigt beim Anlegen) */
     public: createPublicSchema.optional(),
+    /** Nacht 3, Etappe 2: Deploy-Key oder Token (vorher unter /git/credentials angelegt) für ein privates Repo */
+    gitCredentialId: z.string().uuid().optional(),
   })
   .superRefine((v, ctx) => {
+    const repoUrl = 'repoUrl' in v.source ? v.source.repoUrl : undefined
+    if (v.gitCredentialId && !repoUrl) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['gitCredentialId'], message: 'Einen Zugang gibt es nur bei einer Quelle aus einem Git-Repo' })
+    }
+    if (repoUrl && repoAddressKind(repoUrl) === 'ssh' && !v.gitCredentialId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'repoUrl'], message: 'Eine SSH-Adresse braucht einen Deploy-Key: unter «Zugang» Deploy-Key wählen – oder die https://-Adresse nehmen' })
+    }
     if (sourceNeedsPort(v.source.type) && v.port === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['port'], message: 'Gib den Port an, auf dem die App im Container lauscht, z.B. 80 oder 3000' })
     }
@@ -1490,3 +1505,5 @@ export * from './previews.js'
 export * from './fun.js'
 // Nacht 3, Etappe 1: Passkeys, TOTP, Wiederherstellungscodes, Sitzungen, erneute Bestätigung
 export * from './auth.js'
+// Nacht 3, Etappe 2: private Git-Repos (GitHub-App, Deploy-Key, Token, Server-Schlüssel)
+export * from './git.js'
