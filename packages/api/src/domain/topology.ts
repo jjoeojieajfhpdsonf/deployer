@@ -7,6 +7,7 @@ import * as docker from '../drivers/docker.js'
 import { readStats } from '../jobs/monitor.js'
 import { certProblemNow, currentCert } from '../jobs/cert.js'
 import { activeDeployment, effectiveKind } from './deployments.js'
+import { externalInfo, externalSnapshot } from './external.js'
 import { defaultEnvironmentId } from './environments.js'
 import { publicEnabled } from './public.js'
 import { currentInternalServiceRoutes, routeDtosFor } from './routes.js'
@@ -37,7 +38,7 @@ export async function projectTopology(project: Project): Promise<TopologyDto> {
     routeDtosFor(project.id, project.slug),
     headerCount(project),
     kind === 'compose' && active?.artifact?.composeFile ? readCompose(active.artifact.composeFile) : Promise.resolve(null),
-    kind === 'static' ? Promise.resolve([] as ContainerInfo[]) : docker.listProjectContainers(project.slug).catch(() => [] as ContainerInfo[]),
+    kind === 'static' || kind === 'external' ? Promise.resolve([] as ContainerInfo[]) : docker.listProjectContainers(project.slug).catch(() => [] as ContainerInfo[]),
     kind === 'compose' ? docker.listComposeVolumes(docker.projectNetworkName(project.slug)).catch(() => []) : Promise.resolve([]),
     certProblem(project.environmentId),
   ])
@@ -80,8 +81,22 @@ export async function projectTopology(project: Project): Promise<TopologyDto> {
     internalHosts: internal.filter((r) => r.projectId === project.id).map((r) => ({
       service: r.service, hostname: r.hostname, url: urlForHostIn(project.environmentId, r.hostname), ways: r.targets,
     })),
+    external: kind === 'external' ? externalTopology(project) : null,
   })
+  // Bestehender Dienst: keine Dienste zum Hinzufügen oder Entfernen – Airlock verwaltet ihn nicht
+  if (kind === 'external') return { ...topology, edit: { way: null, reason: 'Wird nicht von Airlock verwaltet', changes: [], webService: null } }
   return { ...topology, edit: { way: ability.way, reason: ability.reason, changes, webService: kind === 'compose' ? webService : null } }
+}
+
+function externalTopology(project: Project): NonNullable<Parameters<typeof buildTopology>[0]['external']> {
+  const info = externalInfo(project)!
+  const snap = externalSnapshot(project.id)
+  return {
+    label: info.label, mode: info.mode,
+    name: info.container ?? info.url?.replace(/^https?:\/\//, '') ?? project.slug,
+    image: info.image, port: info.port ?? (info.url ? Number(info.url.split(':').at(-1)) || null : null),
+    found: info.found, running: info.mode === 'container' ? snap?.running ?? null : null,
+  }
 }
 
 async function readCompose(file: string): Promise<ComposeSpec | null> {

@@ -131,7 +131,7 @@ describe('GET /summary: Inhalt', () => {
             environment: 'Privat',
             projects: [
               project(),
-              project({ id: 'p2', name: 'Wetter', slug: 'wetter', routes: [], security: null, state: { key: 'deploying', label: 'deployt gerade', tone: 'info', detail: null } }),
+              project({ id: 'p2', name: 'Wetter', slug: 'wetter', sourceType: 'external', routes: [], security: null, state: { key: 'deploying', label: 'deployt gerade', tone: 'info', detail: null } }),
             ],
           }),
           visitors: async () => ({ p1: 42, fremd: 7 }),
@@ -151,7 +151,7 @@ describe('GET /summary: Inhalt', () => {
     assert.equal(s.environment, 'Privat')
     const foto = s.projects.find((p) => p.id === 'p1')!
     assert.deepEqual(foto, {
-      id: 'p1', slug: 'foto', name: 'Fotoalbum',
+      id: 'p1', slug: 'foto', name: 'Fotoalbum', kind: 'managed',
       state: { key: 'running', label: 'läuft', tone: 'ok' },
       url: 'https://foto.example.ch', public: true, grade: 'B',
       findings: { critical: 0, high: 2, medium: 1, low: 4 },
@@ -160,6 +160,8 @@ describe('GET /summary: Inhalt', () => {
       certificateExpiresAt: '2027-01-20T00:00:00Z', deploying: false,
     })
     const wetter = s.projects.find((p) => p.id === 'p2')!
+    // Bestehender Dienst: für HomeBento als external gekennzeichnet
+    assert.equal(wetter.kind, 'external')
     assert.equal(wetter.url, null)
     assert.equal(wetter.visitorsToday, null, 'ohne Adresse keine Besucherzahl')
     assert.equal(wetter.certificateExpiresAt, null)

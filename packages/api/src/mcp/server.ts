@@ -11,6 +11,8 @@ import {
 } from '../domain/public.js'
 import { startProject, stopProject } from '../domain/lifecycle.js'
 import { checkSourceEarly } from '../domain/source-checks.js'
+import { prepareExternalSource } from '../domain/external.js'
+import { afterExternalCreate } from '../domain/external-lifecycle.js'
 import {
   createFilesProject, updateProjectFiles, readProjectFiles, exportProjectZip, pushProjectRepo, listProjectFiles,
 } from '../domain/files.js'
@@ -285,9 +287,10 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
 
   /* --- Anlegen und Dateien --------------------------------------------------- */
 
-  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}]. Standard-Erreichbarkeit: nur Tailnet (das Tailnet ist die Hauptadresse); "lan" auf Wunsch dazu.', {
+  tool('create_project', 'Projekt anlegen und deployen. Für Chat-Projekte source {type:"files"} und files [{path, content}]. Bestehender Dienst (läuft schon, Airlock macht ihn nur erreichbar, ohne Deploy): source {type:"external", container:"<Name>", port} für einen Container auf dem Server oder {type:"external", url:"http://192.168.1.20:8123"} für eine Adresse im Heimnetz (nur private Bereiche und Tailnet; insecureTls:true bei eigenem Zertifikat). Standard-Erreichbarkeit: nur Tailnet (das Tailnet ist die Hauptadresse); "lan" auf Wunsch dazu.', {
     name: z.string().min(1).max(120),
-    source: z.record(z.unknown()).describe('z.B. {type:"files"}, {type:"image", image:"nginx:alpine"}, {type:"dockerfile", repoUrl}'),
+    source: z.record(z.unknown()).describe('z.B. {type:"files"}, {type:"image", image:"nginx:alpine"}, {type:"dockerfile", repoUrl}, {type:"external", container:"sonarr", port:8989}, {type:"external", url:"http://192.168.1.20:8123"}'),
+    login: z.boolean().optional().describe('Zugang «Airlock-Login»: vor jeder Anfrage an die Adresse anmelden (empfohlen für Verwaltungsoberflächen)'),
     files: z.array(fileInputSchema).max(2000).optional(),
     port: z.number().int().min(1).max(65535).optional().describe('Port im Container; nötig bei Image, Dockerfile, Compose'),
     env: z.array(envEntryInputSchema).max(200).optional(),
@@ -305,9 +308,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
       name: a.name, source: sourceSchema.parse(a.source), files: a.files, port: a.port,
       // Nur "public" gewünscht: intern trotzdem über das Tailnet erreichbar
       env: a.env ?? [], targets: internal.length ? internal : ['tailnet'], subdomain: a.subdomain,
+      accessGuard: a.login ? 'login' : undefined,
     })
     assertSourceSupported(input.source.type)
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name))
+    // Bestehender Dienst: Container wiederfinden bzw. Adresse prüfen (gleich wie die Oberfläche)
+    if (input.source.type === 'external') input.source = await prepareExternalSource(input.source)
     // Gleiche Prüfung wie das Formular, bevor etwas angelegt wird: verständliche Meldung statt späterer Fehlschlag
     if (wantsPublic && (a.public_subdomain !== undefined || a.public_zone)) {
       const chk = await checkPublicNameIn(scope.envId, { label: a.public_subdomain ?? input.slug ?? slugify(input.name), zone: a.public_zone })
@@ -321,6 +327,17 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
     const req = wantsPublic
       ? await requestPublic(p.id, { subdomain: a.public_subdomain !== undefined ? normalizePublicLabel(a.public_subdomain) : undefined, zone: a.public_zone, accessProtected: a.access }, actor, 'beim Anlegen: noch kein Scan')
       : null
+    if (p.sourceType === 'external') {
+      // Kein Deploy: Route steht sofort, erster Scan läuft im Hintergrund
+      await afterExternalCreate(p, input.accessGuard, actor)
+      const dto = await toDto(await findProject(scope, p.id))
+      return ok({
+        ...summarize(dto),
+        note: `Bestehender Dienst: ${dto.external?.label ?? ''} – wird nicht von Airlock verwaltet (kein Deploy, kein Neustart).`,
+        ...(dto.adminUi && !a.login ? { warning: `${dto.adminUi.name} erkannt: öffentlich nur mit Schutz (login:true oder Cloudflare Access).` } : {}),
+        ...(req ? { public: mcpRequestInfo(req, await publishability(p.id)) } : {}),
+      })
+    }
     const dep = await startDeploy(scope, p.id, actor, undefined, { via: 'mcp' })
     const result = a.wait ? await waitFor(dep) : { deployment: dep.id, status: dep.status }
     return ok({

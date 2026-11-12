@@ -148,6 +148,12 @@ export function setTrustedPeers(peers: string[] | null): void {
   fixedPeers = peers ? new Set(peers) : null
 }
 
+/** Kommt die Anfrage direkt von Caddy? (Zugang «Airlock-Login»: nur Caddy fragt /gate/check und /gate/callback) */
+export function fromCaddy(request: FastifyRequest): boolean {
+  if (!fixedPeers) refreshCaddyPeers()
+  return (fixedPeers ?? caddyPeers.set).has(request.ip.replace(/^::ffff:/, ''))
+}
+
 export function clientInfo(request: FastifyRequest): ClientInfo {
   if (!fixedPeers) refreshCaddyPeers()
   const ua = request.headers['user-agent']
@@ -276,6 +282,9 @@ export const SUDO_ROUTES: readonly string[] = [
   // Nacht 3, Etappe 5: Container isolieren (Ausgang zu, Neustart verweigert) und die Isolation aufheben
   'POST /api/v1/projects/:id/isolation',
   'DELETE /api/v1/projects/:id/isolation',
+  // Bestehender Dienst: Admin-Oberfläche ohne Schutz öffentlich erlauben (bzw. wieder verbieten).
+  // Den Zugang schwächer machen (PUT …/access) fragt der Handler nur in diese Richtung.
+  'POST /api/v1/projects/:id/admin-override',
 ]
 const sudoRoutes = new Set(SUDO_ROUTES)
 
@@ -298,6 +307,8 @@ export function readTokenAllows(method: string, route: string): boolean {
 export const OPEN_ROUTES = new Set([
   '/api/v1/auth/login', '/api/v1/auth/login/second-factor', '/api/v1/auth/passkey/login/options', '/api/v1/auth/passkey/login',
   '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key',
+  // Zugang «Airlock-Login» (routes/gate.ts): prüfen selbst – check/callback nur von Caddy, start mit Sitzung
+  '/api/v1/gate/check', '/api/v1/gate/start', '/api/v1/gate/callback',
 ])
 
 /**

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { PausePage } from './pause-page.js'
 import type { FailureExplanation } from './failure.js'
 import { SCP_REPO_RE, repoAddressKind } from './git.js'
+import { externalSourceSchema, externalSourceIssues, type AccessGuard, type ExternalInfoDto } from './external.js'
 
 /* ------------------------------------------------------------------ *
  * Slug
@@ -106,12 +107,13 @@ export function slugify(name: string): string {
  * Aufzählungen
  * ------------------------------------------------------------------ */
 
-export const sourceTypes = ['image', 'static', 'dockerfile', 'compose', 'files'] as const
+/** external: «Bestehender Dienst» – läuft schon, Airlock macht ihn nur erreichbar (shared/src/external.ts) */
+export const sourceTypes = ['image', 'static', 'dockerfile', 'compose', 'files', 'external'] as const
 export type SourceType = (typeof sourceTypes)[number]
 /** In M1 umgesetzt. */
 export const sourceTypesM1 = ['image', 'static'] as const
-/** Seit M3 alle Quellen. */
-export const sourceTypesSupported = ['image', 'static', 'dockerfile', 'compose', 'files'] as const
+/** Seit M3 alle Quellen; «Bestehender Dienst» seit der gleichnamigen Etappe. */
+export const sourceTypesSupported = ['image', 'static', 'dockerfile', 'compose', 'files', 'external'] as const
 
 export const projectStatuses = ['created', 'deploying', 'running', 'stopped', 'failed'] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
@@ -256,6 +258,7 @@ export const sourceSchema = z.discriminatedUnion('type', [
   dockerfileSourceSchema,
   composeSourceSchema,
   filesSourceSchema,
+  externalSourceSchema,
 ])
 export type Source = z.infer<typeof sourceSchema>
 
@@ -273,6 +276,7 @@ export function sourceIssues(s: Source): { path: string[]; message: string }[] {
   if (s.type === 'compose' && !!s.uploadId === !!s.repoUrl) {
     issues.push({ path: ['source'], message: 'Compose braucht entweder eine hochgeladene compose.yaml oder eine Repo-Adresse' })
   }
+  if (s.type === 'external') issues.push(...externalSourceIssues(s))
   return issues
 }
 
@@ -391,6 +395,8 @@ export const createProjectSchema = z
     public: createPublicSchema.optional(),
     /** Nacht 3, Etappe 2: Deploy-Key oder Token (vorher unter /git/credentials angelegt) für ein privates Repo */
     gitCredentialId: z.string().uuid().optional(),
+    /** Bestehender Dienst (und alle Projekte): gleich mit Airlock-Login anlegen; Cloudflare Access über public.accessProtected */
+    accessGuard: z.enum(['offen', 'login']).optional(),
   })
   .superRefine((v, ctx) => {
     const repoUrl = 'repoUrl' in v.source ? v.source.repoUrl : undefined
@@ -754,8 +760,20 @@ export interface ProjectDto {
   egress?: { mode: import('./egress.js').EgressMode; enforce: boolean }
   /** Läuft der Container als root? Nur Hinweis, kein Fehler (siehe Plan). */
   runsAsRoot: boolean | null
-  /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). */
-  runtimeKind: 'image' | 'dockerfile' | 'static' | 'compose'
+  /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). external: «Bestehender Dienst» */
+  runtimeKind: 'image' | 'dockerfile' | 'static' | 'compose' | 'external'
+  /**
+   * Bestehender Dienst: Ziel und ob es gerade gefunden wird. Fehlt bei anderen
+   * Projekten. Airlock verwaltet das Ziel nicht (keine Deploys, kein Stopp).
+   */
+  external?: ExternalInfoDto | null
+  /**
+   * Zugang für alle Projekte: offen, Airlock-Login (Caddy fragt Airlock vor jeder
+   * Anfrage) oder Cloudflare Access (nur öffentlich). Fehlt bei älteren Antworten: offen.
+   */
+  accessGuard?: AccessGuard
+  /** Erkannte Admin-Oberfläche (Image oder Seitentitel); öffentlich nur mit Schutz */
+  adminUi?: { key: string; name: string } | null
   /** M3, nur Quelle files: als was die aktive Fassung erkannt wurde. */
   filesKind: 'compose' | 'dockerfile' | 'static-build' | 'static' | null
   lastChangeAt: string
@@ -870,8 +888,18 @@ export function projectState(p: {
   lastDeployment: { id: string; status: DeploymentStatus; errorMessage?: string | null; failure?: { title: string } | null } | null
   routes: { target: string; pausedAt?: string | null }[]
   container?: { running: boolean; missing?: boolean; exitCode?: number | null } | null
+  /** Bestehender Dienst: kein Deploy, keine Fassung; found=false → «Ziel fehlt» */
+  external?: { found: boolean | null; label: string; running?: boolean | null } | null
 }): ProjectStateDto {
   const make = (key: ProjectStateKey, detail: string | null, tone?: ProjectStateDto['tone']): ProjectStateDto => ({ key, ...STATE_TEXT[key], ...(tone ? { tone } : {}), detail })
+  if (p.external) {
+    if (p.external.found === false) {
+      return { key: 'down', label: 'Ziel fehlt', tone: 'bad', detail: `${p.external.label} wurde nicht gefunden. Die Adresse zeigt die Pause-Seite, bis es wieder da ist.` }
+    }
+    if (p.external.running === false) return make('down', `${p.external.label} läuft nicht. Airlock startet ihn nicht – er wird nicht von Airlock verwaltet.`)
+    if (p.routes.some((r) => r.target === 'public' && r.pausedAt)) return make('paused', 'Öffentlich pausiert; intern bleibt es erreichbar.')
+    return make('running', null)
+  }
   const last = p.lastDeployment
   if (p.status === 'deploying' || (last && DEPLOY_RUNNING.has(last.status))) return make('deploying', null)
   // Ohne aktive Fassung zuerst: Ein neues Projekt steht bis zum ersten erfolgreichen Deploy auf
@@ -1541,3 +1569,5 @@ export * from './egress.js'
 export * from './incidents.js'
 // Abgrenzung HomeBento: Token-Umfang «lesen», GET /summary, «braucht Aufmerksamkeit»
 export * from './summary.js'
+// Bestehender Dienst: Quelle external, Adressprüfung, Netzwahl, Zugang, Admin-Oberflächen
+export * from './external.js'

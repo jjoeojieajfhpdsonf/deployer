@@ -1,6 +1,7 @@
 import { eq, and, ne, gt, sql } from 'drizzle-orm'
-import { db, schema } from '../db/index.js'
+import { db, schema, getSetting, setSetting } from '../db/index.js'
 import { config, net, primaryHost, aliasHosts } from '../config.js'
+import { externalUpstream, type ExternalUpstream } from './external.js'
 import { caddyTlsOptionsAll, tlsPhases, cloudflareFor } from './cloudflare-settings.js'
 import { allEnvironments, defaultEnvironmentId, primaryHostIn, aliasHostsIn, urlForHostIn } from './environments.js'
 import * as caddy from '../drivers/caddy.js'
@@ -170,6 +171,10 @@ interface RouteRow {
   /** Pausiert: eigene Seite des Projekts (null = Vorlage) und «Voraussichtlich zurück» */
   pausePage: PausePage | null
   pauseBackAt: string | null
+  /** Bestehender Dienst: Ziel für Caddy; null = Ziel fehlt (Pause-Seite). undefined bei anderen Projekten */
+  external?: ExternalUpstream | null
+  /** Zugang «Airlock-Login» (forward_auth) */
+  loginGuard: boolean
 }
 
 async function currentRouteRows(): Promise<RouteRow[]> {
@@ -190,6 +195,9 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       pausePage: schema.routes.pausePage,
       pauseBackAt: schema.routes.pauseBackAt,
       previewOf: schema.projects.previewOf,
+      sourceConfig: schema.projects.sourceConfig,
+      externalMissingSince: schema.projects.externalMissingSince,
+      loginGuard: schema.projects.loginGuard,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -206,9 +214,14 @@ async function currentRouteRows(): Promise<RouteRow[]> {
   // zeigen. Ausnahme: ein pausierter öffentlicher Name zeigt die
   // Wartungsseite, ob das Projekt läuft oder nicht.
   const paused = (r: (typeof rows)[number]) => r.target === 'public' && r.pausedAt !== null
+  // Bestehender Dienst: keine Fassung, keine Deploys – die Route besteht, solange das Projekt besteht
+  // (fehlt das Ziel, zeigt sie die Pause-Seite)
+  const external = (r: (typeof rows)[number]) => r.sourceType === 'external'
   return allowed
-    .filter((r) => paused(r) || (r.deploymentId !== null && r.desiredState === 'running'))
+    .filter((r) => paused(r) || external(r) || (r.deploymentId !== null && r.desiredState === 'running'))
     .map((r) => ({
+      external: external(r) ? externalUpstream(r) : undefined,
+      loginGuard: r.loginGuard,
       paused: paused(r),
       pausePage: r.pausePage ?? null,
       pauseBackAt: r.pauseBackAt?.toISOString() ?? null,
@@ -351,7 +364,10 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
     const cidrs = isPublic ? edgeCidrs : cidrsForTargets(targetsByHost.get(r.hostname)!, net.lanCidr(), config.tailnetCidr)
     const h = headers.get(r.projectId)
     const extra = h ? { headers: h.rules, cspReportKey: h.cspReportKey } : {}
-    if (r.paused) {
+    // Zugang «Airlock-Login»: Caddy fragt Airlock vor jeder Anfrage (forward_auth)
+    const gate = r.loginGuard ? { gate: { upstream: config.AIRLOCK_UPSTREAM } } : {}
+    // Bestehender Dienst ohne Ziel (Container weg): Route bleibt, zeigt die Pause-Seite
+    if (r.paused || r.external === null) {
       // M9: Vorlage der Umgebung des Projekts
       const page = effectivePausePage(await pausePageTemplate(r.environmentId), r.pausePage)
       const pause = { page, backAt: r.pauseBackAt, timeZone: displayTimeZone() }
@@ -363,8 +379,19 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
           })
         : undefined
       specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root }, visits: true })
+    } else if (r.external) {
+      specs.push({
+        hosts,
+        kind: 'proxy',
+        upstream: r.external.dial,
+        ...(r.external.tls ? { upstreamTls: r.external.tls } : {}),
+        cidrs,
+        ...extra,
+        ...gate,
+        visits: true,
+      })
     } else if (r.sourceType === 'static') {
-      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra, visits: true })
+      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra, ...gate, visits: true })
     } else if (r.port && r.deploymentId) {
       specs.push({
         hosts,
@@ -372,6 +399,7 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
         upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId }, legacy)}:${r.port}`,
         cidrs,
         ...extra,
+        ...gate,
         // Etappe 3: Besucher-Log (nur Projekte, nie die Oberfläche)
         visits: true,
       })
@@ -380,7 +408,8 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
 
   // Etappe 4: eigene interne Adressen von Diensten (x-airlock-internal) – nur LAN/Tailnet, nie öffentlich
   for (const ir of await currentInternalServiceRoutes(seen)) {
-    const envId = rows.find((r) => r.projectId === ir.projectId)?.environmentId
+    const row = rows.find((r) => r.projectId === ir.projectId)
+    const envId = row?.environmentId
     const h = headers.get(ir.projectId)
     seen.add(ir.hostname)
     specs.push({
@@ -389,6 +418,8 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
       upstream: ir.upstream,
       cidrs: cidrsForTargets(ir.targets, net.lanCidr(), config.tailnetCidr),
       ...(h ? { headers: h.rules } : {}),
+      // Zugang «Airlock-Login» des Projekts gilt auch für die Adressen seiner Dienste (Adminer & Co.)
+      ...(row?.loginGuard ? { gate: { upstream: config.AIRLOCK_UPSTREAM } } : {}),
     })
   }
 
@@ -424,6 +455,17 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
   return specs
 }
 
+/** Netze fremder Container, in die Airlock Caddy gehängt hat (JSON-Liste in app_settings) */
+const FOREIGN_NETS_KEY = 'external.caddy_networks'
+const parseNets = (v: string | null): string[] => {
+  try {
+    const a = JSON.parse(v ?? '[]') as unknown
+    return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * Haengt Caddy in genau die Projekt-Netze, die es gerade bedient, und loest
  * alle anderen. Entspricht der SPEC-Regel "nur ins Netzwerk des Projekts,
@@ -439,14 +481,26 @@ export async function syncCaddyNetworks(): Promise<void> {
       .filter((r) => r.sourceType !== 'static' && !r.paused && r.deploymentId)
       .map((r) => docker.networkOf(r.slug, { id: r.deploymentId!, webContainer: r.webContainer }, legacy)),
   )
+  // Bestehender Dienst: Netze fremder Container. Welche Airlock selbst angehängt hat, steht in den
+  // Einstellungen – nur diese trennt es wieder; ein Netz, in dem Caddy aus anderem Grund hängt, bleibt.
+  const foreignNeeded = new Set(rows.filter((r) => r.external?.network).map((r) => r.external!.network!))
+  const attached = new Set<string>(parseNets(await getSetting(FOREIGN_NETS_KEY)))
   const current = await docker.networksOfContainer(config.CADDY_CONTAINER)
+  for (const n of foreignNeeded) if (!current.includes(n)) attached.add(n)
 
   for (const net of current) {
     if (isProjectScoped(net) && !needed.has(net)) {
       await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
       log.info('Caddy aus Projekt-Netz getrennt', { net })
+    } else if (attached.has(net) && !foreignNeeded.has(net) && !needed.has(net)) {
+      await docker.disconnectFromNetwork(net, config.CADDY_CONTAINER)
+      attached.delete(net)
+      log.info('Caddy aus Netz eines bestehenden Dienstes getrennt', { net })
     }
   }
+  for (const n of [...attached]) if (!foreignNeeded.has(n) && !current.includes(n)) attached.delete(n)
+  await setSetting(FOREIGN_NETS_KEY, JSON.stringify([...attached].sort()))
+  for (const net of foreignNeeded) needed.add(net)
   for (const net of needed) {
     if (!current.includes(net)) {
       try {
@@ -507,6 +561,14 @@ export function reconcileCaddy(o: { force?: boolean } = {}): Promise<void> {
   return next
 }
 
+/** Namen mit Zugang «Airlock-Login», Stand des letzten Caddy-Abgleichs */
+let gatedHosts = new Set<string>()
+export const isGatedHost = (host: string): boolean => gatedHosts.has(host.toLowerCase())
+/** Nur für Tests */
+export function setGatedHosts(hosts: string[]): void {
+  gatedHosts = new Set(hosts.map((h) => h.toLowerCase()))
+}
+
 let lastBuildHadTls = false
 /** M8: Caddy hat das Ratenlimit-Modul nicht (altes Image) – bis zum Neustart von Airlock */
 let cspForwardUnsupported = false
@@ -516,6 +578,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   const edge = await cloudflaredCidrs()
   lastCloudflaredCidrs = edge.join(',')
   const specs = await buildRouteSpecs(edge)
+  // Zugang «Airlock-Login»: welche Namen geschützt sind (für /gate/check und /gate/start)
+  gatedHosts = new Set(specs.filter((s) => s.gate).flatMap((s) => s.hosts.map((h) => h.toLowerCase())))
   const tlsList = caddyTlsOptionsAll().map(({ envId: _envId, ...t }) => t)
   // Etappe 7: Snake auf der 404-Seite – nur interne Namen aller Umgebungen, nur aus LAN/Tailnet,
   // nie über den Tunnel (caddy-config.ts); aus, wenn die Spass-Funktionen aus sind

@@ -55,6 +55,17 @@ export function planStages(o: {
       testssl: waiting('testssl'),
     }
   }
+  if (o.kind === 'external') {
+    // Bestehender Dienst: kein Image, kein Code von Airlock – Webseite, Header, TLS (bei https), Dateien/Panels
+    return {
+      'trivy-image': skipped('trivy-image', 'entfällt: wird nicht von Airlock verwaltet, kein Image'),
+      'trivy-source': skipped('trivy-source', 'entfällt: wird nicht von Airlock verwaltet, kein Quellcode'),
+      headers: waiting('headers'),
+      [zapKey]: waiting(zapKey),
+      nuclei: waiting('nuclei'),
+      testssl: o.tls ? waiting('testssl') : skipped('testssl', 'Ziel spricht kein HTTPS; TLS endet bei Caddy'),
+    }
+  }
   const hasImage = o.kind === 'image' || o.kind === 'dockerfile' || o.kind === 'compose'
   return {
     'trivy-image': hasImage ? waiting('trivy-image') : skipped('trivy-image', 'kein Image, statische Seite'),

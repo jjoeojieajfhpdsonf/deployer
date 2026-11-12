@@ -100,6 +100,9 @@ services:
     logging: *logging
     container_name: airlock-caddy
     labels: *homebento-ignore
+    # Bestehender Dienst mit network_mode: host – Caddy erreicht ihn über den Docker-Host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # --resume: nach einem Neustart von Caddy allein die zuletzt von Airlock
     # geladene Konfiguration (autosave.json) wiederherstellen. Ohne das laedt
     # Caddy nur das Bootstrap-Caddyfile, und alle Projekt-Routen fehlen, bis
@@ -148,6 +151,9 @@ services:
     container_name: airlock-app
     # Auch Airlock selbst: in HomeBento von Hand als Dienst mit dem Plugin anlegen (README)
     labels: *homebento-ignore
+    # Bestehender Dienst im Host-Netz: Erreichbarkeit prüfen und Healthcheck über den Docker-Host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

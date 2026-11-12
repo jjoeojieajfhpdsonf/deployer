@@ -110,7 +110,10 @@ export interface TopologyEdgeDto {
 }
 
 export interface TopologyDto {
-  kind: 'image' | 'dockerfile' | 'static' | 'compose'
+  /** external: Bestehender Dienst – nur Zugang → Eingang → Ziel, keine Dienste von Airlock */
+  kind: 'image' | 'dockerfile' | 'static' | 'compose' | 'external'
+  /** Bestehender Dienst: das Ziel in Worten («Container sonarr, Port 8989» bzw. die Adresse) */
+  external?: { label: string; mode: 'container' | 'address'; found: boolean | null } | null
   access: TopologyAccessDto[]
   hosts: TopologyHostDto[]
   services: TopologyServiceDto[]

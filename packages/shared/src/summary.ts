@@ -53,6 +53,12 @@ export interface SummaryProjectDto {
   id: string
   slug: string
   name: string
+  /**
+   * managed: Airlock deployt und betreibt das Projekt. external: «Bestehender
+   * Dienst» – läuft schon, Airlock macht ihn nur erreichbar (HomeBento kann ihn
+   * dann z. B. nicht doppelt als eigenen Container zeigen).
+   */
+  kind: 'managed' | 'external'
   /** Zustand wie in Airlock (Schlüssel, Wort, Ton) */
   state: Pick<ProjectStateDto, 'key' | 'label' | 'tone'>
   /** Hauptadresse: öffentlich (live) vor Tailnet vor LAN; null ohne Adresse */

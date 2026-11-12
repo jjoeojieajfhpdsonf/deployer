@@ -8,6 +8,8 @@ import {
 import { logSources, readLogLines } from '../../domain/logs.js'
 import { trackStream } from '../../lib/events.js'
 import { checkSourceEarly } from '../../domain/source-checks.js'
+import { prepareExternalSource } from '../../domain/external.js'
+import { afterExternalCreate } from '../../domain/external-lifecycle.js'
 import { bindCredential } from '../../domain/git-access.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
 import { writeEnvironment as writeStatusEnvironment } from '../../status/service.js'
@@ -84,11 +86,17 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     // Früh prüfen: gesperrte Repo-URL, nicht erreichbares Repo oder unzulässige
     // compose.yaml kommen als 400 mit Feldnamen zurück, statt erst als gescheiterter Deploy.
     await checkSourceEarly(input.source, input.slug ?? slugify(input.name), { credentialId: input.gitCredentialId })
+    // Bestehender Dienst: Container wiederfinden bzw. Adresse prüfen, Netz und Admin-Oberfläche festhalten
+    if (input.source.type === 'external') input.source = await prepareExternalSource(input.source)
     // Öffentlich nach dem ersten Scan: Name vorher prüfen (gleiche Prüfung wie beim Tippen)
     const pubCheck = input.public ? await assertPublicOnCreate(scope.envId, input.public, input.slug ?? slugify(input.name)) : null
     const project = input.source.type === 'files'
       ? await createFilesProject(scope, input, actorFor(request))
       : await createProject(scope, input, actorFor(request))
+    if (project.sourceType === 'external') {
+      // Kein Deploy: Route sofort, Zugang wie gewählt, erster Scan im Hintergrund (Voraussetzung für «öffentlich»)
+      await afterExternalCreate(project, input.accessGuard, actorFor(request))
+    }
     if (input.gitCredentialId) await bindCredential(input.gitCredentialId, project.id, actorFor(request))
     if (input.public && pubCheck) {
       // Beim Anlegen in der Oberfläche ausdrücklich gewählt: vorgemerkt und gleich bestätigt;
@@ -99,7 +107,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       await approvePublicRequest(project.id, actorFor(request))
     }
 
-    if (input.deploy) {
+    if (input.deploy && project.sourceType !== 'external') {
       const deployment = await startDeploy(scope, project.id, actorFor(request))
       reply.code(201)
       return { project: await toDto(project), deployment }

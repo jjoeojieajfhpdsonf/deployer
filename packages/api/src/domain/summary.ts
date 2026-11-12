@@ -39,6 +39,7 @@ export function buildSummary(i: SummaryInput): SummaryDto {
         id: p.id,
         slug: p.slug,
         name: p.name,
+        kind: p.sourceType === 'external' ? 'external' : 'managed',
         state: { key: p.state.key, label: p.state.label, tone: p.state.tone },
         url,
         public: p.routes.some((r) => r.target === 'public' && !r.pausedAt),

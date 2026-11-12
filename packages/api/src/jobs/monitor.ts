@@ -139,6 +139,8 @@ let lastProbeRound = 0
 async function tick(): Promise<void> {
   const doProbe = Date.now() - lastProbeRound >= PROBE_MS
   if (doProbe) lastProbeRound = Date.now()
+  // Bestehender Dienst: Ziele wiederfinden (Name, sonst Compose-Labels); dynamisch, sonst Import-Kreis
+  await import('../domain/external-lifecycle.js').then((m) => m.externalTick()).catch((e) => log.warn('Bestehende Dienste nicht nachgesehen', { err: String(e) }))
   for (const id of await runningProjectIds()) {
     const t = await targetFor(id).catch(() => null)
     if (!t) continue
@@ -160,6 +162,9 @@ export function startMonitorJob(): void {
 
 /** Zustand für die Projekt-Übersicht. Mit fresh: Healthcheck auffrischen, wenn älter als 30 s. */
 export async function projectHealth(projectId: string, opts: { fresh?: boolean } = {}): Promise<ProjectHealthDto> {
+  // Bestehender Dienst: HTTP auf das Ziel, ohne Container von Airlock und ohne CPU/RAM
+  const ext = await import('../domain/external.js').then((m) => m.externalHealth(projectId, opts)).catch(() => null)
+  if (ext) return ext
   const t = await targetFor(projectId)
   if (!t) return { kind: null, container: null, health: null, samples: [] }
 

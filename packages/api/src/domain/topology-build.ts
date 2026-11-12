@@ -119,6 +119,8 @@ export interface TopologyInput {
   limits: { cpu: number; memoryMb: number }
   /** Etappe 4: eigene interne Adressen von Diensten (Adminer usw.) */
   internalHosts?: { service: string; hostname: string; url: string; ways: TopologyWay[] }[]
+  /** Bestehender Dienst: Ziel (Name, Image, Port) und ob es gefunden wird bzw. läuft */
+  external?: { label: string; mode: 'container' | 'address'; name: string; image: string | null; port: number | null; found: boolean | null; running: boolean | null } | null
 }
 
 const HEALTH: [RegExp, TopologyHealth][] = [[/\(unhealthy\)/, 'unhealthy'], [/\(healthy\)/, 'healthy'], [/health: starting/, 'starting']]
@@ -163,7 +165,15 @@ export function buildTopology(i: TopologyInput): TopologyDto {
   }
 
   /* --- Dienste ------------------------------------------------------------ */
-  if (i.kind === 'static') {
+  if (i.kind === 'external') {
+    // Bestehender Dienst: ein Knoten «Ziel» – Airlock kennt seine Dienste, Volumes und Grenzen nicht
+    const e = i.external
+    services.push({
+      id: `svc:${i.slug}`, name: e?.name ?? i.slug, image: e?.image ?? null, port: e?.port ?? null,
+      state: e?.found === false ? 'missing' : e?.running === false ? 'exited' : 'running',
+      health: null, exitCode: null, version: imageTag(e?.image) ?? null, web: true, oneShot: false, database: null, usage: null, volumes: [],
+    })
+  } else if (i.kind === 'static') {
     services.push({
       id: `svc:${i.slug}`, name: i.slug, image: null, port: null,
       state: !i.hasActive ? 'missing' : i.desiredRunning ? 'static' : 'stopped',
@@ -292,6 +302,7 @@ export function buildTopology(i: TopologyInput): TopologyDto {
     edges,
     main: main?.id ?? null,
     limits: i.limits,
+    ...(i.external ? { external: { label: i.external.label, mode: i.external.mode, found: i.external.found } } : {}),
   }
 }
 

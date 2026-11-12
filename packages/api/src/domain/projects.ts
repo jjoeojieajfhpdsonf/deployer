@@ -6,6 +6,8 @@ import { serverJob, type Scope, type ListScope, type EnvScope } from '../lib/sco
 import { config } from '../config.js'
 import { notFound, conflict, badRequest } from '../lib/errors.js'
 import { slugify, sourceTypesSupported, RESERVED_SLUGS, projectState, countOpenFindings, type CreateProjectInput, type NamePreviewDto, type ProjectDto, type SourceType, type Source } from '@airlock/shared'
+import { externalInfo, externalSnapshot } from './external.js'
+import { accessGuardOf, adminUiOf } from './guard.js'
 import { containerSnapshot } from '../jobs/monitor.js'
 import { isOwnImage } from '../lib/names.js'
 import * as docker from '../drivers/docker.js'
@@ -32,6 +34,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
   const lastRaw = await lastDeploymentDto(r.id)
   // UI-Qualität 2: gescheiterter letzter Deploy mit dem Titel der Fehlererklärung (Pille, Banner)
   const last = lastRaw ? (await withFailure(r, [lastRaw]))[0]! : null
+  // Bestehender Dienst: Ziel und ob es gefunden wird (kein Deploy, keine Fassung)
+  const ext = externalInfo(r)
   return {
     id: r.id,
     name: r.name,
@@ -64,7 +68,13 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     // Stand vom letzten Blick auf Docker (Abgleich, Deploy); kein Docker-Aufruf je DTO
     legacyContainers: docker.legacySnapshot().slugs.has(r.slug),
     // Einzige Quelle für den Zustand (UI-Qualität 1); Container aus der Monitor-Runde
-    state: projectState({ status: r.status, desiredState: r.desiredState, activeDeployment: activeDto, lastDeployment: last, routes, container: containerSnapshot(r.id) }),
+    state: projectState({
+      status: r.status, desiredState: r.desiredState, activeDeployment: activeDto, lastDeployment: last, routes, container: containerSnapshot(r.id),
+      external: ext ? { found: ext.found, label: ext.label, running: externalSnapshot(r.id)?.running ?? null } : null,
+    }),
+    external: ext,
+    accessGuard: accessGuardOf(r.loginGuard, routes),
+    adminUi: adminUiOf(r),
   }
 }
 
@@ -232,8 +242,9 @@ export async function createProject(scope: EnvScope, input: CreateProjectInput, 
       cpuLimit: String(input.cpuLimit ?? config.DEFAULT_CPU_LIMIT),
       memoryLimitMb: input.memoryLimitMb ?? config.DEFAULT_MEMORY_LIMIT_MB,
       keep: input.keep,
-      status: 'created',
-      desiredState: 'stopped',
+      // Bestehender Dienst: läuft schon, Airlock deployt nichts – erreichbar, sobald die Route steht
+      status: input.source.type === 'external' ? 'running' : 'created',
+      desiredState: input.source.type === 'external' ? 'running' : 'stopped',
       environmentId: scope.envId,
     })
     .returning()

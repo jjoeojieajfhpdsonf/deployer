@@ -23,6 +23,7 @@ import { probeTargetFor } from '../domain/routes.js'
 import { countOpenFindings, type HeaderRecheckDto, type ScanHistoryItemDto } from '@airlock/shared'
 import { firstSeen, scanHistory } from './history.js'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
+import { startRelay } from './external-relay.js'
 import { notify } from '../notify/send.js'
 import { publish } from '../lib/events.js'
 
@@ -147,8 +148,19 @@ export async function enqueueProjectScan(
 ): Promise<Run> {
   const project = await findProject(scope, idOrSlug)
   const active = await activeDeployment(project.id)
-  if (!active) throw badRequest('Das Projekt hat keine laufende Fassung, die sich scannen liesse')
   const level = o.level ?? 'standard'
+  // Bestehender Dienst: keine Fassung – gescannt wird das Ziel (security/external-relay.ts)
+  if (project.sourceType === 'external') {
+    const https = Boolean((project.sourceConfig as { url?: string }).url?.startsWith('https:'))
+    const stages = planStages({ external: false, level, kind: 'external', tls: https })
+    const rows = await db.insert(schema.scanRuns).values({ projectId: project.id, deploymentId: null, level, trigger: o.trigger, actor: o.actor, stages }).returning()
+    const run = rows[0]!
+    await audit({ actor: o.actor, action: 'scan.start', targetType: 'project', targetId: project.id, params: { scan: run.id, level: run.level }, result: 'ok' })
+    queue.push(run.id)
+    pump()
+    return run
+  }
+  if (!active) throw badRequest('Das Projekt hat keine laufende Fassung, die sich scannen liesse')
   const deploymentId = o.deploymentId ?? active.id
   const kind = effectiveKind(project.sourceType, active.artifact)
   // Stufen von Anfang an zeigen, auch solange der Scan wartet
@@ -301,6 +313,7 @@ type StageFn = (name: string, fn: (onLogs: OnLogs) => Promise<StageResult>) => P
  */
 async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels: Record<string, string>): Promise<(loc: string) => string> {
   const project = await findProjectForServerJob(run.projectId!)
+  if (project.sourceType === 'external') return scanExternalProject(project, run, stage, stages, labels)
   const active = await activeDeployment(project.id)
   if (!active) throw new Error('Keine laufende Fassung mehr')
   const kind = effectiveKind(project.sourceType, active.artifact)
@@ -374,6 +387,40 @@ async function scanProject(run: Run, stage: StageFn, stages: ScanStages, labels:
     if (stopStatic) await stopStatic().catch(() => {})
   }
 
+  const internal = new URL(target.url).origin
+  const route = (await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(eq(schema.routes.projectId, project.id)).limit(1))[0]
+  const publicOrigin = route ? urlForHost(route.hostname) : `projekt:${project.slug}`
+  return (loc) => loc.split(internal).join(publicOrigin)
+}
+
+/**
+ * Bestehender Dienst: Webseite (ZAP), Dateien/Panels (Nuclei), TLS (testssl,
+ * nur bei https-Ziel) über das Durchleiten von Airlock (external-relay.ts);
+ * Header über Caddy wie bei jedem Projekt. Keine Image- und Code-Stufen.
+ */
+async function scanExternalProject(
+  project: Awaited<ReturnType<typeof findProjectForServerJob>>,
+  run: Run, stage: StageFn, stages: ScanStages, labels: Record<string, string>,
+): Promise<(loc: string) => string> {
+  const network = docker.projectNetworkName(project.slug)
+  const scanLabels = { ...labels, [docker.LABEL_PROJECT]: project.slug }
+  await docker.ensureNetwork(network)
+  const relay = await startRelay(project, network)
+  const target: ScanTarget = { url: relay.url, network, host: relay.host, isHttps: relay.isHttps, external: false }
+  try {
+    const probe = await probeTargetFor(project.id).catch(() => null)
+    if (probe) {
+      await stage('headers', () => headerCheckViaCaddy(probe.url, probe.secure))
+      if (stages.headers?.ran) stages.headers.checked = 'über Caddy, wie Besucher die Seite sehen'
+    } else {
+      await stage('headers', () => headerCheck(target))
+    }
+    await stage(run.level === 'active' ? 'zap-full' : 'zap-baseline', (onLogs) => zap(run.id, target, scanLabels, run.level === 'active', onLogs))
+    await stage('nuclei', (onLogs) => nuclei(run.id, target, scanLabels, onLogs))
+    if (relay.isHttps) await stage('testssl', (onLogs) => testssl(run.id, target, scanLabels, onLogs))
+  } finally {
+    await relay.stop().catch(() => {})
+  }
   const internal = new URL(target.url).origin
   const route = (await db.select({ hostname: schema.routes.hostname }).from(schema.routes).where(eq(schema.routes.projectId, project.id)).limit(1))[0]
   const publicOrigin = route ? urlForHost(route.hostname) : `projekt:${project.slug}`

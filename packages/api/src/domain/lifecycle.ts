@@ -9,6 +9,7 @@ import type { Scope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 import { badRequest } from '../lib/errors.js'
 import { assertNotIsolated } from '../intrusion/guard.js'
+import { assertManaged } from './guard.js'
 import type { DeploymentDto } from '@airlock/shared'
 
 /**
@@ -23,6 +24,7 @@ export async function startProject(
   actor: string,
 ): Promise<{ started: boolean; deployment?: DeploymentDto }> {
   const project = await findProject(scope, idOrSlug)
+  assertManaged(project, 'Starten')
   // Nacht 3, Etappe 5: isoliert → kein Start bis zur Freigabe
   await assertNotIsolated(project)
   forgetContainer(project.id)
@@ -88,6 +90,7 @@ export async function startProject(
  */
 export async function restartProject(scope: Scope, idOrSlug: string, actor: string): Promise<{ started: boolean; deployment?: DeploymentDto }> {
   const project = await findProject(scope, idOrSlug)
+  assertManaged(project, 'Neu starten')
   const active = await activeDeployment(project.id)
   if (effectiveKind(project.sourceType, active?.artifact) === 'static') {
     throw badRequest('Statische Seiten laufen ohne Container – es gibt nichts neu zu starten')
@@ -102,6 +105,7 @@ export async function restartProject(scope: Scope, idOrSlug: string, actor: stri
 
 export async function stopProject(scope: Scope, idOrSlug: string, actor: string): Promise<void> {
   const project = await findProject(scope, idOrSlug)
+  assertManaged(project, 'Stoppen')
   forgetContainer(project.id)
   await setDesiredState(project.id, 'stopped')
 

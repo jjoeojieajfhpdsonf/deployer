@@ -9,7 +9,8 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => 'bytea',
 })
 
-export const sourceTypeEnum = pgEnum('source_type', ['image', 'static', 'dockerfile', 'compose', 'files'])
+// Bestehender Dienst (migrations/0032_external.sql): external
+export const sourceTypeEnum = pgEnum('source_type', ['image', 'static', 'dockerfile', 'compose', 'files', 'external'])
 export const projectStatusEnum = pgEnum('project_status', ['created', 'deploying', 'running', 'stopped', 'failed'])
 export const desiredStateEnum = pgEnum('desired_state', ['running', 'stopped'])
 export const deploymentStatusEnum = pgEnum('deployment_status', [
@@ -58,6 +59,14 @@ export const projects = pgTable('projects', {
   isolatedAt: timestamp('isolated_at', { withTimezone: true }),
   isolatedBy: text('isolated_by'),
   isolation: jsonb('isolation').$type<IsolationRecord>(),
+  // Bestehender Dienst (0032): Airlock-Login vor jeder Anfrage (Caddy forward_auth). Cloudflare Access
+  // bleibt an der öffentlichen Route (routes.access_protected); zusammen ergibt das accessGuard.
+  loginGuard: boolean('login_guard').notNull().default(false),
+  // Bekannte Admin-Oberfläche ohne Schutz öffentlich: bestätigt (sudo) am/von; null = Schutz ist Pflicht
+  adminOverrideAt: timestamp('admin_override_at', { withTimezone: true }),
+  adminOverrideBy: text('admin_override_by'),
+  // Bestehender Dienst: Ziel fehlt seit (Container nicht wiedergefunden); null = gefunden bzw. Adresse
+  externalMissingSince: timestamp('external_missing_since', { withTimezone: true }),
 })
 
 /** Nacht 3, Etappe 5: was beim Isolieren galt (zum Zurückstellen bei der Freigabe) */

@@ -14,6 +14,8 @@ import { serviceRoutes } from './routes/services.js'
 import { statusRoutes } from './routes/status.js'
 import { previewRoutes } from './routes/previews.js'
 import { summaryRoutes } from './routes/summary.js'
+import { externalRoutes } from './routes/external.js'
+import { gateRoutes } from './routes/gate.js'
 import { authRoutes } from './routes/auth.js'
 import { projectRoutes } from './routes/projects.js'
 import { deploymentRoutes } from './routes/deployments.js'
@@ -184,6 +186,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(previewRoutes)
       // Abgrenzung HomeBento: lesende Übersicht für Dashboards (Token «lesen»)
       await api.register(summaryRoutes)
+      // Bestehender Dienst: Container-Liste, Erreichbarkeit, Zugang; Airlock-Login an Projekt-Adressen
+      await api.register(externalRoutes)
+      await api.register(gateRoutes)
     },
     { prefix: '/api/v1' },
   )

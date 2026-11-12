@@ -21,6 +21,7 @@ import { notify } from '../notify/send.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import { assertNotPreview } from './preview-guard.js'
+import { assertPublicGuarded } from './guard.js'
 
 /**
  * M5: öffentlich über Cloudflare Tunnel.
@@ -255,6 +256,9 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
     // M9: ohne Angabe und ohne frühere Route gilt der Access-Standard der Umgebung
     const access = input.accessProtected ?? (before ? before.accessProtected : Boolean(environmentById(project.environmentId)?.row.accessDefault))
     if (access && !ctx.accessEmail) throw badRequest('Für Cloudflare Access braucht es eine E-Mail-Adresse (Einstellungen → Standards → Cloudflare Access).')
+    // Bestehender Dienst: bekannte Admin-Oberflächen nur mit Schutz öffentlich (Übersteuern mit sudo)
+    const row = (await db.select().from(schema.projects).where(eq(schema.projects.id, project.id)).limit(1))[0]
+    if (row) assertPublicGuarded(row, { accessProtected: access })
     return { project, hostname, zone, access, before, takeOver: Boolean(input.takeOver) }
   } catch (err) {
     wrap(err)

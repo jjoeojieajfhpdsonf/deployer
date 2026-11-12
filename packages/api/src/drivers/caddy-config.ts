@@ -6,7 +6,7 @@
 import { coveredByWildcard } from '../lib/hostnames.js'
 import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
 import { createHash } from 'node:crypto'
-import { DEFAULT_PAUSE_PAGE, NOT_FOUND_TEXT, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, renderSnakePage, snakeCsp, type PausePage } from '@airlock/shared'
+import { GATE_CALLBACK_PATH, GATE_COOKIE, DEFAULT_PAUSE_PAGE, NOT_FOUND_TEXT, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, renderSnakePage, snakeCsp, type PausePage } from '@airlock/shared'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
@@ -31,6 +31,20 @@ export interface RouteSpec {
   }
   /** Bei kind=proxy: "container:port" */
   upstream?: string
+  /**
+   * Bestehender Dienst, Adresse mit https://: Caddy spricht TLS zum Ziel.
+   * insecure: eigenes (selbstsigniertes) Zertifikat wird angenommen – nur auf
+   * ausdrücklichen Wunsch, nur für Adressen im Heimnetz.
+   */
+  upstreamTls?: { insecure: boolean }
+  /**
+   * Zugang «Airlock-Login»: vor jeder Anfrage fragt Caddy Airlock (forward_auth
+   * auf gate.upstream, GET /api/v1/gate/check). 2xx: weiter zur App; sonst
+   * gibt Caddy Airlocks Antwort weiter (302 zur Anmeldung). Den Cookie setzt
+   * Airlock über GATE_CALLBACK_PATH auf diesem Host. Nicht im Probe-Server –
+   * Header-Check und Scan sehen die App wie bisher.
+   */
+  gate?: { upstream: string }
   /** Bei kind=files: Verzeichnis im sites-Volume */
   root?: string
   /**
@@ -247,6 +261,39 @@ export { coveredByWildcard }
 
 type Handler = Record<string, unknown> & { handler: string }
 
+/**
+ * Entfernt den Login-Cookie aus dem Cookie-Header (vor der App), samt einem
+ * folgenden «;». Ersetzt durch GATE_COOKIE_STRIP_REPLACE (das Trennzeichen
+ * davor bleibt): «a=1; airlock_gate=x; b=2» → «a=1; b=2». Go-RE2, ohne Lookbehind.
+ */
+export const GATE_COOKIE_STRIP_RE = `(^|;)\\s*${GATE_COOKIE}=[^;]*;?`
+export const GATE_COOKIE_STRIP_REPLACE = '${1}'
+
+/**
+ * Zugang «Airlock-Login» wie Caddys `forward_auth`: GET an Airlock mit
+ * Methode und Pfad der Anfrage in X-Forwarded-Method/-Uri (X-Forwarded-Host
+ * setzt reverse_proxy selbst). 2xx: der Antwort-Zweig schreibt nichts, die
+ * Anfrage geht weiter zur App. Sonst gibt Caddy Airlocks Antwort weiter.
+ */
+export function forwardAuth(upstream: string): Handler {
+  return {
+    handler: 'reverse_proxy',
+    upstreams: [{ dial: upstream }],
+    rewrite: { method: 'GET', uri: '/api/v1/gate/check' },
+    headers: {
+      request: {
+        set: { 'X-Forwarded-Method': ['{http.request.method}'], 'X-Forwarded-Uri': ['{http.request.uri}'] },
+        // Nur der Login-Cookie zählt; Authorization der App geht Airlock nichts an
+        delete: ['Authorization'],
+      },
+    },
+    handle_response: [{
+      match: { status_code: [2] },
+      routes: [{ handle: [{ handler: 'headers', request: { delete: ['X-Airlock-Gate'] } }] }],
+    }],
+  }
+}
+
 /** Kennung der Wartungsseite; die Prüfung von aussen erkennt daran «pausiert». */
 export const MAINTENANCE_HEADER = PAUSE_STATE_HEADER
 export const MAINTENANCE_VALUE = PAUSE_STATE_VALUE
@@ -345,6 +392,11 @@ export function buildCaddyConfig(
   const handlersFor = (r: RouteSpec, secure: boolean, probe: boolean, hstsAllowed = false): Handler[] => {
     const proxy: Handler = { handler: 'reverse_proxy', upstreams: [{ dial: r.upstream }] }
     if (probe) proxy.headers = { request: { set: { 'X-Forwarded-Proto': [secure ? 'https' : 'http'] } } }
+    // Bestehender Dienst: HTTPS zum Ziel (eigenes Zertifikat nur ausdrücklich)
+    if (r.upstreamTls) proxy.transport = { protocol: 'http', tls: r.upstreamTls.insecure ? { insecure_skip_verify: true } : {} }
+    // Der Login-Cookie ist nur für Airlock: nie an die App weitergeben (auch Projekte ohne Login,
+    // falls ein Browser ihn von früher noch schickt)
+    if (r.kind === 'proxy' && r.visits) proxy.headers = { ...(proxy.headers as object | undefined), request: { ...((proxy.headers as { request?: object } | undefined)?.request ?? {}), replace: { Cookie: [{ search_regexp: GATE_COOKIE_STRIP_RE, replace: GATE_COOKIE_STRIP_REPLACE }] } } }
     if (r.kind === 'redirect') {
       return [{ handler: 'static_response', status_code: 308, headers: { Location: [`${r.redirectTo}{http.request.uri}`] } }]
     }
@@ -365,6 +417,8 @@ export function buildCaddyConfig(
     if (r.noKeepAlive) {
       handle.unshift({ handler: 'headers', response: { set: { Connection: ['close'] } } })
     }
+    // Zugang «Airlock-Login» zuerst: vor Headern und App. Nicht im Probe-Server, nicht auf der Pause-Seite.
+    if (r.gate && !probe && (r.kind === 'proxy' || r.kind === 'files')) handle.unshift(forwardAuth(r.gate.upstream))
     return handle
   }
 
@@ -401,6 +455,25 @@ export function buildCaddyConfig(
     }]
   }
 
+  /**
+   * Zugang «Airlock-Login»: Rückruf nach der Anmeldung. Nur GET auf genau
+   * GATE_CALLBACK_PATH am Host des Projekts; Caddy schreibt auf
+   * /api/v1/gate/callback um (Query bleibt: einmaliger Code und Ziel) und gibt
+   * an Airlock – der setzt den Cookie für diesen Host. Ohne Cookies des
+   * Projekts an Airlock.
+   */
+  const gateRoute = (r: RouteSpec, hosts: string[]): HttpRoute[] => {
+    if (!r.gate || (r.kind !== 'proxy' && r.kind !== 'files')) return []
+    return [{
+      match: [{ host: hosts, path: [GATE_CALLBACK_PATH], method: ['GET'], ...remoteFor(r) }],
+      handle: [
+        { handler: 'rewrite', uri: '/api/v1/gate/callback?{http.request.uri.query}' },
+        { handler: 'reverse_proxy', upstreams: [{ dial: r.gate.upstream }], headers: { request: { delete: ['Cookie', 'Authorization'] } } },
+      ],
+      terminal: true,
+    }]
+  }
+
   // Ohne TLS: alle Namen auf :80. Mit TLS: Namen unter der Basisdomain auf
   // :443, der Rest (nip.io) bleibt auf :80 - dafür gibt es kein Zertifikat.
   const plainRoutes: HttpRoute[] = []
@@ -408,12 +481,12 @@ export function buildCaddyConfig(
   const probeRoutes: HttpRoute[] = []
   for (const r of routes) {
     const plain = r.hosts.filter((h) => !tlsFor(h))
-    if (plain.length) plainRoutes.push(...cspRoute(r, plain), toRoute(r, plain, false))
+    if (plain.length) plainRoutes.push(...cspRoute(r, plain), ...gateRoute(r, plain), toRoute(r, plain, false))
     // M9: Namen unter verschiedenen Basen getrennt (HSTS je Basis)
     for (const t of tlsList) {
       const secure = r.hosts.filter((h) => tlsFor(h) === t)
       if (!secure.length) continue
-      tlsRoutes.push(...cspRoute(r, secure), toRoute(r, secure, true, hstsFor(t)))
+      tlsRoutes.push(...cspRoute(r, secure), ...gateRoute(r, secure), toRoute(r, secure, true, hstsFor(t)))
       // Probe: je Name so, wie Besucher ihn sehen (HTTPS oder HTTP), ohne IP-Filter.
       probeRoutes.push({ match: [{ host: secure }], handle: handlersFor(r, true, true, hstsFor(t)), terminal: true })
     }

@@ -260,3 +260,26 @@ describe('Etappe 4: interne Adresse eines Dienstes', () => {
     assert.equal(t.hosts.some((x) => x.internal), false)
   })
 })
+
+describe('Bestehender Dienst: nur Zugang → Eingang → Ziel', () => {
+  const ext = (e: Partial<NonNullable<TopologyInput['external']>> = {}) => buildTopology(base({
+    kind: 'external', slug: 'sonarr', port: null, webService: null, version: null, hasActive: false, compose: null, containers: [], composeVolumes: [], usage: {},
+    routes: [{ ...internal, hostname: 'sonarr.int.example.ch', aliases: [], urls: ['https://sonarr.int.example.ch'] }],
+    external: { label: 'Container sonarr, Port 8989', mode: 'container', name: 'sonarr', image: 'lscr.io/linuxserver/sonarr:4.0.9', port: 8989, found: true, running: true, ...e },
+  }))
+
+  test('ein Ziel, keine Volumes, Linie vom Eingang zum Ziel', () => {
+    const t = ext()
+    assert.equal(t.kind, 'external')
+    assert.deepEqual(t.services.map((s) => [s.name, s.image, s.port, s.state, s.version]), [['sonarr', 'lscr.io/linuxserver/sonarr:4.0.9', 8989, 'running', '4.0.9']])
+    assert.equal(t.volumes.length, 0)
+    assert.ok(t.edges.some((x) => x.to === t.services[0]!.id && x.via === 'route' && x.on))
+    assert.deepEqual(t.external, { label: 'Container sonarr, Port 8989', mode: 'container', found: true })
+  })
+
+  test('Ziel fehlt bzw. gestoppt: Knoten «fehlt» bzw. «beendet», Linie gestrichelt', () => {
+    assert.equal(ext({ found: false }).services[0]!.state, 'missing')
+    assert.equal(ext({ running: false }).services[0]!.state, 'exited')
+    assert.ok(ext({ found: false }).edges.filter((x) => x.via === 'route' && x.to.startsWith('svc:')).every((x) => !x.on))
+  })
+})

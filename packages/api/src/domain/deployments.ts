@@ -8,7 +8,8 @@ import { withHistory, type ReasonEvent } from './deploy-reason.js'
 type Row = typeof schema.deployments.$inferSelect
 
 /** Wie ein Projekt zur Laufzeit behandelt wird (Routing, Start, Abgleich). */
-export type RuntimeKind = 'image' | 'dockerfile' | 'static' | 'compose'
+/** external: Bestehender Dienst – kein Container von Airlock, kein Deploy */
+export type RuntimeKind = 'image' | 'dockerfile' | 'static' | 'compose' | 'external'
 
 /**
  * Ein Chat-Projekt (Quelle files) läuft als das, als was seine aktive

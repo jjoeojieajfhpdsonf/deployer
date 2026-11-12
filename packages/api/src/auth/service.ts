@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes } from 'node:crypto'
 import QRCode from 'qrcode'
 import {
   generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse,
@@ -219,6 +219,19 @@ export class AuthService {
     })
     await this.d.audit({ actor: 'ui:joel', action: 'auth.login', result: 'ok', params: { method, ip: client.ip, ...params }, environmentId: null })
     return { kind: 'session', token, session }
+  }
+
+  /** Zugang «Airlock-Login»: Signatur der Gate-Tokens mit dem Schlüssel von Airlock (lib/gate.ts) */
+  gateSign(data: string): string {
+    return createHmac('sha256', this.d.key()).update(data).digest('base64url')
+  }
+
+  /** Zugang «Airlock-Login»: gilt die Sitzung noch (nicht abgemeldet, nicht abgelaufen)? Mit Ablauf */
+  async sessionById(id: string): Promise<SessionRow | null> {
+    const now = this.now()
+    const row = (await this.d.store.listSessions()).find((s) => s.id === id) ?? null
+    if (!row || row.revokedAt || row.expiresAt.getTime() <= now) return null
+    return row
   }
 
   /** Sitzung zum Cookie-Wert; null = ungültig, abgemeldet oder abgelaufen */

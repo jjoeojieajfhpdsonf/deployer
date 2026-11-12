@@ -32,6 +32,7 @@ import { dirname } from 'node:path'
 import { enqueueProjectScan, scanSourceDir } from '../security/scan.js'
 import { notify } from '../notify/send.js'
 import { conflict, badRequest, AppError } from '../lib/errors.js'
+import { assertManaged } from '../domain/guard.js'
 import { log } from '../lib/log.js'
 import { PREVIEW_SECRET_MISSING, previewSecretsMissingMessage, type DeploymentDto, type DeployReason } from '@airlock/shared'
 import { isOwnImage } from '../lib/names.js'
@@ -125,6 +126,8 @@ async function reasonAtStart(project: Project, actor: string, job: Job, explicit
 }
 
 async function startJob(project: Project, actor: string, job: Job, o: StartOptions = {}): Promise<DeploymentDto> {
+  // Bestehender Dienst: Airlock deployt ihn nicht (auch kein Rollback, kein «Neu erstellen»)
+  assertManaged(project, job.kind === 'deploy' ? 'Ein Deploy' : 'Das')
   // Nacht 3, Etappe 3: ab 95 % belegter Platte keine Deploys (auch Auto-Deploy, Vorschau, MCP).
   // Rollback und «Neu erstellen» brauchen kein neues Image und bleiben möglich.
   if (job.kind === 'deploy') await assertDiskRoom()
