@@ -76,7 +76,7 @@ Vorlage zum Kopieren: `docs/DATENSCHUTZ-VORLAGE.md`.
 
 - Auswertung (`summarize`, Zeiträume, Abschnitte, Vorzeitraum) liegt rein in `packages/shared/src/traffic-summary.ts`;
   die Bilder der Oberfläche entstehen aus erzeugten Stundenzeilen mit derselben Rechnung (`design-shots/fixtures-traffic.ts`).
-- Migration `0024_traffic_dims.sql`: `traffic_dims`, `traffic_projects` (Messbeginn; Bestand aus `min(hour)`).
+- Migration `0030_traffic_dims.sql`: `traffic_dims`, `traffic_projects` (Messbeginn; Bestand aus `min(hour)`).
 - Messbeginn: erste gelesene Zeile eines Projekts bzw. erster Lauf, in dem das Projekt Namen hat (auch ohne Aufrufe).
 - Neue Tokens in allen vier Themes: `--chart-*`, `--map-0…4`, `--seg-1…5`; Kontrastprüfung erweitert.
 - Keine neue Abhängigkeit.
@@ -106,15 +106,16 @@ Neu: `besucher-messbeginn`, `-saeulen`, `-heute`, `-12-monate`, `-kennzahl`, `-e
 
 ## Was auf dem Server zu tun ist
 
-1. Nach dem Merge deployen wie üblich; Migration 0024 läuft beim Start (nur neue Tabellen, Bestand bleibt).
+1. Nach dem Merge deployen wie üblich; Migration 0030 läuft beim Start (nur neue Tabellen, Bestand bleibt).
 2. Optional: Server › Besucher › «Provider-Datenbank laden» (rund 10 MB von download.db-ip.com).
 3. Optional: in Cloudflare «Add visitor location headers» einschalten (Anleitung auf derselben Seite).
 4. Optional: `docs/DATENSCHUTZ-VORLAGE.md` in die Datenschutzerklärung der öffentlichen Seiten übernehmen.
 
 ## Risiken und Hinweise
 
-- **Migrationsnummer:** Nacht 3 hat `0024_auth_2fa.sql`. Der Migrator merkt sich ganze Dateinamen, beide laufen;
-  sie sind unabhängig. Für eine saubere Reihenfolge beim Mergen eine der beiden umbenennen, bevor sie irgendwo lief.
+- **Migrationsnummer:** `0030_traffic_dims.sql` (zuerst 0024). Nacht 3 belegt bereits 0024 (`auth_2fa`) und
+  0025 (`git_credentials`), weitere Etappen folgen; 0030 hält Abstand. Kommt die Nacht bis 0030, beim Mergen
+  weiterschieben – der Migrator merkt sich ganze Dateinamen, die Tabellen sind unabhängig.
 - **Zahlen ändern sich:** «Aufrufe» sinken (ohne 404/5xx), «direkt» schrumpft deutlich (Klicks innerhalb der
   Seite fehlen jetzt). Alte Zeilen bleiben gemischt.
 - **Rechenzentren als Bot:** Nutzer mit VPN eines Hosters (z. B. M247) zählen als Bot. Liste in shared, leicht anzupassen.
