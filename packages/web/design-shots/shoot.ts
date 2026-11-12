@@ -267,7 +267,11 @@ function spassShots(group: string): Shot[] {
         await bubble(pg)
         await pg.locator('.disketti-bubble').getByRole('button', { name: 'Ja', exact: true }).click()
         await pg.locator('.sec-detail .claude-fix').first().waitFor()
-        await pg.waitForTimeout(500)
+        // «Ja» springt zum Befund, während die Detailkarte noch wächst – das Ziel schwankte je nach
+        // Zeitpunkt um ~50 px. Für ein festes Bild: nach dem Laden selbst an den Anfang der Unternavigation
+        await pg.waitForTimeout(300)
+        await pg.evaluate(() => document.querySelector('.sec-detail')?.closest('section, .panel, div')?.scrollIntoView({ block: 'start', behavior: 'instant' }))
+        await pg.waitForFunction(() => new Promise<boolean>((r) => { const y = window.scrollY; setTimeout(() => r(window.scrollY === y), 200) }))
       },
     },
   ]
