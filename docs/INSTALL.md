@@ -128,7 +128,7 @@ Nach jeder Änderung am Dienst `status` in `compose.yaml` (Härtung, Befehl, Ima
 scripts/smoke-status.sh
 ```
 
-Das Skript startet den Dienst genau mit der Konfiguration aus `compose.yaml`, aber mit eigenem Container, Netz und Volume, sodass die laufende Installation nicht berührt wird. Es prüft die Härtung am laufenden Container (nobody, nur lesend, `cap_drop: ALL` plus nur `NET_BIND_SERVICE`, `no-new-privileges`), ruft eine Datei per `wget` ab und räumt alles wieder ab. Es liest keine `.env` und braucht `docker` und `node`. Bei einem Fehler zeigt es die letzten Zeilen des Container-Logs; der Exit-Code ist dann 1.
+Das Skript startet den Dienst genau mit der Konfiguration aus `compose.yaml`, aber mit eigenem Container, Netz und Volume, sodass die laufende Installation nicht berührt wird. Es prüft die Härtung am laufenden Container (nobody, nur lesend, `cap_drop: ALL` plus nur `NET_BIND_SERVICE`, `no-new-privileges`), ruft eine Datei per `wget` ab und räumt alles wieder ab. Es liest keine `.env` und braucht nur `docker` mit Compose v2.24 oder neuer (`docker compose version`). Bei einem Fehler zeigt es die letzten Zeilen des Container-Logs; der Exit-Code ist dann 1.
 
 ## Abnahme auf dem Server
 
