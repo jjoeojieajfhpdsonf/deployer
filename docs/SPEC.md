@@ -292,6 +292,18 @@ An Claude gehen nur der Befund und die betroffenen Dateien, nie Secrets oder Wer
 
 Pro Projekt einstellbar (`auto_deploy`): Airlock prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil Airlock nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt Airlock einen Kommentar mit dem Ergebnis.
 
+### Vorschau-Deploys
+
+Stand: Etappe 6 (Branch `previews`). Pro Projekt der Schalter «Vorschauen» (Einstellungen, Standard aus), nur für Projekte aus einem GitHub-Repo mit installierter GitHub-App (Dockerfile, Compose, statisch); sonst ist der Schalter deaktiviert und nennt den Grund.
+
+- **Auslöser ohne Webhook.** Wie Auto-Deploy fragt Airlock im selben Intervall (`AUTO_DEPLOY_INTERVAL_S`, Standard 5 Minuten) die Branches und offenen Pull Requests des Repos ab. Ein neuer Kopf eines Branches (nicht der Deploy-Branch) gilt als Push, eine neue PR-Nummer als «geöffnet». Beim Einschalten bekommen zuerst die Branches mit offenem PR eine Vorschau. Pull Requests aus Forks nie (fremder Code auf dem Homeserver). Die Prüfung von Webhook-Signaturen (`X-Hub-Signature-256`) liegt als getestete Funktion bereit (`lib/github-webhook.ts`), ohne Endpunkt.
+- **Adresse** `<branch-slug>--<projekt>.int.<basis>`: ein DNS-Label ≤ 63 Zeichen; Sonderzeichen werden Bindestriche; zu lang, belegt (Projekt, interne Adresse, Dienst-Adresse `<dienst>--<projekt>` aus «+ Dienst», andere Vorschau) oder zwei Zeichen lang (sonst `--` an Stelle 3–4, IDN) → gekürzt mit Hash-Suffix. Umgekehrt lehnt «+ Dienst» einen Namen ab, dessen Adresse eine Vorschau belegt. Das Wildcard-Zertifikat und der DNS-Eintrag `*.int.<basis>` decken die Namen ab; je Vorschau entsteht kein DNS- oder Zertifikatseintrag.
+- **Immer nur intern** (die internen Wege des Projekts, sonst Tailnet), nie öffentlich, auch nicht per Schalter: durchgesetzt in `setRoutes`, beim Veröffentlichen und Vormerken und im Caddy-Abgleich. Projekt-Routen der API und MCP sehen Vorschauen nicht.
+- **Technik:** Eine Vorschau ist ein eigenes Projekt (`projects.preview_of`) mit Slug = Label; Deploy auf den Commit, Healthcheck, Route und Security-Scan wie bei jedem Projekt. Compose läuft unter `air_<label>`: Volumes, Netz und Container getrennt, Datenbanken aus der compose.yaml starten leer; Produktions-Volumes sind unerreichbar (benannte Volumes ohne `name`/`external`, keine Bind-Mounts). Projektlisten, Statusseite und Backup blenden Vorschauen aus.
+- **Variablen-Ebene «Vorschau»:** erbt alle Variablen des Projekts; gleichnamige auf dieser Ebene überschreiben (z. B. Test-Schlüssel). Geheimnisse des Projekts gelangen damit auch in Vorschauen – wer das nicht will, überschreibt sie hier.
+- **Am Pull Request:** ein Kommentar mit Adresse (Hinweis: nur LAN/Tailnet), Zustand, Commit und Scan-Ergebnis, bei jedem Push und jeder Zustandsänderung ersetzt. Hat die App zusätzlich «Checks: write», setzt Airlock einen Check «Airlock-Vorschau» am Commit (rot bei gescheitertem Deploy oder offenem kritischem Befund).
+- **Aufräumen:** Pull Request geschlossen oder gemergt, Branch gelöscht, 7 Tage ohne Push; höchstens 3 Vorschauen pro Projekt, die mit dem ältesten Push fällt raus. Ebenso beim Ausschalten, Löschen oder Verschieben des Projekts und von Hand (Reiter Deployments, mit Bestätigung). Entfernt werden Container, gebaute Images, Netz, Volumes, Routen, Deployments, Scans und eigene Werte der Vorschau; der Kommentar am PR nennt den Grund.
+
 ## Umgebungen
 
 Stand: Konzept vom 10. November 2026, noch nicht umgesetzt. Prototyp-Screenshots: `docs/design-cal/umgebungen/`.
