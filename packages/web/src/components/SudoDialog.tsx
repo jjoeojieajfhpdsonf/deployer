@@ -48,6 +48,12 @@ export function SudoDialogView({ open, onDone }: { open: boolean; onDone: (ok: b
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (needs && !needs.totp && needs.recovery) setRecovery(true) }, [needs])
+  // Fokus erst, wenn klar ist, was geht: Passkey (erste Wahl) oder Passwort – unabhängig davon,
+  // ob die Antwort vor oder nach dem Öffnen kommt
+  useEffect(() => {
+    if (!open || !status.isFetched) return
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-sudo-focus]')?.focus())
+  }, [open, status.isFetched, passkey])
 
   const done = () => {
     void qc.invalidateQueries({ queryKey: ['security'] })
@@ -90,23 +96,25 @@ export function SudoDialogView({ open, onDone }: { open: boolean; onDone: (ok: b
   }
 
   return (
-    <Modal open={open} onClose={() => onDone(false)} labelledBy="sudo-h" describedBy="sudo-text" busy={busy} initialFocus={passkey ? '.sudo-passkey' : undefined}>
+    <Modal open={open} onClose={() => onDone(false)} labelledBy="sudo-h" describedBy="sudo-text" busy={busy} initialFocus="[data-sudo-focus]">
       <form onSubmit={submit} noValidate ref={form.formRef} className="sudo-form">
         <h2 id="sudo-h">Bestätigen, dass du es bist</h2>
-        <p id="sudo-text" className="confirm-dialog-text">
-          Heikle Aktionen – öffentlich schalten, Projekt löschen, API-Token anlegen, Backup zurückholen,
-          zweiter Faktor – brauchen eine frische Bestätigung. Sie gilt {SUDO_MINUTES} Minuten.
-        </p>
+        <div className="confirm-dialog-text">
+          <p id="sudo-text">
+            {`Heikle Aktionen – öffentlich schalten, Projekt löschen, API-Token anlegen, Backup zurückholen, zweiter Faktor – brauchen eine frische Bestätigung. Sie gilt ${SUDO_MINUTES} Minuten.`}
+          </p>
+        </div>
         {passkey && (
           <>
-            <button type="button" className="button-primary sudo-passkey" onClick={() => void viaPasskey()} disabled={busy}>
+            <button type="button" className="button-primary sudo-passkey" onClick={() => void viaPasskey()} disabled={busy} data-sudo-focus>
+
               <IconKey size={16} /> Mit Passkey bestätigen
             </button>
             <p className="login-or" aria-hidden="true"><span>oder mit Passwort</span></p>
           </>
         )}
         <Field id={form.idFor('password')} label="Passwort" error={form.errors.password}>
-          <input {...form.field('password')} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input {...form.field('password')} data-sudo-focus={passkey ? undefined : true} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         {wantsCode && (
           <Field

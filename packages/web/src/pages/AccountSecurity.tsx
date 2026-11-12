@@ -366,9 +366,9 @@ export function RecoveryCodesDialog({ codes, onClose }: { codes: RecoveryCodesDt
       {codes && (
         <>
           <h2 id="codes-h">Wiederherstellungscodes</h2>
-          <p id="codes-text" className="confirm-dialog-text">
-            Jetzt sichern – Airlock zeigt sie nicht noch einmal. Jeder Code gilt genau einmal anstelle des Codes aus der App.
-          </p>
+          <div className="confirm-dialog-text">
+            <p id="codes-text">Jetzt sichern – Airlock zeigt sie nicht noch einmal. Jeder Code gilt genau einmal anstelle des Codes aus der App.</p>
+          </div>
           <ol className="recovery-codes" aria-label="Wiederherstellungscodes">
             {codes.codes.map((c) => <li key={c}><code>{c}</code></li>)}
           </ol>

@@ -649,11 +649,14 @@ const shots: Shot[] = [
   },
   {
     // Heikle Aktion ohne frische Bestätigung: der Server antwortet «sudo_required», der Dialog fragt
-    group: 'sicherheit', name: 'sudo-bestaetigung', path: '/konto/sicherheit', full: false,
+    // maxDiff: eine Textzeile im Dialog wird je nach Lauf um einen Bruchteil eines Pixels versetzt
+    // gerastert (Dialog senkrecht zentriert, Höhe ungerade) – nur Kantenglättung, ~900 Pixel
+    group: 'sicherheit', name: 'sudo-bestaetigung', path: '/konto/sicherheit', full: false, maxDiff: 1200,
     prepare: async (pg) => {
       await pg.route('**/api/v1/auth/totp/setup', (r) => json(r, { error: { code: 'sudo_required', message: 'Bitte bestätige zuerst, dass du es bist (gilt 10 Minuten)' } }, 403))
       await pg.getByRole('button', { name: 'Neu einrichten (anderes Telefon)' }).click()
       await pg.getByRole('dialog', { name: 'Bestätigen, dass du es bist' }).waitFor()
+      await pg.getByRole('button', { name: 'Mit Passkey bestätigen' }).waitFor()
       await pg.waitForTimeout(300)
     },
   },
