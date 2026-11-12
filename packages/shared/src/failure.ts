@@ -18,6 +18,7 @@ export type FailureKind =
   | 'build'
   | 'oom'
   | 'env_missing'
+  | 'preview_secret'
   | 'port_mismatch'
   | 'listen_localhost'
   | 'exited'
@@ -41,6 +42,8 @@ export type FailureAction =
   /** Quelle ändern (Image, Repo) */
   | { kind: 'change_source'; label: string }
   | { kind: 'redeploy'; label: string }
+  /** Vorschau: geheime Variable auf der Ebene «Vorschau» des Projekts setzen */
+  | { kind: 'preview_env'; label: string }
 
 export interface FailureExplanation {
   kind: FailureKind
@@ -215,6 +218,13 @@ export function explainFailure(i: FailureInput): FailureExplanation {
       action: { kind: 'change_source', label: 'Image ändern' },
     }
   }
+  if (i.errorCode === 'preview_secret_missing') {
+    return {
+      ...base, ...fromDeploy, kind: 'preview_secret', title: msg.split('\n')[0] ?? msg,
+      cause: 'Vorschauen erben die geheimen Variablen des Projekts nicht, damit Branch-Code nicht mit echten Schlüsseln läuft. Für Vorschauen einen eigenen Wert setzen, etwa einen Test-Schlüssel.',
+      action: { kind: 'preview_env', label: 'Vorschau-Variablen setzen' },
+    }
+  }
   if (i.errorCode === 'policy_violation') {
     return { ...base, ...fromDeploy, kind: 'policy', title: 'Von der Container-Richtlinie gestoppt', cause: `${clause(msg)}.`, action: { kind: 'change_source', label: 'Quelle ändern' } }
   }
@@ -337,6 +347,7 @@ export function failureNextStep(e: FailureExplanation): string {
     }
     case 'change_source': return 'Quelle des Projekts prüfen und korrigieren (Image-Name, Tag, Repo).'
     case 'redeploy': return 'Neu deployen (deploy).'
+    case 'preview_env': return 'Die fehlenden geheimen Variablen für Vorschauen setzen (Projekt › Einstellungen › Vorschauen › Variablen; geheim erben Vorschauen nicht). Der nächste Push deployt die Vorschau neu.'
     case 'claude': return e.kind.startsWith('build')
       ? 'Den Build-Fehler im Code bzw. in den Abhängigkeiten beheben, dann neu deployen.'
       : 'Die Ursache aus den Zeilen ablesen und im Code beheben, dann neu deployen.'

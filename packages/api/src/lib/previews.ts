@@ -341,12 +341,33 @@ export function mergeEnvLevels(...levels: EnvLevelEntry[][]): EnvLevelEntry[] {
   return [...out.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
-/** Für die Anzeige: welche Variablen eine Vorschau erbt und welche überschrieben sind */
-export function envInheritance(project: string[], preview: string[]): { key: string; source: 'projekt' | 'vorschau' | 'ueberschrieben' }[] {
-  const keys = [...new Set([...project, ...preview])].sort()
-  const p = new Set(project)
+/** Was eine Vorschau vom Projekt erbt: nur die normalen Variablen, keine geheimen */
+export function inheritableFromProject<T extends { isSecret: boolean }>(rows: T[]): T[] {
+  return rows.filter((r) => !r.isSecret)
+}
+
+/** Geheime Variablen des Projekts, die weder die Ebene «Vorschau» noch die Vorschau selbst setzt */
+export function missingPreviewSecrets(project: { key: string; isSecret: boolean }[], ...levels: { key: string }[][]): string[] {
+  const set = new Set(levels.flat().map((e) => e.key))
+  return project.filter((e) => e.isSecret && !set.has(e.key)).map((e) => e.key).sort()
+}
+
+export type EnvSource = 'projekt' | 'vorschau' | 'ueberschrieben' | 'nicht_vererbt'
+
+/**
+ * Für die Anzeige: welche Variablen eine Vorschau erbt, welche überschrieben
+ * sind und welche geheimen sie nicht erbt (ohne eigenen Wert scheitert der
+ * Vorschau-Deploy).
+ */
+export function envInheritance(project: { key: string; isSecret: boolean }[], preview: string[]): { key: string; source: EnvSource }[] {
+  const secret = new Set(project.filter((e) => e.isSecret).map((e) => e.key))
+  const p = new Set(project.map((e) => e.key))
   const v = new Set(preview)
-  return keys.map((key) => ({ key, source: v.has(key) ? (p.has(key) ? 'ueberschrieben' : 'vorschau') : 'projekt' }))
+  const keys = [...new Set([...p, ...v])].sort()
+  return keys.map((key) => ({
+    key,
+    source: v.has(key) ? (p.has(key) ? 'ueberschrieben' : 'vorschau') : secret.has(key) ? 'nicht_vererbt' : 'projekt',
+  }))
 }
 
 /* --- Zustand, Kommentar und Check am Pull Request -------------------------------------- */

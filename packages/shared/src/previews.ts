@@ -43,6 +43,8 @@ export interface PreviewDto {
   deploymentId: string | null
   /** Kurz, warum der letzte Deploy scheiterte */
   failure: string | null
+  /** Gescheitert, weil geheime Variablen für Vorschauen fehlen (Oberfläche: Link zur Ebene «Vorschau») */
+  failureSecrets: boolean
   scan: PreviewScanDto | null
 }
 
@@ -67,6 +69,24 @@ export interface PreviewsDto {
 
 export const previewSettingSchema = z.object({ enabled: z.boolean() })
 export type PreviewSettingInput = z.infer<typeof previewSettingSchema>
+
+/**
+ * Korrektur nach Nacht 2: Vorschauen erben nur die normalen Variablen des
+ * Projekts, keine geheimen (Branch-Code soll nicht mit echten Schlüsseln
+ * laufen). Fehlt ein Geheimnis auf der Ebene «Vorschau», scheitert der
+ * Vorschau-Deploy mit diesem Satz (Fehlercode der Pipeline).
+ */
+export const PREVIEW_SECRET_MISSING = 'preview_secret_missing'
+
+/** Weg zur Ebene «Vorschau» (in der Meldung; die Oberfläche macht daraus einen Link) */
+export const PREVIEW_ENV_PATH = 'Einstellungen › Vorschauen › Variablen'
+
+export function previewSecretsMissingMessage(keys: string[]): string {
+  const names = keys.join(', ')
+  return keys.length === 1
+    ? `Geheime Variable ${names} fehlt – in ${PREVIEW_ENV_PATH} setzen`
+    : `Geheime Variablen ${names} fehlen – in ${PREVIEW_ENV_PATH} setzen`
+}
 
 /** Text zum Zustand (Pille in der Liste, Kommentar am PR) */
 export function previewStateLabel(s: PreviewState): string {

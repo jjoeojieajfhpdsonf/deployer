@@ -259,7 +259,8 @@ function FailureActions({ p, env, f, onDeploy, deploying, fix }: {
     : a?.kind === 'set_field' && a.value !== null && p[a.field] === a.value
     ? FIELD_DONE[a.field](a.value)
     : done || null
-  const ownAction = !applied && a && a.kind !== 'redeploy' && !(a.kind === 'change_source' && !isImage)
+  // preview_env: die Ebene «Vorschau» liegt beim Projekt, nicht bei der Vorschau (Link in Deployments › Vorschauen)
+  const ownAction = !applied && a && a.kind !== 'redeploy' && a.kind !== 'preview_env' && !(a.kind === 'change_source' && !isImage)
   const toggle = (k: 'claude' | 'image') => { setDone(''); setOpen((o) => (o === k ? null : k)) }
   // Etappe 7: Disketti «Ja» öffnet «Mit Claude lösen» (wenn die Box ihn anbietet)
   useFixRequest(p.lastDeployment ? `deploy:${p.lastDeployment.id}` : null, Boolean(ownAction && a?.kind === 'claude'), () => { setDone(''); setOpen('claude') })

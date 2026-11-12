@@ -9,7 +9,7 @@ import * as docker from '../drivers/docker.js'
 import { composeUp, composePull } from '../drivers/compose-cli.js'
 import { findProject, findProjectForServerJob, setStatus, setDesiredState, touchActivity } from '../domain/projects.js'
 import { serverJob, type Scope } from '../lib/scope.js'
-import { resolveEnv } from '../domain/env.js'
+import { resolveEnv, missingSecretsForPreview } from '../domain/env.js'
 import { reconcileCaddy } from '../domain/routes.js'
 import { audit } from '../domain/audit.js'
 import { toDeploymentDto, getDeployment, canRollbackTo, effectiveKind } from '../domain/deployments.js'
@@ -33,7 +33,7 @@ import { enqueueProjectScan, scanSourceDir } from '../security/scan.js'
 import { notify } from '../notify/send.js'
 import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
-import type { DeploymentDto, DeployReason } from '@airlock/shared'
+import { PREVIEW_SECRET_MISSING, previewSecretsMissingMessage, type DeploymentDto, type DeployReason } from '@airlock/shared'
 import { isOwnImage } from '../lib/names.js'
 
 /** Wie viele erfolgreiche Fassungen pro Projekt für ein Rollback aufgehoben werden. */
@@ -208,6 +208,11 @@ async function run(
           : `Rollback von "${project.name}" auf Fassung ${job.target.version ?? job.target.id} gestartet`
         : `Deploy von "${project.name}" (${project.sourceType}) gestartet`,
     )
+    // Vorschau: geheime Variablen erbt sie nicht – fehlt ein Wert für Vorschauen, gar nicht erst bauen
+    if (project.previewOf) {
+      const missing = await missingSecretsForPreview(project.id)
+      if (missing.length) throw new AppError(PREVIEW_SECRET_MISSING, previewSecretsMissingMessage(missing))
+    }
 
     switch (project.sourceType) {
       case 'image':

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { previewStateLabel, putEnvSchema, type PreviewDto, type PreviewsDto } from '@airlock/shared'
+import { PREVIEW_ENV_PATH, previewStateLabel, putEnvSchema, type PreviewDto, type PreviewsDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { poll } from '../lib/live.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -92,7 +92,7 @@ export function PreviewsSection({ projectId, onSettings }: { projectId: string; 
       )}
       {d.previews.length > 0 && (
         <ol className="dl-list pv-list">
-          {d.previews.map((p) => <PreviewRow key={p.id} projectId={projectId} p={p} />)}
+          {d.previews.map((p) => <PreviewRow key={p.id} projectId={projectId} p={p} onSettings={onSettings} />)}
         </ol>
       )}
       {d.enabled && (
@@ -105,7 +105,24 @@ export function PreviewsSection({ projectId, onSettings }: { projectId: string; 
   )
 }
 
-function PreviewRow({ projectId, p }: { projectId: string; p: PreviewDto }) {
+/**
+ * Fehlende Geheimnisse: der Weg in der Meldung («Einstellungen › Vorschauen ›
+ * Variablen») wird zum Link auf die Ebene «Vorschau».
+ */
+function FailureText({ p, onSettings }: { p: PreviewDto; onSettings: () => void }) {
+  const text = p.failure ?? ''
+  const at = p.failureSecrets ? text.indexOf(PREVIEW_ENV_PATH) : -1
+  if (at < 0) return <p className="dl-error">{text}</p>
+  return (
+    <p className="dl-error">
+      {text.slice(0, at)}
+      <a href="?tab=einstellungen#set-vorschauen" onClick={(e) => { e.preventDefault(); onSettings() }}>{PREVIEW_ENV_PATH}</a>
+      {text.slice(at + PREVIEW_ENV_PATH.length)}
+    </p>
+  )
+}
+
+function PreviewRow({ projectId, p, onSettings }: { projectId: string; p: PreviewDto; onSettings: () => void }) {
   const qc = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const [log, setLog] = useState(false)
@@ -142,7 +159,7 @@ function PreviewRow({ projectId, p }: { projectId: string; p: PreviewDto }) {
           {scan && <span>{scan}</span>}
           <span>weg ab {fmtDate(p.expiresAt)}</span>
         </div>
-        {p.state === 'failed' && p.failure && <p className="dl-error">{p.failure}</p>}
+        {p.state === 'failed' && p.failure && <FailureText p={p} onSettings={onSettings} />}
         {log && p.deploymentId && <DeployLog id={p.deploymentId} />}
       </div>
       <div className="dl-aside">
@@ -234,8 +251,10 @@ function PreviewSettingsBody({ d, labelId, reasonId, busy, pending, onToggle, pr
 }
 
 /**
- * Variablen-Ebene «Vorschau»: erbt alle Variablen des Projekts; was hier
- * steht, überschreibt gleichnamige (z. B. Test-Schlüssel statt echter).
+ * Variablen-Ebene «Vorschau»: erbt die normalen Variablen des Projekts, die
+ * geheimen nicht (stehen als «nicht vererbt» da; ohne eigenen Wert scheitert
+ * der Vorschau-Deploy). Was hier steht, überschreibt gleichnamige (z. B.
+ * Test-Schlüssel statt echter).
  */
 function PreviewEnv({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
@@ -262,6 +281,7 @@ function PreviewEnv({ projectId }: { projectId: string }) {
   if (!q.data) return q.isError ? <ErrorState compact plural what="Die Vorschau-Variablen" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} /> : null
   const inherited = q.data.inherited.filter((i) => i.source === 'projekt').map((i) => i.key)
   const overridden = q.data.inherited.filter((i) => i.source === 'ueberschrieben').map((i) => i.key)
+  const notInherited = q.data.inherited.filter((i) => i.source === 'nicht_vererbt').map((i) => i.key)
   const own = q.data.env
   return (
     <>
@@ -271,6 +291,9 @@ function PreviewEnv({ projectId }: { projectId: string }) {
       >
         <span className="pv-env-sum">
           {inherited.length > 0 && <span>erbt vom Projekt: <strong className="set-strong">{inherited.join(', ')}</strong></span>}
+          {notInherited.length > 0 && (
+            <span>geheim, nicht vererbt: <strong className="set-strong">{notInherited.join(', ')}</strong> <span className="muted">– ohne eigenen Wert scheitert der Vorschau-Deploy</span></span>
+          )}
           {overridden.length > 0 && <span>für Vorschauen überschrieben: <strong className="set-strong">{overridden.join(', ')}</strong></span>}
           {own.filter((e) => !overridden.includes(e.key)).length > 0 && <span>nur in Vorschauen: <strong className="set-strong">{own.filter((e) => !overridden.includes(e.key)).map((e) => e.key).join(', ')}</strong></span>}
           {q.data.inherited.length === 0 && <span className="muted">keine – weder im Projekt noch für Vorschauen</span>}
@@ -278,7 +301,7 @@ function PreviewEnv({ projectId }: { projectId: string }) {
       </SetRow>
       {editing && (
         <form className="set-row-block" noValidate ref={form.formRef} onSubmit={(ev) => { ev.preventDefault(); if (form.validateAll()) save.mutate() }}>
-          <p className="hint">Gleicher Name wie im Projekt: gilt in Vorschauen statt des Projektwerts. Alles andere erben Vorschauen unverändert.</p>
+          <p className="hint">Gleicher Name wie im Projekt: gilt in Vorschauen statt des Projektwerts. Normale Variablen erben Vorschauen unverändert, geheime nicht – für die braucht es hier einen eigenen Wert, etwa einen Test-Schlüssel.</p>
           <EnvEditor rows={rows} onChange={setRows} prefix="entries" errors={form.errors} field={form.field} legend="Variablen für Vorschauen" />
           <div className="form-actions">
             <button type="submit" className="button-primary" disabled={save.isPending} aria-busy={save.isPending || undefined}>Vorschau-Variablen speichern</button>

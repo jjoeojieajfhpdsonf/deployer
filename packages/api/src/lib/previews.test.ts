@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import {
   branchSlug, previewLabel, isPreviewLabel, serviceLabelClash, previewTargets, assertPreviewTargets, PreviewPublicError,
   withoutPublicPreviewRoutes, previewAbility, planPreviews, mergeEnvLevels, envInheritance, previewStateOf,
-  previewComment, previewCheck, PREVIEW_COMMENT_MARK, type PlanInput, type PlanPreview,
+  previewComment, previewCheck, PREVIEW_COMMENT_MARK, inheritableFromProject, missingPreviewSecrets, type PlanInput, type PlanPreview,
 } from './previews.js'
+import { explainFailure, previewSecretsMissingMessage, PREVIEW_ENV_PATH, PREVIEW_SECRET_MISSING } from '@airlock/shared'
 import { internalServiceLabel } from './internal-routes.js'
 
 /** Etappe 6: Vorschau-Deploys – Slug, nur intern, Entscheidungen, Aufräumen, Vererbung, Texte. */
@@ -243,17 +244,39 @@ describe('Abfrage: neue Vorschauen, Pushes und Aufräumen', () => {
 })
 
 describe('Variablen-Ebene «Vorschau»', () => {
-  test('erbt vom Projekt, überschreibt gleichnamige; eigene Werte der Vorschau zuletzt', () => {
+  test('erbt die normalen Variablen des Projekts, keine geheimen; Ebene «Vorschau» überschreibt, eigene Werte zuletzt', () => {
     const project = [{ key: 'DATABASE_URL', value: 'postgres://db/prod', isSecret: true }, { key: 'NODE_ENV', value: 'production', isSecret: false }, { key: 'API_KEY', value: 'live', isSecret: true }]
     const preview = [{ key: 'API_KEY', value: 'test', isSecret: true }, { key: 'PREVIEW', value: '1', isSecret: false }]
     const own = [{ key: 'NODE_ENV', value: 'preview', isSecret: false }]
-    const m = Object.fromEntries(mergeEnvLevels(project, preview, own).map((e) => [e.key, e.value]))
-    assert.deepEqual(m, { API_KEY: 'test', DATABASE_URL: 'postgres://db/prod', NODE_ENV: 'preview', PREVIEW: '1' })
+    const m = Object.fromEntries(mergeEnvLevels(inheritableFromProject(project), preview, own).map((e) => [e.key, e.value]))
+    // Der echte Schlüssel (live) und die Produktions-Datenbank kommen nie in die Vorschau
+    assert.deepEqual(m, { API_KEY: 'test', NODE_ENV: 'preview', PREVIEW: '1' })
   })
 
-  test('Anzeige: geerbt, nur Vorschau, überschrieben', () => {
-    assert.deepEqual(envInheritance(['A', 'B'], ['B', 'C']), [
-      { key: 'A', source: 'projekt' }, { key: 'B', source: 'ueberschrieben' }, { key: 'C', source: 'vorschau' },
+  test('fehlende Geheimnisse: geheim im Projekt und weder auf der Ebene «Vorschau» noch in der Vorschau gesetzt', () => {
+    const project = [{ key: 'DATABASE_URL', isSecret: true }, { key: 'NODE_ENV', isSecret: false }, { key: 'API_KEY', isSecret: true }, { key: 'STRIPE_KEY', isSecret: true }]
+    assert.deepEqual(missingPreviewSecrets(project, [{ key: 'API_KEY' }], [{ key: 'STRIPE_KEY' }]), ['DATABASE_URL'])
+    assert.deepEqual(missingPreviewSecrets(project, [{ key: 'API_KEY' }, { key: 'DATABASE_URL' }, { key: 'STRIPE_KEY' }], []), [])
+    assert.deepEqual(missingPreviewSecrets([{ key: 'NODE_ENV', isSecret: false }], [], []), [])
+  })
+
+  test('Meldung bei fehlenden Geheimnissen: Einzahl, Mehrzahl, mit dem Weg zur Ebene «Vorschau»', () => {
+    assert.equal(previewSecretsMissingMessage(['API_KEY']), 'Geheime Variable API_KEY fehlt – in Einstellungen › Vorschauen › Variablen setzen')
+    assert.equal(previewSecretsMissingMessage(['A', 'B']), 'Geheime Variablen A, B fehlen – in Einstellungen › Vorschauen › Variablen setzen')
+    assert.ok(previewSecretsMissingMessage(['A']).includes(PREVIEW_ENV_PATH))
+  })
+
+  test('Fehlererklärung: eigener Fall mit Weg zur Ebene «Vorschau»', () => {
+    const e = explainFailure({ message: previewSecretsMissingMessage(['API_KEY']), log: '', port: 3000, errorCode: PREVIEW_SECRET_MISSING })
+    assert.equal(e.kind, 'preview_secret')
+    assert.equal(e.title, 'Geheime Variable API_KEY fehlt – in Einstellungen › Vorschauen › Variablen setzen')
+    assert.equal(e.action.kind, 'preview_env')
+  })
+
+  test('Anzeige: geerbt, nicht vererbt (geheim), nur Vorschau, überschrieben', () => {
+    const project = [{ key: 'A', isSecret: false }, { key: 'B', isSecret: true }, { key: 'D', isSecret: true }]
+    assert.deepEqual(envInheritance(project, ['B', 'C']), [
+      { key: 'A', source: 'projekt' }, { key: 'B', source: 'ueberschrieben' }, { key: 'C', source: 'vorschau' }, { key: 'D', source: 'nicht_vererbt' },
     ])
   })
 })

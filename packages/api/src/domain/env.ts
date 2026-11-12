@@ -5,7 +5,7 @@ import { config } from '../config.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import type { EnvEntryDto, EnvEntryInput } from '@airlock/shared'
 import { conflict } from '../lib/errors.js'
-import { mergeEnvLevels, type EnvLevelEntry } from '../lib/previews.js'
+import { mergeEnvLevels, inheritableFromProject, missingPreviewSecrets, type EnvLevelEntry } from '../lib/previews.js'
 
 /**
  * Umgebungsvariablen eines Projekts. Als geheim markierte Werte liegen
@@ -36,17 +36,32 @@ const decrypted = (rows: StoredEnv[], k: Buffer): EnvLevelEntry[] =>
 
 /**
  * Etappe 6: Ebenen der Variablen. Ein normales Projekt hat nur seine eigenen;
- * eine Vorschau erbt die des Projekts, darüber die Ebene «Vorschau» des
- * Projekts, darüber eigene Werte der einzelnen Vorschau (gleichnamige
- * überschreiben, der Rest wird geerbt).
+ * eine Vorschau erbt die normalen des Projekts (geheime nicht, Korrektur nach
+ * Nacht 2), darüber die Ebene «Vorschau» des Projekts, darüber eigene Werte
+ * der einzelnen Vorschau (gleichnamige überschreiben, der Rest wird geerbt).
  */
-async function envLevels(projectId: string): Promise<StoredEnv[][]> {
-  const own = await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, projectId))
+async function previewRows(projectId: string): Promise<{ parent: StoredEnv[]; preview: StoredEnv[]; own: StoredEnv[] } | null> {
   const row = (await db.select({ previewOf: schema.projects.previewOf }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]
-  if (!row?.previewOf) return [own]
+  if (!row?.previewOf) return null
+  const own = await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, projectId))
   const parent = await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, row.previewOf))
   const preview = await db.select().from(schema.projectPreviewEnv).where(eq(schema.projectPreviewEnv.projectId, row.previewOf))
-  return [parent, preview, own]
+  return { parent, preview, own }
+}
+
+async function envLevels(projectId: string): Promise<StoredEnv[][]> {
+  const pv = await previewRows(projectId)
+  if (!pv) return [await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, projectId))]
+  return [inheritableFromProject(pv.parent), pv.preview, pv.own]
+}
+
+/**
+ * Vorschau: geheime Variablen des Projekts ohne Wert für Vorschauen. Leer bei
+ * normalen Projekten. Die Pipeline bricht damit vor dem Build ab.
+ */
+export async function missingSecretsForPreview(projectId: string): Promise<string[]> {
+  const pv = await previewRows(projectId)
+  return pv ? missingPreviewSecrets(pv.parent, pv.preview, pv.own) : []
 }
 
 /** Nur fuer die Pipeline: entschluesselte Werte fuer den Container. */

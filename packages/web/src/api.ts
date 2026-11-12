@@ -23,7 +23,8 @@ import type {
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
 export interface PreviewEnvDto {
   env: EnvEntryDto[]
-  inherited: { key: string; source: 'projekt' | 'vorschau' | 'ueberschrieben' }[]
+  /** nicht_vererbt: geheim im Projekt, ohne Wert für Vorschauen (Vorschau-Deploy scheitert) */
+  inherited: { key: string; source: 'projekt' | 'vorschau' | 'ueberschrieben' | 'nicht_vererbt' }[]
 }
 
 export type {

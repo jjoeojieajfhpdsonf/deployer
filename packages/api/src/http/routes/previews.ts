@@ -39,7 +39,7 @@ export async function previewRoutes(app: FastifyInstance): Promise<void> {
     const p = await findProject(request.scope, request.params.id)
     const own = await listPreviewEnvDto(p.id)
     const project = await listEnvDto(p.id)
-    return { env: own, inherited: envInheritance(project.map((e) => e.key), own.map((e) => e.key)) }
+    return { env: own, inherited: envInheritance(project, own.map((e) => e.key)) }
   })
 
   app.put<{ Params: { id: string } }>('/projects/:id/preview-env', async (request) => {
@@ -54,6 +54,6 @@ export async function previewRoutes(app: FastifyInstance): Promise<void> {
     await audit({ actor: actorFor(request), action: 'project.preview_env.replace', targetType: 'project', targetId: p.id, params: { keys: entries.map((e) => e.key) }, result: 'ok' })
     const own = await listPreviewEnvDto(p.id)
     const project = await listEnvDto(p.id)
-    return { env: own, inherited: envInheritance(project.map((e) => e.key), own.map((e) => e.key)) }
+    return { env: own, inherited: envInheritance(project, own.map((e) => e.key)) }
   })
 }

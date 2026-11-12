@@ -137,6 +137,7 @@ async function previewDto(row: PreviewRow): Promise<PreviewDto> {
     state,
     deploymentId: last?.id ?? null,
     failure: state === 'failed' ? (last?.failure?.title ?? last?.errorMessage?.split('\n')[0] ?? null) : null,
+    failureSecrets: state === 'failed' && last?.failure?.kind === 'preview_secret',
     // Ohne Scan nach dem Deploy (SCAN_AFTER_DEPLOY=off) gibt es keinen; das sagt der Check dann auch
     scan: scan ?? (config.SCAN_AFTER_DEPLOY ? null : { status: 'cancelled', grade: null, score: null, open: { critical: 0, high: 0, medium: 0, low: 0 } }),
   }
