@@ -14,6 +14,8 @@ import { GithubSetup } from '../components/GithubSetup.js'
 import { ExpirySettings } from '../components/ExpirySettings.js'
 import { BackupSection } from '../components/Backup.js'
 import { TrafficSources } from '../components/TrafficSources.js'
+import { DiskBanner, StorageSection } from '../components/Storage.js'
+import { diskLevel } from '@airlock/shared'
 import { useEnvPath } from '../lib/env.js'
 import { GATEWAY_GUIDE_URL } from '@airlock/shared'
 
@@ -23,7 +25,7 @@ function formatBytes(n: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB frei` : `${Math.round(n / 1024 ** 2)} MB frei`
 }
 
-export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github' | 'backup' | 'besucher'
+export type SystemSection = 'uebersicht' | 'benachrichtigungen' | 'github' | 'backup' | 'besucher' | 'speicher'
 
 /**
  * M9: «Server» – was für alle Umgebungen gilt. Cloudflare & HTTPS und die
@@ -38,6 +40,8 @@ const SECTIONS: { key: SystemSection; to: string; label: string }[] = [
   { key: 'backup', to: '/server/backup', label: 'Backup' },
   // Besucher neu: Städte, Provider, Cloudflare-Kopfzeilen
   { key: 'besucher', to: '/server/besucher', label: 'Besucher' },
+  // Nacht 3, Etappe 3
+  { key: 'speicher', to: '/server/speicher', label: 'Speicher' },
 ]
 
 /**
@@ -111,6 +115,7 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
       {section === 'backup' && <BackupSection />}
 
       {section === 'besucher' && <TrafficSources />}
+      {section === 'speicher' && <StorageSection />}
 
       {section === 'uebersicht' && <SetupSummary />}
       {section === 'uebersicht' && <Overview s={s} reach={reach} copied={copied} setCopied={setCopied} />}
@@ -210,6 +215,8 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
   const ci = s.clientIps
   return (
     <>
+      {/* Nacht 3, Etappe 3: Platte ab 80 % */}
+      {typeof s.server.diskPercent === 'number' && <DiskBanner disk={{ percent: s.server.diskPercent, level: diskLevel(s.server.diskPercent) }} withLink />}
       {/* Nur fremde Anfragen: eigene Prüfungen von Airlock («airlock-probe») zählen nie */}
       {((ci && ci.fromGateway > 0) || s.dockerBlocks) && <GatewayWarning ci={ci} blocks={s.dockerBlocks} />}
       {!s.ipFilterEnabled && (
@@ -228,7 +235,7 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
             <span className="check-detail">{c.detail}</span>
           </li>
         ))}
-        <li><span className="check-name">Platte</span><span className="check-detail">{formatBytes(s.diskFreeBytes)}</span></li>
+        <li><span className="check-name">Platte</span><span className="check-detail">{formatBytes(s.diskFreeBytes)}{typeof s.server.diskPercent === 'number' ? <> · {s.server.diskPercent} % belegt · <Link to="/server/speicher">Speicher</Link></> : null}</span></li>
         <li><span className="check-name">Version</span><span className="check-detail">{s.version}</span></li>
       </ul>
 

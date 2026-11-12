@@ -23,7 +23,7 @@ import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
 import { expiryInfo, setChatExpiryDays } from '../../domain/expiry-settings.js'
 import type { SystemStatusDto } from '@airlock/shared'
-import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME } from '@airlock/shared'
+import { cfTokenSchema, cfDomainsSchema, UI_HOST_LABEL, PRODUCT_NAME, diskPercentOf } from '@airlock/shared'
 import {
   cloudflareStatus, checkToken, saveToken, saveDomains, setupTunnel, skipTunnel, restartTunnel, updateCloudflared, startTls, disconnect,
   withCloudflareEnv,
@@ -121,10 +121,13 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
 
     let diskFreeBytes: number | null = null
     let diskTotalBytes: number | null = null
+    let diskPercent: number | null = null
     try {
       const s = await statfs(config.DATA_DIR)
       diskFreeBytes = Number(s.bavail) * Number(s.bsize)
       diskTotalBytes = Number(s.blocks) * Number(s.bsize)
+      // Nacht 3, Etappe 3: Prozent wie df (dieselbe Zahl wie Server › Speicher und die Deploy-Sperre)
+      diskPercent = diskPercentOf({ blocks: Number(s.blocks), bfree: Number(s.bfree), bavail: Number(s.bavail) })
     } catch {
       diskFreeBytes = null
     }
@@ -169,6 +172,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
         memTotalBytes: mem?.total ?? null,
         diskUsedBytes: diskTotalBytes !== null && diskFreeBytes !== null ? diskTotalBytes - diskFreeBytes : null,
         diskTotalBytes,
+        diskPercent,
       },
       scanQueue: scanQueueLength(),
       tls: {

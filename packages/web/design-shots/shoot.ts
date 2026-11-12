@@ -201,6 +201,8 @@ type Shot = {
   gitAccess?: fx.GitAccessVariant
   /** Nacht 3, Etappe 2: Antwort von «Repo prüfen» (Standard: erreichbar) */
   repoCheck?: fx.RepoCheckVariant
+  /** Nacht 3, Etappe 3: Server › Speicher (Standard: 64 %, einiges freigebbar); belegt auch /system/status */
+  storage?: fx.StorageVariant
 }
 /**
  * Nacht 3, Etappe 2: Ausschnitt-Szenen (el) nach oben gerollt aufnehmen – das Werkzeug schneidet
@@ -910,6 +912,37 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
+  // Nacht 3, Etappe 3: Server › Speicher – Übersicht, alle Posten, Platte voll (92 %) und gesperrt (96 %),
+  // nichts zu tun, «Jetzt aufräumen» bestätigen, verwaistes Volume löschen (Namen eintippen); Hinweis im Dashboard
+  { group: 'speicher', name: 'speicher', path: '/server/speicher' },
+  {
+    group: 'speicher', name: 'speicher-posten', path: '/server/speicher', full: false, el: 'section[aria-labelledby="speicher-aufraeumen-h"]',
+    prepare: async (pg) => {
+      await pg.getByText(/^Alle Posten ansehen/).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'speicher', name: 'speicher-voll', path: '/server/speicher', storage: 'voll', full: false },
+  { group: 'speicher', name: 'speicher-gesperrt', path: '/server/speicher', storage: 'gesperrt', full: false },
+  { group: 'speicher', name: 'speicher-leer', path: '/server/speicher', storage: 'leer' },
+  {
+    group: 'speicher', name: 'speicher-aufraeumen', path: '/server/speicher', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Jetzt aufräumen' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'speicher', name: 'speicher-volume-loeschen', path: '/server/speicher', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Löschen: air_umfrage_db' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.getByRole('dialog').getByRole('textbox').fill('air_umfrage_db')
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'speicher', name: 'projekte-platte-voll', path: '/projekte', storage: 'voll', full: false, el: 'section[aria-labelledby="server-h"]' },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -1581,6 +1614,11 @@ shots.push(...['projekte', 'projekt-uebersicht', 'projekt-security', 'design-bau
 //   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/auth-passkey --only auth-passkey-ergebnis
 shots.push(...shots.filter((s) => s.group === 'sicherheit' || (s.group === 'login' && s.name !== 'login')).map((s) => ({ ...s, group: 'auth-passkey-ergebnis', name: `umgesetzt-${s.name}` })))
 
+// Nacht 3, Etappe 3: Ergebnisbilder (docs/design-cal/aufraeumen/umgesetzt-*.png): Server › Speicher, Dialoge, Dashboard
+//   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/aufraeumen --only aufraeumen-ergebnis
+//   (Win95/Terminal zusätzlich mit --themes win95,terminal)
+shots.push(...shots.filter((s) => s.group === 'speicher').map((s) => ({ ...s, group: 'aufraeumen-ergebnis', name: `umgesetzt-${s.name}` })))
+
 export { shots }
 export type { Shot }
 
@@ -1721,6 +1759,13 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             if (route.request().method() === 'POST' && path === '/api/v1/git/credentials') return json(route, { credential: fx.deployKey(true) }, 201)
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            // Nacht 3, Etappe 3: Server › Speicher; bei voller Platte auch die Zahl im Systemstatus
+            if (url.pathname === '/api/v1/system/storage') return json(route, { storage: fx.storage(s.storage ?? 'ok') })
+            if (url.pathname === '/api/v1/system/storage/cleanup') return json(route, fx.storageCleanupResult())
+            if (s.storage && url.pathname === '/api/v1/system/status') {
+              const st = fx.storage(s.storage)
+              return json(route, { ...fx.system, server: { ...fx.system.server, diskPercent: st.disk?.percent ?? null, diskUsedBytes: st.disk?.usedBytes ?? null } })
+            }
             // Meilenstein Backup: Server › Backup
             if (url.pathname === '/api/v1/system/backup') return json(route, fx.backupStatus(s.backup ?? 'ok'))
             if (url.pathname === '/api/v1/system/backup/snapshots') return json(route, { snapshots: fx.backupSnapshots })

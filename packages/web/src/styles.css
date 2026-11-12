@@ -2981,6 +2981,25 @@ button.vs-info-btn:focus-visible { outline: 2px solid var(--ink); outline-offset
 .expiry-form .field { margin: 0; width: 160px; }
 .expiry-saved { align-self: center; font-size: var(--fs-13); color: var(--ok); }
 
+/* Server → Speicher (Nacht 3, Etappe 3): nutzt die Abstände von Server → Backup */
+.storage-disk { max-width: 720px; }
+.storage-disk .meter-head { align-items: center; }
+.storage-table td { vertical-align: top; }
+.storage-table .num-col { text-align: right; white-space: nowrap; }
+.storage-table code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); overflow-wrap: anywhere; }
+.storage-cat { font-weight: 500; }
+.storage-note { display: block; margin-top: var(--sp-1); max-width: 560px; font-size: var(--fs-13); color: var(--muted); }
+.storage-items { margin-top: var(--sp-4); }
+.storage-items > summary { font-size: var(--fs-14); }
+.storage-items .table-scroll { margin-top: var(--sp-3); }
+.storage-form .field input { max-width: 240px; }
+.storage-switch { display: flex; align-items: flex-start; gap: var(--sp-3); margin: var(--sp-2) 0 var(--sp-4); }
+.storage-switch .switch { flex: none; margin-top: 2px; }
+.storage-switch-label { display: block; font-size: var(--fs-14); font-weight: 500; }
+.storage-switch .hint { margin: var(--sp-1) 0 0; }
+.meter-hint { margin-top: var(--sp-2); font-size: var(--fs-13); }
+.meter-hint strong { color: var(--warn); font-weight: 500; }
+
 /* Server → Backup (Meilenstein Backup) */
 .backup > section + section { margin-top: var(--sp-8); }
 .backup-facts { grid-template-columns: 220px minmax(0, 1fr); }

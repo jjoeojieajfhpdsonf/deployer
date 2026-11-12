@@ -51,6 +51,13 @@ services:
       # RUN-Schritte aus, aber in einem eigenen Build-Container ohne
       # privileged (die Entitlement setzt die API hier nicht).
       BUILD: 1
+      # Nacht 3, Etappe 3 (Server › Speicher): GET /system/df – Belegung wie
+      # «docker system df» (Images, Container, Volumes, Build-Cache). Unter
+      # /system gibt es in der Docker-API nur diesen einen, lesenden Endpunkt.
+      # Das Aufraeumen selbst braucht nichts Neues: Images/Container/Volumes
+      # entfernen und POST /build/prune liegen unter IMAGES, CONTAINERS,
+      # VOLUMES und BUILD (oben). Test: storage/compose.test.ts.
+      SYSTEM: 1
       # Ausdruecklich aus:
       # EXEC: der Proxy kann exec nicht auf einen Container beschraenken. Das
       # Backup braucht es nicht: Airlock legt Auftraege in das Volume
@@ -58,7 +65,6 @@ services:
       EXEC: 0
       SWARM: 0
       SECRETS: 0
-      SYSTEM: 0
       AUTH: 0
       CONFIGS: 0
       DISTRIBUTION: 0

@@ -430,6 +430,9 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
       }
       if (bb.args !== undefined) build.args = normalizeEnvironment(`${f}.build.args`, bb.args)
       if (bb.target !== undefined) build.target = scalarToString(`${f}.build.target`, bb.target)
+      // Nacht 3, Etappe 3: gebaute Images tragen das Airlock-Label (Aufräumen fasst nur Images mit
+      // Label an). Nur Labels, die die Container ohnehin haben – kein airlock.deployment.
+      build.labels = { [LABEL.managed]: 'true', [LABEL.project]: ctx.slug }
       out.build = build
       const tag = imageTagFor(ctx.slug, name, ctx.deploymentShort)
       out.image = tag

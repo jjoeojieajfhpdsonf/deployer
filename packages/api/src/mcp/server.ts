@@ -39,6 +39,8 @@ import { environmentById } from '../domain/environments.js'
 import type { DeploymentDto, ProjectDto } from '@airlock/shared'
 import { backupStatus } from '../backup/run.js'
 import { mcpBackupStatus } from '../backup/summary.js'
+import { storageOverview } from '../storage/service.js'
+import { mcpDiskUsage } from '../storage/mcp.js'
 import { mcpTraffic } from '../traffic/summary.js'
 import { trafficSummary } from '../traffic/service.js'
 
@@ -250,6 +252,12 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   // gehen nur in der Oberfläche mit Anmeldung (kein Restore per MCP).
   tool('get_backup_status', 'Stand der Sicherung des Servers (nur lesen): letzter Lauf, Alter des letzten erfolgreichen Backups, Art des Ziels (ohne Zugangsdaten), nächster Termin', {}, async () => {
     return ok(mcpBackupStatus(await backupStatus()))
+  })
+
+  // Nacht 3, Etappe 3: nur lesen und nur Summen (die Platte gehört dem ganzen Server, das Token einer Umgebung).
+  // Aufräumen und Volumes löschen gehen nur in der Oberfläche.
+  tool('get_disk_usage', 'Belegung der Platte des Servers (nur lesen): Prozent, Images, Build-Cache, Container, Volumes, statische Seiten, Uploads, Logs, Backup-Staging je mit Grösse und «davon freigebbar», was das nächste Aufräumen etwa freigibt, ob Deploys gesperrt sind (ab 95 %). Ohne Namen einzelner Objekte.', {}, async () => {
+    return ok(mcpDiskUsage(await storageOverview()))
   })
 
   // Etappe 3: nur lesen – Zähler aus Caddys Zugriffs-Log, keine IPs, keine einzelnen Anfragen

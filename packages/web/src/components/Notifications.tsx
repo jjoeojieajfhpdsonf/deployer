@@ -20,6 +20,8 @@ const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'weekly_summary', label: 'Wochenübersicht' },
   { key: 'backup_failed', label: 'Backup fehlgeschlagen' },
   { key: 'backup_stale', label: 'Über 48 Stunden kein Backup' },
+  // Nacht 3, Etappe 3
+  { key: 'disk_space', label: 'Platte zu 90 % oder mehr belegt' },
 ]
 
 /**

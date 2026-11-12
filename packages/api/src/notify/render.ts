@@ -19,6 +19,8 @@ export const notifyEvents = [
   'backup_stale',
   // Antwort 11: Caddy sieht Docker-Gateway-Adressen statt der Geräte (IP-Filter greift dann nicht)
   'gateway_warning',
+  // Nacht 3, Etappe 3: Platte ab 90 % belegt (höchstens einmal pro Tag)
+  'disk_space',
 ] as const
 export type NotifyEvent = (typeof notifyEvents)[number]
 
@@ -39,6 +41,8 @@ export const DEFAULT_MATRIX: Matrix = {
   backup_failed: { push: true, email: true },
   backup_stale: { push: true, email: true },
   gateway_warning: { push: false, email: true },
+  // Volle Platte stoppt Deploys und kann Datenbanken beschädigen: beide Kanäle
+  disk_space: { push: true, email: true },
 }
 
 export const EVENT_LABEL: Record<NotifyEvent, string> = {
@@ -53,6 +57,7 @@ export const EVENT_LABEL: Record<NotifyEvent, string> = {
   backup_failed: 'Backup fehlgeschlagen',
   backup_stale: 'Seit über 48 Stunden kein erfolgreiches Backup',
   gateway_warning: 'Anfragen kommen über das Docker-Gateway',
+  disk_space: 'Platte zu 90 % oder mehr belegt',
 }
 
 export interface Message {
@@ -97,6 +102,7 @@ const PRIORITY: Record<NotifyEvent, number> = {
   backup_failed: 4,
   backup_stale: 4,
   gateway_warning: 3,
+  disk_space: 4,
 }
 
 export function renderMessage(event: NotifyEvent, data: Record<string, unknown>): Message {
@@ -142,6 +148,12 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
         title: 'Anfragen über das Docker-Gateway',
         body: `In den letzten 30 Minuten kamen ${s('fromGateway')} von ${s('total')} fremden Anfragen auf Airlock von ${s('ips')}. Caddy sieht dann nicht das Gerät, der IP-Filter greift nicht. Einzelheiten unter Server › Übersicht.`,
         priority: PRIORITY[event],
+      }
+    case 'disk_space':
+      return {
+        title: `Platte zu ${s('percent')} % belegt`,
+        body: `Auf dem Server sind ${s('used')} von ${s('total')} belegt.${data.blocked ? ' Airlock nimmt keine Deploys mehr an (ab 95 %); Rollbacks gehen weiter.' : ' Ab 95 % nimmt Airlock keine Deploys mehr an.'}${data.reclaimable ? ` Das Aufräumen würde etwa ${s('reclaimable')} freigeben.` : ''}\nAufräumen unter Server › Speicher.`,
+        priority: data.blocked ? 5 : PRIORITY[event],
       }
   }
 }
