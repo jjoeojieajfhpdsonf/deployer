@@ -140,6 +140,27 @@ Das entfernt alle Passkeys, die Authenticator-App und die Wiederherstellungscode
 
 Prüfen, dass der Notausgang im Image steckt (baut das Image, nimmt eine Wegwerf-Datenbank, braucht nur `docker`): `scripts/smoke-notausgang.sh`.
 
+## 6. Speicher und Aufräumen
+
+Server › Speicher zeigt die Belegung und räumt wöchentlich auf (Images alter Fassungen und gelöschter Projekte, Build-Cache älter als 7 Tage, gestoppte Wegwerf-Container, alte Uploads). Volumes löscht Airlock nie von selbst. Ab 95 % belegter Platte nimmt Airlock keine Deploys an.
+
+Die Belegung braucht im Socket-Proxy `SYSTEM: 1` (nur `GET /system/df`, steht in `compose.yaml`). Das Update wie gewohnt erzeugt den Proxy wegen der geänderten Umgebung selbst neu:
+
+```sh
+docker compose up -d --build
+docker inspect airlock-socket-proxy --format '{{range .Config.Env}}{{println .}}{{end}}' | grep SYSTEM   # SYSTEM=1
+```
+
+Vor dem ersten Aufräumen ansehen, was weg würde (löscht nichts):
+
+```sh
+docker exec airlock-app node dist/cli.js cleanup
+# aufräumen wie «Jetzt aufräumen»:
+docker exec airlock-app node dist/cli.js cleanup --apply
+```
+
+Prüfen, dass die Aufräum-Logik im Image nur Objekte mit Airlock-Label anfasst (baut das Image, eigener Socket-Proxy, Wegwerf-Datenbank, Test-Objekte mit eigenem Label, braucht nur `docker`): `scripts/smoke-aufraeumen.sh` – endet mit «OK: Aufräumen entfernt nur Airlock-Objekte über der Grenze …».
+
 ## Adressen und Wege
 
 | Weg | Adresse | Erreichbar |

@@ -94,7 +94,7 @@ Zu jedem Projekt gehören Umgebungsvariablen und Secrets. Secrets werden verschl
 4. Healthcheck abwarten (HTTP 2xx/3xx auf `/` oder einem konfigurierten Pfad).
 5. Erst dann den Verkehr auf die neue Version umschalten. Schlägt etwas fehl, bleibt die alte Version aktiv.
 6. Routen setzen (Caddy, Cloudflare), dann den Security-Scan starten.
-7. Ergebnis in UI, Log und MCP-Antwort melden. Die letzten 5 Versionen bleiben für ein Rollback erhalten.
+7. Ergebnis in UI, Log und MCP-Antwort melden. Die letzten 5 Versionen bleiben für ein Rollback erhalten (einstellbar unter Server › Speicher). Ab 95 % belegter Platte lehnt Airlock Deploys ab.
 
 ### Erreichbarkeit
 
@@ -146,8 +146,25 @@ Airlock meldet wichtige Ereignisse per Push und E-Mail. Für Push bietet sich nt
 | Gehäufte Angriffsversuche auf ein Projekt | Push |
 | Fix-PR geöffnet oder Befund nach Merge bestätigt behoben | Push |
 | Wöchentliche Zusammenfassung (Status, Scores, offene Befunde) | E-Mail |
+| Platte zu 90 % oder mehr belegt (höchstens einmal pro Tag) | Push und E-Mail |
 
 Jedes Ereignis lässt sich pro Kanal ein- und ausschalten. Benachrichtigungen enthalten nie Secrets.
+
+### Server aufräumen
+
+Umgesetzt in Nacht 3, Etappe 3. Unter **Server › Speicher**:
+
+- **Belegung:** Platte in Prozent (wie `df`, auf dem Dateisystem von `DATA_DIR`) und je Bereich Grösse und «davon freigebbar»: Images, Build-Cache, Container, Volumes (aus `GET /system/df`), statische Seiten, Uploads, Deploy-Artefakte, Logs (Ordner von Airlock) und Backup-Staging (Volume `airlock_backup_staging`). Grössen 10 Minuten zwischengespeichert («Neu messen»). Was nicht messbar ist, fehlt (z. B. Container-Logs: Docker begrenzt sie auf 50 MB je Container).
+- **Aufräumen** wöchentlich (erster Lauf eine Woche nach dem Update) und mit «Jetzt aufräumen»; vorher Vorschau «würde etwa X GB freigeben» mit allen Posten, danach Eintrag `storage.cleanup` im Audit-Log. Was weg darf, entscheidet eine reine Funktion (`packages/api/src/storage/plan.ts`):
+  - Fassungen über der Rollback-Grenze (Standard 5 frühere pro Projekt, einstellbar 1–20; dieselbe Regel nach jedem Deploy) mit ihren Images, Artefakten, statischen Ordnern und Deploy-Logs.
+  - Images mit Airlock-Label (`airlock.*`, aus der deployer-Zeit `deployer.*`): dangling, gelöschter Projekte und Vorschauen, abgelöster Fassungen. Nie: das Image einer aufbewahrten Fassung (die aktive immer), ein Image, das ein Container benutzt (auch ein gestoppter), eins mit fremdem Tag, eins jünger als eine Stunde. Images ohne Label (Portainer, Datenbanken, der Airlock-Stack selbst) fasst Airlock nicht an. Compose-Builds tragen dafür ab jetzt `airlock.managed`/`airlock.project`.
+  - Gestoppte Wegwerf-Container von Airlock (Rolle `build`, `scanner`, `backup-*`, `volume-copy`, CSP-Prüfung), älter als eine Stunde.
+  - Build-Cache, unbenutzt und älter als 7 Tage (`POST /build/prune`, abschaltbar). Build-Cache trägt kein Label, enthält aber keine Daten.
+  - Uploads, auf die kein Projekt zeigt (älter als 7 Tage), Ordner statischer Seiten gelöschter Projekte (älter als ein Tag).
+- **Volumes nie automatisch.** Verwaiste Volumes (Airlock-Bezug über `airlock.project` oder Compose-Projekt `air_<slug>`/`dep_<slug>`, Projekt existiert nicht mehr) werden nur aufgelistet; Löschen einzeln mit eingetipptem Namen und erneuter Bestätigung (sudo), nie ein eingehängtes.
+- **Warnungen:** ab 80 % Hinweis in der Oberfläche (Server, Dashboard), ab 90 % Benachrichtigung `disk_space` (einmal pro Tag), ab 95 % lehnt Airlock Deploys ab (auch Auto-Deploy, Vorschau, MCP; 409 `disk_full` mit Meldung). Rollback, Start und Stopp gehen weiter.
+- **Nur mit Anmeldung:** `/api/v1/system/storage*` ist für API-Tokens gesperrt (die Liste nennt Projekte aller Umgebungen). MCP `get_disk_usage` liest nur Summen.
+- **Kommandozeile:** `docker exec airlock-app node dist/cli.js cleanup` zeigt die Vorschau, `… cleanup --apply` räumt auf. Smoke-Test: `scripts/smoke-aufraeumen.sh`.
 
 ## Security-Scanner
 
@@ -646,6 +663,7 @@ Airlock bietet einen MCP-Server (Streamable HTTP) unter `https://airlock.int.dei
 | `set_targets` | `project`, `targets`, `subdomain`; öffentlich `public_subdomain` + `public_zone` (Zone der Umgebung, Standard Hauptzone) statt vollem Hostnamen, `public_apex` (direkt unter der Zone), `take_over_dns` (fremden DNS-Eintrag ersetzen). Der Name wird normalisiert und vorher geprüft (vergeben, reserviert, fremder DNS-Eintrag), Fehler mit den möglichen Zonen | Ja, wenn `public` dazukommt |
 | `list_domains` | – | Nein |
 | `get_backup_status` | – (nur lesen: letzter Lauf, Alter, Art des Ziels ohne Zugangsdaten) | Nein |
+| `get_disk_usage` | – (nur lesen: Platte in Prozent, Bereiche mit Grösse und «davon freigebbar», was das Aufräumen freigäbe, ob Deploys gesperrt sind; nur Summen, keine Namen) | Nein |
 | `get_traffic` | `project`, `range` (`24h`, `7d`, `30d`; Standard `7d`) – nur lesen: Aufrufe, Besucher je Tag, Verlauf, Top-Seiten, Referrer, Länder (Städte nur mit DB-IP-Datei), Geräte, Statuscodes, nach Internet/Tailnet/Heimnetz | Nein |
 | `add_external_target` | `hostname` | Nein |
 | `verify_external_target` | `hostname` | Nein |
@@ -700,7 +718,7 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starten und DNS ändern kann. Deshalb gelten diese Regeln:
 
 - **Nie öffentlich.** UI, API und MCP laufen nur unter `airlock.int.deinedomain.ch` (früher `deployer.int.deinedomain.ch`, leitet mit 308 weiter), erreichbar aus LAN und Tailnet. Login per Passkey oder Passwort mit Session; MCP nur mit Token.
-- **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Build).
+- **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Volumes, Build; dazu `SYSTEM` nur für das lesende `GET /system/df` der Speicher-Übersicht). Test: `packages/api/src/storage/compose.test.ts`.
 - **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.
 - **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen.
