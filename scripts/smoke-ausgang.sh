@@ -169,14 +169,19 @@ INTERNET=1
 conn 1.1.1.1 443 5 || { INTERNET=0; echo "  Hinweis: 1.1.1.1:443 ist von hier aus nicht erreichbar – Internet-Prüfungen entfallen"; }
 DNSOK=1
 dns cloudflare.com || { DNSOK=0; echo "  Hinweis: DNS geht schon ohne Regeln nicht – DNS-Prüfungen entfallen"; }
-must "Server-Port (Gateway $GW:$P_DENY) erreichbar" conn "$GW" "$P_DENY"
+# Eine Host-Firewall (z. B. ufw mit «deny incoming») sperrt Container→Server schon vorher
+HOSTOK=1
+if conn "$GW" "$P_DENY"; then ok "Server-Port (Gateway $GW:$P_DENY) erreichbar"; else
+  HOSTOK=0
+  echo "  Hinweis: der Server-Port ist schon ohne Regeln nicht erreichbar (Firewall des Hosts, z. B. ufw) – Prüfungen «geht» zum Server entfallen, das Protokoll wird trotzdem geprüft"
+fi
 must "eigenes Netz (web:8000) erreichbar" conn "$WEB" 8000
 
 echo "Modus internet, beobachten …"
 use_rules smoke-beobachten
 [ "$INTERNET" = 1 ] && must "Internet geht (1.1.1.1:443)" conn 1.1.1.1 443 5
 [ "$DNSOK" = 1 ] && must "DNS geht" dns cloudflare.com
-must "Server-Port geht weiter (nur beobachtet)" conn "$GW" "$P_DENY"
+if [ "$HOSTOK" = 1 ]; then must "Server-Port geht weiter (nur beobachtet)" conn "$GW" "$P_DENY"; else conn "$GW" "$P_DENY" || true; fi
 conn "$LAN_TARGET" 80 2 || true
 conn "$OTHER_IP" 8000 2 || true
 must "Protokoll: Server-Port als «hätte gesperrt»" logged "$OG" "$GW.$P_DENY"
@@ -190,7 +195,7 @@ use_rules smoke-durchsetzen
 [ "$INTERNET" = 1 ] && must "Internet geht (1.1.1.1:443)" conn 1.1.1.1 443 5
 [ "$DNSOK" = 1 ] && must "DNS geht" dns cloudflare.com
 must "eigenes Netz geht (web:8000)" conn "$WEB" 8000
-must "Ausnahme geht (Server-Port $P_ALLOW)" conn "$GW" "$P_ALLOW"
+[ "$HOSTOK" = 1 ] && must "Ausnahme geht (Server-Port $P_ALLOW)" conn "$GW" "$P_ALLOW"
 mustnot "Server-Port ohne Ausnahme gesperrt" conn "$GW" "$P_DENY"
 mustnot "$LAN_TARGET:80 gesperrt" conn "$LAN_TARGET" 80 2
 mustnot "anderes Docker-Netz gesperrt" conn "$OTHER_IP" 8000 2
@@ -203,7 +208,7 @@ echo "Modus abgeschottet, durchsetzen …"
 use_rules smoke-abgeschottet
 [ "$INTERNET" = 1 ] && mustnot "Internet gesperrt (1.1.1.1:443)" conn 1.1.1.1 443 3
 must "eigenes Netz geht (web:8000)" conn "$WEB" 8000
-must "Ausnahme geht (Server-Port $P_ALLOW)" conn "$GW" "$P_ALLOW"
+[ "$HOSTOK" = 1 ] && must "Ausnahme geht (Server-Port $P_ALLOW)" conn "$GW" "$P_ALLOW"
 must "Name im eigenen Netz löst Docker auf (web)" dns "$WEB"
 if [ "$DNSOK" = 1 ]; then
   if dns cloudflare.com; then echo "  Hinweis: DNS nach draussen ging trotz «abgeschottet» (Docker fragt den Resolver dann vom Host aus)"; else ok "DNS nach draussen gesperrt"; fi
@@ -240,7 +245,7 @@ echo "Notausgang …"
 docker exec "$FW" airlock-fw flush
 if nft_host list table inet "$TABLE" >/dev/null 2>&1; then fail "flush: Tabelle noch da"; fi
 ok "airlock-fw flush: Tabelle inet $TABLE vollständig entfernt"
-must "nach flush: Server-Port wieder erreichbar" conn "$GW" "$P_DENY"
+if [ "$HOSTOK" = 1 ]; then must "nach flush: Server-Port wieder erreichbar" conn "$GW" "$P_DENY"; fi
 sleep 3
 if nft_host list table inet "$TABLE" >/dev/null 2>&1; then fail "der Dienst hat die Tabelle nach flush wieder angelegt"; fi
 ok "bleibt aus (Marke disabled), Dienst meldet $(docker exec "$FW" jq -r .state /firewall/status.json)"
