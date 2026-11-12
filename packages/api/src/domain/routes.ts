@@ -4,7 +4,8 @@ import { config, net, primaryHost, aliasHosts } from '../config.js'
 import { caddyTlsOptionsAll, tlsPhases, cloudflareFor } from './cloudflare-settings.js'
 import { allEnvironments, defaultEnvironmentId, primaryHostIn, aliasHostsIn, urlForHostIn } from './environments.js'
 import * as caddy from '../drivers/caddy.js'
-import { needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
+import { gameHostPatterns, needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
+import { funEnabled, getUiPrefs } from './ui-prefs.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
@@ -516,12 +517,19 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   lastCloudflaredCidrs = edge.join(',')
   const specs = await buildRouteSpecs(edge)
   const tlsList = caddyTlsOptionsAll().map(({ envId: _envId, ...t }) => t)
+  // Etappe 7: Snake auf der 404-Seite – nur interne Namen aller Umgebungen, nur aus LAN/Tailnet,
+  // nie über den Tunnel (caddy-config.ts); aus, wenn die Spass-Funktionen aus sind
+  const internalCidrs = [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128']
+  const notFoundGame = funEnabled(await getUiPrefs())
+    ? { hosts: gameHostPatterns(allEnvironments().flatMap((e) => [primaryHostIn(e.id, 'x'), ...aliasHostsIn(e.id, 'x')])), cidrs: internalCidrs.filter(Boolean) }
+    : null
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
   const buildWith = (cspForward: boolean) => caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
-      cidrs: [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128'],
+      cidrs: internalCidrs,
+      notFoundGame,
       adminSocket: config.CADDY_ADMIN_SOCKET,
       // M9: eine interne Basis je Umgebung (Datenbank); Standard-Umgebung auch alte Einrichtung über .env
       tls: tlsList,

@@ -5,7 +5,8 @@
 
 import { coveredByWildcard } from '../lib/hostnames.js'
 import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
-import { DEFAULT_PAUSE_PAGE, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, type PausePage } from '@airlock/shared'
+import { createHash } from 'node:crypto'
+import { DEFAULT_PAUSE_PAGE, NOT_FOUND_TEXT, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, renderSnakePage, snakeCsp, type PausePage } from '@airlock/shared'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
@@ -112,7 +113,47 @@ export interface CaddyBuildOptions {
    * Datei mit Rotation). Fehlt er, schreibt Caddy kein Besucher-Log.
    */
   visitsLogDir?: string | null
+  /**
+   * Etappe 7: Snake auf der Seite «Kein Projekt unter diesem Namen» – nur für
+   * unbekannte interne Namen (hosts: Muster wie *.int.<basis> oder
+   * *.<lan-ip>.nip.io) von Absendern aus LAN/Tailnet (cidrs, unabhängig vom
+   * IP-Filter). Nie über den Tunnel: Absender aus trustedProxies (cloudflared)
+   * und Anfragen mit Cloudflare-Kopfzeilen bekommen die schlichte Seite, ebenso
+   * der Probe-Server. null/fehlend = aus (Spass-Funktionen aus).
+   */
+  notFoundGame?: { hosts: string[]; cidrs: string[] } | null
 }
+
+/**
+ * Etappe 7: Muster der internen Namen aus Beispiel-Adressen einer Umgebung
+ * («x.int.example.ch» → «*.int.example.ch»). Platzhalter-Adressen
+ * (*.int.invalid) und Doppelte fallen weg.
+ */
+export function gameHostPatterns(sampleHosts: readonly string[]): string[] {
+  const out = sampleHosts
+    .map((h) => h.toLowerCase().split('.').slice(1).join('.'))
+    .filter((rest) => rest.includes('.') && !rest.endsWith('.invalid'))
+    .map((rest) => `*.${rest}`)
+  return [...new Set(out)].sort()
+}
+
+/** Base64 des SHA-256 (CSP-Hash von Skript und Stil der Snake-Seite) */
+const sha256b64 = (text: string) => createHash('sha256').update(text, 'utf8').digest('base64')
+
+/** Kopfzeilen der Snake-Seite: 404, nie im Cache, nie im Index, CSP nur mit Hashes */
+export function notFoundGameHeaders(): Record<string, string[]> {
+  return {
+    'Content-Type': ['text/html; charset=utf-8'],
+    'Cache-Control': ['no-store'],
+    'X-Robots-Tag': ['noindex'],
+    'Content-Security-Policy': [snakeCsp(sha256b64)],
+    'X-Content-Type-Options': ['nosniff'],
+    'Referrer-Policy': ['no-referrer'],
+  }
+}
+
+/** Kopfzeilen, an denen eine Anfrage über den Cloudflare-Tunnel zu erkennen ist */
+export const TUNNEL_HEADERS = ['Cf-Connecting-Ip', 'Cf-Ray']
 
 /** Name des Probe-Servers in Caddys Konfiguration */
 export const PROBE_SERVER = 'probe'
@@ -266,7 +307,11 @@ type HttpRoute = {
   terminal: boolean
 }
 
-export type HostMatch = { host: string[]; remote_ip?: { ranges: string[] }; path?: string[]; method?: string[] }
+export type HostMatch = {
+  host: string[]; remote_ip?: { ranges: string[] }; path?: string[]; method?: string[]
+  /** Etappe 7: Ausnahmen (eine trifft → die Route nicht), z. B. Absender aus dem Tunnel */
+  not?: Record<string, unknown>[]
+}
 
 /**
  * Routen -> vollstaendige Caddy-JSON-Konfiguration.
@@ -419,11 +464,29 @@ export function buildCaddyConfig(
       {
         handler: 'static_response',
         status_code: 404,
-        body: 'Kein Projekt unter diesem Namen.',
+        body: NOT_FOUND_TEXT,
       },
     ],
     terminal: true,
   }
+
+  // Etappe 7: Snake für unbekannte interne Namen aus LAN/Tailnet – vor der Auffangroute.
+  // Der Probe-Server bekommt sie nie (er prüft, wie Besucher von aussen die Seite sehen).
+  const game = opts.notFoundGame
+  const gameRoutes: HttpRoute[] = game && game.hosts.length && game.cidrs.length
+    ? [{
+        match: [{
+          host: game.hosts,
+          remote_ip: { ranges: game.cidrs },
+          not: [
+            ...(opts.trustedProxies?.length ? [{ remote_ip: { ranges: opts.trustedProxies } }] : []),
+            ...TUNNEL_HEADERS.map((h) => ({ header: { [h]: ['*'] } })),
+          ],
+        }],
+        handle: [{ handler: 'static_response', status_code: 404, headers: notFoundGameHeaders(), body: renderSnakePage() }],
+        terminal: true,
+      }]
+    : []
 
   // Zugriffs-Log nur für Airlock selbst: daraus liest die Systemseite, welche
   // Absenderadressen Caddy sieht (Warnung bei Docker-Gateway statt Gerät).
@@ -447,7 +510,7 @@ export function buildCaddyConfig(
   const servers: Record<string, unknown> = {
     srv0: {
       listen: [':80'],
-      routes: [...plainRoutes, ...forbidden(plainHosts), catchAll],
+      routes: [...plainRoutes, ...forbidden(plainHosts), ...gameRoutes, catchAll],
       ...accessLog,
       // Kein automatisches HTTPS auf :80; Zertifikate kommen (ab M4) nur
       // über die ausdrückliche Wildcard-Policy unten.
@@ -469,7 +532,7 @@ export function buildCaddyConfig(
   if (tlsList.length) {
     servers.srv1 = {
       listen: [':443'],
-      routes: [...tlsRoutes, ...forbidden(tlsHosts), catchAll],
+      routes: [...tlsRoutes, ...forbidden(tlsHosts), ...gameRoutes, catchAll],
       ...accessLog,
       // Leere Policy = TLS an, Zertifikat nach SNI aus Caddys Cache.
       tls_connection_policies: [{}],
