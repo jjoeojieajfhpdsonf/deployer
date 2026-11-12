@@ -19,6 +19,7 @@ import type {
   PreviewsDto,
   AchievementsDto, AchievementId,
   LoginResultDto, LoginOptionsDto, SecurityDto, SudoStatusDto, TotpSetupDto, RecoveryCodesDto, PasskeyDto, SessionDto, SessionMethod,
+  RepoCheckDto, GitCredentialDto, CreateGitCredentialInput, ProjectGitAccessDto,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { requestSudo } from './lib/sudo.js'
@@ -373,6 +374,18 @@ export const api = {
   githubManifest: (name: string, org?: string) => call<{ action: string; manifest: string; state: string }>('/github/manifest', { method: 'POST', body: body({ name, ...(org ? { org } : {}) }) }),
   githubRefresh: () => call<{ repos: string[] }>('/github/refresh', { method: 'POST' }),
   githubDisconnect: () => call<void>('/github', { method: 'DELETE' }),
+  /* Nacht 3, Etappe 2: private Git-Repos (Deploy-Key, Token, Server-Schlüssel) */
+  gitCheck: (input: { repoUrl: string; ref?: string; credentialId?: string }) => call<{ check: RepoCheckDto }>('/git/check', { method: 'POST', body: body(input) }),
+  gitCreateCredential: (input: CreateGitCredentialInput) => call<{ credential: GitCredentialDto }>('/git/credentials', { method: 'POST', body: body(input) }),
+  gitConfirmHostKey: (credentialId: string, host: string, fingerprints: string[]) =>
+    call<{ credential: GitCredentialDto }>(`/git/credentials/${encodeURIComponent(credentialId)}/host-key`, { method: 'POST', body: body({ host, fingerprints }) }),
+  projectGitAccess: (id: string) => call<{ access: ProjectGitAccessDto }>(`/projects/${id}/git-access`),
+  projectGitCheck: (id: string) => call<{ check: RepoCheckDto }>(`/projects/${id}/git-access/check`, { method: 'POST' }),
+  setProjectGitAccess: (id: string, input: CreateGitCredentialInput) => call<{ credential: GitCredentialDto }>(`/projects/${id}/git-access`, { method: 'PUT', body: body(input) }),
+  removeProjectGitAccess: (id: string) => call<void>(`/projects/${id}/git-access`, { method: 'DELETE' }),
+  confirmProjectHostKey: (id: string, host: string, fingerprints: string[]) =>
+    call<{ credential: GitCredentialDto }>(`/projects/${id}/git-access/host-key`, { method: 'POST', body: body({ host, fingerprints }) }),
+  forgetProjectHostKey: (id: string) => call<{ credential: GitCredentialDto }>(`/projects/${id}/git-access/host-key`, { method: 'DELETE' }),
   autoDeploy: (id: string) => call<{ autoDeploy: boolean; checkedAt: string | null; available: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`),
   setAutoDeploy: (id: string, enabled: boolean) => call<{ autoDeploy: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`, { method: 'PUT', body: body({ enabled }) }),
   /* Etappe 6: Vorschau-Deploys */

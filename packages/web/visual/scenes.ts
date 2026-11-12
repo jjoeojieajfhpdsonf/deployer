@@ -11,6 +11,9 @@ export const VISUAL_SCENES = [
   // Konto › Sicherheit (eingerichtet, leer, nip.io), Authenticator einrichten, Codes einmal zeigen, erneute Bestätigung
   'login-passkey', 'login-nip', 'login-zweiter-schritt', 'login-wiederherstellungscode', 'login-gesperrt',
   'konto-sicherheit', 'konto-sicherheit-leer', 'konto-sicherheit-nip', 'totp-einrichten', 'wiederherstellungscodes', 'sudo-bestaetigung',
+  // Nacht 3, Etappe 2: private Git-Repos – Neues Projekt (Deploy-Key + Server bestätigen, GitHub-App ohne Zugriff,
+  // erreichbar), Einstellungen › Repo-Zugang (Deploy-Key bestätigt, «Prüfen» beim ersten Kontakt)
+  'neues-projekt-deploy-key', 'neues-projekt-repo-kein-zugriff', 'neues-projekt-repo-erreichbar', 'einstellungen-repo-zugang', 'einstellungen-repo-zugang-pruefen',
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
@@ -73,6 +76,8 @@ export const WIN95_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
   // Nacht 3, Etappe 1: Anmeldung mit Passkey, Konto › Sicherheit, Bestätigung
   'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
+  // Nacht 3, Etappe 2: Deploy-Key und Server bestätigen, Repo-Zugang in den Einstellungen
+  'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
   // Etappe 3: Besucher
   'besucher', 'projekt-uebersicht-besucher',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
@@ -99,6 +104,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
   // Nacht 3, Etappe 1
   'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
+  // Nacht 3, Etappe 2
+  'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))
