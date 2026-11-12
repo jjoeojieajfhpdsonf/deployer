@@ -1257,6 +1257,13 @@ shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s,
 // Etappe 6: Ergebnisbilder (docs/design-cal/previews/umgesetzt-*.png)
 shots.push(...shots.filter((s) => s.group === 'vorschauen').map((s) => ({ ...s, group: 'vorschauen-ergebnis', name: s.name === 'vorschauen' ? 'umgesetzt-liste' : s.name.replace(/^vorschauen-/, 'umgesetzt-') })))
 
+// Etappe 7: Ergebnisbilder (docs/design-cal/spass/umgesetzt-*.png): Spass-Szenen und Hauptseiten im Theme «Terminal»
+shots.push(...shots.filter((s) => s.group === 'spass').map((s) => ({ ...s, group: 'spass-ergebnis', name: `umgesetzt-${s.name}` })))
+shots.push(...['projekte', 'projekt-uebersicht', 'projekt-security', 'design-bausteine', 'shell-profilmenue', 'konto'].map((n) => {
+  const s = shots.find((x) => x.name === n)!
+  return { ...s, group: 'spass-ergebnis-terminal', name: `umgesetzt-${n}`, full: false }
+}))
+
 export { shots }
 export type { Shot }
 
