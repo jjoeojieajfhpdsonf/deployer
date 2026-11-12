@@ -1455,3 +1455,5 @@ export * from './status.js'
 export * from './previews.js'
 // Etappe 7: Spass-Paket (Achievements, Snake-Seite für unbekannte interne Namen)
 export * from './fun.js'
+// Nacht 3, Etappe 1: Passkeys, TOTP, Wiederherstellungscodes, Sitzungen, erneute Bestätigung
+export * from './auth.js'

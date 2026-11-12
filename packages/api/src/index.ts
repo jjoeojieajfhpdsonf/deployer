@@ -4,6 +4,7 @@ import { runMigrations } from './db/migrate.js'
 import { pool } from './db/index.js'
 import { loadOrCreateKey } from './lib/crypto.js'
 import { ensureAdminPassword } from './http/auth.js'
+import { pruneSessions } from './auth/store-pg.js'
 import { buildApp } from './http/app.js'
 import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
@@ -37,6 +38,8 @@ async function main(): Promise<void> {
   await runMigrations((msg) => log.info(msg))
   loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key'))
   await ensureAdminPassword()
+  // Nacht 3, Etappe 1: alte abgelaufene/abgemeldete Sitzungen (älter als 30 Tage) entfernen
+  await pruneSessions(new Date()).catch((err) => log.warn('Alte Sitzungen nicht entfernt', { err: String(err) }))
   // M9: Einstellungen von vor den Umgebungen einmalig in die Standard-Umgebung übernehmen
   await importLegacySettings()
   // Cloudflare aus der Datenbank (Umgebungen), vor allem, was Adressen braucht

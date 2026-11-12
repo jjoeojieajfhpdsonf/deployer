@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { subscribe, trackStream, type ServerEvent } from '../../lib/events.js'
-import { isLoggedIn, sessionStart } from '../auth.js'
+import { auth, signedCookie, SESSION_COOKIE } from '../auth.js'
 import { AppError } from '../../lib/errors.js'
 
 /** Herzschlag: hält Proxys offen und prüft dabei, ob die Sitzung noch gilt */
@@ -19,7 +19,8 @@ export async function eventRoutes(app: FastifyInstance, opts: { heartbeatMs?: nu
   const heartbeatMs = opts.heartbeatMs ?? HEARTBEAT_MS
   app.get('/events', async (request, reply) => {
     if (request.tokenId) throw new AppError('forbidden', 'Der Ereignisstrom gehört zur Anmeldung in der Oberfläche, nicht zu API-Tokens', 403)
-    const issued = sessionStart(request)
+    const mine = request.authSession?.id ?? null
+    const token = signedCookie(request, SESSION_COOKIE)
 
     reply.hijack()
     reply.raw.writeHead(200, {
@@ -45,19 +46,23 @@ export async function eventRoutes(app: FastifyInstance, opts: { heartbeatMs?: nu
     }
     const off = subscribe((e) => {
       if (e.type === 'session_ended') {
-        // Abmelden betrifft nur diese Sitzung (Cookies sind zustandslos, andere Geräte bleiben)
-        if (e.issued == null || e.issued === issued) { send({ type: 'session_ended' }); end() }
+        // Abmelden betrifft nur diese Sitzung; «andere abmelden» alle ausser der auslösenden
+        const hit = e.session ? e.session === mine : e.except ? e.except !== mine : true
+        if (hit) { send({ type: 'session_ended' }); end() }
         return
       }
       send(e)
     })
     const beat = setInterval(() => {
-      if (!isLoggedIn(request)) {
-        send({ type: 'session_ended' })
-        end()
-        return
-      }
-      write(': ping\n\n')
+      void auth().resolveSession(token, null).then((s) => {
+        if (closed) return
+        if (!s) {
+          send({ type: 'session_ended' })
+          end()
+          return
+        }
+        write(': ping\n\n')
+      }, () => write(': ping\n\n'))
     }, heartbeatMs)
     const untrack = trackStream(end)
     reply.raw.on('close', end)

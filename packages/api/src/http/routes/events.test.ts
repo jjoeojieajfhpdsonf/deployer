@@ -67,13 +67,13 @@ describe('Ereignisstrom /api/v1/events', () => {
     publish({ type: 'deploy', deploymentId: 'd1', status: 'pulling', projectId: 'p1' })
     assert.match(await readUntil(res.body!, (t) => t.includes('"deploy"')), /"projectId":"p1"/)
 
-    // Andere Sitzung (anderes Gerät) meldet sich ab: dieser Strom (ohne Sitzung: issued null) bleibt
-    publish({ type: 'session_ended', issued: 12345 })
+    // Andere Sitzung (anderes Gerät) meldet sich ab: dieser Strom (hier ohne Sitzung) bleibt
+    publish({ type: 'session_ended', session: 'andere-sitzung' })
     publish({ type: 'cert' })
     assert.match(await readUntil(res.body!, (t) => t.includes('"cert"')), /"cert"/)
     assert.equal(subscriberCount(), 1)
 
-    publish({ type: 'session_ended', issued: null })
+    publish({ type: 'session_ended', session: null })
     assert.match(await readUntil(res.body!, () => false), /session_ended/)
     assert.equal(subscriberCount(), 0, 'Abonnent nach dem Ende entfernt')
   })
