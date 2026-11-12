@@ -10,7 +10,7 @@ import { packDir } from '../deploy/workdir.js'
 import { withProjectNetwork } from '../deploy/attach.js'
 import { runScanner, singleFileTar, SCANNER_IMAGES, SCANNER_CACHES } from './runner.js'
 import { parseTrivy, parseZap, parseNuclei, parseTestssl } from './parsers.js'
-import { checkHeaders } from './headers.js'
+import { checkHeaders, observedHeaders } from './headers.js'
 import type { FindingInput } from './score.js'
 import { STAGE_INFO } from './progress.js'
 import { probeUa } from '../lib/probe-ua.js'
@@ -40,7 +40,10 @@ const scanDir = (scanId: string) => join(config.DATA_DIR, 'scan', scanId)
 export type OnLogs = (text: string) => void
 
 /** Befunde einer Stufe, optional mit dem, was tatsächlich abgedeckt wurde. */
-export type StageResult = FindingInput[] | { findings: FindingInput[]; checked?: string }
+export type StageResult = FindingInput[] | { findings: FindingInput[]; checked?: string; observed?: Record<string, string> }
+
+/** Header-Check: Befunde und gesehene Header-Werte */
+export interface HeaderStageResult { findings: FindingInput[]; observed: Record<string, string> }
 
 export async function trivyImage(scanId: string, imageRef: string, network: string, labels: Record<string, string>, onLogs?: OnLogs): Promise<FindingInput[]> {
   // Image als Tar auf die Platte (die Grösse muss für den Tar-Kopf bekannt sein),
@@ -99,7 +102,7 @@ export async function trivySource(scanId: string, srcDir: string, network: strin
 
 /* --- Stufe 2: Header ------------------------------------------------------------ */
 
-async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: string) {
+async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: string): Promise<HeaderStageResult> {
   // Eigener Agent ohne Keep-Alive: Der Healthcheck des Deploys hat dieselbe
   // Adresse gerade angefragt, und seine Verbindung im globalen Pool ist tot,
   // seit Airlock das Projekt-Netz verlassen hat. Wiederverwendet hiesse
@@ -119,7 +122,7 @@ async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: strin
   }
   const headers: Record<string, string | string[]> = {}
   for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) headers[k.toLowerCase()] = v as string | string[]
-  return checkHeaders({ url, status: res.statusCode, headers, body, isHttps })
+  return { findings: checkHeaders({ url, status: res.statusCode, headers, body, isHttps }), observed: observedHeaders(headers) }
 }
 
 /**
@@ -129,14 +132,14 @@ async function fetchForHeaders(url: string, isHttps: boolean, socketPath?: strin
  * erreichbar). `url` ist die Adresse, die Besucher benutzen; über den Socket
  * geht nur HTTP, das Schema bestimmt isHttps (HSTS, Secure-Cookies).
  */
-export async function headerCheckViaCaddy(url: string, isHttps: boolean): Promise<FindingInput[]> {
+export async function headerCheckViaCaddy(url: string, isHttps: boolean): Promise<HeaderStageResult> {
   const u = new URL(url)
   const viaSocket = `http://${u.host}${u.pathname}`
   const found = await fetchForHeaders(viaSocket, isHttps, config.CADDY_PROBE_SOCKET)
-  return found.map((f) => ({ ...f, location: f.location === viaSocket ? url : f.location }))
+  return { ...found, findings: found.findings.map((f) => ({ ...f, location: f.location === viaSocket ? url : f.location })) }
 }
 
-export async function headerCheck(t: ScanTarget): Promise<FindingInput[]> {
+export async function headerCheck(t: ScanTarget): Promise<HeaderStageResult> {
   if (t.external) return fetchForHeaders(t.url, t.isHttps)
   // Intern: Airlock hängt sich (gezählt) ins Projekt-Netz.
   return withProjectNetwork(t.network, () => fetchForHeaders(t.url, t.isHttps))

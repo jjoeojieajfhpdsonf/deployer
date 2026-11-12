@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { SCORE_DEDUCTION } from '@airlock/shared'
 
 /**
  * Bewertung laut SPEC. Reine Funktionen, ohne Datenbank.
@@ -18,7 +19,8 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   low: 'niedrig',
 }
 
-export const DEDUCTION: Record<Severity, number> = { critical: 25, high: 10, medium: 4, low: 1 }
+/** Abzug je offenem Befund; dieselbe Tabelle zeigt die Oberfläche («Am meisten bringt … (+25)») */
+export const DEDUCTION: Record<Severity, number> = SCORE_DEDUCTION
 
 export type Grade = 'A' | 'B' | 'C' | 'D'
 

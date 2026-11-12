@@ -872,6 +872,32 @@ export interface FindingDto {
   fix: string
   status: 'open' | 'accepted' | 'fixed'
   acceptReason: string | null
+  /** Erster abgeschlossener Scan, in dem derselbe Befund (Fingerabdruck) vorkam; fehlt bei älteren Antworten */
+  firstSeenAt?: string | null
+  /** In wie vielen abgeschlossenen Scans der Befund vorkam (inklusive diesem) */
+  seenIn?: number | null
+}
+
+/**
+ * Punkte, die ein offener Befund kostet (Score startet bei 100, Minimum 0).
+ * Einzige Quelle für Bewertung (API) und «Am meisten bringt … (+25)» (Oberfläche).
+ */
+export const SCORE_DEDUCTION: Record<FindingDto['severity'], number> = { critical: 25, high: 10, medium: 4, low: 1 }
+
+/** Ein Scan in der Liste «Verlauf» */
+export interface ScanHistoryItemDto {
+  id: string
+  status: ScanStatus
+  level: 'standard' | 'active'
+  startedAt: string
+  finishedAt: string | null
+  score: number | null
+  grade: 'A' | 'B' | 'C' | 'D' | null
+  trigger: 'deploy' | 'mcp' | 'manual' | 'schedule' | null
+  /** Befunde, die im vorherigen abgeschlossenen Scan nicht vorkamen; null ohne Vergleich (erster Scan, nicht fertig) */
+  newCount: number | null
+  /** Befunde des vorherigen abgeschlossenen Scans, die hier nicht mehr vorkommen bzw. behoben sind */
+  fixedCount: number | null
 }
 
 export type ScanStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -896,6 +922,12 @@ export interface ScanStageDto {
   progress?: string
   /** Letzte Zeilen der Scanner-Ausgabe */
   tail?: string[]
+  /**
+   * Nur Stufe «headers»: gesehene Werte der Security-Header (Kleinbuchstaben,
+   * wie geprüft – über Caddy also mit den ergänzten). frame-ancestors aus der
+   * CSP oder X-Frame-Options; content-security-policy-report-only eigens.
+   */
+  observed?: Record<string, string>
 }
 
 export interface ScanReportDto {

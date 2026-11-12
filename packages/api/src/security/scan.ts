@@ -20,7 +20,8 @@ import { score, grade, fingerprint, dedupe, bySeverity, publishable, type Findin
 import { trivyImage, trivySource, headerCheck, headerCheckViaCaddy, zap, nuclei, testssl, startStaticTarget, type ScanTarget, type OnLogs, type StageResult } from './stages.js'
 import { planStages, waiting, skipped, infoOf, progressOf, tailOf, StageTimeout, type ScanTrigger } from './progress.js'
 import { probeTargetFor } from '../domain/routes.js'
-import { countOpenFindings, type HeaderRecheckDto } from '@airlock/shared'
+import { countOpenFindings, type HeaderRecheckDto, type ScanHistoryItemDto } from '@airlock/shared'
+import { firstSeen, scanHistory } from './history.js'
 import { recheckExternalTarget, assertTargetIsPublic } from './external-targets.js'
 import { notify } from '../notify/send.js'
 import { publish } from '../lib/events.js'
@@ -239,8 +240,9 @@ async function runScan(runId: string): Promise<void> {
       const res = await Promise.race([fn(onLogs), timeout])
       const f = Array.isArray(res) ? res : res.findings
       const checked = Array.isArray(res) ? undefined : res.checked
+      const observed = Array.isArray(res) ? undefined : res.observed
       all.push(...f)
-      stages[name] = { ...st, ran: true, state: 'done', findings: f.length, ...(checked ? { checked } : {}), finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
+      stages[name] = { ...st, ran: true, state: 'done', findings: f.length, ...(checked ? { checked } : {}), ...(observed ? { observed } : {}), finishedAt: new Date().toISOString(), durationMs: Date.now() - t0, progress: undefined }
       log.info('Scan-Stufe fertig', { scan: runId, stage: name, dauerMs: Date.now() - t0, befunde: f.length })
     } catch (err) {
       const state = cancelledBy() ? 'cancelled' : err instanceof StageTimeout ? 'timeout' : 'failed'
@@ -548,8 +550,9 @@ export async function recheckHeaders(projectId: string, actor: string): Promise<
   const probe = await probeTargetFor(projectId)
   if (!probe) return none('Caddy bedient das Projekt gerade nicht (gestoppt oder ohne Adresse)')
   let raw: FindingInput[]
+  let observed: Record<string, string>
   try {
-    raw = await headerCheckViaCaddy(probe.url, probe.secure)
+    ;({ findings: raw, observed } = await headerCheckViaCaddy(probe.url, probe.secure))
   } catch (err) {
     return none(`Header-Check über Caddy gescheitert: ${(err as Error).message.slice(0, 200)}`)
   }
@@ -581,7 +584,7 @@ export async function recheckHeaders(projectId: string, actor: string): Promise<
       headers: {
         ...(last.stages.headers ?? {}),
         ran: true, state: 'done', failed: undefined, findings: found.length, finishedAt: new Date().toISOString(),
-        checked: 'über Caddy, wie Besucher die Seite sehen',
+        checked: 'über Caddy, wie Besucher die Seite sehen', observed,
         note: `Nachscan über Caddy, ${new Date().toLocaleString('de-CH', { timeZone: 'Europe/Zurich', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
         progress: undefined, tail: undefined,
       },
@@ -634,6 +637,17 @@ export async function scanReport(runId: string): Promise<ScanReport> {
       .where(and(owner, eq(schema.scanRuns.status, 'done'), lt(schema.scanRuns.startedAt, run.startedAt)))
       .orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
     : undefined
+  // Alter der Befunde: erstes Auftreten des Fingerabdrucks in abgeschlossenen Scans desselben Ziels
+  const fps = [...new Set(f.map((x) => x.fingerprint))]
+  const seen = owner && fps.length
+    ? await (async () => {
+      const runs = await db.select({ id: schema.scanRuns.id, startedAt: schema.scanRuns.startedAt }).from(schema.scanRuns)
+        .where(and(owner, inArray(schema.scanRuns.status, run.status === 'done' ? ['done'] : ['done', run.status])))
+      const rows = await db.select({ scanRunId: schema.findings.scanRunId, fingerprint: schema.findings.fingerprint }).from(schema.findings)
+        .where(and(inArray(schema.findings.scanRunId, runs.map((r) => r.id)), inArray(schema.findings.fingerprint, fps)))
+      return firstSeen(runs, rows)
+    })()
+    : new Map<string, { firstSeenAt: string; seenIn: number }>()
   return {
     scan: {
       id: run.id, status: run.status, level: run.level, startedAt: run.startedAt.toISOString(),
@@ -645,8 +659,21 @@ export async function scanReport(runId: string): Promise<ScanReport> {
     },
     counts,
     top: open.slice(0, 3).map((x) => ({ id: x.id, severity: x.severity, title: x.title, location: x.location, fix: x.fix })),
-    findings: f,
+    findings: f.map((x) => ({ ...x, firstSeenAt: seen.get(x.fingerprint)?.firstSeenAt ?? null, seenIn: seen.get(x.fingerprint)?.seenIn ?? null })),
   }
+}
+
+/** Reiter Security › Verlauf: Scans des Projekts mit Note, Auslöser, neu/behoben. */
+export async function scanHistoryFor(projectId: string, limit = 30): Promise<ScanHistoryItemDto[]> {
+  const runs = await listScans(projectId, limit)
+  const rows = runs.length
+    ? await db.select({ scanRunId: schema.findings.scanRunId, fingerprint: schema.findings.fingerprint, status: schema.findings.status }).from(schema.findings)
+      .where(inArray(schema.findings.scanRunId, runs.map((r) => r.id)))
+    : []
+  return scanHistory(runs.map((r) => ({
+    id: r.id, status: r.status as ScanHistoryItemDto['status'], level: r.level as ScanHistoryItemDto['level'], startedAt: r.startedAt, finishedAt: r.finishedAt,
+    score: r.score, grade: r.grade as ScanHistoryItemDto['grade'], trigger: r.trigger ?? null,
+  })), rows)
 }
 
 export async function latestScan(projectId: string, onlyDone = false): Promise<Run | null> {
