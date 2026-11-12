@@ -15,6 +15,7 @@ import { ExpirySettings } from '../components/ExpirySettings.js'
 import { BackupSection } from '../components/Backup.js'
 import { TrafficSources } from '../components/TrafficSources.js'
 import { useEnvPath } from '../lib/env.js'
+import { GATEWAY_GUIDE_URL } from '@airlock/shared'
 
 function formatBytes(n: number | null): string {
   if (n === null) return 'unbekannt'
@@ -152,18 +153,41 @@ const SOURCE_TEXT: Record<'tailnet' | 'server', { title: string; hint: string }>
   },
 }
 
-/** Warnung mit Details: woher, welche Hosts, Beispiel-Pfade, letzte Zeit. */
-function GatewayWarning({ ci }: { ci: ClientIps }) {
+/**
+ * Warnung mit Details: woher, welche Hosts, Beispiel-Pfade, letzte Zeit.
+ * Zugriffe neu: dieselbe Ursache auf Projekt-Routen (mehr als 3 Abweisungen
+ * aus dem Docker-Netz in einer Stunde) steht in derselben Warnung, nicht in
+ * einer zweiten.
+ */
+function GatewayWarning({ ci, blocks }: { ci: ClientIps | null; blocks: SystemStatusDto['dockerBlocks'] }) {
+  const onAirlock = ci && ci.fromGateway > 0 ? ci : null
   return (
     <div role="alert" className="banner banner-warn gateway-warning">
       <p>
-        <strong>Caddy sieht {ci.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
-        In den letzten 30 Minuten kamen {ci.fromGateway} von {ci.total} fremden Anfragen auf Airlock von{' '}
-        {ci.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
-        {ci.blocked > 0 ? <>, {ci.blocked} davon hat der IP-Filter gesperrt</> : null}.
-        {ci.ownProbes > 0 ? <> Nicht mitgezählt: {ci.ownProbes} eigene Prüfungen von Airlock.</> : null}
+        <strong>Caddy sieht {onAirlock?.gatewayOnly ? 'nur' : 'auch'} Docker-Gateway-Adressen statt der Geräte.</strong>{' '}
+        {onAirlock && (
+          <>
+            In den letzten 30 Minuten kamen {onAirlock.fromGateway} von {onAirlock.total} fremden Anfragen auf Airlock von{' '}
+            {onAirlock.gatewayIps.map((ip, i) => <span key={ip}>{i > 0 ? ', ' : ''}<code>{ip}</code></span>)}
+            {onAirlock.blocked > 0 ? <>, {onAirlock.blocked} davon hat der IP-Filter gesperrt</> : null}.
+            {onAirlock.ownProbes > 0 ? <> Nicht mitgezählt: {onAirlock.ownProbes} eigene Prüfungen von Airlock.</> : null}
+          </>
+        )}
+        {blocks && (
+          <>
+            {onAirlock ? ' Auch auf Projekten: ' : ''}In der letzten Stunde hat der IP-Filter {blocks.count} Anfragen aus dem Docker-Netz abgewiesen
+            {' '}(<span>{blocks.hosts.map((h, i) => <span key={h}>{i > 0 ? ', ' : ''}<code>{h}</code></span>)}</span>, zuletzt {fmtTime(blocks.last)}).
+            {' '}Tailnet-Verkehr wird vermutlich maskiert – Regel <code>ts-docker-nosnat</code> prüfen.
+          </>
+        )}
       </p>
-      {ci.groups.map((g) => (
+      {blocks && !onAirlock && (
+        <p className="gateway-hint">
+          Abhilfe: docs/INSTALL.md, Abschnitt «Tailscale als Subnet-Router» ·{' '}
+          <a href={GATEWAY_GUIDE_URL} target="_blank" rel="noreferrer">Anleitung öffnen<span className="sr-only"> (neues Fenster)</span></a>
+        </p>
+      )}
+      {(onAirlock?.groups ?? []).map((g) => (
         <div key={g.source} className="gateway-group">
           <p className="gateway-group-head">
             <strong>{SOURCE_TEXT[g.source].title}</strong> · {g.count} {g.count === 1 ? 'Anfrage' : 'Anfragen'}
@@ -187,7 +211,7 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
   return (
     <>
       {/* Nur fremde Anfragen: eigene Prüfungen von Airlock («airlock-probe») zählen nie */}
-      {ci && ci.fromGateway > 0 && <GatewayWarning ci={ci} />}
+      {((ci && ci.fromGateway > 0) || s.dockerBlocks) && <GatewayWarning ci={ci} blocks={s.dockerBlocks} />}
       {!s.ipFilterEnabled && (
         <p role="alert" className="banner banner-warn">
           <strong>IP-Filter ist ausgeschaltet.</strong> Interne Hostnamen sind ohne

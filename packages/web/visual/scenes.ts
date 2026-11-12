@@ -16,7 +16,9 @@ export const VISUAL_SCENES = [
   // «wird erstellt», Pull Request offen, gescheitert, ohne GitHub-App, Adminer mit interner Adresse, Entfernen
   'aufbau-live', 'aufbau-live-vergroessert', 'aufbau-dienst-dialog', 'aufbau-dienst-diff', 'aufbau-dienst-wird-erstellt',
   'aufbau-dienst-pr-offen', 'aufbau-dienst-gescheitert', 'aufbau-ohne-github', 'aufbau-adminer', 'aufbau-dienst-entfernen',
-  'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer', '5-zugriffe',
+  'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer',
+  // Zugriffe neu: Docker-Netz gewählt, Scanner, Abgewiesene, einzeln mit Prüfungen und Bots, Suche, Schublade (< 1100 px), Zustände
+  'zugriffe', 'zugriffe-scanner', 'zugriffe-abgewiesen', 'zugriffe-einzeln', 'zugriffe-suche', 'zugriffe-schublade', 'zugriffe-leer', 'zugriffe-wartet', 'zugriffe-aus',
   // Etappe 3: Besucher (Reiter, Städte, Zugang, intern, Zustände, Wert per Tastatur, Übersicht, Projektliste)
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
   'projekt-uebersicht-besucher', 'projekte-besucher',
@@ -72,6 +74,8 @@ export const WIN95_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
   // Etappe 3: Besucher (Besucher neu: dazu Säulen nach Zugang)
   'besucher', 'projekt-uebersicht-besucher', 'besucher-saeulen',
+  // Zugriffe neu
+  'zugriffe',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
   'statusseite-einstellungen',
   // Etappe 6: Vorschauen (Liste, Einstellungen)
@@ -96,6 +100,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
   // Besucher neu: Reiter und Säulen in Grünstufen
   'besucher-messbeginn', 'besucher-saeulen',
+  // Zugriffe neu
+  'zugriffe',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

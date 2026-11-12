@@ -4,7 +4,8 @@ import type {
   SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs, UnlockId,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
-  SiteAccessEntryDto,
+  AccessEntryDto,
+  AccessListDto,
   LogLineDto,
   LogLinesDto,
   NamePreviewDto,
@@ -302,8 +303,8 @@ export const api = {
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */
-  /** Statische Seiten: Aufrufe aus Caddys Zugriffs-Log (24 Stunden) */
-  siteAccess: (id: string, range?: string) => call<{ entries: SiteAccessEntryDto[]; since: string; error: string | null }>(`/projects/${id}/access${range ? `?range=${range}` : ''}`),
+  /** Zugriffe neu: einzelne Anfragen aus visits.log (15m, 1h, 24h), Absender gekürzt */
+  access: (id: string, range: string) => call<AccessListDto>(`/projects/${id}/access?range=${range}`),
   /** UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe */
   logLines: (id: string, range: string, service: string | null) =>
     call<LogLinesDto>(`/projects/${id}/log-lines?range=${range}${service ? `&service=${encodeURIComponent(service)}` : ''}`),
@@ -442,8 +443,8 @@ export function subscribeTraffic(projectId: string, onEvent: (e: TrafficLiveEven
   return subscribeJson<TrafficLiveEventDto>(`/api/v1/projects/${projectId}/traffic/live`, onEvent, onState)
 }
 
-export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
-  return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
+export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: AccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<AccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
 }
 
 function subscribeJson<T>(url: string, on: (v: T) => void, onState?: (open: boolean) => void): () => void {

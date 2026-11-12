@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
+import { accessFixture, type AccessVariant } from './fixtures-access.js'
 import { createHash } from 'node:crypto'
 import { DEFAULT_PAUSE_PAGE, renderSnakePage, renderStatusFeed, renderStatusPage, snakeCsp, STATUS_CSS, STATUS_FILES, STATUS_JS } from '@airlock/shared'
 
@@ -81,7 +82,6 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if ((m = p.match(/^\/projects\/([^/]+)\/logs$/))) return { body: { logs: fx.appLogs } }
   if ((m = p.match(/^\/projects\/([^/]+)\/log-lines$/))) return { body: fx.logLines(m[1]!, u.searchParams.get('service')) }
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
-  if ((m = p.match(/^\/projects\/([^/]+)\/access$/))) return { body: fx.siteAccess(m[1]!) }
   if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
   // M8: Fix-Assistent
@@ -164,6 +164,8 @@ type Shot = {
    * (keine Karte, keine Zahl in der Liste), die übrigen Szenen bleiben unverändert.
    */
   traffic?: fx.TrafficVariant
+  /** Zugriffe neu: Zugriffs-Log leer, wartet auf die Datei oder nicht eingerichtet (ohne: Daten nach Vorlage) */
+  access?: AccessVariant
   /** Etappe 4: Aufbau von Fotoalbum in einem Zustand (Dienst wird erstellt, PR offen …) */
   topo?: fx.TopoVariant
   /** Etappe 4: Live-Strom liefert feste Anfragen (fx.trafficLive), sobald der Aufbau steht */
@@ -1010,11 +1012,25 @@ const shots: Shot[] = [
     group: 'p5', name: '5-reiter-hover', path: `/projekte/${L}`, full: false,
     prepare: async (pg) => { await pg.getByRole('tab', { name: /^Deployments/ }).hover(); await pg.waitForTimeout(200) },
   },
-  { group: 'p5', name: '5-zugriffe', path: `/projekte/${H}?tab=logs` },
+  // Zugriffe neu (Vorlage docs/design-cal/zugriffe-neu/): Docker-Netz abgewiesen gewählt (Hinweis ts-docker-nosnat),
+  // Scanner aus einem Rechenzentrum, nur Abgewiesene, einzeln mit Prüfungen und Bots, Suche, Schublade unter
+  // 1100 px, Zustände des Logs (leer, wartet auf die Datei, nicht eingerichtet)
+  { group: 'zugriffe', name: 'zugriffe', path: `/projekte/${H}?tab=logs&zeile=z-gw` },
+  { group: 'zugriffe', name: 'zugriffe-scanner', path: `/projekte/${H}?tab=logs&suche=digitalocean&zeile=z-wp`, full: false },
+  { group: 'zugriffe', name: 'zugriffe-abgewiesen', path: `/projekte/${H}?tab=logs&status=abgewiesen&zeile=z-gw`, full: false },
+  { group: 'zugriffe', name: 'zugriffe-einzeln', path: `/projekte/${H}?tab=logs&einzeln=1&pruefungen=1&bots=1&zeile=z-typo-0` },
+  { group: 'zugriffe', name: 'zugriffe-suche', path: `/projekte/${H}?tab=logs&suche=niederlande`, full: false },
   {
-    group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
-    prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
+    group: 'zugriffe', name: 'zugriffe-schublade', path: `/projekte/${H}?tab=logs`, full: false,
+    prepare: async (pg) => {
+      await pg.setViewportSize({ width: 1000, height: 900 })
+      await pg.locator('.acc-row').nth(1).click()
+      await pg.waitForTimeout(350)
+    },
   },
+  { group: 'zugriffe', name: 'zugriffe-leer', path: `/projekte/${H}?tab=logs`, access: 'leer', full: false },
+  { group: 'zugriffe', name: 'zugriffe-wartet', path: `/projekte/${H}?tab=logs`, access: 'wartet', full: false },
+  { group: 'zugriffe', name: 'zugriffe-aus', path: `/projekte/${H}?tab=logs`, access: 'aus', full: false },
   // Etappe 3: Besucher – Reiter (öffentliche Seite mit Karte), mit Städten (DB-IP), nach Zugang getrennt,
   // internes Projekt (ohne Länder), leer, wartet auf das Log, nicht eingerichtet; Wert per Tastatur;
   // Karte in der Übersicht und «Aufrufe heute» in der Projektliste
@@ -1317,6 +1333,10 @@ shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s,
 // Etappe 6: Ergebnisbilder (docs/design-cal/previews/umgesetzt-*.png)
 shots.push(...shots.filter((s) => s.group === 'vorschauen').map((s) => ({ ...s, group: 'vorschauen-ergebnis', name: s.name === 'vorschauen' ? 'umgesetzt-liste' : s.name.replace(/^vorschauen-/, 'umgesetzt-') })))
 
+// Zugriffe neu: Ergebnisbilder neben der Vorlage (docs/design-cal/zugriffe-neu/umgesetzt-*.png), erster Bildschirm wie die Vorlage
+shots.push(...shots.filter((s) => s.group === 'zugriffe').map((s) => ({ ...s, group: 'zugriffe-ergebnis', name: s.name === 'zugriffe' ? 'umgesetzt' : s.name.replace(/^zugriffe-/, 'umgesetzt-'), full: false })))
+shots.push({ group: 'zugriffe-ergebnis', name: 'umgesetzt-server-netz', path: '/server', el: '.gateway-warning' })
+
 // Etappe 7: Ergebnisbilder (docs/design-cal/spass/umgesetzt-*.png): Spass-Szenen und Hauptseiten im Theme «Terminal»
 shots.push(...shots.filter((s) => s.group === 'spass').map((s) => ({ ...s, group: 'spass-ergebnis', name: `umgesetzt-${s.name}` })))
 shots.push(...['projekte', 'projekt-uebersicht', 'projekt-security', 'design-bausteine', 'shell-profilmenue', 'konto'].map((n) => {
@@ -1424,6 +1444,9 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, url.pathname.endsWith('/example') ? { environment: list.find((e) => e.slug === 'example') } : { environments: list })
             }
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
+            // Zugriffe neu: einzelne Anfragen (Standard: Daten nach Vorlage; s.access für leer, wartet, aus)
+            const am = path.match(/^\/api\/v1\/projects\/([^/]+)\/access$/)
+            if (am) return json(route, accessFixture(am[1]!, url.searchParams.get('range'), s.access))
             // Etappe 3: Besucher
             if (s.traffic) {
               const tm = path.match(/^\/api\/v1\/projects\/([^/]+)\/traffic$/)
