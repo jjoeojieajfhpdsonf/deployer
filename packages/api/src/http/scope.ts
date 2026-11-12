@@ -114,6 +114,9 @@ export async function assertPathObject(route: string, params: Params, scope: Sco
 export const GUARDED_PREFIXES = [
   '/api/v1/projects/:id', '/api/v1/external-targets/:id', '/api/v1/deployments/:id', '/api/v1/scans/:id',
   '/api/v1/findings/:id', '/api/v1/tokens/:id', '/api/v1/environments/:env',
+  // Nacht 3, Etappe 1: Passkeys und Sitzungen gehören zum Konto, nicht zu einer Umgebung;
+  // nur mit Anmeldung (der Auth-Wächter weist Tokens unter /auth/ ab)
+  '/api/v1/auth/passkeys/:id', '/api/v1/auth/sessions/:id',
 ] as const
 
 export function registerScopeGuard(app: FastifyInstance): void {

@@ -148,6 +148,18 @@ const EVENTS: Record<string, Describe> = {
   // Zugang und System (globales Audit-Log)
   'auth.login': (_p, e) => ({ title: e.result === 'error' ? 'Anmeldung fehlgeschlagen' : 'Angemeldet', category: e.result === 'error' ? 'error' : 'access' }),
   'auth.password': () => ({ title: 'Passwort geändert', category: 'access' }),
+  // Nacht 3, Etappe 1: zweiter Faktor, Passkeys, Sitzungen, erneute Bestätigung, Notausgang
+  'auth.lockout': (p) => ({ title: 'Anmeldung gesperrt nach Fehlversuchen', category: 'error', sub: [str(p.ip), num(p.minutes) ? `${p.minutes} Min.` : null] }),
+  'auth.sudo': () => ({ title: 'Erneut bestätigt', category: 'access' }),
+  'auth.totp.enable': (_p, e) => ({ title: e.result === 'error' ? 'Authenticator-App nicht eingerichtet' : 'Authenticator-App eingerichtet', category: e.result === 'error' ? 'error' : 'access' }),
+  'auth.totp.disable': () => ({ title: 'Authenticator-App entfernt', category: 'danger' }),
+  'auth.recovery.regenerate': () => ({ title: 'Neue Wiederherstellungscodes', category: 'access' }),
+  'auth.2fa.required': (p) => ({ title: p.required === false ? 'Zweiter Faktor nicht mehr erforderlich' : 'Zweiter Faktor erforderlich', category: p.required === false ? 'danger' : 'access' }),
+  'auth.2fa.reset': () => ({ title: 'Zweiter Faktor zurückgesetzt (Notausgang)', category: 'danger' }),
+  'auth.passkey.add': (p, e) => ({ title: e.result === 'error' ? 'Passkey nicht eingerichtet' : 'Passkey eingerichtet', category: e.result === 'error' ? 'error' : 'access', sub: [str(p.name) ? `«${p.name}»` : null] }),
+  'auth.passkey.delete': (p) => ({ title: 'Passkey gelöscht', category: 'danger', sub: [str(p.name) ? `«${p.name}»` : null] }),
+  'auth.session.revoke': () => ({ title: 'Sitzung abgemeldet', category: 'access' }),
+  'auth.sessions.revoke_others': (p) => ({ title: 'Andere Sitzungen abgemeldet', category: 'access', sub: [num(p.count) !== null ? `${p.count}` : null] }),
   'token.create': (p) => ({ title: 'Token angelegt', category: 'access', sub: [str(p.name) ? `«${p.name}»` : null] }),
   'token.revoke': (p) => ({ title: 'Token widerrufen', category: 'access', sub: [str(p.name) ? `«${p.name}»` : null] }),
   'ui.prefs': () => ({ title: 'Darstellung geändert', category: 'config' }),

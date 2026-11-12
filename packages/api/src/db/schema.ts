@@ -583,6 +583,51 @@ export const statusIncidents = pgTable('status_incidents', {
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 }, (t) => [index('status_incidents_env_idx').on(t.environmentId, t.createdAt)])
 
+/* --- Nacht 3, Etappe 1: Sitzungen, Passkeys, TOTP, Wiederherstellungscodes (migrations/0024_auth_2fa.sql) --- */
+
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tokenHash: text('token_hash').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  method: text('method').$type<import('@airlock/shared').SessionMethod>().notNull(),
+  sudoUntil: timestamp('sudo_until', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [index('auth_sessions_active_idx').on(t.revokedAt, t.expiresAt)])
+
+export const authPasskeys = pgTable('auth_passkeys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  credentialId: text('credential_id').notNull().unique(),
+  publicKey: bytea('public_key').notNull(),
+  counter: bigint('counter', { mode: 'number' }).notNull().default(0),
+  transports: text('transports').array().notNull().default([]),
+  deviceType: text('device_type'),
+  backedUp: boolean('backed_up'),
+  name: text('name').notNull(),
+  rpId: text('rp_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+})
+
+export const authTotp = pgTable('auth_totp', {
+  id: smallint('id').primaryKey().default(1),
+  secretEnc: bytea('secret_enc'),
+  enabledAt: timestamp('enabled_at', { withTimezone: true }),
+  lastStep: bigint('last_step', { mode: 'number' }).notNull().default(-1),
+  pendingEnc: bytea('pending_enc'),
+  pendingAt: timestamp('pending_at', { withTimezone: true }),
+})
+
+export const authRecoveryCodes = pgTable('auth_recovery_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  codeHash: text('code_hash').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+})
+
 /* --- Etappe 7: Achievements (migrations/0023_achievements.sql) ---------------- */
 
 export const achievements = pgTable('achievements', {

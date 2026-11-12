@@ -27,7 +27,7 @@ import { startProject, stopProject, restartProject } from '../../domain/lifecycl
 import { startDeploy, startRollback, startRecreate } from '../../deploy/pipeline.js'
 import { audit, createdBy } from '../../domain/audit.js'
 import * as docker from '../../drivers/docker.js'
-import { actorFor } from '../auth.js'
+import { actorFor, requireSudo } from '../auth.js'
 import { badRequest, notFound, AppError } from '../../lib/errors.js'
 import { sinceSeconds } from '../../lib/dates.js'
 import { projectHealth } from '../../jobs/monitor.js'
@@ -223,6 +223,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     if (wantsPublic && request.tokenId) {
       throw new AppError('forbidden', 'Öffentlich schalten geht mit einem Token nur über MCP (mit Bestätigung) oder mit einer Anmeldung', 403)
     }
+    // Nacht 3, Etappe 1: öffentlich (auch über diesen Weg) nur nach erneuter Bestätigung
+    if (wantsPublic) requireSudo(request)
     // Erst alles prüfen, dann ändern: scheitert "public", bleiben die internen Ziele.
     const plan = wantsPublic
       ? await planPublic(project, { subdomain: body.publicSubdomain, hostname: body.publicHostname, accessProtected: body.accessProtected })

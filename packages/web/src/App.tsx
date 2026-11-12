@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { markSessionExpired, markSessionOk, useLoggedOut } from './lib/session.js'
 import { SessionDialog } from './components/SessionDialog.js'
+import { SudoDialog } from './components/SudoDialog.js'
 import { LeaveGuard } from './components/LeaveGuard.js'
 import { Bell } from './components/Bell.js'
 import { applyTheme, readLocalTheme } from './lib/theme.js'
@@ -35,6 +36,7 @@ import { useSystem } from './components/ServerName.js'
 import { useProjects } from './lib/projects.js'
 import { EnvProvider, EnvReady, useEnv, useEnvPath } from './lib/env.js'
 import { Account } from './pages/Account.js'
+import { AccountSecurity } from './pages/AccountSecurity.js'
 import { Design } from './pages/Design.js'
 import { Setup } from './pages/Setup.js'
 import { useSetup } from './lib/setup.js'
@@ -123,6 +125,8 @@ export function App() {
         <StaleBar />
         {/* Sitzung abgelaufen: Anmeldung über der Seite (UI-Qualität 8) */}
         <SessionDialog />
+        {/* Nacht 3: erneute Bestätigung vor heiklen Aktionen (api.ts öffnet ihn bei «sudo_required») */}
+        <SudoDialog />
         {/* Ungespeicherte Änderungen: Rückfrage vor dem Verlassen (UI-Qualität 8) */}
         <LeaveGuard />
         {/* Tab-Titel, Favicon-Punkt und Ereignisstrom (UI-Qualität 3) */}
@@ -148,6 +152,7 @@ export function App() {
           <Route path="/umgebungen" element={<Environments />} />
           <Route path="/umgebungen/neu" element={<NewEnvironment />} />
           <Route path="/konto" element={<Account />} />
+          <Route path="/konto/sicherheit" element={<AccountSecurity />} />
           {/* Interne Komponenten-Übersicht (nur angemeldet, nicht in der Navigation) */}
           <Route path="/design" element={<Design />} />
           {/* Erster Start des Servers (UI-Qualität 7) */}

@@ -1,23 +1,69 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { randomBytes, createHash } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { join } from 'node:path'
+import { UI_HOST_LABEL, type PasskeyHostDto } from '@airlock/shared'
 import { getSetting, setSetting } from '../db/index.js'
-import { hashPassword, verifyPassword } from '../lib/crypto.js'
-import { config } from '../config.js'
+import { hashPassword, verifyPassword, loadOrCreateKey } from '../lib/crypto.js'
+import { config, cf, net } from '../config.js'
 import { unauthorized, AppError } from '../lib/errors.js'
 import { bearerFrom } from '../lib/tokens.js'
 import { verifyToken } from '../domain/tokens.js'
 import { inEnvironment, sessionScope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
+import { audit } from '../domain/audit.js'
+import { AuthService, SESSION_MAX_AGE_MS, type ClientInfo, type RpContext } from '../auth/service.js'
+import type { SessionRow } from '../auth/store.js'
+import { PgAuthStore } from '../auth/store-pg.js'
+import { clientIp } from '../auth/client.js'
+import { hostHeader, passkeyHostFor } from '../auth/rp.js'
 
 export const SESSION_COOKIE = 'airlock_session'
-const SESSION_MAX_AGE_S = 7 * 24 * 60 * 60
+/** Zweiter Schritt der Anmeldung (nach dem richtigen Passwort), 5 Min. */
+export const PENDING_COOKIE = 'airlock_login'
+/** Passkey-Herausforderung (Anmeldung, Bestätigung, Einrichten), 5 Min. */
+export const CHALLENGE_COOKIE = 'airlock_webauthn'
 
 /**
- * Ein Benutzer, ein Passwort, Session-Cookie. Passkey kommt spaeter.
+ * Ein Konto (Passwort aus .env bzw. in der Oberfläche geändert), dazu
+ * Passkeys und Authenticator-App (Nacht 3, Etappe 1). Sitzungen stehen in
+ * auth_sessions; das Cookie trägt nur einen zufälligen Wert (signiert),
+ * in der Datenbank steht dessen SHA-256.
  *
  * Auch wenn der Dienst nur im LAN haengt: ohne Login kann jedes Geraet im
  * Netz Container starten.
  */
+
+/* --- Dienst ---------------------------------------------------------------- */
+
+let service: AuthService | null = null
+let dummyHash: string | null = null
+
+/** Der Anmelde-Dienst (im Betrieb mit PostgreSQL); Tests setzen ihren eigenen */
+export function auth(): AuthService {
+  if (!service) {
+    service = new AuthService({
+      store: new PgAuthStore(),
+      key: () => loadOrCreateKey(join(config.DATA_DIR, 'keys', 'secrets.key')),
+      audit,
+      verifyPassword,
+      get dummyHash() {
+        // Einmal berechnet: ein gültiger Hash mit denselben Parametern wie das echte Passwort
+        dummyHash ??= hashPassword(randomBytes(16).toString('hex'))
+        return dummyHash
+      },
+      lanCidr: () => net.lanCidr(),
+      accountName: () => config.ADMIN_NAME || 'Admin',
+    })
+  }
+  return service
+}
+
+export function setAuthService(s: AuthService | null): void {
+  service = s
+}
+
+/* --- Passwort ---------------------------------------------------------------- */
 
 /** Fingerabdruck des Passworts aus .env – nur um eine Änderung dort zu erkennen. */
 // Bewusst weiter «deployer-env»: der gespeicherte Fingerabdruck stammt aus
@@ -34,7 +80,6 @@ const envFingerprint = () => createHash('sha256').update(`deployer-env\0${config
 export async function ensureAdminPassword(): Promise<void> {
   const stored = await getSetting('admin_password_hash')
   const fp = await getSetting('admin_password_env_fp')
-  validAfter = Number((await getSetting('sessions_valid_after')) ?? 0)
   if (stored && fp === envFingerprint()) return
   if (stored && fp === null && verifyPassword(config.ADMIN_PASSWORD, stored)) {
     await setSetting('admin_password_env_fp', envFingerprint())
@@ -46,18 +91,14 @@ export async function ensureAdminPassword(): Promise<void> {
   log.info(stored ? 'Admin-Passwort aus der Umgebung übernommen (.env geändert)' : 'Admin-Passwort gesetzt')
 }
 
-/** Sitzungen, die vor diesem Zeitpunkt begonnen haben, gelten nicht mehr. */
-let validAfter = 0
-
-export async function changePassword(current: string, next: string): Promise<void> {
+/** Passwort ändern; alle anderen Sitzungen werden abgemeldet (keep = die eigene bleibt) */
+export async function changePassword(current: string, next: string, keep: SessionRow | null = null): Promise<number> {
   const stored = await getSetting('admin_password_hash')
   if (!stored || !verifyPassword(current, stored)) throw new AppError('invalid_credentials', 'Das bisherige Passwort stimmt nicht', 400)
   if (next === current) throw new AppError('bad_request', 'Das neue Passwort ist dasselbe wie das bisherige', 400)
   await setSetting('admin_password_hash', hashPassword(next))
   await setSetting('admin_password_changed', JSON.stringify({ at: new Date().toISOString(), source: 'ui' }))
-  // Alle anderen Sitzungen abmelden; die eigene bekommt danach ein neues Cookie.
-  validAfter = Date.now()
-  await setSetting('sessions_valid_after', String(validAfter))
+  return auth().revokeOthers(keep, 'password')
 }
 
 export async function passwordInfo(): Promise<{ changedAt: string | null; source: 'env' | 'ui' | null }> {
@@ -67,14 +108,12 @@ export async function passwordInfo(): Promise<{ changedAt: string | null; source
   return { changedAt: v.at, source: v.source }
 }
 
-/** Beginn der Sitzung (Zeitpunkt der Anmeldung) oder null. */
-export function sessionStart(request: FastifyRequest): number | null {
-  const raw = request.cookies[SESSION_COOKIE]
-  if (!raw) return null
-  const result = request.unsignCookie(raw)
-  if (!result.valid || !result.value) return null
-  const issued = Number(result.value)
-  return Number.isFinite(issued) ? issued : null
+/**
+ * Passwort noch einmal prüfen (Export des Backup-Schlüssels), mit der Sperre
+ * nach Fehlversuchen des Logins.
+ */
+export async function login(ip: string, password: string): Promise<boolean> {
+  return auth().recheckPassword(password, ip)
 }
 
 export async function sessionSecret(): Promise<string> {
@@ -86,88 +125,165 @@ export async function sessionSecret(): Promise<string> {
   return fresh
 }
 
-/* --- Anmeldeversuche begrenzen -------------------------------------------- */
+/* --- Wer fragt an ------------------------------------------------------------ */
 
-const attempts = new Map<string, { count: number; until: number }>()
-const MAX_ATTEMPTS = 10
-const WINDOW_MS = 5 * 60 * 1000
+/**
+ * Adressen von Caddy: nur von dort glauben wir X-Forwarded-For (auth/client.ts).
+ * Aufgelöst über den Containernamen, eine Minute gemerkt, im Hintergrund erneuert.
+ */
+let caddyPeers: { set: Set<string>; at: number; busy: boolean } = { set: new Set(), at: 0, busy: false }
+let fixedPeers: Set<string> | null = null
 
-function tooManyAttempts(ip: string): boolean {
-  const e = attempts.get(ip)
-  if (!e) return false
-  if (Date.now() > e.until) {
-    attempts.delete(ip)
-    return false
-  }
-  return e.count >= MAX_ATTEMPTS
+function refreshCaddyPeers(): void {
+  if (caddyPeers.busy || Date.now() - caddyPeers.at < 60_000) return
+  caddyPeers.busy = true
+  lookup(config.CADDY_CONTAINER, { all: true })
+    .then((r) => { caddyPeers = { set: new Set(r.map((a) => a.address)), at: Date.now(), busy: false } })
+    .catch(() => { caddyPeers = { set: new Set(), at: Date.now(), busy: false } })
 }
 
-function noteFailure(ip: string): void {
-  const e = attempts.get(ip)
-  if (!e || Date.now() > e.until) {
-    attempts.set(ip, { count: 1, until: Date.now() + WINDOW_MS })
-    return
-  }
-  e.count++
+/** Tests: vertraute Gegenstellen festlegen (null = wieder auflösen) */
+export function setTrustedPeers(peers: string[] | null): void {
+  fixedPeers = peers ? new Set(peers) : null
 }
 
-export async function login(ip: string, password: string): Promise<boolean> {
-  if (tooManyAttempts(ip)) {
-    throw new AppError('too_many_attempts', 'Zu viele Fehlversuche, bitte später erneut', 429)
+export function clientInfo(request: FastifyRequest): ClientInfo {
+  if (!fixedPeers) refreshCaddyPeers()
+  const ua = request.headers['user-agent']
+  return {
+    ip: clientIp(request.ip, request.headers['x-forwarded-for'], fixedPeers ?? caddyPeers.set),
+    userAgent: typeof ua === 'string' ? ua : null,
   }
-  const stored = await getSetting('admin_password_hash')
-  if (!stored || !verifyPassword(password, stored)) {
-    noteFailure(ip)
-    return false
-  }
-  attempts.delete(ip)
-  return true
 }
 
 /**
  * Kam die Anfrage über HTTPS bei Caddy an? Caddy setzt X-Forwarded-Proto
- * selbst und überschreibt, was ein Client mitschickt. Bewusst nur dieser
- * Header und kein trustProxy: X-Forwarded-For bleibt unbeachtet, damit im
- * Projekt-Netz niemand eine Absenderadresse vortäuschen kann. Ein
- * vorgetäuschtes "https" schadet nicht – es macht nur das eigene Cookie
- * strenger.
+ * selbst und überschreibt, was ein Client mitschickt. Ein vorgetäuschtes
+ * "https" schadet nicht – es macht nur das eigene Cookie strenger (und ein
+ * Passkey prüft ohnehin den Origin im Browser).
  */
 export function viaHttps(request: FastifyRequest): boolean {
   const v = request.headers['x-forwarded-proto']
   return (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim() === 'https'
 }
 
-export function setSessionCookie(reply: FastifyReply, request: FastifyRequest): void {
-  reply.setCookie(SESSION_COOKIE, String(Date.now()), {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    // M4: Secure, sobald über HTTPS angemeldet. Über nip.io (HTTP, kein
-    // Zertifikat) bleibt der Login möglich – sonst wäre der Rückfall zu.
-    secure: viaHttps(request),
-    signed: true,
-    maxAge: SESSION_MAX_AGE_S,
+/** Passkeys auf dieser Adresse? (auth/rp.ts) */
+export function passkeyHost(request: FastifyRequest): { dto: PasskeyHostDto; rp: RpContext | null; host: string | null } {
+  const origin = request.headers.origin
+  const r = passkeyHostFor({
+    host: hostHeader(request.headers.host),
+    https: viaHttps(request),
+    tls: cf.tls(),
+    baseDomain: cf.baseDomain(),
+    label: UI_HOST_LABEL,
+    dev: config.NODE_ENV === 'development',
+    origin: typeof origin === 'string' ? origin : null,
   })
+  return { ...r, host: r.dto.rpId }
+}
+
+export function requirePasskeyHost(request: FastifyRequest): RpContext {
+  const { rp, dto } = passkeyHost(request)
+  if (!rp) {
+    throw new AppError('passkey_unavailable', dto.mainUrl
+      ? `Passkeys gelten nur unter ${dto.mainUrl}. Hier mit Passwort und Authenticator-Code anmelden.`
+      : 'Passkeys brauchen HTTPS unter dem internen Namen der Oberfläche. Hier mit Passwort und Authenticator-Code anmelden.', 400)
+  }
+  return rp
+}
+
+/* --- Cookies ------------------------------------------------------------------ */
+
+const cookieBase = (request: FastifyRequest) => ({
+  path: '/',
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  // Secure, sobald über HTTPS. Über nip.io (HTTP, kein Zertifikat) bleibt der
+  // Login möglich – sonst wäre der Rückfall zu.
+  secure: viaHttps(request),
+  signed: true,
+})
+
+export function setSessionCookie(reply: FastifyReply, request: FastifyRequest, token: string): void {
+  reply.setCookie(SESSION_COOKIE, token, { ...cookieBase(request), maxAge: SESSION_MAX_AGE_MS / 1000 })
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, { path: '/' })
 }
 
-export function isLoggedIn(request: FastifyRequest): boolean {
-  const issued = sessionStart(request)
-  if (issued === null) return false
-  if (issued < validAfter) return false
-  return Date.now() - issued < SESSION_MAX_AGE_S * 1000
+export function setShortCookie(reply: FastifyReply, request: FastifyRequest, name: string, value: string): void {
+  reply.setCookie(name, value, { ...cookieBase(request), maxAge: 5 * 60 })
 }
+
+export function clearShortCookie(reply: FastifyReply, name: string): void {
+  reply.clearCookie(name, { path: '/' })
+}
+
+/** Wert eines signierten Cookies oder null */
+export function signedCookie(request: FastifyRequest, name: string): string | null {
+  const raw = request.cookies[name]
+  if (!raw) return null
+  const r = request.unsignCookie(raw)
+  return r.valid && r.value ? r.value : null
+}
+
+/** Sitzung zur Anfrage (null = nicht angemeldet). Merkt sie sich an der Anfrage. */
+export async function currentSession(request: FastifyRequest): Promise<SessionRow | null> {
+  if (request.authSession !== undefined && request.authSession !== null) return request.authSession
+  const s = await auth().resolveSession(signedCookie(request, SESSION_COOKIE), clientInfo(request).ip)
+  request.authSession = s
+  return s
+}
+
+/** Sitzung oder 401 (für Routen, die nur mit Anmeldung gehen) */
+export function sessionOf(request: FastifyRequest): SessionRow {
+  if (!request.authSession) throw unauthorized()
+  return request.authSession
+}
+
+/**
+ * Erneute Bestätigung verlangen (sudo, 10 Min.) – nur für Anmeldungen in der
+ * Oberfläche. API-Tokens und MCP bleiben, wie sie sind (Auftrag); was dort
+ * heikel ist, hat eigene Bestätigungen bzw. ist für Tokens ganz gesperrt.
+ */
+export function requireSudo(request: FastifyRequest): void {
+  if (request.tokenId) return
+  auth().requireSudo(sessionOf(request))
+}
+
+/**
+ * Heikle Aktionen: nur nach erneuter Bestätigung. Entschieden am
+ * Routenmuster wie der Wächter selbst. Dazu kommen die Änderungen am zweiten
+ * Faktor (auth/service.ts prüft selbst) und «öffentlich schalten» über
+ * PUT /projects/:id/routes (prüft der Handler, nur wenn es neu öffentlich wird).
+ */
+export const SUDO_ROUTES: readonly string[] = [
+  'POST /api/v1/projects/:id/public',
+  'POST /api/v1/projects/:id/public/resume',
+  'POST /api/v1/projects/:id/public/request/approve',
+  'DELETE /api/v1/projects/:id',
+  'POST /api/v1/tokens',
+  'POST /api/v1/environments/:env/tokens',
+  'POST /api/v1/system/backup/restore',
+]
+const sudoRoutes = new Set(SUDO_ROUTES)
 
 declare module 'fastify' {
   interface FastifyRequest {
     /** "ui:joel" bei Anmeldung, "token:<name>" bei API-Token (M3). */
     actor: string
     tokenId: string | null
+    /** Sitzung der Oberfläche (null ohne Anmeldung oder bei API-Token) */
+    authSession: SessionRow | null
   }
 }
+
+/** Ohne Anmeldung erreichbar (Routenmuster) */
+export const OPEN_ROUTES = new Set([
+  '/api/v1/auth/login', '/api/v1/auth/login/second-factor', '/api/v1/auth/passkey/login/options', '/api/v1/auth/passkey/login',
+  '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key',
+])
 
 /**
  * Schuetzt alles unter /api/v1 ausser den ausdruecklich offenen Pfaden.
@@ -177,11 +293,11 @@ declare module 'fastify' {
  * Token könnte sich sonst ein zweites anlegen und den Widerruf überdauern.
  */
 export function registerAuthGuard(app: FastifyInstance): void {
-  // M8: CSP-Meldungen kommen von Browsern ohne Anmeldung (Schlüssel im Pfad)
-  const open = new Set(['/api/v1/auth/login', '/api/v1/auth/me', '/health', '/api/v1/csp-reports/:key'])
   app.decorateRequest('actor', '')
   app.decorateRequest('tokenId', null)
+  app.decorateRequest('authSession', null)
   app.decorateRequest('scope', null as never)
+  if (!fixedPeers) refreshCaddyPeers()
   app.addHook('onRequest', async (request) => {
     // Entschieden wird am ROUTENMUSTER, das der Router gewählt hat – nie am
     // rohen Pfad. Der Router dekodiert Prozentkodierung: "/%61pi/v1/projects"
@@ -191,7 +307,7 @@ export function registerAuthGuard(app: FastifyInstance): void {
     const route = request.routeOptions.url
     if (!route) return // keine Route: 404 ohne Daten
     if (!route.startsWith('/api/')) return
-    if (open.has(route)) return
+    if (OPEN_ROUTES.has(route)) return
 
     const bearer = bearerFrom(request.headers.authorization)
     if (bearer) {
@@ -245,9 +361,12 @@ export function registerAuthGuard(app: FastifyInstance): void {
       request.scope = inEnvironment(identity.environmentId)
       return
     }
-    if (!isLoggedIn(request)) throw unauthorized()
+    const session = await currentSession(request)
+    if (!session) throw unauthorized()
     request.actor = 'ui:joel'
     request.scope = sessionScope()
+    // Etappe 1 (Nacht 3): heikle Aktionen nur nach erneuter Bestätigung
+    if (sudoRoutes.has(`${request.method} ${route}`)) auth().requireSudo(session)
   })
 }
 

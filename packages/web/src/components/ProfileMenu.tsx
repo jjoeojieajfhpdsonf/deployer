@@ -74,6 +74,7 @@ export function ProfileMenu({ me }: { me: MeDto }) {
         </div>
         <div className="menu-sep" />
         <Link role="menuitem" to="/konto" onClick={close}>Konto</Link>
+        <Link role="menuitem" to="/konto/sicherheit" onClick={close}>Sicherheit</Link>
         <Link role="menuitem" to="/konto#passwort" onClick={close}>Passwort ändern</Link>
         <div className="menu-sep" />
         <div role="group" aria-label="Darstellung">

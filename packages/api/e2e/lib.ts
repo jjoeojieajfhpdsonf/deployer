@@ -52,7 +52,14 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   })
   const text = await res.text()
-  return { status: res.status, data: (text ? JSON.parse(text) : {}) as T }
+  const data = (text ? JSON.parse(text) : {}) as T
+  // Nacht 3: heikle Aktionen verlangen eine erneute Bestätigung (10 Min.) – wie die Oberfläche bestätigen und wiederholen
+  if (res.status === 403 && (data as { error?: { code?: string } }).error?.code === 'sudo_required') {
+    const s = await fetch(`${BASE}/api/v1/auth/sudo`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ password: env.ADMIN_PASSWORD }) })
+    if (!s.ok) throw new Error(`Bestätigung fehlgeschlagen: ${s.status}`)
+    return api<T>(method, path, body)
+  }
+  return { status: res.status, data }
 }
 
 export async function upload(name: string, content: Buffer | string): Promise<string> {

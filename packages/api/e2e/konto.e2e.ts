@@ -44,12 +44,13 @@ describe('Konto: Passwort ändern', () => {
       const r = await change(a, original, neu)
       assert.equal(r.status, 200, JSON.stringify(r.data))
       current = neu
-      session = r.cookie
-      assert.equal((await me(r.cookie)).loggedIn, true, 'eigene Sitzung bleibt (neues Cookie)')
+      // Nacht 3: Sitzungen stehen in der Datenbank – die eigene bleibt mit demselben Cookie gültig
+      session = r.cookie || a
+      assert.equal((await me(session)).loggedIn, true, 'eigene Sitzung bleibt')
       assert.equal((await me(b)).loggedIn, false, 'andere Sitzung abgemeldet')
       assert.equal(await loginWith(original), null, 'altes Passwort gilt nicht mehr')
       assert.ok(await loginWith(neu))
-      assert.equal((await me(r.cookie)).passwordSource, 'ui')
+      assert.equal((await me(session)).passwordSource, 'ui')
     } finally {
       if (current !== original) {
         const back = await change(session, current, original)
