@@ -1059,9 +1059,43 @@ const shots: Shot[] = [
   { group: 'besucher', name: 'besucher-wartet', path: `/projekte/${H}?tab=besucher`, traffic: 'wartet', full: false },
   { group: 'besucher', name: 'besucher-aus', path: `/projekte/${H}?tab=besucher`, traffic: 'aus', full: false },
   {
-    group: 'besucher', name: 'besucher-wert', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false, el: '.tr-page > .panel',
-    prepare: async (pg) => { await pg.locator('.tr-chart svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+    group: 'besucher', name: 'besucher-wert', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false, el: '.vs-main',
+    prepare: async (pg) => { await pg.locator('.vs-plot svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
   },
+  // Besucher neu: Messbeginn im Zeitraum (Achse ab Messbeginn, Stunden), Säulen nach Zugang (Präferenz),
+  // Heute, 12 Monate, Kennzahl «Nicht gefunden» als Kurve, Europa-Ausschnitt mit Tooltip, Einstiegsseiten,
+  // Server › Besucher (Quellen)
+  { group: 'besucher', name: 'besucher-messbeginn', path: `/projekte/${H}?tab=besucher`, traffic: 'jung' },
+  {
+    group: 'besucher', name: 'besucher-saeulen', path: `/projekte/${H}?tab=besucher`, traffic: 'jung', full: false, el: '.vs-main', me: { trafficChart: 'bars' },
+    prepare: async (pg) => { await pg.locator('.vs-plot svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+  },
+  { group: 'besucher', name: 'besucher-heute', path: `/projekte/${H}?tab=besucher&zeitraum=heute`, traffic: 'ok', full: false, el: '.vs-main' },
+  { group: 'besucher', name: 'besucher-12-monate', path: `/projekte/${H}?tab=besucher&zeitraum=12-monate`, traffic: 'ok', full: false, el: '.vs-main' },
+  {
+    group: 'besucher', name: 'besucher-kennzahl', path: `/projekte/${H}?tab=besucher&zeitraum=30-tage`, traffic: 'ok', full: false, el: '.vs-main',
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Nicht gefunden/ }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    group: 'besucher', name: 'besucher-europa', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-geo',
+    prepare: async (pg) => {
+      await pg.getByRole('group', { name: 'Kartenausschnitt' }).getByRole('button', { name: 'Europa' }).click()
+      await pg.getByRole('img', { name: /^Schweiz:/ }).focus()
+      // Fokus scrollt; der Ausschnitt (el) rechnet ab dem Seitenanfang
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'besucher', name: 'besucher-einstieg', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-grid-3',
+    prepare: async (pg) => {
+      await pg.getByRole('group', { name: 'Alle Seiten, Einstieg oder Ausstieg' }).getByRole('button', { name: 'Einstieg' }).click()
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'besucher', name: 'server-besucher', path: '/server/besucher', traffic: 'ok' },
+  { group: 'besucher', name: 'server-besucher-geladen', path: '/server/besucher', traffic: 'staedte', full: false },
   { group: 'besucher', name: 'projekt-uebersicht-besucher', path: `/projekte/${H}`, traffic: 'ok' },
   { group: 'besucher', name: 'projekte-besucher', path: '/projekte', traffic: 'ok' },
   // Ergebnisbilder der Etappe (docs/design-cal/analytics/umgesetzt-*.png)
@@ -1070,6 +1104,19 @@ const shots: Shot[] = [
   { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
   { group: 'analytics-umgesetzt', name: 'umgesetzt-uebersicht', path: `/projekte/${H}`, traffic: 'ok', full: false },
   { group: 'analytics-umgesetzt', name: 'umgesetzt-projekte', path: '/projekte', traffic: 'ok', full: false },
+  // Besucher neu: Ergebnisbilder neben der Vorlage (docs/design-cal/besucher-neu/umgesetzt-*.png)
+  { group: 'besucher-neu', name: 'umgesetzt-besucher', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  { group: 'besucher-neu', name: 'umgesetzt-messbeginn', path: `/projekte/${H}?tab=besucher`, traffic: 'jung' },
+  {
+    group: 'besucher-neu', name: 'umgesetzt-saeulen', path: `/projekte/${H}?tab=besucher`, traffic: 'jung', full: false, el: '.vs-main', me: { trafficChart: 'bars' },
+    prepare: async (pg) => { await pg.locator('.vs-plot svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+  },
+  {
+    group: 'besucher-neu', name: 'umgesetzt-flaeche', path: `/projekte/${H}?tab=besucher`, traffic: 'jung', full: false, el: '.vs-main',
+    prepare: async (pg) => { await pg.locator('.vs-plot svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+  },
+  { group: 'besucher-neu', name: 'umgesetzt-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
+  { group: 'besucher-neu', name: 'umgesetzt-server', path: '/server/besucher', traffic: 'staedte', full: false },
   { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
   { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
   {
@@ -1416,6 +1463,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
                 return json(route, fx.traffic(tm[1]!, range, way, s.traffic))
               }
               if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, ingest: 'off' } : fx.trafficToday)
+              // Besucher neu: «Gerade eben» und Server › Besucher
+              const rm = path.match(/^\/api\/v1\/projects\/([^/]+)\/traffic\/recent$/)
+              if (rm) return json(route, fx.trafficRecent(rm[1]!, s.traffic))
+              if (url.pathname === '/api/v1/system/traffic/sources') return json(route, fx.trafficSources(s.traffic))
             }
             // Etappe 4: Aufbau-Zustände und Vorschau «Dienst hinzufügen/entfernen»
             if (s.topo && /^\/api\/v1\/projects\/[^/]+\/topology$/.test(path)) {

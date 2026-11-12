@@ -9,10 +9,10 @@ import type {
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
-  TrafficPointDto, TrafficRange, TrafficRowDto, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
+  TrafficRange, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
   PreviewDto, PreviewsDto,
 } from '@airlock/shared'
-import { TRAFFIC_RANGES, TRAFFIC_WAYS } from '@airlock/shared'
+import { trafficSummaryFixture, type TrafficVariant } from './fixtures-traffic.js'
 import { addDays, availabilityOf, dayInZone, overallOf, statusDays } from '@airlock/shared'
 import type { IncidentDto, PublicStatusIncident, PublicStatusJson, PublicStatusProject, StatusDayCount, StatusPageDto } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
@@ -1391,95 +1391,14 @@ export const backupSnapshots: BackupSnapshotDto[] = [9, 33, 57, 70, 30 * 24].map
   bytesTotal: i === 4 ? 2_150_000_000 : 2_310_000_000 - i * 9_000_000,
 }))
 
-/* --- Etappe 3: Besucher ----------------------------------------------------------------
- * Erfundene, aber plausible Zahlen einer kleinen öffentlichen Seite (hallo-welt) und eines
- * internen Projekts (Fotoalbum: nur Tailnet und Heimnetz, also ohne Länder). Deterministisch
- * (keine Zufallszahlen), damit die Referenzbilder stabil bleiben.
+/* --- Etappe 3 / Besucher neu: Besucher ----------------------------------------------------
+ * Erzeugt in fixtures-traffic.ts: stündliche Zähler wie aus der Datenbank, ausgewertet mit
+ * derselben Rechnung wie die API (summarize aus @airlock/shared). Deterministisch.
  */
-
-export type TrafficVariant = 'ok' | 'staedte' | 'leer' | 'wartet' | 'aus'
-
-/** Tagesverlauf (Ortszeit-Stunde → Gewicht): nachts wenig, abends am meisten */
-const HOUR_SHAPE = [2, 1, 1, 1, 1, 2, 4, 7, 9, 10, 10, 11, 12, 11, 10, 10, 11, 13, 15, 16, 14, 11, 7, 4]
-/** Wochentag-Schwankung, fest */
-const DAY_SHAPE = [0.92, 1.04, 1.1, 0.97, 1.21, 0.78, 0.71]
+export { trafficRecent, trafficSources, type TrafficVariant } from './fixtures-traffic.js'
 
 export function traffic(id: string, range: TrafficRange, way: TrafficWay | 'all', v: TrafficVariant = 'ok'): TrafficSummaryDto {
-  const r = TRAFFIC_RANGES.find((x) => x.key === range)!
-  const internal = id !== 'p-hallo' && id !== 'p-haushalt'
-  // Anteile je Zugang (intern: kein Internet)
-  const share: Record<TrafficWay, number> = internal ? { public: 0, tailnet: 0.7, lan: 0.3 } : { public: 0.93, tailnet: 0.05, lan: 0.02 }
-  const perDay = v === 'leer' ? 0 : internal ? 46 : 280
-  const f = way === 'all' ? 1 : share[way]
-  const now = Date.now()
-  const series: TrafficPointDto[] = []
-  if (r.bucket === 'hour') {
-    const h0 = Math.floor(now / HOUR) * HOUR
-    for (let i = 23; i >= 0; i--) {
-      const at = h0 - i * HOUR
-      const local = new Date(at).getHours()
-      const views = Math.round((perDay * f * HOUR_SHAPE[local]!) / 206 * (1 + ((i * 7) % 5) / 10))
-      series.push({ at: new Date(at).toISOString(), views, visitors: Math.round(views * 0.42) })
-    }
-  } else {
-    const days = r.hours / 24
-    const today = new Date(now)
-    today.setHours(0, 0, 0, 0)
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(d.getDate() - i)
-      const growth = 0.75 + (0.25 * (days - i)) / days
-      const views = Math.round(perDay * f * DAY_SHAPE[d.getDay()]! * growth * (i === 0 ? 0.6 : 1))
-      series.push({ at: d.toISOString(), views, visitors: Math.round(views * 0.38) })
-    }
-  }
-  const views = series.reduce((a, p) => a + p.views, 0)
-  const visitors = series.reduce((a, p) => a + p.visitors, 0)
-  const rows = (list: [string, number][]): TrafficRowDto[] => list.map(([key, p]) => ({ key, views: Math.round(views * p), visitors: Math.round(visitors * p) })).filter((x) => x.views > 0)
-  const pages = internal
-    ? rows([['/', 0.38], ['/alben/sommer-2026', 0.21], ['/alben/hochzeit', 0.14], ['/suche', 0.11], ['/alben/neu', 0.08], ['/einstellungen', 0.05], ['/alt/galerie', 0.03]])
-    : rows([['/', 0.41], ['/blog/homeserver-mit-airlock', 0.22], ['/blog/caddy-und-tailscale', 0.12], ['/projekte', 0.09], ['/kontakt', 0.06], ['/impressum', 0.04], ['/feed.xml', 0.03], ['/wp-login.php', 0.02]])
-  const referrers = internal
-    ? rows([['', 0.97], ['nas.int.example.ch', 0.03]])
-    : rows([['', 0.46], ['google.com', 0.24], ['news.ycombinator.com', 0.11], ['duckduckgo.com', 0.07], ['github.com', 0.05], ['newsletter', 0.04], ['linkedin.com', 0.03]])
-  const showCountries = !internal && (way === 'all' || way === 'public')
-  const pub = Math.round(views * (way === 'all' ? share.public : 1))
-  const cRows = (list: [string, number][]): TrafficRowDto[] => list.map(([key, p]) => ({ key, views: Math.round(pub * p), visitors: Math.round(pub * p * 0.4) })).filter((x) => x.views > 0)
-  const countries = showCountries
-    ? cRows([['CH', 0.48], ['DE', 0.19], ['US', 0.09], ['AT', 0.06], ['FR', 0.04], ['NL', 0.03], ['GB', 0.03], ['IT', 0.02], ['SE', 0.015], ['CA', 0.012], ['JP', 0.01], ['BR', 0.008], ['IN', 0.006], ['AU', 0.005], ['', 0.004]])
-    : []
-  const cities = showCountries && v === 'staedte'
-    ? cRows([['Zürich', 0.17], ['Bern', 0.08], ['Berlin', 0.07], ['Basel', 0.06], ['Wien', 0.05], ['Luzern', 0.04], ['München', 0.04], ['St. Gallen', 0.03], ['Winterthur', 0.03], ['Hamburg', 0.02]])
-      .map((c) => ({ ...c, country: ({ Berlin: 'DE', München: 'DE', Hamburg: 'DE', Wien: 'AT' } as Record<string, string>)[c.key] ?? 'CH' }))
-    : []
-  const ways = TRAFFIC_WAYS.map((w) => {
-    const total = views / f
-    return { way: w, views: Math.round(total * share[w]), visitors: Math.round(total * share[w] * 0.38) }
-  })
-  // Gesamt: Summe der Wege gleich der angezeigten Summe (Rundung dem grössten Weg zuschlagen)
-  if (way === 'all') ways[internal ? 1 : 0]!.views += views - ways.reduce((a, w) => a + w.views, 0)
-  return {
-    range, way,
-    from: series[0]?.at ?? new Date(now).toISOString(),
-    to: new Date(now).toISOString(),
-    bucket: r.bucket,
-    totals: { views, visitors, bots: v === 'leer' ? 0 : Math.round(views * (internal ? 0.1 : 0.62)) },
-    ways: v === 'leer' ? ways.map((w) => ({ ...w, views: 0, visitors: 0 })) : ways,
-    series,
-    pages, referrers, countries, cities,
-    devices: rows([['desktop', internal ? 0.44 : 0.58], ['mobile', internal ? 0.49 : 0.37], ['tablet', internal ? 0.07 : 0.05]]),
-    statuses: views ? [
-      { status: 200, views: Math.round(views * 0.86) },
-      { status: 304, views: Math.round(views * 0.09) },
-      { status: 404, views: Math.round(views * (internal ? 0.04 : 0.045)) },
-      ...(internal ? [] : [{ status: 500, views: Math.max(1, Math.round(views * 0.005)) }]),
-    ] : [],
-    source: {
-      ingest: v === 'wartet' ? 'waiting' : v === 'aus' ? 'off' : 'ok',
-      since: ago(41 * DAY),
-      cityDb: v === 'staedte' ? '2026-11' : null,
-    },
-  }
+  return trafficSummaryFixture(id, range, way, v)
 }
 
 /** Projektliste: Aufrufe heute (nur mit Besucher-Auswertung) */

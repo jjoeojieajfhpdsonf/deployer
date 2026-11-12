@@ -1337,6 +1337,8 @@ export const uiPrefsSchema = z.object({
   matrix: z.boolean().optional(),
   /** Etappe 7: Helferfigur Disketti (nur im Windows-95-Theme). «Nie wieder» setzt false. Fehlt = an */
   disketti: z.boolean().optional(),
+  /** Besucher neu: Kurve als Fläche oder Säulen. Fehlt = Fläche */
+  trafficChart: z.enum(['area', 'bars']).optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
 /**
@@ -1479,6 +1481,8 @@ export * from './backup.js'
 export * from './topology.js'
 /* Etappe 3: Besucher und Herkunft aus Caddys Zugriffs-Log */
 export * from './traffic.js'
+/* Besucher neu: reine Auswertung der Zähler (API und Bilder der Oberfläche) */
+export * from './traffic-summary.js'
 /* Etappe 4: Dienst hinzufügen und entfernen (Aufbau) */
 export * from './services.js'
 /* Etappe 5: öffentliche Statusseite (Daten, Renderer für Seite und RSS) */

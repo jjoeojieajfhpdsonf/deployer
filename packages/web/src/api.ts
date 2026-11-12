@@ -11,7 +11,7 @@ import type {
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   TopologyDto,
   ServiceChangeDto, ServiceChangeInput, ServicePlanDto,
-  TrafficSummaryDto, TrafficTodayDto, TrafficLiveEventDto, TrafficRange, TrafficWay,
+  TrafficSummaryDto, TrafficTodayDto, TrafficLiveEventDto, TrafficRange, TrafficWay, TrafficGeoSourcesDto, TrafficRecentDto,
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
   BackupRestoreDto, BackupRestorePreviewDto,
@@ -96,6 +96,8 @@ export interface MeDto {
   fun?: boolean
   matrix?: boolean
   disketti?: boolean
+  /** Besucher neu: Kurve als Fläche (Standard) oder Säulen */
+  trafficChart?: 'area' | 'bars'
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -277,6 +279,14 @@ export const api = {
   trafficToday: () => call<TrafficTodayDto>(e('/traffic/today')),
   /** Städte-Datenbank (DB-IP «IP to City Lite», CC BY 4.0) auf den Server laden; danach monatlich aktuell */
   loadCityDb: () => call<{ month: string | null; downloadedAt: string | null }>('/system/traffic/city-db', { method: 'POST' }),
+  removeCityDb: () => call<{ month: null }>('/system/traffic/city-db', { method: 'DELETE' }),
+  /** Besucher neu: Provider-Datenbank (DB-IP «IP to ASN Lite», CC BY 4.0) – Netz und Rechenzentren */
+  loadAsnDb: () => call<{ month: string | null; downloadedAt: string | null }>('/system/traffic/asn-db', { method: 'POST' }),
+  removeAsnDb: () => call<{ month: null }>('/system/traffic/asn-db', { method: 'DELETE' }),
+  /** Stand der DB-IP-Dateien und ob Cloudflare Städte schickt (Server › Besucher) */
+  trafficSources: () => call<TrafficGeoSourcesDto>('/system/traffic/sources'),
+  /** «Gerade eben»: letzte Seitenaufrufe aus dem Speicher des Servers (ohne IP, ohne Kennung) */
+  trafficRecent: (id: string) => call<TrafficRecentDto>(`/projects/${id}/traffic/recent`),
   /** Adresse vom Server aus prüfen (http-Adressen auf einer https-Seite) */
   addressCheck: (id: string, url: string) => call<AddressCheckDto>(`/projects/${id}/address-check?url=${encodeURIComponent(url)}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),

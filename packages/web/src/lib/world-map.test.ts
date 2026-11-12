@@ -31,6 +31,11 @@ describe('Weltkarte: TopoJSON → SVG-Pfade', () => {
     assert.ok(!codes.has('AQ'))
     assert.ok(s.length > 170)
     assert.equal(codes.size, s.length, 'jeder Code nur einmal')
+    // Punkt «letzter Aufruf»: Mitte des Landes (Schweiz um 8° O / 47° N; USA ohne Alaska)
+    const ch = s.find((x) => x.code === 'CH')!
+    assert.ok(Math.abs(ch.cx - 188.2) < 1.5 && Math.abs(ch.cy - (84 - 46.8)) < 1.5, `CH ${ch.cx},${ch.cy}`)
+    const us = s.find((x) => x.code === 'US')!
+    assert.ok(us.cx > 180 - 105 && us.cx < 180 - 90, `US ${us.cx}`)
     for (const x of s) {
       for (const [, a, b] of x.d.matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)) {
         assert.ok(Number(a) >= 0 && Number(a) <= MAP_WIDTH && Number(b) >= 0 && Number(b) <= MAP_HEIGHT, `${x.code} ausserhalb`)

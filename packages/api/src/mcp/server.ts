@@ -253,12 +253,13 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   })
 
   // Etappe 3: nur lesen – Zähler aus Caddys Zugriffs-Log, keine IPs, keine einzelnen Anfragen
-  tool('get_traffic', 'Besucher eines Projekts (nur lesen): Aufrufe und eindeutige Besucher je Tag, Verlauf, Top-Seiten, Referrer, Länder, Geräte, Statuscodes, getrennt nach Internet, Tailnet und Heimnetz. Ohne Cookies und ohne gespeicherte IP; Bots, Healthchecks und eigene Prüfungen sind nicht mitgezählt.', {
+  tool('get_traffic', 'Besucher eines Projekts (nur lesen): Aufrufe und eindeutige Besucher je Tag, Seiten pro Besucher, Nicht gefunden (404, mit Scanner-Hinweis), Verlauf, Top-Seiten, Einstiegs- und Ausstiegsseiten, Referrer, Kampagnen (utm_*), Länder, Städte, Geräte, Browser, Systeme, Sprachen, Netze/Provider (mit Rechenzentren), Statuscodes, Vergleich zum Vorzeitraum, getrennt nach Internet, Tailnet und Heimnetz. Ohne Cookies und ohne gespeicherte IP; Bots, Rechenzentren, Healthchecks und eigene Prüfungen sind nicht mitgezählt.', {
     project,
-    range: z.enum(['24h', '7d', '30d']).default('7d').describe('Zeitraum: letzte 24 Stunden (stündlich), 7 oder 30 Tage (täglich)'),
+    range: z.enum(['today', '24h', '7d', '30d', '12m']).default('7d').describe('Zeitraum: heute (seit Mitternacht), letzte 24 Stunden, 7 oder 30 Tage, 12 Monate. Auflösung automatisch (resolution), nie vor dem Messbeginn (measured_since).'),
+    access: z.enum(['all', 'public', 'tailnet', 'lan']).default('all').describe('Zugang: alle, Internet, Tailnet oder Heimnetz'),
   }, async (a) => {
     const p = await findProject(scope, a.project)
-    return ok(mcpTraffic(p.slug, await trafficSummary(p.id, a.range, 'all')))
+    return ok(mcpTraffic(p.slug, await trafficSummary(p.id, a.range, a.access)))
   })
 
   /* --- Anlegen und Dateien --------------------------------------------------- */

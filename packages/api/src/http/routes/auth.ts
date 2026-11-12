@@ -52,6 +52,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       fun: prefs.fun !== false,
       matrix: prefs.matrix === true,
       disketti: prefs.disketti !== false,
+      // Besucher neu: Kurve als Fläche (Standard) oder Säulen
+      trafficChart: prefs.trafficChart ?? 'area',
     }
   })
 

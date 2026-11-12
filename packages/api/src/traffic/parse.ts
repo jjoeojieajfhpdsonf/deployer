@@ -32,6 +32,21 @@ export interface AccessLine {
   contentType: string
   /** Vom IP-Filter abgewiesen (Antwort trägt X-Airlock-Block, caddy-config.ts) */
   blocked: boolean
+  /** Accept-Language (nur die erste Sprache wird ausgewertet) */
+  acceptLanguage: string
+  /** Client Hints: Sec-CH-UA, Sec-CH-UA-Platform, Sec-CH-UA-Platform-Version (nur Familie und Hauptversion) */
+  chUa: string
+  chPlatform: string
+  chPlatformVersion: string
+  /** DNT: 1 oder Sec-GPC: 1 – zählt, aber ohne Einstieg/Ausstieg */
+  optOut: boolean
+  /**
+   * Cloudflare «Add visitor location headers» (Managed Transform): Stadt und
+   * Region. Koordinaten (cf-iplatitude/-longitude) und PLZ (cf-postal-code)
+   * liest Airlock bewusst nicht.
+   */
+  cfCity: string
+  cfRegion: string
 }
 
 type Headers = Record<string, string[] | string | undefined>
@@ -45,6 +60,20 @@ function header(h: Headers | undefined, name: string): string {
     return typeof s === 'string' ? s : ''
   }
   return ''
+}
+
+/** Wert einer Cloudflare-Kopfzeile: getrimmt, ohne Steuerzeichen, %-Kodierung aufgelöst, höchstens 80 Zeichen */
+export function decodeCf(v: string): string {
+  let s = v.trim()
+  if (/%[0-9a-f]{2}/i.test(s)) {
+    try {
+      s = decodeURIComponent(s)
+    } catch {
+      // bleibt wie geliefert
+    }
+  }
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80)
 }
 
 /** null: keine Zeile des Besucher-Loggers oder unlesbar */
@@ -81,5 +110,12 @@ export function parseAccessLine(line: string, logger = VISITS_LOGGER): AccessLin
     country: header(r.headers, 'Cf-Ipcountry').toUpperCase().slice(0, 2),
     contentType: header(j.resp_headers, 'Content-Type').toLowerCase(),
     blocked: header(j.resp_headers, 'X-Airlock-Block') !== '',
+    acceptLanguage: header(r.headers, 'Accept-Language').slice(0, 200),
+    chUa: header(r.headers, 'Sec-Ch-Ua').slice(0, 300),
+    chPlatform: header(r.headers, 'Sec-Ch-Ua-Platform').slice(0, 60),
+    chPlatformVersion: header(r.headers, 'Sec-Ch-Ua-Platform-Version').slice(0, 30),
+    optOut: header(r.headers, 'Dnt').trim() === '1' || header(r.headers, 'Sec-Gpc').trim() === '1',
+    cfCity: decodeCf(header(r.headers, 'Cf-Ipcity')),
+    cfRegion: decodeCf(header(r.headers, 'Cf-Region')),
   }
 }

@@ -19,6 +19,8 @@ export interface LineInput {
   contentType?: string | null
   blocked?: boolean
   logger?: string
+  /** Weitere Kopfzeilen der Anfrage (kanonische Schreibweise, wie Caddy sie loggt) */
+  headers?: Record<string, string>
 }
 
 export function caddyLine(o: LineInput = {}): string {
@@ -26,6 +28,7 @@ export function caddyLine(o: LineInput = {}): string {
   if (o.ua !== null) headers['User-Agent'] = [o.ua ?? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15']
   if (o.referer) headers.Referer = [o.referer]
   if (o.country) headers['Cf-Ipcountry'] = [o.country]
+  for (const [k, v] of Object.entries(o.headers ?? {})) headers[k] = [v]
   headers.Cookie = ['REDACTED']
   const resp: Record<string, string[]> = { Server: ['Caddy'] }
   if (o.contentType !== null) resp['Content-Type'] = [o.contentType ?? 'text/html; charset=utf-8']

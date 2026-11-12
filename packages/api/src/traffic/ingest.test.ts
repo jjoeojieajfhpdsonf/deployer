@@ -1,10 +1,10 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import type { TrafficLiveEventDto } from '@airlock/shared'
-import { TrafficAggregator } from './aggregate.js'
+import { INTERNAL_REFERRER, TRAFFIC_SEP, type TrafficLiveEventDto } from '@airlock/shared'
+import { TrafficAggregator, TrafficDimAggregator } from './aggregate.js'
 import { TrafficProcessor, type HostInfo } from './ingest.js'
 import { VisitorCounter } from './visitor.js'
-import { MmdbReader, bufferSource, cityFromRecord } from './mmdb.js'
+import { MmdbReader, asnFromRecord, bufferSource, cityFromRecord } from './mmdb.js'
 import { buildMmdb, cityRecord } from './mmdb-fixture.js'
 import { caddyLine } from './test-lines.js'
 
@@ -35,7 +35,7 @@ describe('Besucher-Ingest: Zeile → Live-Strom und Zähler', () => {
   test('Seite aus dem Heimnetz: ein Aufruf, ein Besucher, ein Live-Ereignis ohne IP', () => {
     const { p, aggregator, events } = setup()
     assert.equal(p.handle(caddyLine({ ts: T, ip: '192.168.1.20', uri: '/galerie?id=7' })), 'page')
-    assert.deepEqual(events, [['p1', { at: '2026-11-11T14:30:00.000Z', access: 'lan', host: 'foto.int.example.ch', service: 'web', status: 200, blocked: false, bot: false }]])
+    assert.deepEqual(events, [['p1', { at: '2026-11-11T14:30:00.000Z', access: 'lan', host: 'foto.int.example.ch', service: 'web', status: 200, blocked: false, bot: false, page: true, path: '/galerie' }]])
     const [row] = aggregator.peek()
     assert.equal(row!.way, 'lan')
     assert.equal(row!.path, '/galerie')
@@ -124,9 +124,119 @@ describe('Besucher-Ingest: Zeile → Live-Strom und Zähler', () => {
     assert.equal(events.length, 0)
   })
 
-  test('404 bleibt mit Pfad (kaputte Links), Status gezählt', () => {
+  test('404 bleibt mit Pfad (kaputte Links), Status gezählt, aber kein Besucher', () => {
     const { p, aggregator } = setup()
     p.handle(caddyLine({ ts: T, uri: '/alt', status: 404 }))
-    assert.deepEqual(aggregator.peek().map((r) => [r.path, r.status]), [['/alt', 404]])
+    assert.deepEqual(aggregator.peek().map((r) => [r.path, r.status, r.visitors]), [['/alt', 404, 0]])
+    // Danach eine Seite: jetzt erst zählt der Besucher
+    p.handle(caddyLine({ ts: T + 5, uri: '/' }))
+    assert.equal(aggregator.peek().find((r) => r.path === '/')!.visitors, 1)
+  })
+})
+
+describe('Besucher-Ingest «Besucher neu»: Merkmale, Besuche, Herkunft', () => {
+  const ASN_DB = new MmdbReader(bufferSource(buildMmdb([
+    ['203.0.113.0/24', { autonomous_system_number: 13030, autonomous_system_organization: 'Init7 (Switzerland) Ltd.' }],
+    ['198.51.100.0/24', { autonomous_system_number: 24940, autonomous_system_organization: 'Hetzner Online GmbH' }],
+  ], { databaseType: 'DBIP-ASN-Lite (compat=GeoLite2-ASN)' })))
+
+  function full(o: { city?: boolean } = {}) {
+    const aggregator = new TrafficAggregator()
+    const dims = new TrafficDimAggregator()
+    const events: [string, TrafficLiveEventDto][] = []
+    const measured: [string, number][] = []
+    let cf = false
+    const geo = o.city ? new MmdbReader(bufferSource(buildMmdb([['203.0.113.0/24', cityRecord('Winterthur', 'CH')]]))) : null
+    const p = new TrafficProcessor({
+      aggregator, dims,
+      visitors: new VisitorCounter('Europe/Zurich', T * 1000),
+      hosts: () => hosts,
+      city: (ip) => (geo ? cityFromRecord(geo.get(ip)) : null),
+      asn: (ip) => asnFromRecord(ASN_DB.get(ip)),
+      hasPages: new Set(),
+      emit: (id, e) => events.push([id, e]),
+      measured: (id, at) => measured.push([id, at]),
+      cfLocation: () => { cf = true },
+    })
+    return { p, aggregator, dims, events, measured, cf: () => cf }
+  }
+  const dimsOf = (d: TrafficDimAggregator, dim: string) => d.peek().filter((r) => r.dim === dim).map((r) => [r.value, r.views, r.visitors])
+
+  test('Sprache, Browser, System, Netz und Kampagne je Aufruf; Query sonst nirgends', () => {
+    const { p, dims, aggregator } = full()
+    p.handle(caddyLine({
+      ts: T, ip: '203.0.113.42', host: 'foto.example.ch', country: 'CH', uri: '/?utm_source=Newsletter&utm_medium=email&utm_campaign=herbst&email=geheim%40example.ch',
+      headers: { 'Accept-Language': 'de-CH,de;q=0.9', 'Sec-Ch-Ua': '"Brave";v="131", "Chromium";v="131"', 'Sec-Ch-Ua-Platform': '"macOS"' },
+    }))
+    assert.deepEqual(dimsOf(dims, 'lang'), [['de-CH', 1, 1]])
+    assert.deepEqual(dimsOf(dims, 'browser'), [['Brave 131', 1, 1]])
+    assert.deepEqual(dimsOf(dims, 'os'), [['macOS', 1, 1]])
+    assert.deepEqual(dimsOf(dims, 'asn'), [['13030 Init7 (Switzerland) Ltd.', 1, 1]])
+    assert.deepEqual(dimsOf(dims, 'utm'), [[['newsletter', 'email', 'herbst'].join(TRAFFIC_SEP), 1, 1]])
+    assert.deepEqual(dimsOf(dims, 'entry'), [['/', 1, 1]])
+    assert.ok(!JSON.stringify([dims.peek(), aggregator.peek()]).includes('geheim'))
+  })
+
+  test('Browser aus Rechenzentrum: Bot (mit Netz), kein Aufruf, kein Besucher', () => {
+    const { p, aggregator, dims, events } = full()
+    assert.equal(p.handle(caddyLine({ ts: T, ip: '198.51.100.7', host: 'foto.example.ch', country: 'DE' })), 'bot')
+    assert.equal(events[0]![1].bot, true)
+    assert.deepEqual(aggregator.peek().map((r) => [r.bot, r.views, r.visitors]), [[true, 1, 0]])
+    assert.deepEqual(dims.peek().map((r) => [r.dim, r.value, r.bot]), [['asn', '24940 Hetzner Online GmbH', true]])
+  })
+
+  test('Klick innerhalb der Seite: Referrer «intern», kein neuer Einstieg', () => {
+    const { p, aggregator, dims } = full()
+    p.handle(caddyLine({ ts: T, ip: '100.88.1.2', referer: 'https://www.google.com/' }))
+    p.handle(caddyLine({ ts: T + 30, ip: '100.88.1.2', uri: '/galerie', referer: 'https://foto.int.example.ch/' }))
+    assert.deepEqual(aggregator.peek().map((r) => [r.path, r.referrer, r.visitors]), [['/', 'google.com', 1], ['/galerie', INTERNAL_REFERRER, 0]])
+    assert.deepEqual(dimsOf(dims, 'entry'), [['/', 1, 1]])
+  })
+
+  test('Ausstieg: nach 30 Min. ohne Aufruf zählt der letzte Pfad, in seiner Stunde', () => {
+    const { p, dims } = full()
+    p.handle(caddyLine({ ts: T, ip: '100.88.1.2' }))
+    p.handle(caddyLine({ ts: T + 120, ip: '100.88.1.2', uri: '/kontakt' }))
+    p.sweep(T * 1000 + 10 * 60_000)
+    assert.deepEqual(dimsOf(dims, 'exit'), [])
+    p.sweep(T * 1000 + 40 * 60_000)
+    assert.deepEqual(dimsOf(dims, 'exit'), [['/kontakt', 1, 0]])
+    assert.equal(dims.peek().find((r) => r.dim === 'exit')!.hour, Date.parse('2026-11-11T14:00:00Z'))
+  })
+
+  test('DNT oder Sec-GPC: gezählt wie alle (Aufruf, Besucher, Merkmale), aber ohne Einstieg/Ausstieg', () => {
+    const { p, aggregator, dims } = full()
+    p.handle(caddyLine({ ts: T, ip: '100.88.1.2', headers: { Dnt: '1' } }))
+    p.handle(caddyLine({ ts: T, ip: '100.88.1.3', headers: { 'Sec-Gpc': '1' } }))
+    p.closeAll()
+    assert.equal(aggregator.peek()[0]!.views, 2)
+    assert.equal(aggregator.peek()[0]!.visitors, 2)
+    assert.equal(dimsOf(dims, 'browser')[0]![1], 2)
+    assert.deepEqual(dimsOf(dims, 'entry'), [])
+    assert.deepEqual(dimsOf(dims, 'exit'), [])
+  })
+
+  test('Cloudflare-Kopfzeilen: Stadt daraus statt aus DB-IP; Koordinaten und PLZ nirgends', () => {
+    const { p, aggregator, events, cf } = full({ city: true })
+    p.handle(caddyLine({
+      ts: T, ip: '203.0.113.42', host: 'foto.example.ch', country: 'CH',
+      headers: { 'Cf-Ipcity': 'Z%C3%BCrich', 'Cf-Region': 'Zurich', 'Cf-Iplatitude': '47.37', 'Cf-Iplongitude': '8.54', 'Cf-Postal-Code': '8001' },
+    }))
+    assert.equal(aggregator.peek()[0]!.city, 'Zürich')
+    assert.equal(events[0]![1].city, 'Zürich')
+    assert.equal(events[0]![1].country, 'CH')
+    assert.equal(cf(), true)
+    const dump = JSON.stringify([aggregator.peek(), events])
+    for (const s of ['47.37', '8.54', '8001']) assert.ok(!dump.includes(s), s)
+    // Ohne Cloudflare-Stadt: DB-IP
+    p.handle(caddyLine({ ts: T, ip: '203.0.113.43', host: 'foto.example.ch', country: 'CH', uri: '/b' }))
+    assert.equal(aggregator.peek().find((r) => r.path === '/b')!.city, 'Winterthur')
+  })
+
+  test('Messbeginn: jede gezählte oder live gemeldete Zeile meldet sich, eigene Prüfungen nicht', () => {
+    const { p, measured } = full()
+    p.handle(caddyLine({ ts: T, ua: 'airlock-probe (header)' }))
+    p.handle(caddyLine({ ts: T + 1, uri: '/app.css', contentType: 'text/css' }))
+    assert.deepEqual(measured, [['p1', (T + 1) * 1000]])
   })
 })

@@ -4,9 +4,9 @@ import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { MmdbReader, bufferSource, cityFromRecord, ipBytes } from './mmdb.js'
+import { MmdbReader, asnFromRecord, bufferSource, cityFromRecord, ipBytes } from './mmdb.js'
 import { buildMmdb, cityRecord } from './mmdb-fixture.js'
-import { CITY_DB_FILE, CityDb, cityDbDue, cityDbUrl, monthOf } from './geo.js'
+import { ASN_DB_FILE, AsnDb, CITY_DB_FILE, CityDb, cityDbDue, cityDbUrl, monthOf } from './geo.js'
 
 const fixture = () => buildMmdb([
   ['203.0.113.0/24', cityRecord('Zürich', 'CH', 'Zurich')],
@@ -96,6 +96,28 @@ describe('Städte: Datei laden, fehlt sie → nur Länder', () => {
     assert.deepEqual(db.lookup('198.51.100.1'), { city: 'Berlin', country: 'DE' })
     // keine temporäre Datei liegen geblieben
     assert.deepEqual((await readdir(dir)).sort(), ['dbip-city-lite.json', CITY_DB_FILE].sort())
+  })
+
+  test('Provider-Datenbank (ASN): eigene Datei neben den Städten, Netz zur IP, falscher Typ abgelehnt', async () => {
+    const dir = await tempDir()
+    const asnFile = buildMmdb([['203.0.113.0/24', { autonomous_system_number: 13030, autonomous_system_organization: 'Init7 (Switzerland) Ltd.' }]], { databaseType: 'DBIP-ASN-Lite (compat=GeoLite2-ASN)' })
+    const asked: string[] = []
+    const fakeFetch = (async (url: string) => {
+      asked.push(url)
+      return new Response(gzipSync(url.includes('asn') ? asnFile : fixture()))
+    }) as unknown as typeof fetch
+    const asn = new AsnDb(dir)
+    const info = await asn.download({ now: Date.parse('2026-11-05T00:00:00Z'), fetchImpl: fakeFetch })
+    assert.equal(asked[0], 'https://download.db-ip.com/free/dbip-asn-lite-2026-11.mmdb.gz')
+    assert.equal(info.month, '2026-11')
+    assert.deepEqual(asn.lookup('203.0.113.9'), { asn: 13030, name: 'Init7 (Switzerland) Ltd.' })
+    assert.equal(asn.lookup('198.51.100.1'), null)
+    assert.ok((await readdir(dir)).includes(ASN_DB_FILE))
+    // Eine Städte-Datei unter dem ASN-Namen: abgelehnt, die alte bleibt
+    const wrong = (async () => new Response(gzipSync(fixture()))) as unknown as typeof fetch
+    await assert.rejects(asn.download({ now: Date.parse('2026-12-05T00:00:00Z'), fetchImpl: wrong }), /Provider-Datenbank unbrauchbar/)
+    assert.equal(asn.month, '2026-11')
+    assert.deepEqual(asnFromRecord({ autonomous_system_number: 0 }), null)
   })
 
   test('kaputte Datei: alte bleibt, Fehler', async () => {

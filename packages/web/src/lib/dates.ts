@@ -77,6 +77,18 @@ export const fmtDate = (v: string | number | Date | null | undefined, fallback =
 export const fmtDayMonth = (v: string | number | Date | null | undefined, fallback = '–') =>
   fmt(v, { day: '2-digit', month: '2-digit' }, fallback)
 
+/** «Di., 10.11.» – kurzer Wochentag mit Tag und Monat (Besucher: Tag einer Kurve) */
+export const fmtWeekdayShort = (v: string | number | Date | null | undefined, fallback = '–') =>
+  fmt(v, { weekday: 'short', day: '2-digit', month: '2-digit' }, fallback)
+
+/** «November 2026» */
+export const fmtMonthYear = (v: string | number | Date | null | undefined, fallback = '–') =>
+  fmt(v, { month: 'long', year: 'numeric' }, fallback)
+
+/** «Nov.» */
+export const fmtMonthShort = (v: string | number | Date | null | undefined, fallback = '–') =>
+  fmt(v, { month: 'short' }, fallback)
+
 /** «14:05» bzw. mit Sekunden «14:05:09» */
 export const fmtTime = (v: string | number | Date | null | undefined, seconds = false, fallback = '–') =>
   fmt(v, seconds ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' }, fallback)

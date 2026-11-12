@@ -19,7 +19,7 @@ import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
 import { PreviewsSection } from '../components/Previews.js'
 import { SiteAccess } from '../components/SiteAccess.js'
-import { TrafficTab } from '../components/Traffic.js'
+import { TrafficTab } from '../components/VisitorsTab.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { poll } from '../lib/live.js'
@@ -346,7 +346,7 @@ export function ProjectDetail() {
           onService={(s) => setParams(s ? { tab: 'logs', dienst: s } : { tab: 'logs' }, { replace: true })}
         />
       ))}
-      {tab === 'besucher' && <TrafficTab p={p} onAccessLog={isStatic ? () => void setTab('logs') : undefined} />}
+      {tab === 'besucher' && <TrafficTab p={p} onAccessLog={isStatic ? () => void setTab('logs') : undefined} onLogs={() => void setTab('logs')} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings
