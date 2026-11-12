@@ -15,8 +15,7 @@ import {
   assertSourceSupported, previewName,
 } from '../../domain/projects.js'
 import { listEnvDto, replaceEnv } from '../../domain/env.js'
-import { setRoutes, reconcileCaddy, routeDtosFor } from '../../domain/routes.js'
-import { parseSiteAccess } from '../../lib/site-access.js'
+import { setRoutes, reconcileCaddy } from '../../domain/routes.js'
 import { planPublic, applyPublic, removePublic, checkPublicNameIn, publicEnabled } from '../../domain/public.js'
 import { requestPublic, approvePublicRequest } from '../../domain/public-requests.js'
 import { blockingProblems } from '../../lib/public-name-check.js'
@@ -309,41 +308,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  /**
-   * Projektseite, Reiter «Zugriffe»: Aufrufe einer statischen Seite aus
-   * Caddys Zugriffs-Log (letzte 24 Stunden, höchstens 500, IP gekürzt).
-   */
-  // UI-Qualität 4: Zeitraum wählbar (15m, 1h, 24h; Standard wie bisher 24 Stunden)
-  app.get<{ Params: IdParams; Querystring: { range?: string } }>('/projects/:id/access', async (request) => {
-    const project = await findProject(request.scope, request.params.id)
-    const hosts = await siteHosts(project)
-    const sinceMs = Date.now() - (request.query.range ? rangeMinutes(request.query.range) : 24 * 60) * 60_000
-    try {
-      const logs = await docker.getLogs(config.CADDY_CONTAINER, { tail: 20_000, since: Math.floor(sinceMs / 1000) })
-      // Höchstens 2000 (wie der Reiter «Logs»); die Oberfläche sagt «neueste 2000», wenn es mehr gab
-      return { entries: parseSiteAccess(logs, { hosts, sinceMs, limit: ACCESS_MAX }), since: new Date(sinceMs).toISOString(), error: null }
-    } catch (err) {
-      return { entries: [], since: new Date(sinceMs).toISOString(), error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
-    }
-  })
-
-  /** UI-Qualität 4: neue Zugriffe live (wie der Reiter «Logs»), aus Caddys Log gefiltert auf die Adressen des Projekts */
-  app.get<{ Params: IdParams; Querystring: { since?: string } }>('/projects/:id/access/stream', async (request, reply) => {
-    const project = await findProject(request.scope, request.params.id)
-    const hosts = await siteHosts(project)
-    const since = sinceOf(request.query.since)
-    const stream = await docker.followLogs(config.CADDY_CONTAINER, since ? since.sec : undefined, { tail: since ? undefined : 0 })
-    openSse(reply)
-    const decoder = new docker.DockerLogDecoder()
-    const emit = (lines: string[]) => {
-      // Caddy schreibt JSON-Zeilen; parseSiteAccess liefert die neuesten zuerst – gesendet wird in
-      // zeitlicher Reihenfolge, die Oberfläche setzt jeden neuen Aufruf oben ein
-      const entries = parseSiteAccess(lines.join('\n'), { hosts, sinceMs: 0 }).reverse()
-      for (const e of entries) if (!since || e.at > since.iso) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`)
-    }
-    followUntilClosed(request, reply, [stream], (chunk) => emit(decoder.push(chunk)), () => emit(decoder.flush()))
-    return reply
-  })
+  // Reiter «Zugriffe»: seit «Zugriffe neu» aus visits.log (http/routes/traffic.ts)
 
   /**
    * Neue Zeilen live, als LogLineDto (Zeit, Dienst, Stufe). Anschluss an den
@@ -375,20 +340,12 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   })
 }
 
-const ACCESS_MAX = 2000
-
 /** ?since= (ISO-Zeitpunkt der letzten bekannten Zeile) für Docker (Sekunden mit Bruchteil) und zum Vergleichen */
 function sinceOf(v: string | undefined): { sec: number; iso: string } | null {
   if (!v) return null
   const ms = Date.parse(v)
   if (!Number.isFinite(ms)) return null
   return { sec: ms / 1000, iso: new Date(ms).toISOString() }
-}
-
-/** Adressen einer statischen Seite (für das Zugriffs-Log) */
-async function siteHosts(project: { id: string; slug: string }): Promise<string[]> {
-  const routes = await routeDtosFor(project.id, project.slug)
-  return routes.flatMap((r) => [r.hostname, ...r.aliases])
 }
 
 function openSse(reply: FastifyReply): void {

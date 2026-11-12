@@ -18,7 +18,7 @@ import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
 import { PreviewsSection } from '../components/Previews.js'
-import { SiteAccess } from '../components/SiteAccess.js'
+import { Access } from '../components/Access.js'
 import { TrafficTab } from '../components/VisitorsTab.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
@@ -337,7 +337,7 @@ export function ProjectDetail() {
           onDeployments={() => void setTab('deployments')}
         />
       )}
-      {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : (
+      {tab === 'logs' && (isStatic ? <Access projectId={id} slug={p.slug} /> : (
         <LogsTab
           projectId={id}
           slug={p.slug}

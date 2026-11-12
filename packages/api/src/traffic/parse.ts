@@ -47,11 +47,25 @@ export interface AccessLine {
    */
   cfCity: string
   cfRegion: string
+  /** Zugriffe neu: «HTTP/2.0» wie von Caddy */
+  proto: string
+  /** TLS-Version als Zahl (772 = TLS 1.3), 0 ohne TLS */
+  tlsVersion: number
+  /** Dauer in Millisekunden (Caddy schreibt Sekunden), null ohne Angabe */
+  durationMs: number | null
+  /** Grösse der Antwort in Byte */
+  bytes: number | null
+  /** Wert von X-Airlock-Block ('' = keiner) */
+  blockValue: string
+  /** Pause-Seite (X-Airlock-State: paused, früher X-Deployer-State) */
+  paused: boolean
+  /** Alle Kopfzeilen der Anfrage, wie Caddy sie loggt (Cookie und Authorization geschwärzt) */
+  headers: Headers
 }
 
-type Headers = Record<string, string[] | string | undefined>
+export type Headers = Record<string, string[] | string | undefined>
 
-function header(h: Headers | undefined, name: string): string {
+export function header(h: Headers | undefined, name: string): string {
   if (!h) return ''
   const want = name.toLowerCase()
   for (const [k, v] of Object.entries(h)) {
@@ -81,8 +95,11 @@ export function parseAccessLine(line: string, logger = VISITS_LOGGER): AccessLin
   const l = line.trim()
   if (!l.startsWith('{') || !l.includes(logger)) return null
   let j: {
-    ts?: number; logger?: string; status?: number
-    request?: { remote_ip?: string; client_ip?: string; host?: string; method?: string; uri?: string; headers?: Headers }
+    ts?: number; logger?: string; status?: number; duration?: number; size?: number
+    request?: {
+      remote_ip?: string; client_ip?: string; host?: string; method?: string; uri?: string; headers?: Headers
+      proto?: string; tls?: { version?: number }
+    }
     resp_headers?: Headers
   }
   try {
@@ -117,5 +134,12 @@ export function parseAccessLine(line: string, logger = VISITS_LOGGER): AccessLin
     optOut: header(r.headers, 'Dnt').trim() === '1' || header(r.headers, 'Sec-Gpc').trim() === '1',
     cfCity: decodeCf(header(r.headers, 'Cf-Ipcity')),
     cfRegion: decodeCf(header(r.headers, 'Cf-Region')),
+    proto: (r.proto ?? '').slice(0, 20),
+    tlsVersion: typeof r.tls?.version === 'number' ? r.tls.version : 0,
+    durationMs: typeof j.duration === 'number' ? Math.round(j.duration * 1000 * 10) / 10 : null,
+    bytes: typeof j.size === 'number' ? j.size : null,
+    blockValue: header(j.resp_headers, 'X-Airlock-Block').trim().toLowerCase().slice(0, 40),
+    paused: /^paused$/i.test(header(j.resp_headers, 'X-Airlock-State').trim() || header(j.resp_headers, 'X-Deployer-State').trim()),
+    headers: r.headers ?? {},
   }
 }

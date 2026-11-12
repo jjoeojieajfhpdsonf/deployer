@@ -1,11 +1,16 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { TRAFFIC_RANGES, TRAFFIC_WAYS, isTrafficRange, type TrafficRecentDto, type TrafficTodayDto, type TrafficWay } from '@airlock/shared'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import {
+  LOG_RANGES, TRAFFIC_RANGES, TRAFFIC_WAYS, isTrafficRange, rangeMinutes,
+  type AccessListDto, type TrafficRecentDto, type TrafficTodayDto, type TrafficWay,
+} from '@airlock/shared'
 import { findProject, listProjectRows } from '../../domain/projects.js'
 import { audit } from '../../domain/audit.js'
 import { badRequest } from '../../lib/errors.js'
 import { trackStream } from '../../lib/events.js'
 import { ASN_DB_SOURCE, CITY_DB_SOURCE, type DbipDb } from '../../traffic/geo.js'
-import { asnDb, cityDb, onTrafficLive, trafficGeoSources, trafficIngestState, trafficRecent, trafficSummary, trafficToday } from '../../traffic/service.js'
+import {
+  accessSince, asnDb, cityDb, onAccessLive, onTrafficLive, projectAccess, trafficGeoSources, trafficIngestState, trafficRecent, trafficSummary, trafficToday,
+} from '../../traffic/service.js'
 import { listScopeFor } from '../scope.js'
 
 interface IdParams {
@@ -22,9 +27,16 @@ export interface TrafficRouteDeps {
   visibleProjects: (request: FastifyRequest) => Promise<Set<string>>
   today: typeof trafficToday
   ingestState: typeof trafficIngestState
+  /** Zugriffe neu */
+  access: typeof projectAccess
+  onAccess: typeof onAccessLive
+  accessSince: typeof accessSince
 }
 
 const realDeps: TrafficRouteDeps = {
+  access: projectAccess,
+  onAccess: onAccessLive,
+  accessSince,
   ingestState: trafficIngestState,
   findProject: (request, id) => findProject(request.scope, id),
   summary: trafficSummary,
@@ -46,6 +58,10 @@ const realDeps: TrafficRouteDeps = {
  *      ohne Kennung; Pfad und Herkunft nur bei gezählten Seitenaufrufen.
  * GET  /projects/:id/traffic/recent
  *      Letzte gezählte Seitenaufrufe aus dem Speicher («Gerade eben»)
+ * GET  /projects/:id/access?range=15m|1h|24h
+ *      Zugriffe neu: einzelne Anfragen aus visits.log (AccessListDto), IP gekürzt
+ * GET  /projects/:id/access/stream?since=<ISO>
+ *      Neue Anfragen live (`data: <AccessEntryDto>`), mit since lückenloser Anschluss
  * GET  /traffic/today (auch /environments/:env/traffic/today)
  *      Aufrufe heute je Projekt der Umgebung (Projektliste)
  * GET  /system/traffic/sources
@@ -71,8 +87,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
     return { events: d.recent(project.id) }
   })
 
-  app.get<{ Params: IdParams }>('/projects/:id/traffic/live', async (request, reply) => {
-    const project = await d.findProject(request, request.params.id)
+  /** SSE-Antwort mit Herzschlag; subscribe bekommt die Schreibfunktion und gibt die Abmeldung zurück */
+  const sse = (request: FastifyRequest, reply: FastifyReply, subscribe: (write: (data: unknown) => void) => () => void) => {
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
@@ -81,7 +97,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
     })
     reply.raw.write(': verbunden\n\n')
     let closed = false
-    const off = d.onLive(project.id, (e) => { if (!closed) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`) })
+    const off = subscribe((e) => { if (!closed) reply.raw.write(`data: ${JSON.stringify(e)}\n\n`) })
     const keepalive = setInterval(() => { if (!closed) reply.raw.write(': ping\n\n') }, opts.heartbeatMs ?? 20_000)
     const close = () => {
       if (closed) return
@@ -95,6 +111,29 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
     const untrack = trackStream(close)
     request.raw.on('close', close)
     return reply
+  }
+
+  // Zugriffe neu: einzelne Anfragen aus visits.log (15m | 1h | 24h, Standard 24h), IP gekürzt
+  app.get<{ Params: IdParams; Querystring: { range?: string } }>('/projects/:id/access', async (request): Promise<AccessListDto> => {
+    const project = await d.findProject(request, request.params.id)
+    const range = request.query.range ?? '24h'
+    if (!LOG_RANGES.some((r) => r.key === range)) throw badRequest(`range: ${LOG_RANGES.map((r) => r.key).join(', ')}`)
+    return d.access(project.id, Date.now() - rangeMinutes(range) * 60_000)
+  })
+
+  // Neue Anfragen live; ?since= (Zeit der neuesten bekannten) schliesst lückenlos aus dem Speicher an
+  app.get<{ Params: IdParams; Querystring: { since?: string } }>('/projects/:id/access/stream', async (request, reply) => {
+    const project = await d.findProject(request, request.params.id)
+    const sinceMs = request.query.since ? Date.parse(request.query.since) : NaN
+    return sse(request, reply, (write) => {
+      if (Number.isFinite(sinceMs)) for (const e of d.accessSince(project.id, new Date(sinceMs).toISOString())) write(e)
+      return d.onAccess(project.id, write)
+    })
+  })
+
+  app.get<{ Params: IdParams }>('/projects/:id/traffic/live', async (request, reply) => {
+    const project = await d.findProject(request, request.params.id)
+    return sse(request, reply, (write) => d.onLive(project.id, write))
   })
 
   const today = async (request: FastifyRequest): Promise<TrafficTodayDto> => {

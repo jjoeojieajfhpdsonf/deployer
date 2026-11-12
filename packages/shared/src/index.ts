@@ -1015,21 +1015,16 @@ export interface SystemStatusDto {
     ownProbes: number
     groups: { source: 'tailnet' | 'server'; count: number; blocked: number; hosts: string[]; paths: string[]; userAgents: string[]; last: string }[]
   } | null
+  /**
+   * Zugriffe neu: Projekt-Routen, auf denen der IP-Filter in der letzten
+   * Stunde mehr als 3 Anfragen aus dem Docker-Netz abgewiesen hat (aus
+   * visits.log, seit dem Start von Airlock). null: keine Warnung. Gleiche
+   * Ursache wie clientIps.fromGateway – die Oberfläche zeigt beides in einer
+   * Warnung.
+   */
+  dockerBlocks: import('./access.js').DockerBlockWarningDto | null
   /** Namen, die der Browser selbst prüfen soll: Weg -> URL */
   reachability: { way: 'dns' | 'nipio' | 'hosts'; label: string; url: string | null }[]
-}
-
-/** Projektseite, Reiter «Zugriffe» (statische Seiten): ein Aufruf aus Caddys Zugriffs-Log */
-export interface SiteAccessEntryDto {
-  at: string
-  method: string
-  path: string
-  status: number
-  durationMs: number | null
-  bytes: number | null
-  /** gekürzt: «192.168.1.x» */
-  ip: string
-  host: string
 }
 
 export interface AuditEventDto {
@@ -1483,6 +1478,8 @@ export * from './topology.js'
 export * from './traffic.js'
 /* Besucher neu: reine Auswertung der Zähler (API und Bilder der Oberfläche) */
 export * from './traffic-summary.js'
+/* Zugriffe neu: einzelne Anfragen aus dem Zugriffs-Log, Regeln für Status, Herkunft, Zusammenfassen */
+export * from './access.js'
 /* Etappe 4: Dienst hinzufügen und entfernen (Aufbau) */
 export * from './services.js'
 /* Etappe 5: öffentliche Statusseite (Daten, Renderer für Seite und RSS) */

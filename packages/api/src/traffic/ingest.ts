@@ -2,7 +2,7 @@ import { TRAFFIC_SEP, UNKNOWN_VALUE, isOkStatus, type TrafficLiveEventDto } from
 import { hourOf, type TrafficAggregator, type TrafficDimAggregator, type TrafficDimKey } from './aggregate.js'
 import { browserOf, campaignOf, languageOf, systemOf } from './agent.js'
 import { countryOf, deviceOf, isAsset, normalizePath, referrerOf, verdictOf, wayOf } from './classify.js'
-import { parseAccessLine } from './parse.js'
+import { parseAccessLine, type AccessLine } from './parse.js'
 import type { VisitorCounter } from './visitor.js'
 
 /**
@@ -41,6 +41,8 @@ export interface ProcessorDeps {
   measured?: (projectId: string, at: number) => void
   /** Cloudflare liefert Städte (cf-ipcity) */
   cfLocation?: () => void
+  /** Zugriffe neu: jede gelesene Anfrage auf einen bekannten Namen (Reiter «Zugriffe» live, Docker-Netz-Warnung) */
+  tap?: (a: AccessLine, host: HostInfo) => void
 }
 
 export type HandleResult = 'unknown' | 'ignore' | 'live' | 'bot' | 'page'
@@ -54,6 +56,8 @@ export class TrafficProcessor {
     const host = this.d.hosts().get(a.host)
     if (!host) return 'unknown'
     const projectId = host.projectId
+    // Zugriffe neu: jede Anfrage auf einen Namen des Projekts, auch eigene Prüfungen
+    this.d.tap?.(a, host)
     const way = wayOf(a.ip, host.public)
     // Netz nur für Internet-Anfragen (Tailnet und Heimnetz haben private Adressen)
     const net = way === 'public' ? (this.d.asn?.(a.ip) ?? null) : null

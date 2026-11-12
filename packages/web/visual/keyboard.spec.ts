@@ -342,6 +342,26 @@ test('Öffentliche Statusseite: ein Tab-Halt je Verlauf, Pfeiltasten wechseln de
   await page.context().close()
 })
 
+test('Zugriffe: Pfeiltasten wechseln die Zeile (Adresse folgt), Enter setzt den Fokus ins Detail', async ({ browser }) => {
+  const page = await open(browser, 'zugriffe')
+  const selected = page.locator('.acc-row[aria-current="true"]')
+  await selected.focus()
+  await expect(page.locator('.acc-detail-title')).toContainText('2 Aufrufe')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.acc-row[aria-current="true"]')).toBeFocused()
+  await expect(page.locator('.acc-detail-title')).toContainText('GET / um')
+  await expect(page).toHaveURL(/zeile=z-iphone/)
+  await page.keyboard.press('ArrowUp')
+  await expect(page).toHaveURL(/zeile=z-gw/)
+  await page.keyboard.press('Home')
+  await expect(page).toHaveURL(/zeile=z-neu/)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.acc-detail-title')).toBeFocused()
+  // Nur ein Tab-Stopp in der Tabelle (roving tabindex)
+  expect(await page.locator('.acc-row[tabindex="0"]').count()).toBe(1)
+  await page.context().close()
+})
+
 test('Kürzel «g s» führt zu Security', async ({ browser }) => {
   const page = await open(browser, 'projekte')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
