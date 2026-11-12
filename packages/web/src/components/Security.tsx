@@ -1,16 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { api, type ScanReportDto, type FindingDto } from '../api.js'
 import { acceptFindingSchema, SCAN_STAGE_LABEL, type ScanStageDto } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { FieldError } from './Field.js'
 import { relativeTime, duration } from '../lib/format.js'
-import { poll } from '../lib/live.js'
 import { ageMs, fmtDateTimeShort, fmtTime, spanMs } from '../lib/dates.js'
-import { EmptyState, ErrorState, Loading, PartialNote, SkRows, SkStats } from './States.js'
+import { PartialNote } from './States.js'
 import { IconBad, IconPending, IconSkipped, IconWarn } from './Icons.js'
-import { HeaderFixAction, HeaderRulesSection, useHeaderRules } from './HeaderFix.js'
-import { ClaudeFixAction, FixRequestsSection } from './ClaudeFix.js'
 import { InlineConfirm } from './Confirm.js'
 
 /**
@@ -31,7 +28,7 @@ const STAGE_TOOL: [RegExp, string][] = [[/^trivy-/, 'trivy'], [/^headers$/, 'hea
 const ORDER = ['trivy-image', 'trivy-source', 'headers', 'zap-baseline', 'zap-full', 'nuclei', 'testssl']
 const stageOrder = (k: string) => { const i = ORDER.indexOf(k.split(' ')[0]!); return i < 0 ? 99 : i }
 const toolOf = (stage: string) => STAGE_TOOL.find(([re]) => re.test(stage))?.[1] ?? stage
-const TOOL_LABEL: Record<string, string> = { trivy: 'Trivy', 'header-check': 'Header-Check', zap: 'OWASP ZAP', nuclei: 'Nuclei', testssl: 'testssl.sh' }
+export const TOOL_LABEL: Record<string, string> = { trivy: 'Trivy', 'header-check': 'Header-Check', zap: 'OWASP ZAP', nuclei: 'Nuclei', testssl: 'testssl.sh' }
 
 /* --- Icons der Stufen (Linien, 16 px, wie die übrigen) --- */
 const svg = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
@@ -77,10 +74,16 @@ type StageState = NonNullable<ScanStageDto['state']>
 /** Zustand auch für ältere Scans ohne state-Feld */
 const stateOf = (v: ScanStageDto): StageState => v.state ?? (v.ran ? 'done' : v.failed ? 'failed' : 'skipped')
 
-const TRIGGER: Record<string, string> = { deploy: 'Deploy', mcp: 'MCP', manual: 'manuell', schedule: 'Zeitplan' }
+/** Namen der gescheiterten Stufen eines fertigen Scans (Zustand «Teilweise») */
+export const brokenStageNames = (s: ScanReportDto['scan']): string[] =>
+  Object.entries(s.stages)
+    .filter(([, v]) => { const st = stateOf(v); return st === 'failed' || st === 'timeout' })
+    .map(([k]) => STAGE_LABEL[k.split(' ')[0]!] ?? k)
+
+export const TRIGGER: Record<string, string> = { deploy: 'Deploy', mcp: 'MCP', manual: 'manuell', schedule: 'Zeitplan' }
 
 /** Läuft im Sekundentakt, solange active – für «läuft seit». */
-function useNow(active: boolean): number {
+export function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!active) return
@@ -101,7 +104,7 @@ function clock(ms: number): string {
 
 const hhmm = (iso: string) => fmtTime(iso)
 /** Laufzeit seit `iso`; ungültige Zeit zählt als «gerade gestartet» */
-const runFor = (iso: string | null | undefined, now: number) => clock(Math.max(0, ageMs(iso, now) ?? 0))
+export const runFor =(iso: string | null | undefined, now: number) => clock(Math.max(0, ageMs(iso, now) ?? 0))
 
 /** Kopfzeile: «Gestartet 19:04 · läuft seit 5 Min. · ausgelöst durch MCP» */
 export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) {
@@ -131,13 +134,17 @@ export function ScanHead({ s, now }: { s: ScanReportDto['scan']; now: number }) 
  * was geprüft wird bzw. wurde. Laufende: Fortschritt und einklappbare
  * Live-Ausgabe. Fertige: Befundzahl, auch «0 Befunde – geprüft: …».
  */
-function StageList({ stages, now, open, onTool, toolFilter }: {
+export function StageList({ stages, now, open, onTool, toolFilter, idPrefix, highlight }: {
   stages: Record<string, ScanStageDto>
   now: number
   /** Offene Befunde des fertigen Scans; null während des Laufs (noch nicht gewertet) */
   open: FindingDto[] | null
   onTool?: (tool: string) => void
   toolFilter?: string | null
+  /** Ids der Einträge (`${idPrefix}${Grundstufe}`), Ziel der Prüfstufen-Chips; fokussierbar ohne Tab-Stopp */
+  idPrefix?: string
+  /** Grundstufe, die gerade angesprungen wurde (hervorgehoben) */
+  highlight?: string | null
 }) {
   const worst = new Map<string, Sev>()
   for (const f of open ?? []) {
@@ -159,7 +166,9 @@ function StageList({ stages, now, open, onTool, toolFilter }: {
         const result = st !== 'done' ? st : n === 0 ? 'clean' : !open || openN > 0 ? 'found' : 'accepted'
         const took = v.durationMs !== undefined ? clock(v.durationMs) : null
         return (
-          <li key={k} className={`stage stage-${result}${sev && result === 'found' ? ` stage-${sev}` : ''}`}>
+          <li key={k} className={`stage stage-${result}${sev && result === 'found' ? ` stage-${sev}` : ''}${highlight === base ? ' stage-target' : ''}`}
+            id={idPrefix && entries.findIndex(([x]) => x.split(' ')[0] === base) === entries.findIndex(([x]) => x === k) ? `${idPrefix}${base}` : undefined}
+            tabIndex={idPrefix ? -1 : undefined}>
             <span className="stage-icon">
               {result === 'clean' || result === 'accepted' ? <IconClean />
                 : result === 'found' ? <IconFound />
@@ -247,7 +256,7 @@ export function LiveScan({ report, onCancelled }: { report: ScanReportDto; onCan
   )
 }
 
-function scanTime(s: ScanReportDto['scan']) {
+export function scanTime(s: ScanReportDto['scan']) {
   const abs = fmtDateTimeShort(s.startedAt)
   const span = spanMs(s.startedAt, s.finishedAt)
   const took = span !== null ? duration(span) : null
@@ -357,8 +366,11 @@ export function ScanReport({
   )
 }
 
-function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => void; action?: (acceptButton: ReactNode) => ReactNode }) {
-  const [open, setOpen] = useState(false)
+/**
+ * Akzeptieren mit Begründung (steht im Audit-Log). Fokus beim Öffnen im Feld;
+ * Abbrechen schliesst ohne Speichern.
+ */
+export function AcceptFindingForm({ f, onAccepted, onClose }: { f: FindingDto; onAccepted?: () => void; onClose: () => void }) {
   const [reason, setReason] = useState('')
   const v = useFormErrors({
     schema: acceptFindingSchema,
@@ -370,11 +382,37 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
     meta: { quiet: true },
     mutationFn: () => api.acceptFinding(f.id, reason),
     onSuccess: () => {
-      setOpen(false)
+      onClose()
       onAccepted?.()
     },
     onError: (err) => void v.setServerErrors(err),
   })
+  return (
+    <>
+      <form
+        className="inline-form"
+        noValidate
+        ref={v.formRef}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (v.validateAll()) accept.mutate()
+        }}
+      >
+        <div className="inline-form-field">
+          <label htmlFor={v.idFor('reason')} className="visually-hidden">Begründung</label>
+          <input {...v.field('reason')} placeholder="Begründung (steht im Audit-Log)" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
+          {v.errors.reason && <FieldError id={v.idFor('reason')} message={v.errors.reason} />}
+        </div>
+        <button type="submit" className="button-primary" disabled={accept.isPending}>Akzeptieren</button>
+        <button type="button" onClick={() => { onClose(); v.reset() }}>Abbrechen</button>
+      </form>
+      {accept.isError && !v.errors.reason && <p role="alert" className="error">{(accept.error as Error).message}</p>}
+    </>
+  )
+}
+
+function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => void; action?: (acceptButton: ReactNode) => ReactNode }) {
+  const [open, setOpen] = useState(false)
   return (
     <li className={`finding finding-${f.severity} finding-${f.status}`} id={`befund-${f.id}`}>
       <div className="finding-head">
@@ -395,125 +433,8 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
         if (action) return action(acceptButton)
         return acceptButton ? <div className="finding-actions">{acceptButton}</div> : null
       })()}
-      {open && (
-        <form
-          className="inline-form"
-          noValidate
-          ref={v.formRef}
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (v.validateAll()) accept.mutate()
-          }}
-        >
-          <div className="inline-form-field">
-            <label htmlFor={v.idFor('reason')} className="visually-hidden">Begründung</label>
-            <input {...v.field('reason')} placeholder="Begründung (steht im Audit-Log)" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
-            {v.errors.reason && <FieldError id={v.idFor('reason')} message={v.errors.reason} />}
-          </div>
-          <button type="submit" className="button-primary" disabled={accept.isPending}>Akzeptieren</button>
-          <button type="button" onClick={() => { setOpen(false); v.reset() }}>Abbrechen</button>
-        </form>
-      )}
-      {accept.isError && !v.errors.reason && <p role="alert" className="error">{(accept.error as Error).message}</p>}
+      {open && <AcceptFindingForm f={f} onAccepted={onAccepted} onClose={() => setOpen(false)} />}
     </li>
   )
 }
 
-/** Reiter "Security" am Projekt. */
-export function ProjectSecurity({ projectId, sourceType }: { projectId: string; sourceType?: string }) {
-  const qc = useQueryClient()
-  const [confirmActive, setConfirmActive] = useState(false)
-  const q = useQuery({
-    queryKey: ['scan', projectId],
-    queryFn: () => api.latestScan(projectId),
-    // Fortschritt kommt über den Ereignisstrom; ohne ihn alle 60 s (UI-Qualität 3)
-    refetchInterval: (query) => {
-      const st = query.state.data?.report?.scan.status
-      return st === 'queued' || st === 'running' ? poll() : false
-    },
-  })
-  const latest = q.data?.report
-  const running = Boolean(latest && (latest.scan.status === 'queued' || latest.scan.status === 'running'))
-  // Läuft ein Scan, bleibt der letzte fertige sichtbar
-  const done = useQuery({
-    queryKey: ['scan', projectId, 'done'],
-    queryFn: () => api.latestScan(projectId, true),
-    enabled: running,
-  })
-  const start = useMutation({
-    mutationFn: (level: 'standard' | 'active') => api.startScan(projectId, level),
-    onSuccess: () => {
-      setConfirmActive(false)
-      void qc.invalidateQueries({ queryKey: ['scan', projectId] })
-    },
-  })
-  const finished = running ? done.data?.report ?? null : latest
-  // M8: Header über Caddy; Ergebnis des Nachscans als Meldung über den Befunden
-  const headerRules = useHeaderRules(projectId)
-  const [fixNotice, setFixNotice] = useState<string | null>(null)
-  // Nach «Auftrag kopieren»: öfter nach neuen Vorschlägen von Claude sehen
-  const [watchFixes, setWatchFixes] = useState(false)
-  const noticeRef = useRef<HTMLDivElement>(null)
-  // Die Karte des behobenen Befunds verschwindet; die Meldung oben einblenden.
-  // Erst leeren, dann setzen: auch eine gleichlautende Meldung wird angesagt.
-  const showFixNotice = (msg: string) => {
-    setFixNotice(null)
-    setTimeout(() => {
-      setFixNotice(msg)
-      requestAnimationFrame(() => noticeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
-    }, 50)
-  }
-
-  return (
-    <div className="tab-panel">
-      <div className="scan-actions">
-        <button className="button-primary" onClick={() => start.mutate('standard')} disabled={start.isPending || running}>
-          {running ? 'Scan läuft …' : 'Jetzt scannen'}
-        </button>
-        {!confirmActive ? (
-          <button className="button-warn" onClick={() => setConfirmActive(true)} disabled={running}>
-            <IconWarn /> Aktiver Scan
-          </button>
-        ) : (
-          <InlineConfirm label="Aktiven Scan bestätigen" confirmLabel="Ja, aktiv angreifen" disabled={start.isPending}
-            onCancel={() => setConfirmActive(false)} onConfirm={() => start.mutate('active')} />
-        )}
-        <p className="scan-actions-hint">
-          <strong>Aktiver Scan</strong> greift die App mit OWASP ZAP aktiv an (XSS, SQL-Injection) und kann dabei Daten anlegen oder ändern. Nur der interne Container, nie über das Internet.
-        </p>
-      </div>
-      {running && latest && <LiveScan report={latest} onCancelled={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })} />}
-      {!q.data && q.isError ? (
-        <ErrorState what="Der Scan-Bericht" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
-      ) : !q.data ? (
-        <Loading label="Scan-Bericht wird geladen"><SkStats n={3} /><SkRows n={4} /></Loading>
-      ) : !finished ? (
-        !running && (
-          <EmptyState title="Noch kein Scan" action={<button type="button" className="button-primary" onClick={() => start.mutate('standard')}>Jetzt scannen</button>}>
-            Nach jedem Deploy läuft einer automatisch.
-          </EmptyState>
-        )
-      ) : (
-        <>
-          {running && <div className="section-head"><h2>Letzter abgeschlossener Scan</h2></div>}
-          <div ref={noticeRef} role="status" aria-live="polite" className="fix-live">{fixNotice && <p className="fix-notice">{fixNotice}</p>}</div>
-          <ScanReport
-            report={finished}
-            onAccepted={() => void qc.invalidateQueries({ queryKey: ['scan', projectId] })}
-            findingAction={(f, accept) => (
-              <ClaudeFixAction
-                projectId={projectId}
-                finding={f}
-                sourceType={sourceType}
-                before={<HeaderFixAction projectId={projectId} finding={f} rules={headerRules.data} onDone={showFixNotice} />}
-                after={accept}
-                onCopied={() => setWatchFixes(true)}
-              />
-            )}
-            after={<><FixRequestsSection projectId={projectId} onDone={showFixNotice} watch={watchFixes} /><HeaderRulesSection projectId={projectId} /></>}
-          />
-        </>
-      )}
-    </div>
-  )
-}

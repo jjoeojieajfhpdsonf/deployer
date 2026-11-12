@@ -5,7 +5,7 @@
  * und Werte, keine echten Server- oder Zugangsdaten.
  */
 import type {
-  AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto,
+  AuditEventDto, CfStatusDto, DeploymentDto, FindingDto, ProjectDto, ProjectHealthDto, PublicProgressDto, PublicStatusDto, RouteDto, ScanReportDto, SystemStatusDto, ScanHistoryItemDto,
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
@@ -716,7 +716,14 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
         'trivy-source': { ran: false, state: 'skipped', note: 'kein Quellordner: fertiges Image ohne Quellcode', checks: CHECKS.trivySource },
         // M8: Header über Caddy geprüft
         headers: id === securityProjectId
-          ? { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_200 }
+          ? {
+            ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_200,
+            // Gesehen über Caddy: frame-ancestors und die Report-Only-CSP ergänzt Caddy, Referrer- und Permissions-Policy setzt die App
+            observed: {
+              'frame-ancestors': "'self'", 'referrer-policy': 'strict-origin', 'permissions-policy': 'camera=(), microphone=()',
+              'content-security-policy-report-only': "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'",
+            },
+          }
           : { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, durationMs: 1_200 },
         'zap-baseline': { ran: true, state: 'done', findings: by('zap'), checks: CHECKS.zap, durationMs: 142_000 },
         nuclei: { ran: true, state: 'done', findings: by('nuclei'), checks: CHECKS.nuclei, durationMs: 61_000 },
@@ -726,8 +733,30 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
     // Wie auf dem Server: dieselbe Zählung wie in der Projektübersicht
     counts: countOpenFindings(f),
     top: f.filter((x) => x.status === 'open').slice(0, 3).map(({ id: fid, severity, title, location, fix }) => ({ id: fid, severity, title, location, fix })),
-    findings: f,
+    // Alter der Befunde (Sortierung «Nach Alter», «gefunden … · in n Scans»)
+    findings: f.map((x, i) => ({ ...x, firstSeenAt: ago(((i * 5) % 9 + 1) * DAY + 3 * HOUR), seenIn: ((i * 5) % 9 > 4 ? 3 : (i * 5) % 9 > 1 ? 2 : 1) })),
   }
+}
+
+/** Reiter Security › Verlauf: Scans neueste zuerst (passend zu Score und vorherigem Score des Berichts) */
+export function scanHistory(id: string): ScanHistoryItemDto[] {
+  const p = allProjects.find((x) => x.id === id)
+  if (!p?.security) return []
+  const score = p.security.score ?? 0
+  const prev = ({ 'p-hallo': 90, 'p-foto': 100, 'p-kontoauszug': 41 } as Record<string, number>)[id] ?? score - 3
+  const g = (s: number): ScanHistoryItemDto['grade'] => (s >= 90 ? 'A' : s >= 75 ? 'B' : s >= 50 ? 'C' : 'D')
+  const row = (n: string, at: number, sc: number | null, trigger: ScanHistoryItemDto['trigger'], nw: number | null, fx: number | null, status: ScanHistoryItemDto['status'] = 'done'): ScanHistoryItemDto => ({
+    id: `${id}-h${n}`, status, level: 'standard', startedAt: ago(at), finishedAt: ago(at - 5 * MIN), score: sc, grade: sc === null ? null : g(sc), trigger, newCount: nw, fixedCount: fx,
+  })
+  const firstAt = 3 * HOUR + 5 * MIN + 4_000
+  return [
+    row('1', firstAt, score, 'deploy', 2, 1),
+    row('2', 4 * DAY, prev, 'schedule', 1, 0),
+    row('3', 5 * DAY + 2 * HOUR, null, 'manual', null, null, 'failed'),
+    row('4', 6 * DAY, Math.min(100, prev + 11), 'deploy', 0, 2),
+    row('5', 11 * DAY, Math.min(100, prev + 20), 'schedule', 1, 1),
+    row('6', 18 * DAY, Math.min(100, prev + 29), 'deploy', null, null),
+  ]
 }
 
 /** Befunde des letzten abgeschlossenen Scans je Projekt */

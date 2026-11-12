@@ -18,6 +18,7 @@ import type {
   StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
   PreviewsDto,
   AchievementsDto, AchievementId,
+  ScanHistoryItemDto,
 } from '@airlock/shared'
 
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
@@ -29,6 +30,7 @@ export interface PreviewEnvDto {
 
 export type {
   TopologyDto,
+  ScanHistoryItemDto,
   ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, PublicStatusDto, PublicProgressDto, OutsideCheckDto,
   HeaderRulesDto, HeaderRecheckDto, HeaderRuleDto, FixHintDto, FixRequestDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto,
@@ -303,6 +305,8 @@ export const api = {
   startScan: (id: string, level: 'standard' | 'active' = 'standard') =>
     call<{ scan: { id: string; status: string } }>(`/projects/${id}/scans`, { method: 'POST', body: body({ level, confirm: level === 'active' }) }),
   latestScan: (id: string, done = false) => call<{ report: ScanReportDto | null }>(`/projects/${id}/scans/latest${done ? '?done=1' : ''}`),
+  /** Reiter Security › Verlauf: Scans neueste zuerst, mit Note, Auslöser, neu/behoben */
+  scanHistory: (id: string) => call<{ scans: ScanHistoryItemDto[] }>(`/projects/${id}/scans`),
   cancelScan: (scanId: string) => call<{ report: ScanReportDto }>(`/scans/${scanId}/cancel`, { method: 'POST' }),
   acceptFinding: (findingId: string, reason: string) =>
     call<{ ok: true }>(`/findings/${findingId}`, { method: 'PATCH', body: body({ status: 'accepted', reason }) }),

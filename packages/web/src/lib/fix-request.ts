@@ -36,6 +36,25 @@ export function useFixRequest(key: string | null, enabled: boolean, onRequest: (
 }
 
 /**
+ * Wie useFixRequest, aber für jeden Schlüssel mit diesem Anfang («finding:»):
+ * die Befundliste wählt den Befund, bevor sein Ablauf erscheint. Nicht
+ * verbrauchend – der Ablauf selbst öffnet sich danach über useFixRequest.
+ */
+export function useFixRequestPrefix(prefix: string, onRequest: (rest: string) => void): void {
+  const cb = useRef(onRequest)
+  cb.current = onRequest
+  useEffect(() => {
+    if (pending?.startsWith(prefix)) cb.current(pending.slice(prefix.length))
+    const on = (e: Event) => {
+      const key = (e as CustomEvent<string>).detail
+      if (key.startsWith(prefix) && take(key)) cb.current(key.slice(prefix.length))
+    }
+    window.addEventListener(EVENT, on)
+    return () => window.removeEventListener(EVENT, on)
+  }, [prefix])
+}
+
+/**
  * Element erscheint (Reiter lädt noch): bis zu 3 s warten, dann in den Blick
  * rollen und den ersten Knopf darin fokussieren – Tastatur bleibt im Ablauf.
  */

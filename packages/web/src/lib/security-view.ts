@@ -2,6 +2,7 @@ import {
   HEADER_LABEL, SCORE_DEDUCTION, headerFixFor, isCspQualityFinding,
   type CspAnalysisDto, type CspViolationDto, type FindingDto, type FixRequestDto, type HeaderKey, type HeaderMode, type HeaderRulesDto, type ScanStageDto,
 } from '@airlock/shared'
+import { msOf } from './dates.js'
 
 /**
  * Reiter Security am Projekt: reine Funktionen für Lage-Satz, Hinweise in der
@@ -158,7 +159,7 @@ export type SortKey = 'schwere' | 'quelle' | 'alter'
 export const SORT_LABEL: Record<SortKey, string> = { schwere: 'Nach Schwere', quelle: 'Nach Quelle', alter: 'Nach Alter' }
 
 const sevIdx = (f: Pick<FindingDto, 'severity'>) => SEVERITIES.indexOf(f.severity)
-const firstMs = (f: FindingDto) => (f.firstSeenAt ? Date.parse(f.firstSeenAt) : Number.POSITIVE_INFINITY)
+const firstMs = (f: FindingDto) => msOf(f.firstSeenAt) ?? Number.POSITIVE_INFINITY
 
 /** Schwere: schwerste zuerst. Quelle: nach Quelle, darin nach Schwere. Alter: am längsten offen zuerst. */
 export function sortFindings(list: readonly FindingDto[], by: SortKey, sourceType?: string): FindingDto[] {
