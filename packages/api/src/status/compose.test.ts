@@ -25,6 +25,26 @@ const root = fileURLToPath(new URL('../../../../', import.meta.url))
 const compose = parse(readFileSync(`${root}compose.yaml`, 'utf8')) as ComposeFile
 const status = compose.services.status!
 const networksOf = (s: Service): string[] => (Array.isArray(s.networks) ? s.networks : Object.keys(s.networks ?? {}))
+/** cap_add normalisiert: Grossschrift, ohne «CAP_»-Präfix (Docker nimmt beides an) */
+const capsAdded = (s: Service): string[] =>
+  (Array.isArray(s.cap_add) ? s.cap_add : s.cap_add === undefined ? [] : [s.cap_add]).map((c) => String(c).toUpperCase().replace(/^CAP_/, ''))
+
+describe('capsAdded: nur NET_BIND_SERVICE geht durch, jede andere fällt auf', () => {
+  const ok = (cap_add: unknown) => assert.deepEqual(capsAdded({ cap_add }), ['NET_BIND_SERVICE'])
+  const bad = (cap_add: unknown) => assert.notDeepEqual(capsAdded({ cap_add }), ['NET_BIND_SERVICE'])
+  test('Schreibweisen derselben Capability', () => {
+    ok(['NET_BIND_SERVICE'])
+    ok(['CAP_NET_BIND_SERVICE'])
+    ok(['net_bind_service'])
+  })
+  test('andere oder zusätzliche Capabilities', () => {
+    bad(['NET_ADMIN'])
+    bad(['NET_BIND_SERVICE', 'NET_RAW'])
+    bad(['ALL'])
+    bad(['SYS_ADMIN'])
+    bad([])
+  })
+})
 
 describe('compose.yaml: airlock-status ist abgeschottet', () => {
   test('es gibt den Dienst airlock-status mit festem Image (kein latest, kein Build)', () => {
@@ -56,7 +76,7 @@ describe('compose.yaml: airlock-status ist abgeschottet', () => {
     const vols = status.volumes ?? []
     assert.ok(!vols.some((v) => v.includes('docker.sock')), 'Docker-Socket eingehängt')
     assert.deepEqual(vols, ['status_site:/srv/status:ro'])
-    for (const key of ['environment', 'env_file', 'secrets', 'ports', 'depends_on', 'cap_add', 'devices', 'volumes_from', 'extra_hosts', 'pid', 'ipc'] as const) {
+    for (const key of ['environment', 'env_file', 'secrets', 'ports', 'depends_on', 'devices', 'volumes_from', 'extra_hosts', 'pid', 'ipc'] as const) {
       assert.equal(status[key], undefined, `${key} gesetzt`)
     }
     assert.notEqual(status.privileged, true)
@@ -65,6 +85,9 @@ describe('compose.yaml: airlock-status ist abgeschottet', () => {
   test('gehärtet: nur lesendes Dateisystem, ohne Capabilities, nicht als root', () => {
     assert.equal(status.read_only, true)
     assert.deepEqual(status.cap_drop, ['ALL'])
+    // Einzige Ausnahme: NET_BIND_SERVICE. Das Caddy-Image setzt sie als Datei-Capability auf
+    // /usr/bin/caddy; ohne sie im Bounding-Set scheitert schon der exec («operation not permitted»).
+    assert.deepEqual(capsAdded(status), ['NET_BIND_SERVICE'])
     assert.ok(status.security_opt?.includes('no-new-privileges:true'))
     assert.ok(status.user && !/^0(:|$)/.test(status.user) && status.user !== 'root')
   })

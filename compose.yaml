@@ -193,9 +193,12 @@ services:
     # - nur im Netz «status» (internal, darin nur Caddy) – kein Weg zu Airlock,
     #   zur Datenbank, zum Socket-Proxy oder nach draussen
     # - kein Docker-Socket, keine Secrets, keine Umgebungsvariablen mit Werten
-    # - Volume nur lesend, Dateisystem nur lesend, als «nobody», ohne Capabilities
+    # - Volume nur lesend, Dateisystem nur lesend, als «nobody», ohne
+    #   Capabilities ausser NET_BIND_SERVICE (siehe unten)
     # Dasselbe Caddy-Image wie die Basis von caddy/Dockerfile (schon auf dem
     # Server), aber nur «caddy file-server»: keine Admin-API, kein TLS.
+    # Start prüfen: scripts/smoke-status.sh (startet den Dienst mit genau
+    # dieser Härtung, ruft eine Datei ab, räumt ab).
     image: caddy:2.10.0-alpine
     restart: unless-stopped
     logging: *logging
@@ -204,6 +207,12 @@ services:
     user: "65534:65534"
     read_only: true
     cap_drop: [ALL]
+    # Das Caddy-Image setzt auf /usr/bin/caddy die Datei-Capability
+    # cap_net_bind_service. Fehlt sie im Bounding-Set (cap_drop: ALL), lehnt
+    # der Kernel schon den exec ab: «exec /usr/bin/caddy: operation not
+    # permitted». Nur sie zurück – Port 8080 bräuchte sie nicht, aber ohne sie
+    # startet das Programm gar nicht. Sonst nichts gelockert.
+    cap_add: [NET_BIND_SERVICE]
     security_opt:
       - no-new-privileges:true
     # Caddy legt beim Start seine Ordner an; im Speicher, nicht im Image

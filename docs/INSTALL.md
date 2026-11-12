@@ -120,6 +120,16 @@ Wenn etwas schiefgeht: Die Rückleitung ist eine Stunde gültig; danach auf der 
 
 Nichts tun. Airlock prüft beim Start und stündlich (oder per «Jetzt prüfen» auf der Systemseite), setzt den IP-Filter für «LAN» auf das neue Netz, benennt nip.io-Namen mit der LAN-IP um und vermerkt die Änderung im Audit-Log (`network.change`). Projekte im Tailnet betrifft das nicht.
 
+## Vor einem Update: Statusseite prüfen
+
+Nach jeder Änderung am Dienst `status` in `compose.yaml` (Härtung, Befehl, Image-Tag von Caddy) und vor `docker compose up -d` auf dem Server:
+
+```sh
+scripts/smoke-status.sh
+```
+
+Das Skript startet den Dienst genau mit der Konfiguration aus `compose.yaml`, aber mit eigenem Container, Netz und Volume, sodass die laufende Installation nicht berührt wird. Es prüft die Härtung am laufenden Container (nobody, nur lesend, `cap_drop: ALL` plus nur `NET_BIND_SERVICE`, `no-new-privileges`), ruft eine Datei per `wget` ab und räumt alles wieder ab. Es liest keine `.env` und braucht `docker` und `node`. Bei einem Fehler zeigt es die letzten Zeilen des Container-Logs; der Exit-Code ist dann 1.
+
 ## Abnahme auf dem Server
 
 Noch offen (braucht den Server und ein Handy):
