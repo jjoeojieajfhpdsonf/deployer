@@ -151,6 +151,8 @@ async function airlock() {
   const signIn = async (password: string) => {
     const r = await loginWith(password)
     cookie = r.cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+    // Nacht 3: Backup zurückholen verlangt eine erneute Bestätigung (10 Min.)
+    if (r.statusCode === 200) await ui('POST', '/auth/sudo', { password })
     return r
   }
   return { pool, envs, app, ui, signIn, loginWith }

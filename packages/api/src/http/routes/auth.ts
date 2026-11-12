@@ -81,7 +81,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!session) {
       // Für die Anmeldeseite: Passkey hier möglich? Ist einer eingerichtet?
       const host = passkeyHost(request)
-      return { loggedIn: false, login: { passkeyHost: host.dto, passkeys: await auth().hasPasskeysFor(host.rp) } }
+      return { loggedIn: false, login: { passkeyHost: host.dto, passkeys: await auth().hasPasskeysFor(host.dto.rpId) } }
     }
     const pw = await passwordInfo()
     const prefs = await getUiPrefs()

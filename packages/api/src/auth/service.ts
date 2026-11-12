@@ -155,9 +155,13 @@ export class AuthService {
     return { totp: totp.enabledAt !== null, recovery: rec.remaining > 0, passkey: pk.length > 0 }
   }
 
-  /** Ohne Anmeldung: gibt es Passkeys für diese Adresse? */
-  async hasPasskeysFor(rp: RpContext | null): Promise<boolean> {
-    return (await this.passkeysFor(rp)).length > 0
+  /**
+   * Ohne Anmeldung: gibt es Passkeys für die Hauptadresse? (Auch auf nip.io
+   * gefragt – dann sagt die Anmeldeseite, wo der Passkey gilt.)
+   */
+  async hasPasskeysFor(rpId: string | null): Promise<boolean> {
+    if (!rpId) return false
+    return (await this.d.store.listPasskeys()).some((p) => p.rpId === rpId)
   }
 
   private async failure(ip: string, reason: 'password' | 'totp' | 'recovery' | 'passkey', error: string, opts: { count?: boolean } = {}): Promise<void> {

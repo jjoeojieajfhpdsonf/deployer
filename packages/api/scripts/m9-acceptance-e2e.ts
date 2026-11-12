@@ -66,6 +66,8 @@ try {
   check(login.statusCode === 200 && Boolean(cookie), 'Anmeldung')
   const ui = (method: string, url: string, payload?: unknown) =>
     app.inject({ method: method as 'GET', url: `/api/v1${url}`, headers: { cookie }, ...(payload !== undefined ? { payload: payload as object } : {}) })
+  // Nacht 3: Tokens anlegen, Projekte löschen … verlangen eine erneute Bestätigung (10 Min.)
+  check((await ui('POST', '/auth/sudo', { password: process.env.ADMIN_PASSWORD })).statusCode === 200, 'Erneute Bestätigung')
   const bearer = (token: string, method: string, url: string, payload?: unknown) =>
     app.inject({ method: method as 'GET', url: `/api/v1${url}`, headers: { authorization: `Bearer ${token}` }, ...(payload !== undefined ? { payload: payload as object } : {}) })
 
