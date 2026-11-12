@@ -290,13 +290,21 @@ function Canvas({ t, cols, nodes, selected, onSelect, hub, reduced }: {
     if (!root) return
     const measure = () => {
       const base = root.getBoundingClientRect()
+      // In Layout-Pixeln messen, nicht in Bildschirm-Pixeln: Der Dialog «Vergrössern» blendet von
+      // scale(0.97) ein, und eine Messung in dieser Zeit (ResizeObserver meldet das Ende nicht)
+      // setzte alle Linien um 3 % zur Mitte hin. Die Skalierung herausrechnen, wie gross sie auch ist.
+      const cs = getComputedStyle(root)
+      const w = parseFloat(cs.width) || base.width
+      const h = parseFloat(cs.height) || base.height
+      const sx = base.width / w || 1
+      const sy = base.height / h || 1
       const at = new Map<string, Box>()
       for (const [id, el] of els.current) {
         const r = el.getBoundingClientRect()
         const d = nodes.get(id)
-        if (d) at.set(id, { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height, col: d.col })
+        if (d) at.set(id, { x: (r.left - base.left) / sx, y: (r.top - base.top) / sy, w: r.width / sx, h: r.height / sy, col: d.col })
       }
-      setBoxes({ w: base.width, h: base.height, at })
+      setBoxes({ w, h, at })
     }
     measure()
     const ro = new ResizeObserver(measure)

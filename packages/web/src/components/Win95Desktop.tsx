@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
@@ -171,6 +171,7 @@ export function Taskbar() {
   // Direkt in <body>: Die Taskleiste darf nicht mit dem Hauptfenster verschwinden, wenn es minimiert ist
   return createPortal(
     <>
+    <DesktopIcons closed={closed} />
     <div className="w95-taskbar" role="region" aria-label="Taskleiste">
       <StartMenu closed={closed} />
       <button
@@ -207,6 +208,78 @@ export function Taskbar() {
     )}
     </>,
     document.body,
+  )
+}
+
+/* --- Desktop-Symbole (wie in der Vorlage): Klick wählt, Doppelklick oder Enter öffnet --- */
+
+const ico = { width: 32, height: 32, viewBox: '0 0 32 32', 'aria-hidden': true, shapeRendering: 'crispEdges' as const }
+const ICONS = {
+  // Bildschirm mit Fuss
+  server: () => (
+    <svg {...ico}><rect x="3" y="3" width="26" height="19" fill="#c0c0c0" stroke="#000" /><rect x="6" y="6" width="20" height="13" fill="#008080" stroke="#808080" /><rect x="7" y="7" width="8" height="2" fill="#fff" /><rect x="12" y="22" width="8" height="3" fill="#808080" /><rect x="7" y="25" width="18" height="3" fill="#c0c0c0" stroke="#000" /></svg>
+  ),
+  // Schild
+  security: () => (
+    <svg {...ico} shapeRendering="auto"><path d="M16 2 28 6v9c0 7.5-5 12.5-12 15C9 27.5 4 22.5 4 15V6Z" fill="#c0c0c0" stroke="#000" /><path d="M16 5 25 8v7c0 5.8-3.7 9.8-9 12Z" fill="#000080" /><path d="m11 16 3.5 3.5L21 12" fill="none" stroke="#fff" strokeWidth="2.4" /></svg>
+  ),
+  // Liste auf Papier
+  audit: () => (
+    <svg {...ico}><rect x="6" y="2" width="20" height="28" fill="#fff" stroke="#000" /><rect x="22" y="2" width="4" height="4" fill="#c0c0c0" /><rect x="9" y="8" width="14" height="2" fill="#000080" /><rect x="9" y="13" width="14" height="1" fill="#808080" /><rect x="9" y="17" width="14" height="1" fill="#808080" /><rect x="9" y="21" width="10" height="1" fill="#808080" /><rect x="9" y="25" width="12" height="1" fill="#808080" /></svg>
+  ),
+  // Drahtkorb; voll mit Blättern, wenn Fenster geschlossen sind
+  bin: (full: boolean) => (
+    <svg {...ico}>
+      {full && <><rect x="9" y="4" width="9" height="8" fill="#fff" stroke="#000" transform="rotate(-12 13 8)" /><rect x="15" y="5" width="9" height="7" fill="#ffffc0" stroke="#000" transform="rotate(10 19 8)" /></>}
+      <path d="M6 9h20l-2 20H8Z" fill="#c0c0c0" stroke="#000" /><path d="M11 12v14M16 12v14M21 12v14" stroke="#808080" /><rect x="5" y="8" width="22" height="2" fill="#808080" />
+    </svg>
+  ),
+}
+
+function DesktopIcons({ closed }: { closed: Entry[] }) {
+  const ep = useEnvPath()
+  const navigate = useNavigate()
+  const [selected, setSelected] = useState<string | null>(null)
+  const root = useRef<HTMLElement>(null)
+  // Klick daneben hebt die Auswahl auf
+  useEffect(() => {
+    if (!selected) return
+    const off = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setSelected(null) }
+    document.addEventListener('mousedown', off)
+    return () => document.removeEventListener('mousedown', off)
+  }, [selected])
+
+  const restore = () => closed.forEach((e) => setCard(e.el, NORMAL))
+  const items: { id: string; label: string; icon: ReactNode; open: () => void; hint?: string }[] = [
+    { id: 'server', label: 'homeserver', icon: ICONS.server(), open: () => navigate('/server') },
+    { id: 'security', label: 'Security', icon: ICONS.security(), open: () => navigate(ep('/security')) },
+    { id: 'audit', label: 'Audit-Log', icon: ICONS.audit(), open: () => navigate(ep('/audit')) },
+    {
+      id: 'bin', label: 'Papierkorb', icon: ICONS.bin(closed.length > 0), open: restore,
+      hint: closed.length === 0 ? 'leer'
+        : closed.length === 1 ? '1 geschlossenes Fenster – öffnen stellt es wieder her'
+        : `${closed.length} geschlossene Fenster – öffnen stellt sie wieder her`,
+    },
+  ]
+  return (
+    <nav className="w95-desktop-icons" aria-label="Desktop" ref={root}>
+      {items.map((it) => (
+        <button
+          key={it.id}
+          type="button"
+          className="w95-icon"
+          data-selected={selected === it.id || undefined}
+          aria-label={it.hint ? `${it.label} (${it.hint})` : it.label}
+          title={it.hint}
+          // Maus: Klick wählt, Doppelklick öffnet. Tastatur (Enter, Leertaste): öffnet sofort.
+          onClick={(e) => { if (e.detail === 0) it.open(); else setSelected(it.id) }}
+          onDoubleClick={() => { setSelected(null); it.open() }}
+        >
+          {it.icon}
+          <span className="w95-icon-label">{it.label}</span>
+        </button>
+      ))}
+    </nav>
   )
 }
 
