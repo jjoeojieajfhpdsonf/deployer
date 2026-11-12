@@ -1518,3 +1518,5 @@ export * from './git.js'
 export * from './storage.js'
 // Nacht 3, Etappe 4: Ausgang der Projekt-Container (Modus, Ausnahmen, Versuche, Firewall-Dienst)
 export * from './egress.js'
+// Nacht 3, Etappe 5: Einbruchserkennung (Vorfälle, Schweregrad, Status, Grundlinie, Isolieren)
+export * from './incidents.js'

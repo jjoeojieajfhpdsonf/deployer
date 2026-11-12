@@ -21,6 +21,9 @@ export const VISUAL_SCENES = [
   // «Frei» bestätigen, Server › Übersicht, alle durchsetzen, Hinweis im Aufbau
   'einstellungen-ausgang', 'einstellungen-ausgang-durchsetzen', 'einstellungen-ausgang-frei', 'einstellungen-ausgang-dienst-aus',
   'ausgang-frei-bestaetigen', 'server-ausgang', 'server-ausgang-alle', 'aufbau-ausgang',
+  // Nacht 3, Etappe 5: Einbruchserkennung – Security › Vorfälle (mit Vorfällen, leer, ein Vorfall), Projekt › Security
+  // (Vorfälle, ruhig, lernt, isoliert), «Container jetzt isolieren» bestätigen
+  'vorfaelle', 'vorfaelle-leer', 'vorfall-dialog', 'projekt-einbruch', 'projekt-einbruch-ruhig', 'projekt-einbruch-lernt', 'projekt-einbruch-isoliert', 'isolieren-bestaetigen',
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
@@ -107,6 +110,8 @@ export const WIN95_SCENES: readonly string[] = [
   // Nacht 3, Etappe 4: Server › Übersicht (die Karte in den Einstellungen ist höher als das Fenster –
   // die Taskleiste läge darüber; der Rest der Karte steckt schon in «projekt-einstellungen»)
   'server-ausgang',
+  // Nacht 3, Etappe 5: Security › Vorfälle
+  'vorfaelle',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
   'statusseite-einstellungen',
   // Etappe 6: Vorschauen (Liste, Einstellungen)
@@ -141,6 +146,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'speicher', 'speicher-voll',
   // Nacht 3, Etappe 4
   'einstellungen-ausgang-durchsetzen',
+  // Nacht 3, Etappe 5
+  'vorfaelle', 'projekt-einbruch',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

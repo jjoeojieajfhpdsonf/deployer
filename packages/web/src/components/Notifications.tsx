@@ -22,6 +22,8 @@ const EVENTS: { key: NotifyEvent; label: string }[] = [
   { key: 'backup_stale', label: 'Über 48 Stunden kein Backup' },
   // Nacht 3, Etappe 3
   { key: 'disk_space', label: 'Platte zu 90 % oder mehr belegt' },
+  // Nacht 3, Etappe 5 (gedrosselt: je Vorfall einmal, höchstens 5 pro Stunde)
+  { key: 'incident', label: 'Einbruchsindiz (Vorfall hoch oder kritisch)' },
 ]
 
 /**

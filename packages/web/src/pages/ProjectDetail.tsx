@@ -9,6 +9,7 @@ import { confirmLeave, hasUnsaved, leaveWithoutAsking } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
 import { ProjectSecurity } from '../components/SecurityTab.js'
+import { ProjectIntrusionSlot } from '../components/Intrusion.js'
 import { PublicPillFor } from '../components/Publication.js'
 import { ProjectSettings, useKeepToggle, type ContainerPatch, type ContainerRequest } from '../components/ProjectSettings.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -362,7 +363,8 @@ export function ProjectDetail() {
         />
       )}
       {tab === 'besucher' && <VisitorsTab p={p} onLogs={isStatic ? undefined : () => void setTab('logs')} />}
-      {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
+      {/* Nacht 3, Etappe 5: Einbruchserkennung als eigene Karte – oben bei dringenden Vorfällen, sonst unter dem Scan (components/Intrusion.tsx) */}
+      {tab === 'security' && <><ProjectIntrusionSlot p={p} at="top" /><ProjectSecurity projectId={p.id} sourceType={p.sourceType} /><ProjectIntrusionSlot p={p} at="bottom" /></>}
       {tab === 'einstellungen' && (
         <ProjectSettings
           p={p}

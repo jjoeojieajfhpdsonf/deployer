@@ -21,6 +21,7 @@ import { systemRoutes } from './routes/system.js'
 import { backupRoutes } from './routes/backup.js'
 import { storageRoutes } from './routes/storage.js'
 import { egressRoutes } from './routes/egress.js'
+import { incidentRoutes } from './routes/incidents.js'
 import { clientErrorRoutes } from './routes/client-errors.js'
 import { uploadRoutes } from './routes/uploads.js'
 import { tokenRoutes } from './routes/tokens.js'
@@ -166,6 +167,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(storageRoutes)
       // Nacht 3, Etappe 4: Ausgang der Projekt-Container (ändern nur mit Anmeldung, siehe auth.ts)
       await api.register(egressRoutes)
+      // Nacht 3, Etappe 5: Vorfälle der Einbruchserkennung, Isolieren (nur mit Anmeldung, siehe auth.ts)
+      await api.register(incidentRoutes)
       await api.register(uploadRoutes)
       await api.register(clientErrorRoutes)
       // M9: Umgebungen

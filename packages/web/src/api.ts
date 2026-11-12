@@ -24,6 +24,7 @@ import type {
   RepoCheckDto, GitCredentialDto, CreateGitCredentialInput, ProjectGitAccessDto,
   StorageDto, StorageSettingsDto, CleanupResultDto,
   ProjectEgressDto, EgressSettingsInput, EgressExceptionInput, EgressServerDto,
+  IncidentListDto, IntrusionIncidentDetailDto, IntrusionIncidentUpdateInput, ProjectIntrusionDto, IntrusionSettingsInput,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { requestSudo } from './lib/sudo.js'
@@ -71,7 +72,7 @@ export interface ExternalTargetDto {
   txt: { name: string; value: string }
 }
 
-export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'backup_failed' | 'backup_stale' | 'gateway_warning' | 'disk_space'
+export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'backup_failed' | 'backup_stale' | 'gateway_warning' | 'disk_space' | 'incident'
 
 export interface NotifySettingsDto {
   ntfy: { url: string; topic: string; hasToken: boolean } | null
@@ -448,6 +449,19 @@ export const api = {
     call<{ egress: ProjectEgressDto }>(`/projects/${id}/egress/exceptions/${encodeURIComponent(exceptionId)}`, { method: 'DELETE' }),
   egressServer: () => call<{ egress: EgressServerDto }>('/system/egress'),
   enforceAllEgress: () => call<{ changed: number; egress: EgressServerDto }>('/system/egress/enforce-all', { method: 'POST', body: body({ confirm: true }) }),
+  /* Nacht 3, Etappe 5: Einbruchserkennung – Vorfälle (Security › Vorfälle), Projekt › Security, Isolieren */
+  //   («incidents» sind die Störungen der Statusseite – hier darum intrusion…)
+  intrusionIncidents: (status: 'aktiv' | 'offen' | 'gesehen' | 'erledigt' | 'alle' = 'aktiv') => call<IncidentListDto>(e(`/intrusion/incidents?status=${status}`)),
+  intrusionIncident: (id: string) => call<{ incident: IntrusionIncidentDetailDto }>(`/intrusion/incidents/${encodeURIComponent(id)}`),
+  updateIntrusionIncident: (id: string, input: IntrusionIncidentUpdateInput) =>
+    call<{ incident: IntrusionIncidentDetailDto }>(`/intrusion/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: body(input) }),
+  markIncidentNormal: (id: string) => call<{ incident: IntrusionIncidentDetailDto }>(`/intrusion/incidents/${encodeURIComponent(id)}/normal`, { method: 'POST' }),
+  intrusion: (projectId: string) => call<{ intrusion: ProjectIntrusionDto }>(`/projects/${projectId}/intrusion`),
+  setIntrusion: (projectId: string, input: IntrusionSettingsInput) => call<{ intrusion: ProjectIntrusionDto }>(`/projects/${projectId}/intrusion`, { method: 'PUT', body: body(input) }),
+  removeIntrusionNormal: (projectId: string, entry: ProjectIntrusionDto['normal'][number]) =>
+    call<{ intrusion: ProjectIntrusionDto }>(`/projects/${projectId}/intrusion/normal/remove`, { method: 'POST', body: body(entry) }),
+  isolate: (projectId: string) => call<{ intrusion: ProjectIntrusionDto }>(`/projects/${projectId}/isolation`, { method: 'POST' }),
+  releaseIsolation: (projectId: string) => call<{ released: boolean; restored: number; failed: string[]; intrusion: ProjectIntrusionDto }>(`/projects/${projectId}/isolation`, { method: 'DELETE' }),
   backup: () => call<BackupStatusDto>('/system/backup'),
   putBackupSettings: (input: unknown) => call<BackupSettingsDto>('/system/backup/settings', { method: 'PUT', body: body(input) }),
   testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),

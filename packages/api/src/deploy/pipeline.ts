@@ -37,6 +37,7 @@ import { PREVIEW_SECRET_MISSING, previewSecretsMissingMessage, type DeploymentDt
 import { isOwnImage } from '../lib/names.js'
 import { keptDeploymentIds } from '../storage/plan.js'
 import { assertDiskRoom, keepVersionsSetting } from '../storage/service.js'
+import { assertNotIsolated } from '../intrusion/guard.js'
 
 type Project = typeof schema.projects.$inferSelect
 type Deployment = typeof schema.deployments.$inferSelect
@@ -127,6 +128,8 @@ async function startJob(project: Project, actor: string, job: Job, o: StartOptio
   // Nacht 3, Etappe 3: ab 95 % belegter Platte keine Deploys (auch Auto-Deploy, Vorschau, MCP).
   // Rollback und «Neu erstellen» brauchen kein neues Image und bleiben möglich.
   if (job.kind === 'deploy') await assertDiskRoom()
+  // Nacht 3, Etappe 5: isoliert → kein Deploy, kein Rollback, bis Joël freigibt (Container bleiben für die Analyse)
+  await assertNotIsolated(project)
   const lock = await tryLockProject(project.id)
   if (!lock) throw conflict('Für dieses Projekt läuft bereits ein Deploy')
 

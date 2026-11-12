@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, NavLink } from 'react-router-dom'
 import { ExternalTargets } from './ExternalTargets.js'
+import { IncidentsPage } from '../components/Intrusion.js'
 import { sumCounts, type ProjectDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { useEnvPath } from '../lib/env.js'
@@ -14,15 +15,28 @@ import { EmptyState, ErrorState, Loading, SkRows, SkStats } from '../components/
  * Security über alle Projekte: Note, offene Befunde nach Schwere, letzter
  * Scan. Sortiert nach Dringlichkeit – oben, was zuerst angeschaut werden soll.
  */
-export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte' | 'extern' }) {
+export function SecurityOverview({ section = 'projekte' }: { section?: 'projekte' | 'extern' | 'vorfaelle' }) {
   const ep = useEnvPath()
   // UI-Qualität 6: Externe Ziele als Reiter unter Security (/extern leitet hierher)
+  // Nacht 3, Etappe 5: Vorfälle der Einbruchserkennung als dritter Reiter
   const tabs = (
     <nav className="tabs" aria-label="Bereiche von Security">
       <NavLink to={ep('/security')} end className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'projekte' ? 'page' : undefined}>Projekte</NavLink>
+      <NavLink to={ep('/security/vorfaelle')} className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'vorfaelle' ? 'page' : undefined}>Vorfälle</NavLink>
       <NavLink to={ep('/security/extern')} className={({ isActive }) => (isActive ? 'tab tab-active' : 'tab')} aria-current={section === 'extern' ? 'page' : undefined}>Externe Ziele</NavLink>
     </nav>
   )
+  if (section === 'vorfaelle') {
+    return (
+      <section className="page">
+        <PageHead crumbs={[{ label: 'Security', to: ep('/security') }, { label: 'Vorfälle' }]} title="Security" name="Vorfälle">
+          <p className="lede">Hinweise auf einen Einbruch: neue Programme und Shells in Containern, geänderte Dateien, gesperrte Ausgangsversuche, Anmeldungen, Scans von aussen. Hoch und kritisch kommen zusätzlich per Push und E-Mail.</p>
+        </PageHead>
+        {tabs}
+        <IncidentsPage />
+      </section>
+    )
+  }
   if (section === 'extern') {
     return (
       // Gleiche Breite wie der Reiter «Projekte» (kein Springen beim Wechsel)

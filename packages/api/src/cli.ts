@@ -31,6 +31,12 @@ const USAGE = [
   '  node dist/cli.js cleanup --apply         aufräumen wie «Jetzt aufräumen» (Server › Speicher)',
   '        --only-label <schlüssel>=<wert>    nur Docker-Objekte mit diesem Label (Test); ohne Build-Cache und Dateien',
   '        --min-age-minutes <n>              Mindestalter für Images und Container (Standard 60)',
+  '  node dist/cli.js release-isolation <projekt>',
+  '                                          Isolation eines Projekts aufheben (Notausgang, wie «Isolation',
+  '                                          aufheben» in Projekt › Security; der Ausgang bleibt abgeschottet)',
+  '  node dist/cli.js intrusion-check         eine Runde der Einbruchserkennung (Prozesse, Dateien, Neustarts)',
+  '        --only-label <schlüssel>=<wert>    nur Container mit diesem Label (Test); ohne Anmeldung, ohne Meldungen',
+  '        --learn-minutes <n>                Lernzeit neuer Container (Standard 10)',
   '  node dist/cli.js help                   diese Hilfe',
   '',
   'Airlock kennt ein Konto. Als <benutzer> gehen «admin» oder der Anzeigename aus ADMIN_NAME.',
@@ -79,6 +85,44 @@ export function parseCleanupArgs(args: string[], err: (l: string) => void): Clea
   return o
 }
 
+/** Nacht 3, Etappe 5: eine Runde der Einbruchserkennung auf der Kommandozeile */
+export interface IntrusionCli {
+  scope: { key: string; value: string } | null
+  learnMinutes: number | undefined
+}
+
+export interface IntrusionCliResult {
+  containers: number
+  learning: number
+  signals: { severity: string; kind: string; project: string | null; title: string; count: number; samples: string[] }[]
+  created: number
+  updated: number
+  errors: string[]
+  /** Aktive Vorfälle danach (bei --only-label nur die der betroffenen Projekte) */
+  active: { severity: string; kind: string; project: string | null; title: string; count: number; status: string }[]
+}
+
+/** Rein: Schalter von «intrusion-check» lesen; null bei Fehlern */
+export function parseIntrusionArgs(args: string[], err: (l: string) => void): IntrusionCli | null {
+  const o: IntrusionCli = { scope: null, learnMinutes: undefined }
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!
+    if (a === '--only-label') {
+      const m = /^([a-z0-9][a-z0-9._-]*)=(.+)$/i.exec(args[++i] ?? '')
+      if (!m) { err('--only-label braucht <schlüssel>=<wert>'); return null }
+      o.scope = { key: m[1]!, value: m[2]! }
+    } else if (a === '--learn-minutes') {
+      const n = Number(args[++i])
+      if (!Number.isInteger(n) || n < 0 || n > 1440) { err('--learn-minutes braucht eine ganze Zahl von 0 bis 1440'); return null }
+      o.learnMinutes = n
+    } else {
+      err(`Unbekannter Schalter «${a}».`)
+      return null
+    }
+  }
+  return o
+}
+
 const mb = (n: number | null) => (n === null ? '–' : n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`)
 
 /** Vergleichbar machen: klein, ohne Akzente («Joël» = «joel») */
@@ -93,11 +137,42 @@ export async function runCli(argv: string[], io: CliIo, deps: {
   service: () => Promise<AuthService>
   adminName: string
   cleanup?: (o: CleanupCli) => Promise<CleanupCliResult>
+  intrusion?: (o: IntrusionCli) => Promise<IntrusionCliResult>
+  releaseIsolation?: (project: string) => Promise<{ name: string; released: boolean; restored: number; failed: string[] }>
 }): Promise<number> {
   const [cmd, user, ...rest] = argv
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
     USAGE.forEach((l) => io.out(l))
     return cmd ? 0 : 2
+  }
+  if (cmd === 'intrusion-check') {
+    const o = parseIntrusionArgs(argv.slice(1), io.err)
+    if (!o) return 2
+    if (!deps.intrusion) { io.err('Die Einbruchserkennung ist hier nicht verfügbar.'); return 1 }
+    const r = await deps.intrusion(o)
+    if (o.scope) io.out(`Nur Container mit Label ${o.scope.key}=${o.scope.value}`)
+    io.out(`Container geprüft: ${r.containers} (davon lernen noch: ${r.learning})`)
+    io.out(`Hinweise: ${r.signals.length}`)
+    for (const s of r.signals) {
+      io.out(`  ${s.severity.padEnd(9)} ${s.kind.padEnd(20)} ${s.project ? `[${s.project}] ` : ''}${s.title} (+${s.count})`)
+      for (const x of s.samples.slice(0, 3)) io.out(`             ${x}`)
+    }
+    io.out(`Vorfälle: ${r.created} neu, ${r.updated} gebündelt (Zähler erhöht)`)
+    io.out(`Aktive Vorfälle: ${r.active.length}`)
+    for (const a of r.active) io.out(`  ${a.severity.padEnd(9)} ${a.status.padEnd(8)} ${a.kind.padEnd(20)} ${a.project ? `[${a.project}] ` : ''}${a.title} (${a.count}×)`)
+    r.errors.forEach((e) => io.err(`Hinweis: ${e}`))
+    return 0
+  }
+  if (cmd === 'release-isolation') {
+    if (!user || rest.length) { io.err('Aufruf: node dist/cli.js release-isolation <projekt>'); return 2 }
+    if (!deps.releaseIsolation) { io.err('Hier nicht verfügbar.'); return 1 }
+    const r = await deps.releaseIsolation(user)
+    if (!r.released) { io.out(`«${r.name}» ist nicht isoliert – nichts zu tun.`); return 0 }
+    io.out(`Isolation von «${r.name}» aufgehoben:`)
+    io.out(`  Restart-Policy zurückgestellt: ${r.restored} Container${r.failed.length ? ` (nicht: ${r.failed.join(', ')})` : ''}`)
+    io.out('  Start, Neustart und Deploy gehen wieder. Der Ausgang bleibt «abgeschottet» –')
+    io.out('  öffnen unter Projekt › Einstellungen › Ausgehende Verbindungen. Eintrag im Audit-Log: project.isolate.release.')
+    return r.failed.length ? 1 : 0
   }
   if (cmd === 'cleanup') {
     const o = parseCleanupArgs(argv.slice(1), io.err)
@@ -175,6 +250,54 @@ async function productionCleanup(o: CleanupCli): Promise<CleanupCliResult> {
   return { ...preview, plan: r.plan, run: r.run, errors: r.errors }
 }
 
+/** Migrationen, falls die Datenbank noch leer ist (Smoke-Test, erster Start gescheitert) */
+async function ensureMigrated(table: string): Promise<void> {
+  const { pool } = await import('./db/index.js')
+  const exists = await pool.query<{ t: string | null }>('SELECT to_regclass($1)::text AS t', [table])
+  if (!exists.rows[0]?.t) {
+    const { runMigrations } = await import('./db/migrate.js')
+    await runMigrations((m) => console.log(m))
+  }
+}
+
+/** Nacht 3, Etappe 5: eine Runde wie der Job (mit --only-label ohne Anmeldung und ohne Meldungen) */
+async function productionIntrusion(o: IntrusionCli): Promise<IntrusionCliResult> {
+  await ensureMigrated('incidents')
+  const { runIntrusionRound } = await import('./intrusion/jobs.js')
+  const { db, schema } = await import('./db/index.js')
+  const { inArray, ne, and } = await import('drizzle-orm')
+  const r = await runIntrusionRound({
+    only: o.scope, learnMs: o.learnMinutes === undefined ? undefined : o.learnMinutes * 60_000,
+    logins: !o.scope, notify: !o.scope,
+    // Von Hand: Dateien immer prüfen (der Job tut es nach dem Lernen nur alle 5 Minuten)
+    forceFiles: true,
+  })
+  const projects = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects)
+  const name = new Map(projects.map((p) => [p.id, p.name]))
+  const scopeIds = o.scope ? r.projectIds : null
+  const active = ne(schema.incidents.status, 'erledigt')
+  const rows = scopeIds && !scopeIds.length ? [] : await db.select().from(schema.incidents)
+    .where(scopeIds ? and(active, inArray(schema.incidents.projectId, scopeIds)) : active)
+  return {
+    containers: r.containers,
+    learning: r.learning,
+    signals: r.signals.map((s) => ({ severity: s.severity, kind: s.kind, project: s.projectId ? name.get(s.projectId) ?? s.projectId : null, title: s.title, count: s.count, samples: s.samples })),
+    created: r.recorded.created,
+    updated: r.recorded.updated,
+    errors: r.errors,
+    active: rows.map((a) => ({ severity: a.severity, kind: a.kind, project: a.projectId ? name.get(a.projectId) ?? null : null, title: a.title, count: a.count, status: a.status })),
+  }
+}
+
+/** Nacht 3, Etappe 5: Notausgang, falls die Oberfläche nicht geht */
+async function productionRelease(project: string): Promise<{ name: string; released: boolean; restored: number; failed: string[] }> {
+  await ensureMigrated('incidents')
+  const { findProjectForServerJob } = await import('./domain/projects.js')
+  const { releaseIsolation } = await import('./intrusion/store.js')
+  const p = await findProjectForServerJob(project)
+  return { name: p.name, ...(await releaseIsolation(p, 'cli')) }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   const io: CliIo = { out: (l) => console.log(l), err: (l) => console.error(l) }
@@ -183,6 +306,8 @@ async function main(): Promise<void> {
     code = await runCli(argv, io, {
       service: productionService,
       cleanup: productionCleanup,
+      intrusion: productionIntrusion,
+      releaseIsolation: productionRelease,
       // config.ts erst laden, wenn ein Befehl die Datenbank braucht (Hilfe geht ohne Umgebung)
       get adminName() { return process.env.ADMIN_NAME ?? '' },
     })
@@ -190,7 +315,7 @@ async function main(): Promise<void> {
     console.error(`Fehler: ${(err as Error).message}`)
     code = 1
   } finally {
-    if (argv[0] === 'reset-2fa' || argv[0] === 'cleanup') {
+    if (argv[0] === 'reset-2fa' || argv[0] === 'cleanup' || argv[0] === 'intrusion-check' || argv[0] === 'release-isolation') {
       const { pool } = await import('./db/index.js').catch(() => ({ pool: null }))
       await pool?.end().catch(() => {})
     }

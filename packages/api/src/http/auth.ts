@@ -272,6 +272,9 @@ export const SUDO_ROUTES: readonly string[] = [
   'DELETE /api/v1/projects/:id/git-access/host-key',
   // Nacht 3, Etappe 3: verwaistes Volume löschen (darin liegen Daten; dazu Namen eintippen)
   'DELETE /api/v1/system/storage/volumes/:name',
+  // Nacht 3, Etappe 5: Container isolieren (Ausgang zu, Neustart verweigert) und die Isolation aufheben
+  'POST /api/v1/projects/:id/isolation',
+  'DELETE /api/v1/projects/:id/isolation',
 ]
 const sudoRoutes = new Set(SUDO_ROUTES)
 
@@ -363,6 +366,13 @@ export function registerAuthGuard(app: FastifyInstance): void {
       // gestohlenes Token könnte ein Projekt sonst ins Heimnetz öffnen. Lesen am Projekt geht.
       if (route.startsWith('/api/v1/system/egress') || (route.startsWith('/api/v1/projects/:id/egress') && request.method !== 'GET')) {
         throw new AppError('forbidden', 'Ausgehende Verbindungen lassen sich nur mit einer Anmeldung ändern, nicht mit einem API-Token', 403)
+      }
+      // Nacht 3, Etappe 5: Vorfälle (nennen Adressen, Pfade, Befehlszeilen), Isolieren und die Grundlinie
+      // nur mit Anmeldung – ein gestohlenes Token könnte sonst Vorfälle als erledigt oder normal markieren.
+      // MCP liest über list_incidents.
+      if (route.startsWith('/api/v1/intrusion/') || route.startsWith('/api/v1/environments/:env/intrusion/')
+        || route.startsWith('/api/v1/projects/:id/intrusion') || route.startsWith('/api/v1/projects/:id/isolation')) {
+        throw new AppError('forbidden', 'Vorfälle gibt es nur mit einer Anmeldung, nicht mit einem API-Token (MCP: list_incidents)', 403)
       }
       // Etappe 3: Städte-Datenbank laden/entfernen (Download bei DB-IP) nur mit Anmeldung
       if (route.startsWith('/api/v1/system/traffic') && request.method !== 'GET') {

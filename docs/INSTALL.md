@@ -217,6 +217,44 @@ sudo nft delete table inet airlock
 - *Neustart des Servers oder von Docker/nftables:* Die Tabelle ist weg; der Dienst startet mit Docker und baut sie sofort aus `rules.nft` neu auf (auch bevor Airlock läuft). Fehlt sie im Betrieb (z. B. nach `nft flush ruleset`), baut er sie innerhalb von 30 s neu.
 - *Falscher Stand:* Jede Datei wird gegen eine feste Grammatik geprüft (nur Sprünge aus `br-<id>`-Bridges, nur Sperren in den Ketten der Projekt-Netze); ein abgelehnter Stand ändert nichts, `airlock-fw status` zeigt den Grund.
 
+## 8. Einbruchserkennung
+
+Airlock sammelt Hinweise auf einen Einbruch und zeigt sie unter **Security › Vorfälle** und im Reiter **Security** jedes Projekts: neue Programme und Shells in Projekt-Containern (`docker top`, jede Minute), geänderte Dateien gegenüber dem Image (`docker diff`, alle 5 Minuten), ausgelieferte Dateien statischer Seiten gegen ihre Fassung (stündlich), Fehlversuche, Sperren und neue Geräte bei der Anmeldung, gesperrte Ausgangsversuche (Abschnitt 7), Scanner-Pfade aus dem Besucher-Log und Abstürze von Containern. Hoch und kritisch kommen zusätzlich per Push und E-Mail (Server › Benachrichtigungen, Ereignis «Einbruchsindiz»; je Vorfall einmal, höchstens 5 Meldungen pro Stunde). Kein Falco, keine Kernel-Module, keine neuen Rechte des Socket-Proxys (`top`, `changes`, `archive` liegen unter `CONTAINERS`; `EXEC` bleibt aus).
+
+**Vor dem Update** (baut das Image, eigener Socket-Proxy ohne exec, Wegwerf-Datenbank, Test-Container mit eigenem Label, räumt alles ab, braucht nur `bash` und `docker`):
+
+```sh
+scripts/smoke-einbruch.sh
+```
+
+Erwartet am Ende:
+
+```
+OK: Shell und Datei im Webroot erkannt (je ein Vorfall, hoch), kein Fehlalarm vorher, Wiederholung gebündelt, Notausgang hebt die Isolation auf.
+```
+
+**Nach dem Update** passiert zuerst nichts Sichtbares: Jeder laufende Container lernt 10 Minuten lang seine Grundlinie (Programme, geschriebene Dateien); erst danach meldet Airlock Neues. Ausnahme: Namen bekannter Krypto-Miner (`xmrig` u. a.) sind immer kritisch. Alte Anmeldungen und Sitzungen ergeben keine Vorfälle; statische Seiten werden beim ersten Prüfen festgehalten. Eine Runde von Hand (zeigt, was Airlock gerade sieht, meldet aber nichts doppelt):
+
+```sh
+docker exec airlock-app node dist/cli.js intrusion-check
+```
+
+**Fehlalarm?** Im Vorfall «Als normal markieren»: das Programm bzw. der Ordner gilt für dieses Projekt ab jetzt als normal (auch nach Deploys). Rückgängig unter Projekt › Security › «Als normal markiert». Ein `docker exec … sh` von Hand in einen Container erscheint als «Shell gestartet» – gewollt.
+
+**Reaktion:** Standard ist nur melden. Je Projekt (Reiter Security) lässt sich «Bei kritischem Vorfall Container stoppen und Seite pausieren» einschalten (Standard aus). «Container jetzt isolieren» (mit erneuter Bestätigung) stellt den Ausgang auf «Abgeschottet» (durchgesetzt), die Restart-Policy der Container auf `no` und sperrt Start, Neustart, Deploy und Rollback bis zur Freigabe. Die Container laufen weiter (Zustand für die Analyse), die Seite bleibt erreichbar.
+
+### Notausgang: Isolation aufheben ohne Oberfläche
+
+```sh
+docker exec airlock-app node dist/cli.js release-isolation <projekt-slug>
+```
+
+Stellt die Restart-Policies zurück und gibt Start und Deploy frei (Eintrag `project.isolate.release` im Audit-Log). Der Ausgang bleibt «Abgeschottet» – öffnen unter Projekt › Einstellungen › Ausgehende Verbindungen oder alle Ausgangsregeln sofort entfernen mit `docker exec airlock-firewall airlock-fw flush` (Abschnitt 7). Startet Airlock selbst nicht mehr, gleichwertig in der Datenbank (danach Restart-Policy von Hand, z. B. `docker update --restart unless-stopped <container>`):
+
+```sh
+docker exec airlock-postgres psql -U airlock -d airlock -c "UPDATE projects SET isolated_at = NULL, isolated_by = NULL, isolation = NULL WHERE slug = '<projekt-slug>';"
+```
+
 ## Adressen und Wege
 
 | Weg | Adresse | Erreichbar |

@@ -43,6 +43,8 @@ import { storageOverview } from '../storage/service.js'
 import { mcpDiskUsage } from '../storage/mcp.js'
 import { mcpTraffic } from '../traffic/summary.js'
 import { trafficSummary } from '../traffic/service.js'
+import { listIncidents } from '../intrusion/store.js'
+import { mcpIncidents } from '../intrusion/mcp.js'
 
 /**
  * MCP-Server von Airlock. Pro Sitzung eine Instanz mit der Identität des
@@ -268,6 +270,17 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   }, async (a) => {
     const p = await findProject(scope, a.project)
     return ok(mcpTraffic(p.slug, await trafficSummary(p.id, a.range, a.access)))
+  })
+
+  // Nacht 3, Etappe 5: nur lesen – Vorfälle der Projekte dieser Umgebung (ohne Anmelde-Vorfälle des Servers).
+  // Status ändern, als normal markieren und isolieren gehen nur in der Oberfläche.
+  tool('list_incidents', 'Vorfälle der Einbruchserkennung (nur lesen): neue Programme oder Shells in Containern, geänderte Dateien, gesperrte Ausgangsversuche, Scans von aussen, Abstürze – mit Schweregrad (niedrig/mittel/hoch/kritisch), Status (offen/gesehen/erledigt), Zähler und Beispielen. Ohne Anmelde-Vorfälle des Servers.', {
+    project: project.optional(),
+    status: z.enum(['aktiv', 'offen', 'gesehen', 'erledigt', 'alle']).default('aktiv').describe('aktiv = offen und gesehen (Standard)'),
+    limit: z.number().int().min(1).max(100).default(30),
+  }, async (a) => {
+    const p = a.project ? await findProject(scope, a.project) : null
+    return ok(mcpIncidents(await listIncidents(scope, { status: a.status, projectId: p?.id, limit: a.limit })))
   })
 
   /* --- Anlegen und Dateien --------------------------------------------------- */

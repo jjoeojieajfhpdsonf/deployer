@@ -10,6 +10,7 @@ import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
 import { startStorageJobs } from './storage/service.js'
 import { startEgressJobs } from './egress/service.js'
+import { startIntrusionJobs } from './intrusion/jobs.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
@@ -104,6 +105,8 @@ async function main(): Promise<void> {
   startStorageJobs()
   // Nacht 3, Etappe 4: Ausgangsregeln an den Firewall-Dienst (sofort, dann jede Minute), Protokoll abholen
   startEgressJobs()
+  // Nacht 3, Etappe 5: Einbruchserkennung (Anmeldung, Prozesse, Dateien, Neustarts jede Minute; Seiten stündlich)
+  startIntrusionJobs()
   startExpiryJob()
   // M6
   await abandonUnfinishedScans()

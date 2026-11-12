@@ -43,6 +43,8 @@ export interface ProcessorDeps {
   cfLocation?: () => void
   /** Zugriffe neu: jede gelesene Anfrage auf einen bekannten Namen (Reiter «Zugriffe» live, Docker-Netz-Warnung) */
   tap?: (a: AccessLine, host: HostInfo) => void
+  /** Nacht 3, Etappe 5: jede fremde Anfrage (ohne eigene Prüfungen) für «Scan von aussen» */
+  observe?: (projectId: string, a: { at: number; path: string; status: number; source: string }) => void
 }
 
 export type HandleResult = 'unknown' | 'ignore' | 'live' | 'bot' | 'page'
@@ -63,6 +65,8 @@ export class TrafficProcessor {
     const net = way === 'public' ? (this.d.asn?.(a.ip) ?? null) : null
     const verdict = verdictOf(a, { healthPath: host.healthPath, hasPages: this.d.hasPages.has(projectId), asn: net?.asn ?? null })
     if (verdict === 'ignore') return 'ignore'
+    // Nacht 3, Etappe 5: jede fremde Anfrage (ohne eigene Prüfungen) für «Scan von aussen»
+    this.d.observe?.(projectId, { at: a.at, path: a.path, status: a.status, source: a.ip })
     this.d.measured?.(projectId, a.at)
     const bot = verdict === 'bot'
     const page = verdict === 'page'
