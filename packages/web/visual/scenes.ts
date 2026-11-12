@@ -25,7 +25,7 @@ export const VISUAL_SCENES = [
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
   'projekt-uebersicht-besucher', 'projekte-besucher',
   // Besucher neu: Messbeginn im Zeitraum, Säulen, Heute, 12 Monate, Kennzahl als Kurve, Europa, Einstieg, Server › Besucher
-  'besucher-messbeginn', 'besucher-saeulen', 'besucher-heute', 'besucher-12-monate', 'besucher-kennzahl', 'besucher-seiten-pro-besuch', 'besucher-europa', 'besucher-einstieg',
+  'besucher-messbeginn', 'besucher-saeulen', 'besucher-heute', 'besucher-12-monate', 'besucher-kennzahl', 'besucher-seiten-pro-besuch', 'besucher-europa', 'besucher-karte-zoom', 'besucher-einstieg',
   // Besucher zusammen: Seiten › 404, Woher › Kampagnen, Geräte › Browser, Liste «Netz», «Wie gezählt wird» offen
   'besucher-404', 'besucher-kampagnen', 'besucher-browser', 'besucher-netz', 'besucher-info',
   'server-besucher', 'server-besucher-geladen',

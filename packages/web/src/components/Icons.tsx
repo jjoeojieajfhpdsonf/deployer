@@ -15,6 +15,13 @@ export const IconExpand = ({ size, className }: P) => (
 export const IconPlus = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>
 )
+export const IconMinus = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M3 8h10" /></svg>
+)
+/** Ganzer Ausschnitt: vier Ecken eines Rahmens (Karte zurücksetzen) */
+export const IconFit = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" /></svg>
+)
 export const IconAlert = ({ size = 20, className }: P) => (
   <svg {...base(size)} viewBox="0 0 16 16" className={className}><circle cx="8" cy="8" r="6.2" /><path d="M8 4.8v3.6M8 10.9v.1" /></svg>
 )

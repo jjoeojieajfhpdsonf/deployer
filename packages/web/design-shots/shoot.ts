@@ -1122,6 +1122,17 @@ const shots: Shot[] = [
     },
   },
   {
+    // Karte gezoomt: Europa, einmal vergrössert (um die Mitte, 10° O / 53° N), Schweiz mit Tooltip
+    group: 'besucher', name: 'besucher-karte-zoom', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-geo',
+    prepare: async (pg) => {
+      await pg.getByRole('group', { name: 'Kartenausschnitt' }).getByRole('button', { name: 'Europa' }).click()
+      await pg.getByRole('group', { name: 'Kartenzoom' }).getByRole('button', { name: 'Vergrössern' }).click()
+      await pg.getByRole('link', { name: /^Schweiz:/ }).focus()
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
     group: 'besucher', name: 'besucher-einstieg', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-grid-3',
     prepare: async (pg) => {
       await pg.getByRole('group', { name: 'Alle Seiten, Einstieg, Ausstieg oder nicht gefunden' }).getByRole('button', { name: 'Einstieg' }).click()

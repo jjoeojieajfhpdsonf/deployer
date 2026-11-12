@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { MAP_HEIGHT, MAP_WIDTH, countryShapes, type Topology } from './world-map.js'
+import { MAP_HEIGHT, MAP_MIN_W, MAP_VIEWS, MAP_WIDTH, clampBox, countryShapes, panBox, sameBox, zoomBox, type MapBox, type Topology } from './world-map.js'
 
 const require = createRequire(import.meta.url)
 
@@ -41,5 +41,52 @@ describe('Weltkarte: TopoJSON → SVG-Pfade', () => {
         assert.ok(Number(a) >= 0 && Number(a) <= MAP_WIDTH && Number(b) >= 0 && Number(b) <= MAP_HEIGHT, `${x.code} ausserhalb`)
       }
     }
+  })
+})
+
+describe('Weltkarte: Zoomen und Verschieben', () => {
+  const world: MapBox = MAP_VIEWS.world
+  const ratio = (b: MapBox) => b.w / b.h
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6
+
+  test('jeder Ausschnitt hat das Seitenverhältnis der Fläche (auch Europa)', () => {
+    assert.ok(near(ratio(MAP_VIEWS.europe), MAP_WIDTH / MAP_HEIGHT))
+    // Europa: 72° N bis 34° N, Portugal bis Kaspisches Meer im Bild
+    assert.equal(MAP_VIEWS.europe.y, 84 - 72)
+    assert.ok(MAP_VIEWS.europe.x < 180 - 22 && MAP_VIEWS.europe.x + MAP_VIEWS.europe.w > 180 + 45)
+  })
+
+  test('vergrössern um die Mitte, der Punkt unter dem Zeiger bleibt stehen', () => {
+    const z = zoomBox(world, 2)
+    assert.ok(near(z.w, 180) && near(z.x, 90) && near(ratio(z), ratio(world)))
+    // Schweiz (188, 37) unter dem Zeiger: Anteil im Ausschnitt vorher = nachher
+    const at = zoomBox(world, 4, 188, 37)
+    assert.ok(near((188 - at.x) / at.w, 188 / 360) && near((37 - at.y) / at.h, 37 / MAP_HEIGHT))
+  })
+
+  test('Grenzen: nie kleiner als die Welt, höchstens 12-fach, nie über den Rand', () => {
+    assert.deepEqual(zoomBox(world, 0.5), world)
+    const deep = zoomBox(zoomBox(world, 8), 8)
+    assert.ok(near(deep.w, MAP_MIN_W))
+    // in der Ecke vergrössert: bleibt in der Karte
+    const corner = zoomBox(world, 3, 0, 0)
+    assert.ok(near(corner.x, 0) && near(corner.y, 0))
+    const out = zoomBox(zoomBox(world, 4, 350, 140), 0.9, 350, 140)
+    assert.ok(out.x + out.w <= MAP_WIDTH + 1e-9 && out.y + out.h <= MAP_HEIGHT + 1e-9)
+  })
+
+  test('verschieben: bleibt in der Karte; die ganze Welt lässt sich nicht verschieben', () => {
+    assert.deepEqual(panBox(world, 40, 10), world)
+    const z = zoomBox(world, 4)
+    const p = panBox(z, 10, -5)
+    assert.ok(near(p.x, z.x + 10) && near(p.y, z.y - 5))
+    const far = panBox(z, -1000, 1000)
+    assert.ok(near(far.x, 0) && near(far.y + far.h, MAP_HEIGHT))
+    assert.deepEqual(clampBox({ x: -5, y: -5, w: 999, h: 1 }), world)
+  })
+
+  test('gleicher Ausschnitt', () => {
+    assert.ok(sameBox(world, { ...world }))
+    assert.ok(!sameBox(world, zoomBox(world, 1.5)))
   })
 })

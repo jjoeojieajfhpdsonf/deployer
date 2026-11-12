@@ -46,13 +46,48 @@ export interface CountryShape {
   cy: number
 }
 
+/** Ausschnitt der Karte (viewBox) in Kartenkoordinaten: x = Länge + 180, y = 84 − Breite */
+export interface MapBox { x: number; y: number; w: number; h: number }
+
+/** Höhe zur Breite im Seitenverhältnis der Kartenfläche (CSS aspect-ratio 360 / 141); jeder Ausschnitt hat es */
+const heightOf = (w: number) => (w * MAP_HEIGHT) / MAP_WIDTH
+const EUROPE_W = (38 * MAP_WIDTH) / MAP_HEIGHT
+
 /** Ausschnitte der Karte (viewBox): Welt und Europa */
 export const MAP_VIEWS = {
   world: { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT },
-  // Europa: 25° W bis 45° O, 72° N bis 34° N
-  europe: { x: 180 - 25, y: MAP_NORTH - 72, w: 70, h: 38 },
-} as const
+  // Europa: 72° N bis 34° N, um 10° O zentriert und so breit, dass das Seitenverhältnis der Fläche
+  // stimmt (sonst Ränder links und rechts, und Tooltip/Punkt sässen daneben)
+  europe: { x: 190 - EUROPE_W / 2, y: MAP_NORTH - 72, w: EUROPE_W, h: 38 },
+} as const satisfies Record<string, MapBox>
 export type MapView = keyof typeof MAP_VIEWS
+
+/** Stärkste Vergrösserung: 12-fach (30 Längengrade breit) */
+export const MAP_MIN_W = MAP_WIDTH / 12
+
+/** Ausschnitt in die Karte schieben (nie über den Rand hinaus) */
+export function clampBox(b: MapBox): MapBox {
+  const w = Math.min(MAP_WIDTH, Math.max(MAP_MIN_W, b.w))
+  const h = heightOf(w)
+  return { x: Math.min(MAP_WIDTH - w, Math.max(0, b.x)), y: Math.min(MAP_HEIGHT - h, Math.max(0, b.y)), w, h }
+}
+
+/** Um `factor` vergrössern (> 1) oder verkleinern (< 1); der Punkt (px, py) bleibt an seiner Stelle */
+export function zoomBox(b: MapBox, factor: number, px = b.x + b.w / 2, py = b.y + b.h / 2): MapBox {
+  const w = Math.min(MAP_WIDTH, Math.max(MAP_MIN_W, b.w / factor))
+  const k = w / b.w
+  return clampBox({ x: px - (px - b.x) * k, y: py - (py - b.y) * k, w, h: heightOf(w) })
+}
+
+/** Ausschnitt um (dx, dy) Kartenkoordinaten verschieben */
+export function panBox(b: MapBox, dx: number, dy: number): MapBox {
+  return clampBox({ ...b, x: b.x + dx, y: b.y + dy })
+}
+
+/** Gleicher Ausschnitt (auf eine Zehntel-Einheit) */
+export function sameBox(a: MapBox, b: MapBox): boolean {
+  return Math.abs(a.x - b.x) < 0.1 && Math.abs(a.y - b.y) < 0.1 && Math.abs(a.w - b.w) < 0.1
+}
 
 function decodeArcs(t: Topology): [number, number][][] {
   const [sx, sy] = t.transform?.scale ?? [1, 1]
