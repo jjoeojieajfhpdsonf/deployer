@@ -6,7 +6,7 @@
  */
 export const VISUAL_SCENES = [
   // Shell und Anmeldung
-  'login', 'shell-profilmenue', 'win95-freigeschaltet',
+  'login', 'shell-profilmenue', 'shell-eingeklappt', 'win95-freigeschaltet',
   // Nacht 3, Etappe 1: Passkey und 2FA – Anmeldung (Passkey, nip.io, zweiter Schritt, Wiederherstellungscode, gesperrt),
   // Konto › Sicherheit (eingerichtet, leer, nip.io), Authenticator einrichten, Codes einmal zeigen, erneute Bestätigung
   'login-passkey', 'login-nip', 'login-zweiter-schritt', 'login-wiederherstellungscode', 'login-gesperrt',

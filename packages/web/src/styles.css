@@ -577,7 +577,9 @@ html { scrollbar-color: var(--line-strong) var(--bg); caret-color: var(--ink); }
   background: var(--bg);
 }
 
-.brand { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); color: var(--ink); text-decoration: none; }
+/* Mindesthöhe = Zeile des Schriftzugs: eingeklappt (nur der Knopf) bleibt die Kopfzeile gleich hoch,
+   die Einträge darunter springen beim Ein- und Ausklappen nicht */
+.brand { display: flex; align-items: center; gap: var(--sp-2); min-height: calc(var(--fs-24) * 1.55); padding: 0 var(--sp-2); color: var(--ink); text-decoration: none; }
 .brand-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-family: var(--display); font-weight: 400; font-size: var(--fs-24); letter-spacing: var(--track-display); color: var(--ink); text-decoration: none; }
 .brand-logo { flex: none; }
 .brand-mark {
@@ -663,8 +665,9 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-divider { display: grid; gap: 1px; padding: var(--sp-3) var(--sp-3) var(--sp-2); border-top: 1px solid var(--line); font-size: var(--fs-13); font-weight: 500; color: var(--ink-dim); }
 .rail-divider-note { font-size: var(--fs-12); font-weight: 400; color: var(--muted); }
 .rail-collapsed .brand { flex-direction: column; gap: var(--sp-2); }
-.rail-collapsed .rail-divider span { display: none; }
-.rail-collapsed .rail-divider { padding: 0; width: 44px; }
+/* Eingeklappt: Beschriftung unsichtbar, aber mit ihrer Höhe – «Server» bleibt auf gleicher Höhe */
+.rail-collapsed .rail-divider span { visibility: hidden; overflow: hidden; white-space: nowrap; }
+.rail-collapsed .rail-divider { padding-left: 0; padding-right: 0; width: 44px; }
 
 .rail-foot { margin-top: auto; padding: var(--sp-4) var(--sp-3) 0; display: grid; gap: var(--sp-1); font-size: var(--fs-13); color: var(--muted); }
 .rail-foot strong { color: var(--ink-dim); font-weight: 500; overflow-wrap: anywhere; }
@@ -2599,7 +2602,9 @@ form.failure-fix .form-actions { margin: 0; }
 .vs-view > .panel + .panel { margin-top: 0; }
 .vs-view > .state-empty { margin: 0; }
 .vs-view .notice { margin: 0; }
-.vs-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.vs-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }
+/* Schmale Fenster: die Segmente scrollen selbst, statt die Seite zu verbreitern */
+.vs-top > * { min-width: 0; max-width: 100%; }
 .vs-top .segmented button { min-height: 30px; padding: 0 10px; font-size: var(--fs-13); }
 .vs-top .segmented .num { margin-left: 5px; }
 .vs-top-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-left: auto; }

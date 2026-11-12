@@ -363,6 +363,8 @@ function aufbau2Shots(group: string, prefix = ''): Shot[] {
 
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
+  // Seitenleiste eingeklappt: nur Zeichen, Einträge auf derselben Höhe wie ausgeklappt
+  { group: 'shell', name: 'shell-eingeklappt', path: '/projekte', full: false, prepare: async (pg) => { await pg.getByRole('button', { name: 'Seitenleiste einklappen' }).click(); await pg.locator('.rail-collapsed').waitFor(); await pg.waitForTimeout(250) } },
   // Windows 95 als Desktop (nur mit --themes win95 sinnvoll): Fenster-Knöpfe, Taskleiste, Startmenü, Beenden
   {
     group: 'win95', name: 'win95-minimiert', path: `/projekte/${P}`, full: false,

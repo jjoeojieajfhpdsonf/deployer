@@ -58,3 +58,33 @@ for (const name of PAGES) {
     }
   })
 }
+
+/**
+ * Seitenleiste: Ein- und Ausklappen ändert nur die Breite. Knopf und Einträge bleiben auf
+ * derselben Höhe (früher sprangen sie um ~9 px, weil der Schriftzug die Kopfzeile höher macht
+ * und die Beschriftung «Server» eingeklappt samt Abstand verschwand).
+ */
+for (const theme of ['light', 'win95', 'terminal'] as const) {
+  test(`Seitenleiste: Einträge bleiben beim Einklappen auf gleicher Höhe · ${theme}`, async ({ browser }) => {
+    const s = { ...shots.find((x) => x.name === 'projekte')!, prepare: undefined }
+    const ctx = await browser.newContext(contextOptions(theme))
+    try {
+      await installRoutes(ctx, s, theme, VISUAL_PORT)
+      const page = await ctx.newPage()
+      await page.clock.setFixedTime(FIXED_NOW)
+      await openShot(page, s, VISUAL_PORT)
+      const tops = () => page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.rail button.brand-mark, .rail-nav a')].map((el) => {
+          const b = el.getBoundingClientRect()
+          return Math.round(b.top + b.height / 2)
+        }))
+      const open = await tops()
+      await page.getByRole('button', { name: 'Seitenleiste einklappen' }).click()
+      await expect(page.locator('.rail-collapsed')).toBeVisible()
+      const closed = await tops()
+      expect(closed).toEqual(open)
+    } finally {
+      await ctx.close()
+    }
+  })
+}
