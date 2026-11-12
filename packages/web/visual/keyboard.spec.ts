@@ -215,12 +215,52 @@ test('Fehlerbox «Grenze erhöhen» per Tastatur: Einstellungen › Container, R
   await page.context().close()
 })
 
-test('ZAP-Befund zur CSP-Qualität: «Zum CSP-Ablauf» fokussiert die CSP unter «Header über Caddy»', async ({ browser }) => {
+test('ZAP-Befund zur CSP-Qualität: «Zum CSP-Ablauf» wechselt zu «Header & CSP» und fokussiert die CSP', async ({ browser }) => {
   const page = await open(browser, 'security-csp-qualitaet')
-  const card = page.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
-  await card.getByRole('button', { name: 'Zum CSP-Ablauf' }).focus()
+  await page.locator('.sec-row', { hasText: 'CSP: Failure to Define Directive' }).click()
+  await page.locator('.sec-detail').getByRole('button', { name: 'Zum CSP-Ablauf' }).focus()
   await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/ansicht=header/)
   await expect(page.locator('#header-caddy-csp-title')).toBeFocused()
+  await page.context().close()
+})
+
+test('Security: Unternavigation mit Pfeiltasten, Befundliste mit Pfeiltasten, Enter in die Detailkarte', async ({ browser }) => {
+  const page = await open(browser, 'projekt-security')
+  // Segmente: Pfeil rechts wechselt die Ansicht (in der Adresse), Ende springt zu «Verlauf»
+  await page.locator('#sec-tab-befunde').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page).toHaveURL(/ansicht=header/)
+  await expect(page.locator('#sec-tab-header')).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(page).toHaveURL(/ansicht=verlauf/)
+  await page.keyboard.press('Home')
+  await expect(page).not.toHaveURL(/ansicht=/)
+  // Liste: der schwerste Befund ist gewählt; Pfeil runter wählt den nächsten und zeigt ihn rechts
+  const rows = page.locator('.sec-row')
+  await expect(rows.first()).toHaveAttribute('aria-selected', 'true')
+  await rows.first().focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(rows.nth(1)).toBeFocused()
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+  const title = (await rows.nth(1).locator('.sec-row-title').textContent()) ?? ''
+  await expect(page.locator('.sec-detail-title')).toHaveText(title)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.sec-detail-title')).toBeFocused()
+  await page.context().close()
+})
+
+test('Security unter 1100 px: Detail als Schublade, Escape schliesst und gibt den Fokus an die Zeile zurück', async ({ browser }) => {
+  const page = await open(browser, 'projekt-security')
+  await page.setViewportSize({ width: 1000, height: 900 })
+  const row = page.locator('.sec-row').nth(1)
+  await row.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.sec-drawer')).toHaveAttribute('data-open', 'true')
+  await expect(page.locator('.sec-detail-title')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.sec-drawer')).toHaveAttribute('data-open', 'false')
+  await expect(row).toBeFocused()
   await page.context().close()
 })
 

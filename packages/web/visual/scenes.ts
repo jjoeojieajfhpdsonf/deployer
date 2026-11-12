@@ -20,7 +20,9 @@ export const VISUAL_SCENES = [
   // Etappe 3: Besucher (Reiter, Städte, Zugang, intern, Zustände, Wert per Tastatur, Übersicht, Projektliste)
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
   'projekt-uebersicht-besucher', 'projekte-besucher',
-  'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
+  'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen',
+  // Reiter Security neu: Header & CSP, Prüfungen, Verlauf, Befund mit Vorschlag von Claude, Schublade (< 1100 px), HSTS-Rückfrage
+  'security-header-csp', 'security-pruefungen', 'security-verlauf', 'security-befund-vorschlag', 'security-schublade', 'security-hsts-rueckfrage', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
   // Öffentliche Adressen: Name · Domain, Vorschau, Prüfung (frei, fremder DNS-Eintrag, apex mit Worker, Neues Projekt)
   'adresse-frei', 'adresse-dns-fremd', 'adresse-apex', 'adresse-neues-projekt',
   // Antwort 8: Abschnitt Container, Sprung aus der Fehlerbox mit Vorschlag; Antwort 7: CSP-Qualität (ZAP 10055)
@@ -67,6 +69,8 @@ export const VISUAL_SCENES = [
  */
 export const WIN95_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
+  // Reiter Security: Befunde und Header & CSP
+  'projekt-security', 'security-header-csp',
   // Etappe 3: Besucher
   'besucher', 'projekt-uebersicht-besucher',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
@@ -89,7 +93,7 @@ export const WIN95_SCENES: readonly string[] = [
  * Matrix-Szene zeichnet ein festes Bild.
  */
 export const TERMINAL_SCENES: readonly string[] = [
-  'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-deployments', 'projekt-security', 'projekt-einstellungen',
+  'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-deployments', 'projekt-security', 'security-header-csp', 'projekt-einstellungen',
   'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
 ]
 

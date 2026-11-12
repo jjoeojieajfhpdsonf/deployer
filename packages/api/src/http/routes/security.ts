@@ -3,7 +3,7 @@ import { listScopeFor } from '../scope.js'
 import { z } from 'zod'
 import { acceptFindingSchema, addExternalTargetSchema, ntfySettingsSchema, emailSettingsSchema } from '@airlock/shared'
 import { findProject } from '../../domain/projects.js'
-import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, listScans, acceptFinding, assertPublishable, latestExternalScan, cancelScan } from '../../security/scan.js'
+import { enqueueProjectScan, enqueueExternalScan, scanReport, latestScan, scanHistoryFor, acceptFinding, assertPublishable, latestExternalScan, cancelScan } from '../../security/scan.js'
 import {
   listExternalTargets, addExternalTarget, verifyExternalTarget, updateExternalTarget, deleteExternalTarget, findExternalTarget, toDto,
 } from '../../security/external-targets.js'
@@ -35,7 +35,8 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: { id: string } }>('/projects/:id/scans', async (request) => {
     const p = await findProject(request.scope, request.params.id)
-    return { scans: (await listScans(p.id)).map((r) => ({ id: r.id, status: r.status, level: r.level, startedAt: r.startedAt, finishedAt: r.finishedAt, score: r.score, grade: r.grade })) }
+    // Verlauf: dieselben Felder wie bisher, dazu Auslöser und neu/behoben
+    return { scans: await scanHistoryFor(p.id) }
   })
 
   // ?done=1: der letzte abgeschlossene Scan (die Oberfläche zeigt ihn, solange ein neuer läuft)

@@ -30,16 +30,18 @@ for (const p of fx.allProjects.filter((x) => x.security && x.security.grade !== 
     const tab = page.getByRole('tab', { name: /^Security/ })
     // Ohne offene Befunde zeigt der Reiter keinen Zähler (= 0)
     const badge = (await tab.locator('.tab-count').count()) ? num(await tab.locator('.tab-count').textContent()) : 0
-    // Reiter Security: Summe der Zähler-Pillen
+    // Reiter Security: Summe der Filter nach Schwere (Kritisch, Hoch, Mittel, Niedrig)
     await tab.click()
-    await page.locator('.sev-chips').first().waitFor()
-    const chips = await page.locator('.sev-chips').first().locator('.sev-chip-n').allTextContents()
-    const perSev = chips.map(num)
+    await page.locator('.sec-filter').first().waitFor()
+    const chips = await page.locator('.sec-filter button').allTextContents()
+    const perSev = chips.slice(1).map(num)
     const chipSum = perSev.reduce((a, b) => a + b, 0)
-    expect(chipSum, 'Zähler-Pillen = Reiter-Badge').toBe(badge)
-    // Stufen: Summe der gefundenen Befunde je Stufe deckt die Befundliste (offen + akzeptiert)
-    const listed = await page.locator('#befunde ~ * .finding, .finding').count()
-    expect(listed).toBeGreaterThanOrEqual(chipSum)
+    expect(chipSum, 'Filter nach Schwere = Reiter-Badge').toBe(badge)
+    expect(num(chips[0] ?? ''), '«Alle» = Summe').toBe(chipSum)
+    // Liste der offenen Befunde: eine Zeile je Befund; Segment «Befunde» nennt dieselbe Zahl
+    expect(await page.locator('.sec-row').count()).toBe(chipSum)
+    const seg = (await page.locator('#sec-tab-befunde .num').count()) ? num(await page.locator('#sec-tab-befunde .num').textContent()) : 0
+    expect(seg).toBe(chipSum)
     // Projektliste: Karte nennt dieselbe Zahl kritischer bzw. hoher Befunde (nur Projekte der Standardliste)
     if (!fx.projects.some((x) => x.id === p.id)) { await page.context().close(); return }
     await page.goto(`http://localhost:${VISUAL_PORT}/projekte`)
