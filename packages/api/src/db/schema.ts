@@ -562,6 +562,15 @@ export const statusIncidents = pgTable('status_incidents', {
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 }, (t) => [index('status_incidents_env_idx').on(t.environmentId, t.createdAt)])
 
+/* --- Etappe 7: Achievements (migrations/0023_achievements.sql) ---------------- */
+
+export const achievements = pgTable('achievements', {
+  id: text('id').primaryKey(),
+  achievedAt: timestamp('achieved_at', { withTimezone: true }).notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const statusIncidentUpdates = pgTable('status_incident_updates', {
   id: uuid('id').primaryKey().defaultRandom(),
   incidentId: uuid('incident_id').notNull().references(() => statusIncidents.id, { onDelete: 'cascade' }),

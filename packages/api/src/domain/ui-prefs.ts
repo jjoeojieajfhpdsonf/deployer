@@ -49,6 +49,11 @@ export function parseUiPrefs(raw: string | null): UiPrefs {
     // M9: zuletzt gewählte Umgebung
     const env = uiPrefsSchema.shape.lastEnvironment.safeParse(obj?.lastEnvironment)
     if (env.success && env.data) out.lastEnvironment = env.data
+    // Etappe 7: Spass-Funktionen, Matrix-Regen, Disketti (nur gültige Werte; fehlt = Standard)
+    for (const k of ['fun', 'matrix', 'disketti'] as const) {
+      const v = uiPrefsSchema.shape[k].safeParse(obj?.[k])
+      if (v.success && v.data !== undefined) out[k] = v.data
+    }
     return out
   } catch {
     return DEFAULT_UI_PREFS
@@ -75,7 +80,10 @@ export async function getUiPrefs(): Promise<UiPrefs> {
   return parseUiPrefs(await getSetting(KEY))
 }
 
-const THEME_NAME: Partial<Record<ThemePref, string>> = { win95: 'Windows 95' }
+const THEME_NAME: Partial<Record<ThemePref, string>> = { win95: 'Windows 95', terminal: 'Terminal' }
+
+/** Etappe 7: Spass-Funktionen an? (fehlt = an) */
+export const funEnabled = (p: UiPrefs): boolean => p.fun !== false
 
 function assertThemeUnlocked(theme: ThemePref, unlocks: readonly string[] | undefined): void {
   if (!themeUnlocked(theme, unlocks)) throw badRequest(`«${THEME_NAME[theme] ?? theme}» ist noch nicht freigeschaltet.`)
@@ -122,6 +130,13 @@ export async function setUiPrefs(input: unknown, actor: string): Promise<UiPrefs
   // zuletzt gewählte Umgebung sucht niemand im Audit-Log
   if (patch.theme !== undefined && patch.theme !== before.theme) {
     await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { theme: prefs.theme }, result: 'ok' })
+  }
+  // Etappe 7: Spass-Funktionen an/aus steht im Audit und schaltet das Spiel auf der
+  // 404-Seite der internen Adressen (Caddy) mit
+  if (funEnabled(prefs) !== funEnabled(before)) {
+    await audit({ actor, action: 'ui.prefs', targetType: 'system', targetId: 'ui', params: { fun: funEnabled(prefs) }, result: 'ok' })
+    const { reconcileCaddy } = await import('./routes.js')
+    await reconcileCaddy().catch(() => { /* nächster Abgleich holt es nach */ })
   }
   return prefs
 }

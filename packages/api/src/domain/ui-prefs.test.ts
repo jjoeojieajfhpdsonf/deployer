@@ -5,7 +5,7 @@ import { themeUnlocked, uiPrefsPatchSchema, uiPrefsSchema, unlockRequestSchema }
 // ui-prefs.ts zieht die Datenbank nach; für den Import genügt eine Dummy-Umgebung.
 process.env.DATABASE_URL ??= 'postgres://x@127.0.0.1:1/x'
 process.env.ADMIN_PASSWORD ??= 'x'
-const { parseUiPrefs, mergeUiPrefs, clampBellSeen, addUnlock, normalizeUnlocks, DEFAULT_UI_PREFS } = await import('./ui-prefs.js')
+const { parseUiPrefs, mergeUiPrefs, clampBellSeen, addUnlock, normalizeUnlocks, funEnabled, DEFAULT_UI_PREFS } = await import('./ui-prefs.js')
 
 describe('Glocke: «gelesen bis» (UI-Qualität 8)', () => {
   test('wird beim Lesen mitgegeben, sonst ist nach dem Neuladen alles wieder ungelesen', () => {
@@ -136,5 +136,43 @@ describe('Windows 95 (verstecktes Theme)', () => {
     const r = uiPrefsSchema.safeParse({ theme: 'amiga' })
     assert.equal(r.success, false)
     assert.match(r.error!.issues[0]!.message, /Windows 95/)
+  })
+})
+
+describe('Terminal (Etappe 7, freigeschaltet mit «sudo» in ⌘K)', () => {
+  test('Freischaltung «terminal» ist bekannt und neben «win95» gespeichert', () => {
+    assert.equal(unlockRequestSchema.safeParse({ id: 'terminal' }).success, true)
+    const both = addUnlock(addUnlock({ theme: 'dark' }, 'terminal'), 'win95')
+    // Feste Reihenfolge wie unlockIds, egal in welcher Reihenfolge gefunden
+    assert.deepEqual(both, { theme: 'dark', unlocks: ['win95', 'terminal'] })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","unlocks":["terminal","win95","terminal"]}'), { theme: 'dark', unlocks: ['win95', 'terminal'] })
+  })
+
+  test('ohne Freischaltung lehnt der Server «terminal» ab; mit ihr wird es gespeichert', () => {
+    assert.throws(() => mergeUiPrefs({ theme: 'light', unlocks: ['win95'] }, { theme: 'terminal' }), /«Terminal» ist noch nicht freigeschaltet/)
+    assert.equal(themeUnlocked('terminal', ['win95']), false)
+    assert.equal(themeUnlocked('terminal', ['terminal']), true)
+    assert.deepEqual(mergeUiPrefs({ theme: 'light', unlocks: ['terminal'] }, { theme: 'terminal' }), { theme: 'terminal', unlocks: ['terminal'] })
+  })
+
+  test('gespeichertes «terminal» ohne Freischaltung fällt beim Lesen auf den Standard', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"terminal","unlocks":["win95"]}'), { theme: 'system', unlocks: ['win95'] })
+    assert.deepEqual(parseUiPrefs('{"theme":"terminal","unlocks":["terminal"]}'), { theme: 'terminal', unlocks: ['terminal'] })
+  })
+})
+
+describe('Spass-Funktionen (Etappe 7)', () => {
+  test('Schalter werden gelesen; Kaputtes fällt weg, fehlend heisst Standard', () => {
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","fun":false,"matrix":true,"disketti":false}'), { theme: 'dark', fun: false, matrix: true, disketti: false })
+    assert.deepEqual(parseUiPrefs('{"theme":"dark","fun":"nein","matrix":1}'), { theme: 'dark' })
+    assert.equal(funEnabled({ theme: 'dark' }), true)
+    assert.equal(funEnabled({ theme: 'dark', fun: false }), false)
+  })
+
+  test('Theme-Wechsel lässt die Schalter stehen; «Nie wieder» für Disketti bleibt gespeichert', () => {
+    const before = { theme: 'win95' as const, unlocks: ['win95' as const], disketti: false, matrix: true }
+    assert.deepEqual(mergeUiPrefs(before, { theme: 'dark' }), { theme: 'dark', unlocks: ['win95'], disketti: false, matrix: true })
+    assert.deepEqual(mergeUiPrefs({ theme: 'dark' }, { fun: false }), { theme: 'dark', fun: false })
+    assert.equal(uiPrefsPatchSchema.safeParse({ disketti: 'nie' }).success, false)
   })
 })
