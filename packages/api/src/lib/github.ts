@@ -192,6 +192,19 @@ export class GitHub {
     return { token: r.token, expiresAt: r.expires_at }
   }
 
+  /**
+   * Nacht 3, Etappe 2: Token nur zum Lesen – genau ein Repo, nur
+   * «Contents: read» (GitHub fügt «Metadata: read» hinzu). Für Clone,
+   * ls-remote und Auto-Deploy; schreiben (Fix-PRs) bleibt beim Token oben.
+   */
+  async readToken(jwt: string, installationId: string, repo: string): Promise<{ token: string; expiresAt: string }> {
+    const r = await this.request<{ token: string; expires_at: string }>('POST', `/app/installations/${encodeURIComponent(installationId)}/access_tokens`, { bearer: jwt }, {
+      repositories: [repo],
+      permissions: { contents: 'read' },
+    })
+    return { token: r.token, expiresAt: r.expires_at }
+  }
+
   async installationRepos(token: string): Promise<string[]> {
     const out: string[] = []
     for (let page = 1; page <= 10; page++) {
