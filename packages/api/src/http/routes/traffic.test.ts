@@ -127,7 +127,7 @@ describe('Routen /projects/:id/traffic', () => {
     assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/traffic/recent`)).status, 404)
   })
 
-  test('Zugriffe: Zeitraum 15m, 1h, 24h (Standard 24h), Unsinn → 400', async () => {
+  test('Zugriffe: Zeitraum today, 2d, 15m, 1h, 24h (Standard 24h), Unsinn → 400', async () => {
     const base = await start()
     const before = Date.now()
     assert.equal((await fetch(`${base}/api/v1/projects/foto/access`)).status, 200)
@@ -136,6 +136,13 @@ describe('Routen /projects/:id/traffic', () => {
     assert.ok(Math.abs(before - 24 * 60 * 60_000 - since) < 5_000)
     assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=15m`)).status, 200)
     assert.ok(Math.abs(Date.now() - 15 * 60_000 - accessAsked.at(-1)![1]) < 5_000)
+    // Besucher zusammen: Heute ab Mitternacht, 2d = alles, was das Log hat (2 Tage)
+    assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=2d`)).status, 200)
+    assert.ok(Math.abs(Date.now() - 2 * 24 * 60 * 60_000 - accessAsked.at(-1)![1]) < 5_000)
+    assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=today`)).status, 200)
+    const midnight = accessAsked.at(-1)![1]
+    assert.ok(midnight <= Date.now() && Date.now() - midnight <= 25 * 60 * 60_000)
+    assert.equal(new Intl.DateTimeFormat('en-GB', { timeZone: process.env.TZ || 'Europe/Zurich', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(midnight), '00:00')
     assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=7d`)).status, 400)
     assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/access`)).status, 404)
   })

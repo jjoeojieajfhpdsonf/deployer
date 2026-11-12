@@ -1,10 +1,11 @@
-import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { LOG_LINES_MAX, LOG_RANGES, type LogLineDto, type LogRange } from '@airlock/shared'
 import { api, subscribeLogs } from '../api.js'
 import { fmtStamp, fmtTime, fmtUtc, nowIso } from '../lib/dates.js'
+import { IconDownload, IconSearch } from './Icons.js'
 import { EmptyState, ErrorState, Loading, SkLog } from './States.js'
-import { LogToolbar, Highlight, atBottom, downloadText, searchPattern, useLiveFeed } from './LogTools.js'
+import { Highlight, downloadText, searchPattern, useLiveFeed } from './LogTools.js'
 
 /**
  * UI-Qualität 4: Reiter «Logs». Zeilen der gewählten Zeitspanne (Server,
@@ -23,6 +24,70 @@ const LEVEL_WORD = { error: 'ERROR', warn: 'WARN' } as const
 type Row = { n: number; l: LogLineDto }
 
 const keep = (l: LogLineDto, f: LevelFilter) => f === 'alle' || l.level === 'error' || (f === 'warn' && l.level === 'warn')
+
+/** Ganz unten? (dann folgt die Liste neuen Zeilen) */
+const atBottom = (el: HTMLElement | null) => !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24
+
+/**
+ * UI-Qualität 4: Werkzeugleiste des Reiters «Logs»: Suche, Filter, Zeitraum,
+ * Live folgen/Pausieren, Ansicht, Herunterladen. (Die Einzelaufrufe im
+ * Reiter «Besucher» haben seit «Besucher zusammen» ihre eigene Zeile.)
+ */
+function LogToolbar({
+  label, search, onSearch, searchLabel, filter, range, onRange, live, onLive, pending, view, onDownload, canDownload, extra,
+}: {
+  /** Name der Gruppe für Screenreader, z.B. «Log-Werkzeuge» */
+  label: string
+  search: string
+  onSearch: (v: string) => void
+  searchLabel: string
+  /** Filter nach Stufe (Segmente) */
+  filter: ReactNode
+  range: LogRange
+  onRange: (r: LogRange) => void
+  live: boolean
+  onLive: (on: boolean) => void
+  /** Neue Zeilen, solange pausiert */
+  pending: number
+  /** Ansicht (Umbruch, Zeilennummern) */
+  view?: ReactNode
+  onDownload: () => void
+  canDownload: boolean
+  /** z. B. Auswahl des Compose-Dienstes */
+  extra?: ReactNode
+}) {
+  const searchId = useId()
+  return (
+    <div className="logbar" role="group" aria-label={label}>
+      <div className="logbar-row">
+        <div className="search logbar-search">
+          <IconSearch />
+          <label htmlFor={searchId} className="sr-only">{searchLabel}</label>
+          <input id={searchId} type="search" value={search} placeholder={`${searchLabel} …`} autoComplete="off" spellCheck={false} onChange={(e) => onSearch(e.target.value)} />
+        </div>
+        {extra}
+        {filter}
+        <div className="segmented" role="group" aria-label="Zeitraum">
+          {LOG_RANGES.map((r) => (
+            <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => onRange(r.key)}>{r.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="logbar-row logbar-row-end">
+        {/* Fester Name, Zustand über aria-pressed; «Pausiert · n neu» steht daneben als Text */}
+        <button type="button" className="button-small logbar-live" aria-pressed={live} onClick={() => onLive(!live)}>
+          <span className={`logbar-dot${live ? ' logbar-dot-on' : ''}`} aria-hidden="true" />
+          Live folgen
+        </button>
+        {!live && <span className="logbar-paused">Pausiert{pending > 0 ? ` · ${pending.toLocaleString('de-CH')} neu` : ''}</span>}
+        {view}
+        <button type="button" className="button-small" onClick={onDownload} disabled={!canDownload} title="Die angezeigten (gefilterten) Zeilen herunterladen">
+          <IconDownload /> Herunterladen
+        </button>
+      </div>
+    </div>
+  )
+}
 
 /** Ansicht pro Browser merken (Umbruch, Zeilennummern) */
 function usePref(key: string, initial: boolean): [boolean, (v: boolean) => void] {

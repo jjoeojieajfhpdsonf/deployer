@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
-  LOG_RANGES, TRAFFIC_RANGES, TRAFFIC_WAYS, isTrafficRange, rangeMinutes,
+  ACCESS_LOG_DAYS, ACCESS_RANGES, TRAFFIC_RANGES, TRAFFIC_WAYS, isAccessRange, isTrafficRange, rangeMinutes, startOfToday,
   type AccessListDto, type TrafficRecentDto, type TrafficTodayDto, type TrafficWay,
 } from '@airlock/shared'
+import { displayTimeZone } from '../../domain/pause-page.js'
 import { findProject, listProjectRows } from '../../domain/projects.js'
 import { audit } from '../../domain/audit.js'
 import { badRequest } from '../../lib/errors.js'
@@ -58,8 +59,8 @@ const realDeps: TrafficRouteDeps = {
  *      ohne Kennung; Pfad und Herkunft nur bei gezählten Seitenaufrufen.
  * GET  /projects/:id/traffic/recent
  *      Letzte gezählte Seitenaufrufe aus dem Speicher («Gerade eben»)
- * GET  /projects/:id/access?range=15m|1h|24h
- *      Zugriffe neu: einzelne Anfragen aus visits.log (AccessListDto), IP gekürzt
+ * GET  /projects/:id/access?range=today|2d|15m|1h|24h
+ *      Einzelaufrufe (Reiter «Besucher»): einzelne Anfragen aus visits.log (AccessListDto), IP gekürzt
  * GET  /projects/:id/access/stream?since=<ISO>
  *      Neue Anfragen live (`data: <AccessEntryDto>`), mit since lückenloser Anschluss
  * GET  /traffic/today (auch /environments/:env/traffic/today)
@@ -113,12 +114,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
     return reply
   }
 
-  // Zugriffe neu: einzelne Anfragen aus visits.log (15m | 1h | 24h, Standard 24h), IP gekürzt
+  // Einzelaufrufe: einzelne Anfragen aus visits.log, IP gekürzt. today = ab Mitternacht (Ortszeit),
+  // 2d = alles, was das Log hat; 15m | 1h | 24h wie im früheren Reiter «Zugriffe» (Standard 24h)
   app.get<{ Params: IdParams; Querystring: { range?: string } }>('/projects/:id/access', async (request): Promise<AccessListDto> => {
     const project = await d.findProject(request, request.params.id)
     const range = request.query.range ?? '24h'
-    if (!LOG_RANGES.some((r) => r.key === range)) throw badRequest(`range: ${LOG_RANGES.map((r) => r.key).join(', ')}`)
-    return d.access(project.id, Date.now() - rangeMinutes(range) * 60_000)
+    if (!isAccessRange(range)) throw badRequest(`range: ${ACCESS_RANGES.join(', ')}`)
+    const now = Date.now()
+    const since = range === 'today' ? startOfToday(now, displayTimeZone())
+      : range === '2d' ? now - ACCESS_LOG_DAYS * 24 * 60 * 60_000
+      : now - rangeMinutes(range) * 60_000
+    return d.access(project.id, since)
   })
 
   // Neue Anfragen live; ?since= (Zeit der neuesten bekannten) schliesst lückenlos aus dem Speicher an

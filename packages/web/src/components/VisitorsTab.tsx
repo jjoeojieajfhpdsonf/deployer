@@ -1,28 +1,37 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  TRAFFIC_TAB_RANGES, TRAFFIC_WAYS, TRAFFIC_WAY_LABEL, TRAFFIC_DEVICE_LABEL, UNKNOWN_VALUE, countryName, languageName, trafficRange,
-  type ProjectDto, type TrafficDevice, type TrafficLiveEventDto, type TrafficRange, type TrafficRowDto, type TrafficSummaryDto, type TrafficWay,
+  INTERNAL_REFERRER, TRAFFIC_DEVICE_LABEL, TRAFFIC_SEP, TRAFFIC_TAB_RANGES, TRAFFIC_WAYS, TRAFFIC_WAY_LABEL, UNKNOWN_VALUE, countryName, languageName, trafficRange,
+  type AccessStatusFilter, type ProjectDto, type TrafficDevice, type TrafficLiveEventDto, type TrafficRange, type TrafficRowDto, type TrafficSummaryDto, type TrafficWay,
 } from '@airlock/shared'
 import { api, subscribeTraffic, type MeDto } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
-import { fmtDayMonth, fmtTime, msOf } from '../lib/dates.js'
+import { fmtDayMonth, msOf } from '../lib/dates.js'
+import { DIRECT, einzelnSearch, familyOf, viewFromParams, type Facets, type VisitorsView } from '../lib/access-view.js'
 import {
-  METRICS, METRIC_LABEL, NOT_FOUND_WARN, activeNow, deltaLabel, flagOf, fmtMetric, hasAny, nf, plural, rangeFromSlug, rangeSlug, shareLabel,
+  METRICS, METRIC_LABEL, NOT_FOUND_WARN, activeNow, deltaLabel, flagOf, fmtMetric, hasAny, nf, rangeFromSlug, rangeSlug, shareLabel,
   wayFromSlug, waySlug, type TrafficMetric,
 } from '../lib/traffic-view.js'
 import type { MapView } from '../lib/world-map.js'
+import { Access } from './Access.js'
 import { useTraffic } from './Traffic.js'
 import { VisitorsChart, type ChartMode } from './VisitorsChart.js'
 import { EmptyState, ErrorState, Loading, Sk, SkRows } from './States.js'
 
 /**
- * «Besucher neu»: Reiter «Besucher» der Projektseite (Vorlage
- * docs/design-cal/besucher-neu/). Reihenfolge wie im Bild: Kopfzeile
- * (Zeitraum, Zugang, gerade aktiv) → Kennzahlen mit Kurve → Karte «Woher
- * die Besucher kommen» → Seiten / Nicht gefunden / Woher → Netz, Sprachen,
- * Kampagnen → Gerade eben.
+ * Reiter «Besucher» (Vorlage docs/design-cal/besucher-zusammen/): seit
+ * «Besucher zusammen» mit den früheren Zugriffen in einem Reiter. Eine
+ * Kopfzeile für beide Ansichten – Auswertung · Einzelaufrufe, Zeitraum,
+ * Zugang, rechts «gerade aktiv → live ansehen» bzw. Live und CSV. Alles
+ * steht in der Adresse (?ansicht=einzeln&zeitraum=…&zugang=…); beim Wechsel
+ * der Ansicht bleiben die Filter.
+ *
+ * Auswertung: Kennzahlen mit Kurve → Karte «Woher die Besucher kommen» mit
+ * Liste (Länder · Städte · Netz · Sprachen) → Seiten · Woher · Geräte →
+ * eine Zeile «Wie gezählt wird». Jede Zeile einer Liste (und jedes Land auf
+ * der Karte) öffnet die Einzelaufrufe mit dem passenden Filter.
  *
  * Quelle sind Caddys Zugriffs-Logs – ohne Cookies, ohne Skript im Projekt,
  * ohne gespeicherte IP. Fehlt eine Quelle (Log nicht eingerichtet, keine
@@ -34,20 +43,27 @@ const LazyMap = lazy(() => import('./WorldMap.js'))
 
 /* --- Adresse und Präferenz ---------------------------------------------------- */
 
-/** Zeitraum und Zugang in der Adresse (?zeitraum=30-tage&zugang=internet); Standard 7 Tage, alle */
-function useRangeAndWay(): [TrafficRange, TrafficWay | 'all', (r: TrafficRange) => void, (w: TrafficWay | 'all') => void] {
+/** Ansicht, Zeitraum und Zugang in der Adresse; Standard Auswertung, 7 Tage, alle */
+function useVisitorsState() {
   const [params, setParams] = useSearchParams()
+  const view = viewFromParams(params)
   const range = rangeFromSlug(params.get('zeitraum'))
   const way = wayFromSlug(params.get('zugang'))
-  const set = useCallback((key: string, value: string | null) => {
+  const set = useCallback((key: string, value: string | null, push = false) => {
     setParams((prev) => {
       const next = new URLSearchParams(prev)
       if (value) next.set(key, value)
       else next.delete(key)
       return next
-    }, { replace: true })
+    }, { replace: !push })
   }, [setParams])
-  return [range, way, (r) => set('zeitraum', r === '7d' ? null : rangeSlug(r)), (w) => set('zugang', waySlug(w))]
+  return {
+    params, view, range, way,
+    // Ansicht: neuer Eintrag im Verlauf (Zurück wechselt zurück); Filter bleiben
+    setView: (v: VisitorsView) => set('ansicht', v === 'einzeln' ? 'einzeln' : null, true),
+    setRange: (r: TrafficRange) => set('zeitraum', r === '7d' ? null : rangeSlug(r)),
+    setWay: (w: TrafficWay | 'all') => set('zugang', waySlug(w)),
+  }
 }
 
 /** Fläche oder Säulen: Präferenz auf dem Server (wie die Darstellung), sofort wirksam */
@@ -63,7 +79,7 @@ function useChartMode(): [ChartMode, (m: ChartMode) => void] {
   return [mode, set]
 }
 
-/* --- Live: gerade aktiv und «Gerade eben» --------------------------------------- */
+/* --- Live: gerade aktiv ---------------------------------------------------------- */
 
 function useDocumentVisible(): boolean {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
@@ -79,8 +95,9 @@ const eventKey = (e: TrafficLiveEventDto) => `${e.at}|${e.access}|${e.path ?? ''
 
 /**
  * Letzte Seitenaufrufe: Stand vom Server (Speicher, GET …/traffic/recent),
- * danach neue aus dem Live-Strom. Bei verstecktem Tab pausiert (Strom zu);
- * beim Zurückkommen neu geladen. Keine IP, keine Kennung.
+ * danach neue aus dem Live-Strom – für «gerade aktiv» und den Punkt auf der
+ * Karte. Bei verstecktem Tab pausiert (Strom zu); beim Zurückkommen neu
+ * geladen. Keine IP, keine Kennung.
  */
 function useLiveVisits(projectId: string) {
   const visible = useDocumentVisible()
@@ -114,85 +131,116 @@ function useLiveVisits(projectId: string) {
     })
     return all.sort((a, b) => (msOf(b.at) ?? 0) - (msOf(a.at) ?? 0))
   }, [live, recent.data])
-  const fresh = useMemo(() => new Set(live.map(eventKey)), [live])
-  return { events, fresh, now, visible, loaded: recent.isSuccess, failed: recent.isError }
+  return { events, now, visible }
 }
 
-const secondsAgo = (at: string, now: number) => {
-  const s = Math.max(0, Math.round((now - (msOf(at) ?? now)) / 1000))
-  if (s < 60) return `vor ${s} s`
-  const m = Math.round(s / 60)
-  if (m < 60) return `vor ${m} Min.`
-  return `vor ${Math.round(m / 60)} Std.`
-}
-
-/** Herkunft eines Aufrufs: Flagge und Stadt bzw. Land (Internet), sonst Tailnet/Heimnetz */
-function Origin({ e, short }: { e: Pick<TrafficLiveEventDto, 'access' | 'country' | 'city'>; short?: boolean }) {
-  if (e.access !== 'public') return <>{TRAFFIC_WAY_LABEL[e.access]}</>
-  const flag = e.country ? flagOf(e.country) : ''
-  const place = e.city || (e.country ? countryName(e.country) : '')
-  return (
-    <>
-      {flag && <span className="vs-flag" aria-hidden="true">{flag}</span>}
-      {short ? (place || 'Internet') : <>Internet{place && <span className="muted"> · {place}</span>}</>}
-    </>
-  )
-}
-
-function ActiveNow({ live }: { live: ReturnType<typeof useLiveVisits> }) {
+/** «● 4 gerade aktiv → live ansehen»: öffnet die Einzelaufrufe (Live ist dort an) */
+function ActiveNow({ live, liveHref }: { live: ReturnType<typeof useLiveVisits>; liveHref: string }) {
   const n = activeNow(live.events, live.now)
-  const last = live.events[0]
   return (
-    <p className="vs-active" aria-live="polite">
-      <span className={`vs-active-dot${n > 0 ? ' vs-active-on' : ''}`} aria-hidden="true" />
-      <strong className="num">{nf(n)}</strong>
-      <span>{' '}gerade aktiv</span>
-      {last && <span className="muted"> · zuletzt {secondsAgo(last.at, live.now)} aus <Origin e={last} short /></span>}
-      {!live.visible && <span className="muted"> · pausiert</span>}
+    <p className="vs-active">
+      <span aria-live="polite" className="vs-active-count">
+        <span className={`vs-active-dot${n > 0 ? ' vs-active-on' : ''}`} aria-hidden="true" />
+        <strong className="num">{nf(n)}</strong>
+        <span>{' '}gerade aktiv</span>
+        {!live.visible && <span className="muted"> · pausiert</span>}
+      </span>
+      <Link className="vs-live-link" to={{ search: liveHref }}><span aria-hidden="true">→ </span>live ansehen</Link>
     </p>
   )
 }
 
-function Recent({ live, accessLabel, onAccess }: { live: ReturnType<typeof useLiveVisits>; accessLabel: string; onAccess?: () => void }) {
-  const rows = live.events.slice(0, 8)
+/* --- Kopfzeile (beide Ansichten) ---------------------------------------------- */
+
+function Segmented<T extends string>({ value, options, onChange, label, small = true }: { value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string; small?: boolean }) {
   return (
-    <section className="panel panel-pad vs-card" aria-labelledby="vs-recent-h">
-      <div className="vs-card-head">
-        <h2 className="vs-card-title" id="vs-recent-h">Gerade eben</h2>
-        <span className="vs-card-note">{live.visible ? 'letzte Aufrufe, live' : 'pausiert, solange der Tab verborgen ist'}</span>
-      </div>
-      {rows.length === 0 ? (
-        <p className="muted vs-empty">{live.failed ? 'Die letzten Aufrufe sind gerade nicht abrufbar.' : live.loaded ? 'Seit dem Start von Airlock noch kein Aufruf. Neue erscheinen hier sofort.' : 'Wird geladen …'}</p>
-      ) : (
-        <table className="vs-recent">
-          <thead className="sr-only"><tr><th>Zeit</th><th>Herkunft</th><th>Seite</th><th>Status</th></tr></thead>
-          <tbody>
-            {rows.map((e) => {
-              const k = eventKey(e)
-              return (
-                <tr key={k} className={live.fresh.has(k) ? 'vs-row-new' : undefined}>
-                  <td className="vs-recent-time num">{fmtTime(e.at, true)}</td>
-                  <td className="vs-recent-from"><Origin e={e} short={false} /></td>
-                  <td className="vs-recent-path"><code title={e.path}>{e.path}</code></td>
-                  <td className={`vs-recent-status num${e.status >= 400 ? ' vs-warn' : ''}`}>{e.status}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      )}
-      <p className="vs-card-foot">
-        Ohne IP und ohne Kennung – nur Zeit, Herkunft, Seite, Status.
-        {onAccess && <> Einzelaufrufe unter <button type="button" className="link-button" onClick={onAccess}>«{accessLabel}»</button>.</>}
-      </p>
-    </section>
+    <div className={`segmented${small ? ' segmented-sm' : ''}`} role="group" aria-label={label}>
+      {options.map(([k, text]) => <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)}>{text}</button>)}
+    </div>
+  )
+}
+
+const VIEWS: [VisitorsView, string][] = [['auswertung', 'Auswertung'], ['einzeln', 'Einzelaufrufe']]
+
+/** Auswertung · Einzelaufrufe als Reiter (wie die Unternavigation im Reiter Security): Pfeiltasten wechseln */
+function ViewTabs({ view, onView }: { view: VisitorsView; onView: (v: VisitorsView) => void }) {
+  const refs = useRef<Partial<Record<VisitorsView, HTMLButtonElement | null>>>({})
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = VIEWS.findIndex(([k]) => k === view)
+    const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? VIEWS.length - 1 : null
+    if (to === null) return
+    e.preventDefault()
+    const next = VIEWS[(to + VIEWS.length) % VIEWS.length]![0]
+    onView(next)
+    requestAnimationFrame(() => refs.current[next]?.focus())
+  }
+  return (
+    <div className="segmented vs-mode" role="tablist" aria-label="Ansicht der Besucher" onKeyDown={onKey}>
+      {VIEWS.map(([k, label]) => (
+        <button
+          key={k} ref={(el) => { refs.current[k] = el }} type="button" role="tab" id={`vs-tab-${k}`}
+          aria-selected={view === k} aria-controls="vs-view" tabIndex={view === k ? 0 : -1} onClick={() => onView(k)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Kopfzeile: bleibt beim Wechsel der Ansicht stehen (Fokus auf dem Reiter
+ * geht nicht verloren). Rechts ein Platz, den die Ansicht füllt
+ * (createPortal): «gerade aktiv» bzw. Live und CSV.
+ */
+function Head({ view, onView, range, way, onRange, onWay, wayCounts, slotRef }: {
+  view: VisitorsView; onView: (v: VisitorsView) => void
+  range: TrafficRange; way: TrafficWay | 'all'; onRange: (r: TrafficRange) => void; onWay: (w: TrafficWay | 'all') => void
+  wayCounts?: (w: TrafficWay) => number; slotRef: (el: HTMLDivElement | null) => void
+}) {
+  return (
+    <div className="vs-top">
+      <ViewTabs view={view} onView={onView} />
+      <Segmented<TrafficRange> small={false} value={range} onChange={onRange} label="Zeitraum" options={TRAFFIC_TAB_RANGES.map((k) => [k, trafficRange(k).label])} />
+      <Segmented<TrafficWay | 'all'>
+        small={false} value={way} onChange={onWay} label="Nach Zugang trennen"
+        options={[['all', 'Alle'], ...TRAFFIC_WAYS.map((w): [TrafficWay, ReactNode] => [w, <>{TRAFFIC_WAY_LABEL[w]}{wayCounts && <span className="num">{nf(wayCounts(w))}</span>}</>])]}
+      />
+      <div className="vs-top-end" ref={slotRef} />
+    </div>
+  )
+}
+
+/* --- Reiter ---------------------------------------------------------------------- */
+
+export function VisitorsTab({ p, onLogs }: { p: ProjectDto; onLogs?: () => void }) {
+  const st = useVisitorsState()
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null)
+  // Zahlen je Zugang nur in der Auswertung (dieselbe Abfrage wie dort, aus dem Cache)
+  const s = useTraffic(p.id, st.range, st.way, st.view === 'auswertung').data
+  const wayCounts = st.view === 'auswertung' && s?.ways ? (w: TrafficWay) => s.ways.find((x) => x.way === w)?.views ?? 0 : undefined
+  return (
+    <div className="tab-panel vs-page">
+      <h2 className="sr-only">Besucher</h2>
+      <Head view={st.view} onView={st.setView} range={st.range} way={st.way} onRange={st.setRange} onWay={st.setWay} wayCounts={wayCounts} slotRef={setSlot} />
+      {st.view === 'einzeln'
+        ? <Access projectId={p.id} slug={p.slug} toolsSlot={slot} />
+        : <Evaluation p={p} range={st.range} way={st.way} params={st.params} onLogs={onLogs} slot={slot} />}
+    </div>
   )
 }
 
 /* --- Bausteine ---------------------------------------------------------------- */
 
-/** Rangliste mit Balken als Fläche hinter der Zeile; «› x weitere» klappt auf */
-function RankList<T extends TrafficRowDto>({ rows, total, label, format, initial = 5, tone, extra, empty, code }: {
+/** Link einer Zeile: Suchteil der Einzelaufrufe (null: Zeile ohne Link) */
+type RowLink<T> = (r: T) => string | null
+
+/**
+ * Rangliste mit Balken als Fläche hinter der Zeile; «› x weitere» klappt
+ * auf. Mit `href` ist jede Zeile ein Link zu den passenden Einzelaufrufen
+ * (kleines «›» als Hinweis, per Tab erreichbar).
+ */
+function RankList<T extends TrafficRowDto>({ rows, total, label, format, initial = 5, tone, extra, empty, code, href, linkText }: {
   rows: T[]
   total: number
   label: string
@@ -203,6 +251,9 @@ function RankList<T extends TrafficRowDto>({ rows, total, label, format, initial
   extra?: (r: T) => ReactNode
   empty: string
   code?: boolean
+  href?: RowLink<T>
+  /** Name der Zeile für Screenreader (ohne Flagge) */
+  linkText?: (r: T) => string
 }) {
   const [open, setOpen] = useState(false)
   if (rows.length === 0) return <p className="muted vs-empty">{empty}</p>
@@ -212,14 +263,25 @@ function RankList<T extends TrafficRowDto>({ rows, total, label, format, initial
   return (
     <>
       <ol className={`vs-rank${tone ? ` vs-rank-${tone}` : ''}`} aria-label={label}>
-        {shown.map((r) => (
-          <li key={r.key}>
-            <span className="vs-rank-bar" style={{ width: `${Math.max(2, (r.views / max) * 100)}%` }} aria-hidden="true" />
-            <span className={`vs-rank-label${code ? ' vs-rank-code' : ''}`}>{format(r)}</span>
-            <span className="vs-rank-n num">{nf(r.views)}</span>
-            <span className="vs-rank-share num">{extra?.(r) ?? shareLabel(r.views, total)}</span>
-          </li>
-        ))}
+        {shown.map((r) => {
+          const to = href?.(r) ?? null
+          const inner = (
+            <>
+              <span className="vs-rank-bar" style={{ width: `${Math.max(2, (r.views / max) * 100)}%` }} aria-hidden="true" />
+              <span className={`vs-rank-label${code ? ' vs-rank-code' : ''}`}>{format(r)}</span>
+              <span className="vs-rank-n num">{nf(r.views)}</span>
+              <span className="vs-rank-share num">{extra?.(r) ?? shareLabel(r.views, total)}</span>
+              <span className="vs-rank-go" aria-hidden="true">{to ? '›' : ''}</span>
+            </>
+          )
+          return (
+            <li key={r.key}>
+              {to
+                ? <Link className="vs-rank-row vs-rank-link" to={{ search: to }} title={linkText ? `Einzelaufrufe: ${linkText(r)}` : 'Einzelaufrufe zeigen'}>{inner}<span className="sr-only"> – Einzelaufrufe zeigen</span></Link>
+                : <span className="vs-rank-row">{inner}</span>}
+            </li>
+          )
+        })}
       </ol>
       {more > 0 && (
         <button type="button" className="vs-more" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -230,36 +292,11 @@ function RankList<T extends TrafficRowDto>({ rows, total, label, format, initial
   )
 }
 
-function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string }) {
-  return (
-    <div className="segmented segmented-sm" role="group" aria-label={label}>
-      {options.map(([k, text]) => <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)}>{text}</button>)}
-    </div>
-  )
-}
-
-/** Gestapelter Balken mit Wörtern (Geräte, Browser, System): oberste vier, der Rest als «Andere» */
-function StackBar({ rows, label, name }: { rows: TrafficRowDto[]; label: string; name: (k: string) => string }) {
-  const total = rows.reduce((a, r) => a + r.views, 0)
-  if (total === 0) return <p className="muted vs-empty">Keine Aufrufe.</p>
-  const top = rows.slice(0, 4)
-  const rest = total - top.reduce((a, r) => a + r.views, 0)
-  const parts = [...top.map((r) => ({ k: r.key, text: name(r.key), v: r.views })), ...(rest > 0 ? [{ k: '(andere)', text: 'Andere', v: rest }] : [])]
-  return (
-    <div className="vs-stack">
-      <p className="vs-stack-words">{parts.map((p, i) => <span key={p.k}>{i > 0 && ' · '}{p.text} <span className="num">{shareLabel(p.v, total)}</span></span>)}</p>
-      <div className="vs-stack-bar" role="img" aria-label={`${label}: ${parts.map((p) => `${p.text} ${shareLabel(p.v, total)}`).join(', ')}`}>
-        {parts.map((p, i) => <span key={p.k} className={`vs-seg vs-seg-${i + 1}`} style={{ flexGrow: p.v }} />)}
-      </div>
-    </div>
-  )
-}
-
 /** Browser und System nach Familie zusammengefasst («Chrome 131» + «Chrome 130» → Chrome) */
 function byFamily(rows: TrafficRowDto[]): TrafficRowDto[] {
   const m = new Map<string, TrafficRowDto>()
   for (const r of rows) {
-    const fam = r.key === UNKNOWN_VALUE ? UNKNOWN_VALUE : r.key.replace(/ \d+$/, '')
+    const fam = familyOf(r.key)
     const e = m.get(fam) ?? { key: fam, views: 0, visitors: 0 }
     e.views += r.views
     e.visitors += r.visitors
@@ -310,48 +347,91 @@ function Kpis({ s, metric, onMetric }: { s: TrafficSummaryDto; metric: TrafficMe
 
 /* --- Karte «Woher die Besucher kommen» ---------------------------------------- */
 
-type AgentView = 'devices' | 'browsers' | 'systems'
+type PlaceView = 'countries' | 'cities' | 'networks' | 'languages'
 
-function Geo({ s, last, onCityDb }: { s: TrafficSummaryDto; last: TrafficLiveEventDto | undefined; onCityDb: ReactNode }) {
-  const [view, setView] = useState<MapView>('world')
-  const [place, setPlace] = useState<'countries' | 'cities'>('countries')
-  const [agent, setAgent] = useState<AgentView>('devices')
-  const internetViews = s.countries.reduce((a, c) => a + c.views, 0)
+/** Suchteil der Einzelaufrufe für ein Merkmal (Zeitraum und Zugang bleiben) */
+type ToEinzeln = (facets: Facets, status?: AccessStatusFilter) => string
+
+function Geo({ s, last, internetInRange, to }: { s: TrafficSummaryDto; last: TrafficLiveEventDto | undefined; internetInRange: boolean; to: ToEinzeln }) {
   const hasCountries = s.countries.length > 0
   const cities = s.cities
+  const withNet = internetInRange || Boolean(s.source.asnDb)
+  const options: [PlaceView, string][] = [
+    ...(hasCountries ? [['countries', 'Länder'] as [PlaceView, string]] : []),
+    ...(hasCountries && cities.length > 0 ? [['cities', 'Städte'] as [PlaceView, string]] : []),
+    ...(withNet ? [['networks', 'Netz'] as [PlaceView, string]] : []),
+    ['languages', 'Sprachen'],
+  ]
+  const [chosen, setPlace] = useState<PlaceView>(hasCountries ? 'countries' : 'languages')
+  const place = options.some(([k]) => k === chosen) ? chosen : options[0]![0]
+  const [view, setView] = useState<MapView>('world')
+  const internetViews = s.countries.reduce((a, c) => a + c.views, 0)
   const lastOrigin = last && last.access === 'public' && last.country ? { country: last.country, city: last.city } : null
-  const agents: Record<AgentView, { rows: TrafficRowDto[]; name: (k: string) => string; label: string }> = {
-    devices: { rows: s.devices, name: (k) => TRAFFIC_DEVICE_LABEL[k as TrafficDevice] ?? unknownWord(k), label: 'Geräte' },
-    browsers: { rows: byFamily(s.browsers), name: unknownWord, label: 'Browser' },
-    systems: { rows: byFamily(s.systems), name: unknownWord, label: 'Betriebssysteme' },
-  }
-  const a = agents[agent]
-  const agentSwitch = <Segmented<AgentView> value={agent} onChange={setAgent} label="Geräte, Browser oder System" options={[['devices', 'Geräte'], ['browsers', 'Browser'], ['systems', 'System']]} />
-  const devicePart = (
-    <div className="vs-agents">
-      {hasCountries && (
-        <div className="vs-card-head">
-          <h3 className="vs-sub">{a.label}</h3>
-          {agentSwitch}
-        </div>
-      )}
-      <StackBar rows={a.rows} label={a.label} name={a.name} />
-      {agent !== 'devices' && a.rows.length > 0 && (
-        <p className="vs-card-foot">
-          Häufigste Versionen: {(agent === 'browsers' ? s.browsers : s.systems).filter((r) => r.key !== UNKNOWN_VALUE).slice(0, 4).map((r) => r.key).join(' · ') || '–'}
-        </p>
-      )}
+  const countryLink = (code: string) => to({ land: code || UNKNOWN_VALUE })
+
+  const people = s.networks.filter((n) => n.views > 0)
+  const dc = s.networks.filter((n) => n.datacenter && n.bots > 0)
+  const langTotal = s.languages.reduce((a, r) => a + r.views, 0)
+
+  const list = place === 'cities' ? (
+    <RankList
+      rows={cities} total={internetViews} label="Städte" empty="Keine." initial={6} href={(r) => to({ stadt: r.key })} linkText={(r) => r.key}
+      format={(r) => <><span className="vs-flag" aria-hidden="true">{flagOf(r.country)}</span>{r.key}</>}
+    />
+  ) : place === 'networks' ? (
+    !s.source.asnDb
+      ? <p className="muted vs-empty">Provider (Swisscom, Init7 …) und Rechenzentren zeigt Airlock mit der freien Datei «IP to ASN Lite» von DB-IP (CC BY 4.0): <DbipButton kind="asn" /></p>
+      : (
+        <RankList
+          rows={people.map((n) => ({ key: String(n.asn), views: n.views, visitors: 0, name: n.name }))}
+          total={people.reduce((a, n) => a + n.views, 0)} label="Provider" empty="Noch keine Aufrufe mit bekanntem Netz." initial={6}
+          href={(r) => to({ netz: r.key })} linkText={(r) => r.name || `AS${r.key}`}
+          format={(r) => <span title={`AS${r.key}`}>{r.name || `AS${r.key}`}</span>}
+        />
+      )
+  ) : place === 'languages' ? (
+    <RankList
+      rows={s.languages} total={langTotal} label="Sprachen" empty="Noch keine Angaben." initial={6}
+      href={(r) => to({ sprache: r.key })} linkText={(r) => (r.key === UNKNOWN_VALUE ? 'Unbekannt' : languageName(r.key))}
+      format={(r) => (r.key === UNKNOWN_VALUE ? 'Unbekannt' : languageName(r.key))}
+    />
+  ) : (
+    <RankList
+      rows={s.countries} total={internetViews} label="Länder" empty="Keine." initial={6} href={(r) => countryLink(r.key)} linkText={(r) => (r.key ? countryName(r.key) : 'Unbekannt')}
+      format={(r) => (r.key ? <><span className="vs-flag" aria-hidden="true">{flagOf(r.key)}</span>{countryName(r.key)}</> : 'Unbekannt')}
+    />
+  )
+
+  const foot = place === 'countries' || place === 'cities' ? <CityHint s={s} />
+    : place === 'languages' ? 'Erste Sprache des Browsers (Accept-Language).'
+    : s.source.asnDb ? (
+      <>
+        {dc.length > 0 && <>Rechenzentren, als Bot gezählt (<span className="vs-bot">vermutlich Bot</span>): {dc.slice(0, 4).map((n) => `${n.name || `AS${n.asn}`} ${nf(n.bots)}`).join(' · ')}. </>}
+        Netze: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP<span className="sr-only"> (neues Fenster)</span></a> (CC BY 4.0, Stand {s.source.asnDb}).
+      </>
+    ) : null
+
+  const side = (
+    <div className="vs-geo-side">
+      <div className="vs-card-head">
+        {options.length > 1
+          ? <Segmented<PlaceView> value={place} onChange={setPlace} label="Länder, Städte, Netz oder Sprachen" options={options} />
+          : <h3 className="vs-chart-title">{options[0]![1]}</h3>}
+        <span className="vs-card-note">{place === 'languages' ? 'alle Zugänge' : 'nur Internet'}</span>
+      </div>
+      {list}
+      {foot && <p className="vs-card-foot">{foot}</p>}
     </div>
   )
+
   if (!hasCountries) {
     return (
-      <section className="panel panel-pad vs-card" aria-labelledby="vs-geo-h">
+      <section className="panel panel-pad vs-geo vs-geo-nomap" aria-labelledby="vs-geo-h">
         <div className="vs-card-head">
-          <h2 className="vs-card-title" id="vs-geo-h">{a.label}</h2>
-          {agentSwitch}
+          <h2 className="vs-card-title" id="vs-geo-h">Woher die Besucher kommen</h2>
+          <span className="vs-card-note">Länder, Städte und Karte nur für Aufrufe aus dem Internet</span>
         </div>
-        {devicePart}
-        <p className="vs-card-foot">Länder und Karte gibt es nur für Aufrufe aus dem Internet.</p>
+        {side}
       </section>
     )
   }
@@ -363,152 +443,125 @@ function Geo({ s, last, onCityDb }: { s: TrafficSummaryDto; last: TrafficLiveEve
           <Segmented<MapView> value={view} onChange={setView} label="Kartenausschnitt" options={[['world', 'Welt'], ['europe', 'Europa']]} />
         </div>
         <Suspense fallback={<Sk h={320} />}>
-          <LazyMap countries={s.countries} view={view} last={lastOrigin} />
+          <LazyMap countries={s.countries} view={view} last={lastOrigin} href={countryLink} />
         </Suspense>
       </div>
-      <div className="vs-geo-side">
-        <div className="vs-card-head">
-          {cities.length > 0
-            ? <Segmented value={place} onChange={setPlace} label="Länder oder Städte" options={[['countries', 'Länder'], ['cities', 'Städte']]} />
-            : <h3 className="vs-sub">Länder</h3>}
-          <span className="vs-card-note">nur Internet</span>
-        </div>
-        {place === 'cities' && cities.length > 0
-          ? <RankList rows={cities} total={internetViews} label="Städte" empty="Keine." initial={6} format={(r) => <><span className="vs-flag" aria-hidden="true">{flagOf(r.country)}</span>{r.key}</>} />
-          : <RankList rows={s.countries} total={internetViews} label="Länder" empty="Keine." initial={6} format={(r) => <><span className="vs-flag" aria-hidden="true">{flagOf(r.key)}</span>{countryName(r.key)}</>} />}
-        <p className="vs-card-foot">{onCityDb}</p>
-        {devicePart}
-      </div>
+      {side}
     </section>
   )
 }
 
-/* --- Seiten, Nicht gefunden, Woher ---------------------------------------------- */
+/* --- Seiten, Woher, Geräte ------------------------------------------------------ */
 
-type PagesView = 'all' | 'entry' | 'exit'
+type PagesView = 'all' | 'entry' | 'exit' | 'notFound'
 
-function Pages({ s }: { s: TrafficSummaryDto }) {
+const PAGES_NOTE: Record<PagesView, string> = {
+  all: 'erfolgreich aufgerufen (2xx, 3xx)',
+  entry: 'erste Seite eines Besuchs',
+  exit: 'letzte Seite eines Besuchs (nach 30 Min. ohne Aufruf)',
+  notFound: '404 · Tippfehler, Scanner',
+}
+
+function Pages({ s, to, onLogs }: { s: TrafficSummaryDto; to: ToEinzeln; onLogs?: () => void }) {
   const [view, setView] = useState<PagesView>('all')
-  const rows = view === 'all' ? s.pages : view === 'entry' ? s.entries : s.exits
+  const rows = view === 'all' ? s.pages : view === 'entry' ? s.entries : view === 'exit' ? s.exits : s.notFound
   const total = rows.reduce((a, r) => a + r.views, 0)
+  const errors = s.totals.serverErrors
+  const label = { all: 'Seiten', entry: 'Einstiegsseiten', exit: 'Ausstiegsseiten', notFound: 'Nicht gefundene Pfade' }[view]
+  const empty = { all: 'Keine Seiten im Zeitraum.', entry: 'Noch keine Besuche gezählt.', exit: 'Noch kein Besuch abgeschlossen.', notFound: 'Keine 404 im Zeitraum.' }[view]
   return (
     <section className="panel panel-pad vs-card" aria-labelledby="vs-pages-h">
       <div className="vs-card-head">
         <h2 className="vs-card-title" id="vs-pages-h">Seiten</h2>
-        <Segmented<PagesView> value={view} onChange={setView} label="Alle Seiten, Einstieg oder Ausstieg" options={[['all', 'Alle'], ['entry', 'Einstieg'], ['exit', 'Ausstieg']]} />
+        <Segmented<PagesView> value={view} onChange={setView} label="Alle Seiten, Einstieg, Ausstieg oder nicht gefunden" options={[['all', 'Alle'], ['entry', 'Einstieg'], ['exit', 'Ausstieg'], ['notFound', '404']]} />
       </div>
-      <p className="vs-card-note vs-card-lede">
-        {view === 'all' ? 'erfolgreich aufgerufen (2xx, 3xx)' : view === 'entry' ? 'erste Seite eines Besuchs' : 'letzte Seite eines Besuchs (nach 30 Min. ohne Aufruf)'}
-      </p>
+      <p className="vs-card-note vs-card-lede">{PAGES_NOTE[view]}</p>
       <RankList
-        rows={rows} total={total} code label={view === 'all' ? 'Seiten' : view === 'entry' ? 'Einstiegsseiten' : 'Ausstiegsseiten'}
-        empty={view === 'all' ? 'Keine Seiten im Zeitraum.' : view === 'entry' ? 'Noch keine Besuche gezählt.' : 'Noch kein Besuch abgeschlossen.'}
+        rows={rows} total={total} code label={label} empty={empty} tone={view === 'notFound' ? 'warn' : undefined}
+        href={(r) => (view === 'notFound' ? to({ pfad: r.key }, 'nicht-gefunden') : to({ pfad: r.key || '/' }))} linkText={(r) => r.key || '/'}
         format={(r) => <code title={r.key}>{r.key || '/'}</code>}
+        extra={view === 'notFound' ? (r) => ('scanner' in r && r.scanner ? <span className="vs-bot" title="Typischer Pfad von Scannern, die Lücken suchen (WordPress, .git, phpMyAdmin …)">bot?</span> : undefined) : undefined}
       />
-      {view !== 'all' && <p className="vs-card-foot">Ohne Besucher mit «Do Not Track» oder «Global Privacy Control».</p>}
+      {(view === 'entry' || view === 'exit') && <p className="vs-card-foot">Ohne Besucher mit «Do Not Track» oder «Global Privacy Control».</p>}
+      {view === 'notFound' && (
+        <p className="vs-card-foot">
+          {errors > 0
+            ? <>Serverfehler (5xx): <span className="num">{nf(errors)}</span> · <Link to={{ search: to({}, 'fehler') }}>Einzelaufrufe</Link>{onLogs && <> · <button type="button" className="link-button" onClick={onLogs}>Logs</button></>}</>
+            : 'Keine Serverfehler (5xx).'}
+        </p>
+      )}
     </section>
   )
 }
 
-function NotFound({ s, logsLabel, onLogs }: { s: TrafficSummaryDto; logsLabel: string; onLogs?: () => void }) {
-  const total = s.notFound.reduce((a, r) => a + r.views, 0)
-  const errors = s.totals.serverErrors
-  return (
-    <section className="panel panel-pad vs-card" aria-labelledby="vs-404-h">
-      <div className="vs-card-head">
-        <h2 className="vs-card-title" id="vs-404-h">Nicht gefunden</h2>
-        <span className="vs-card-note">404 · Tippfehler, Scanner</span>
-      </div>
-      <RankList
-        rows={s.notFound} total={total} code tone="warn" label="Nicht gefundene Pfade" empty="Keine 404 im Zeitraum."
-        format={(r) => <code title={r.key}>{r.key}</code>}
-        extra={(r) => (r.scanner ? <span className="vs-bot" title="Typischer Pfad von Scannern, die Lücken suchen (WordPress, .git, phpMyAdmin …)">bot?</span> : undefined)}
-      />
-      <p className="vs-card-foot">
-        {errors > 0
-          ? <>Serverfehler (5xx): <span className="num">{nf(errors)}</span>{onLogs && <> · <button type="button" className="link-button" onClick={onLogs}>→ {logsLabel}</button></>}</>
-          : 'Keine Serverfehler (5xx).'}
-      </p>
-    </section>
-  )
-}
+type SourcesView = 'links' | 'campaigns'
 
-function Referrers({ s }: { s: TrafficSummaryDto }) {
-  const total = s.referrers.reduce((a, r) => a + r.views, 0)
+function Sources({ s, to }: { s: TrafficSummaryDto; to: ToEinzeln }) {
+  const [view, setView] = useState<SourcesView>('links')
   const h = s.referrersHidden
+  const campaigns = s.campaigns.map((c) => ({ ...c, key: [c.source, c.medium, c.campaign].join(TRAFFIC_SEP) }))
   return (
     <section className="panel panel-pad vs-card" aria-labelledby="vs-ref-h">
       <div className="vs-card-head">
         <h2 className="vs-card-title" id="vs-ref-h">Woher</h2>
-        <span className="vs-card-note">Links, die hierher führen</span>
+        <Segmented<SourcesView> value={view} onChange={setView} label="Links oder Kampagnen" options={[['links', 'Links'], ['campaigns', 'Kampagnen']]} />
       </div>
-      <RankList rows={s.referrers} total={total} label="Referrer" empty="Keine Aufrufe von aussen." format={(r) => (r.key ? r.key : 'Direkt / Lesezeichen')} />
-      <p className="vs-card-foot">
-        {h.airlock > 0 && <>Eigene Airlock-Aufrufe ({nf(h.airlock)}) sind ausgeblendet. </>}
-        {h.internal > 0 && <>Klicks innerhalb der Seite ({nf(h.internal)}) zählen hier nicht.</>}
-        {h.airlock === 0 && h.internal === 0 && 'Nur der Name der Seite, nie Pfad oder Suchbegriff.'}
-      </p>
-    </section>
-  )
-}
-
-/* --- Netz, Sprachen, Kampagnen ---------------------------------------------------- */
-
-function Networks({ s, dbButton }: { s: TrafficSummaryDto; dbButton: ReactNode }) {
-  const people = s.networks.filter((n) => n.views > 0)
-  const dc = s.networks.filter((n) => n.datacenter && n.bots > 0)
-  const total = people.reduce((a, n) => a + n.views, 0)
-  return (
-    <section className="panel panel-pad vs-card" aria-labelledby="vs-net-h">
-      <div className="vs-card-head">
-        <h2 className="vs-card-title" id="vs-net-h">Netz</h2>
-        <span className="vs-card-note">Provider, nur Internet</span>
-      </div>
-      {!s.source.asnDb ? (
-        <p className="muted vs-empty">{dbButton}</p>
+      {view === 'links' ? (
+        <>
+          <p className="vs-card-note vs-card-lede">Links, die hierher führen</p>
+          <RankList
+            rows={s.referrers} total={s.referrers.reduce((a, r) => a + r.views, 0)} label="Referrer" empty="Keine Aufrufe von aussen."
+            href={(r) => (r.key === INTERNAL_REFERRER ? null : to({ quelle: r.key || DIRECT }))} linkText={(r) => r.key || 'Direkt / Lesezeichen'}
+            format={(r) => (r.key ? r.key : 'Direkt / Lesezeichen')}
+          />
+          <p className="vs-card-foot">
+            {h.airlock > 0 && <>Eigene Airlock-Aufrufe ({nf(h.airlock)}) sind ausgeblendet. </>}
+            {h.internal > 0 && <>Klicks innerhalb der Seite ({nf(h.internal)}) zählen hier nicht.</>}
+            {h.airlock === 0 && h.internal === 0 && 'Nur der Name der Seite, nie Pfad oder Suchbegriff.'}
+          </p>
+        </>
       ) : (
         <>
-          <RankList rows={people.map((n) => ({ key: String(n.asn), views: n.views, visitors: 0, name: n.name }))} total={total} label="Provider" empty="Noch keine Aufrufe mit bekanntem Netz." format={(r) => <span title={`AS${r.key}`}>{r.name || `AS${r.key}`}</span>} />
-          {dc.length > 0 && (
-            <p className="vs-card-foot">
-              Rechenzentren, als Bot gezählt (<span className="vs-bot">vermutlich Bot</span>): {dc.slice(0, 4).map((n) => `${n.name || `AS${n.asn}`} ${nf(n.bots)}`).join(' · ')}
-            </p>
-          )}
+          <p className="vs-card-note vs-card-lede">utm_source · medium · campaign</p>
+          <RankList
+            rows={campaigns} total={s.totals.views} label="Kampagnen" empty="Keine Aufrufe mit utm_source oder utm_campaign."
+            href={(r) => to({ kampagne: r.key })} linkText={(r) => r.campaign || r.source}
+            format={(r) => (
+              <span title={[r.source, r.medium, r.campaign].filter(Boolean).join(' · ')}>
+                {r.campaign || r.source}
+                <span className="muted">{[r.campaign ? r.source : '', r.medium].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+              </span>
+            )}
+          />
+          <p className="vs-card-foot">Anteil an allen Aufrufen. Der übrige Query-String wird nicht gespeichert.</p>
         </>
       )}
     </section>
   )
 }
 
-function Languages({ s }: { s: TrafficSummaryDto }) {
-  const total = s.languages.reduce((a, r) => a + r.views, 0)
-  return (
-    <section className="panel panel-pad vs-card" aria-labelledby="vs-lang-h">
-      <div className="vs-card-head">
-        <h2 className="vs-card-title" id="vs-lang-h">Sprachen</h2>
-        <span className="vs-card-note">erste Sprache des Browsers</span>
-      </div>
-      <RankList rows={s.languages} total={total} label="Sprachen" empty="Noch keine Angaben." format={(r) => (r.key === UNKNOWN_VALUE ? 'Unbekannt' : languageName(r.key))} />
-    </section>
-  )
-}
+type DevicesView = 'type' | 'browsers' | 'systems'
 
-function Campaigns({ s }: { s: TrafficSummaryDto }) {
-  const rows = s.campaigns.map((c) => ({ ...c, key: [c.source, c.medium, c.campaign].join('|') }))
-  const total = s.totals.views
+function Devices({ s, to }: { s: TrafficSummaryDto; to: ToEinzeln }) {
+  const [view, setView] = useState<DevicesView>('type')
+  const rows = view === 'type' ? s.devices : byFamily(view === 'browsers' ? s.browsers : s.systems)
+  const total = rows.reduce((a, r) => a + r.views, 0)
+  const name = (k: string) => (view === 'type' ? TRAFFIC_DEVICE_LABEL[k as TrafficDevice] ?? unknownWord(k) : unknownWord(k))
+  const versions = view === 'type' ? [] : (view === 'browsers' ? s.browsers : s.systems).filter((r) => r.key !== UNKNOWN_VALUE).slice(0, 4).map((r) => r.key)
   return (
-    <section className="panel panel-pad vs-card" aria-labelledby="vs-utm-h">
+    <section className="panel panel-pad vs-card" aria-labelledby="vs-dev-h">
       <div className="vs-card-head">
-        <h2 className="vs-card-title" id="vs-utm-h">Kampagnen</h2>
-        <span className="vs-card-note">utm_source · medium · campaign</span>
+        <h2 className="vs-card-title" id="vs-dev-h">Geräte</h2>
+        <Segmented<DevicesView> value={view} onChange={setView} label="Gerätetyp, Browser oder System" options={[['type', 'Typ'], ['browsers', 'Browser'], ['systems', 'System']]} />
       </div>
-      <RankList rows={rows} total={total} label="Kampagnen" empty="Keine." format={(r) => (
-        <span title={[r.source, r.medium, r.campaign].filter(Boolean).join(' · ')}>
-          {r.campaign || r.source}
-          <span className="muted">{[r.campaign ? r.source : '', r.medium].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
-        </span>
-      )} />
-      <p className="vs-card-foot">Anteil an allen Aufrufen. Der übrige Query-String wird nicht gespeichert.</p>
+      <RankList
+        rows={rows} total={total} label={{ type: 'Gerätetypen', browsers: 'Browser', systems: 'Betriebssysteme' }[view]} empty="Keine Aufrufe."
+        href={(r) => to(view === 'type' ? { geraet: r.key } : view === 'browsers' ? { browser: r.key } : { system: r.key })} linkText={(r) => name(r.key)}
+        format={(r) => name(r.key)}
+      />
+      <p className="vs-card-foot">
+        {versions.length > 0 ? <>Häufigste Versionen: {versions.join(' · ')}</> : 'Klick auf eine Zeile zeigt die passenden Einzelaufrufe.'}
+      </p>
     </section>
   )
 }
@@ -541,49 +594,101 @@ export function DbipButton({ kind, label }: { kind: 'city' | 'asn'; label?: stri
 
 function CityHint({ s }: { s: TrafficSummaryDto }) {
   if (s.source.cfLocation && !s.source.cityDb) return <>Städte: von Cloudflare (Kopfzeilen «Visitor Location»).</>
-  if (s.source.cityDb) return <>Städte: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> (CC BY 4.0, Stand {s.source.cityDb}).</>
+  if (s.source.cityDb) return <>Städte: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP<span className="sr-only"> (neues Fenster)</span></a> (CC BY 4.0, Stand {s.source.cityDb}).</>
   return <>Städte: <DbipButton kind="city" /> (DB-IP, CC BY 4.0) oder Cloudflare-Kopfzeilen (Server › Besucher).</>
 }
 
-/* --- Reiter ---------------------------------------------------------------------- */
+/* --- «Wie gezählt wird» -------------------------------------------------------- */
 
-export function TrafficTab({ p, onAccessLog, onLogs }: { p: ProjectDto; onAccessLog?: () => void; onLogs?: () => void }) {
-  const [range, way, setRange, setWay] = useRangeAndWay()
+const IconInfo = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+    <circle cx="8" cy="8" r="6.3" /><path d="M8 7.2v3.9M8 4.9v.1" />
+  </svg>
+)
+
+/**
+ * Eine Zeile mit ⓘ statt Fliesstext; der Knopf klappt die Einzelheiten als
+ * Popover auf (Esc und Klick daneben schliessen, Fokus zurück auf den Knopf).
+ */
+function HowCounted() {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+      btnRef.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  return (
+    <div className="vs-info" ref={rootRef}>
+      <p className="vs-info-line">
+        <button ref={btnRef} type="button" className="vs-info-btn" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>
+          <IconInfo /><span>Wie gezählt wird</span>
+        </button>
+        <span>: ohne Cookies, ohne IP, Bots und Airlock-Prüfungen nicht mitgezählt · Quellen &amp; Datenbanken unter <Link to="/server/besucher">Server › Besucher</Link></span>
+      </p>
+      <div id={id} className="vs-pop" data-open={open ? '' : undefined} role="region" aria-label="Wie gezählt wird">
+        <p>
+          Aus dem Zugriffs-Log von Caddy, ohne Cookies und ohne Skript im Projekt. Gespeichert werden nur Zähler je Stunde, keine IP-Adressen;
+          Besucher sind eindeutig je Tag (Hash mit täglich neuem Salz).
+        </p>
+        <p>
+          Nicht gezählt: Bots (User-Agent oder Rechenzentrum), Healthchecks, statische Dateien und eigene Prüfungen von Airlock.
+          Aufbewahrung 13 Monate; die Einzelaufrufe kommen direkt aus dem Log und reichen 2 Tage zurück.
+        </p>
+        <p>Länder von Cloudflare, Städte und Netze nach Wahl aus der Datenbank von DB-IP; Tailnet ohne Gerätenamen.</p>
+      </div>
+    </div>
+  )
+}
+
+/* --- Auswertung ------------------------------------------------------------------- */
+
+function Evaluation({ p, range, way, params, onLogs, slot }: {
+  p: ProjectDto; range: TrafficRange; way: TrafficWay | 'all'; params: URLSearchParams; onLogs?: () => void
+  /** Platz rechts in der Kopfzeile */
+  slot: HTMLElement | null
+}) {
   const [metric, setMetric] = useState<TrafficMetric>('views')
   const [mode, setMode] = useChartMode()
   const q = useTraffic(p.id, range, way)
   const live = useLiveVisits(p.id)
   const s = q.data
-  const isStatic = Boolean(onAccessLog)
-  const accessLabel = isStatic ? 'Zugriffe' : 'Logs'
-  const toAccess = onAccessLog ?? onLogs
+  const to: ToEinzeln = (facets, status) => einzelnSearch(params, facets, status)
+  const liveHref = `?${(() => { const n = new URLSearchParams(params); n.set('ansicht', 'einzeln'); return n.toString() })()}`
 
-  if (!s && q.isError) return <ErrorState plural what="Die Besucherzahlen" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
-  if (!s) return <Loading label="Besucher werden geladen"><SkRows n={6} /></Loading>
+  const panel = (body: ReactNode) => (
+    <>
+      {slot && createPortal(<ActiveNow live={live} liveHref={liveHref} />, slot)}
+      <div id="vs-view" role="tabpanel" aria-labelledby="vs-tab-auswertung" className="vs-view">{body}</div>
+    </>
+  )
+
+  if (!s && q.isError) return panel(<ErrorState plural what="Die Besucherzahlen" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />)
+  if (!s) return panel(<Loading label="Besucher werden geladen"><SkRows n={6} /></Loading>)
   if ((s.source?.ingest ?? 'off') === 'off') {
-    return (
+    return panel(
       <EmptyState title="Besucher werden nicht gezählt">
         Airlock liest dafür das Zugriffs-Log von Caddy (Volume caddy_access, Einstellung ACCESS_LOG_DIR). Es ist auf diesem Server nicht eingerichtet.
-      </EmptyState>
+      </EmptyState>,
     )
   }
   const r = trafficRange(range)
   const wayViews = (w: TrafficWay) => s.ways.find((x) => x.way === w)?.views ?? 0
   const allViews = s.ways.reduce((a, x) => a + x.views, 0)
   const nothing = !hasAny(s)
-  const internetInRange = wayViews('public') > 0
 
-  return (
-    <div className="tab-panel vs-page">
-      <div className="vs-top">
-        <Segmented<TrafficRange> value={range} onChange={setRange} label="Zeitraum" options={TRAFFIC_TAB_RANGES.map((k) => [k, trafficRange(k).label])} />
-        <Segmented<TrafficWay | 'all'>
-          value={way} onChange={setWay} label="Nach Zugang trennen"
-          options={[['all', 'Alle'], ...TRAFFIC_WAYS.map((w): [TrafficWay, ReactNode] => [w, <>{TRAFFIC_WAY_LABEL[w]} <span className="num">{nf(wayViews(w))}</span></>])]}
-        />
-        <ActiveNow live={live} />
-      </div>
-
+  return panel(
+    <>
       {s.source.ingest === 'waiting' && (
         <div className="notice notice-info" role="status">
           <span><strong>Wartet auf das Zugriffs-Log von Caddy.</strong> Es entsteht mit dem Volume caddy_access (nach «docker compose up -d»); bis dahin gibt es keine neuen Zahlen.</span>
@@ -601,33 +706,21 @@ export function TrafficTab({ p, onAccessLog, onLogs }: { p: ProjectDto; onAccess
 
       {nothing ? (
         <EmptyState title={`Keine Aufrufe ${r.within}${way === 'all' ? '' : ` über ${TRAFFIC_WAY_LABEL[way]}`}`}>
-          {s.source.since ? `Gezählt wird seit dem ${fmtDayMonth(s.source.since)}` :'Sobald jemand die Seite öffnet, erscheint der Aufruf hier (spätestens nach einer Minute).'}
+          {s.source.since ? `Gezählt wird seit dem ${fmtDayMonth(s.source.since)}` : 'Sobald jemand die Seite öffnet, erscheint der Aufruf hier (spätestens nach einer Minute).'}
           {allViews > 0 && way !== 'all' && ' Andere Zugänge haben Aufrufe – «Alle» zeigt sie.'}
         </EmptyState>
       ) : (
         <>
-          <Geo s={s} last={live.events[0]} onCityDb={<CityHint s={s} />} />
+          <Geo s={s} last={live.events[0]} internetInRange={wayViews('public') > 0} to={to} />
           <div className="vs-grid-3">
-            <Pages s={s} />
-            <NotFound s={s} logsLabel={accessLabel} onLogs={toAccess} />
-            <Referrers s={s} />
-          </div>
-          <div className={`vs-grid-3${s.campaigns.length ? '' : ' vs-grid-2'}`}>
-            {(internetInRange || s.source.asnDb) && <Networks s={s} dbButton={<>Provider (Swisscom, Init7 …) und Rechenzentren zeigt Airlock mit der freien Datei «IP to ASN Lite» von DB-IP (CC BY 4.0): <DbipButton kind="asn" /></>} />}
-            <Languages s={s} />
-            {s.campaigns.length > 0 && <Campaigns s={s} />}
+            <Pages s={s} to={to} onLogs={onLogs} />
+            <Sources s={s} to={to} />
+            <Devices s={s} to={to} />
           </div>
         </>
       )}
 
-      <Recent live={live} accessLabel={accessLabel} onAccess={toAccess} />
-
-      <p className="hint vs-source">
-        Aus dem Zugriffs-Log von Caddy, ohne Cookies und ohne Skript im Projekt. Gespeichert werden nur Zähler je Stunde, keine IP-Adressen;
-        Besucher sind eindeutig je Tag (Hash mit täglich neuem Salz). Bots (User-Agent oder Rechenzentrum), Healthchecks, statische Dateien und
-        eigene Prüfungen von Airlock zählen nicht. Aufbewahrung 13 Monate. Länder von Cloudflare; Tailnet ohne Gerätenamen.
-        {s.source.asnDb && <> Netze: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> (CC BY 4.0, Stand {s.source.asnDb}).</>}
-      </p>
-    </div>
+      <HowCounted />
+    </>,
   )
 }

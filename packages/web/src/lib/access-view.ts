@@ -1,22 +1,105 @@
 import {
-  ACCESS_BLOCK_LABEL, ACCESS_KIND_WORD, LOG_RANGES, TRAFFIC_WAY_LABEL, accessKind, accessOrigin, countryName, isAccessStatusFilter, matchesStatus, providerShort,
-  type AccessEntryDto, type AccessGroup, type AccessStatusFilter, type LogRange, type TrafficWay,
+  ACCESS_BLOCK_LABEL, ACCESS_KIND_WORD, TRAFFIC_DEVICE_LABEL, TRAFFIC_SEP, TRAFFIC_WAY_LABEL, UNKNOWN_VALUE, accessKind, accessOrigin, countryName,
+  isAccessStatusFilter, languageName, matchesStatus, providerShort,
+  type AccessEntryDto, type AccessGroup, type AccessRange, type AccessStatusFilter, type TrafficDevice, type TrafficRange, type TrafficWay,
 } from '@airlock/shared'
 import { dateOf, fmtDayMonth, fmtStamp, fmtTime, msOf, sameDay } from './dates.js'
-import { wayFromSlug, waySlug } from './traffic-view.js'
+import { rangeFromSlug, rangeSlug, wayFromSlug, waySlug } from './traffic-view.js'
 
 /**
- * Reiter «Zugriffe» (neu): Filter aus und in die Adresse, Suche, Zähler,
- * Tagestrenner, Zeitspanne zusammengefasster Zeilen und CSV – rein, ohne
- * React (access-view.test.ts). Die Regeln selbst (Status, Herkunft,
- * Zusammenfassen, Erklärungen) liegen in @airlock/shared.
+ * Reiter «Besucher» (seit «Besucher zusammen» mit den früheren Zugriffen):
+ * gemeinsamer Zustand in der Adresse (Ansicht, Zeitraum, Zugang), Filter
+ * der Einzelaufrufe (Status, Suche, Merkmale aus der Auswertung, Anzeige),
+ * Suche, Zähler, Tagestrenner, Zeitspanne zusammengefasster Zeilen, CSV und
+ * die Weiterleitung alter Adressen – rein, ohne React (access-view.test.ts).
+ * Die Regeln selbst (Status, Herkunft, Zusammenfassen, Erklärungen) liegen
+ * in @airlock/shared.
  */
+
+/* --- Ansicht, Zeitraum, Zugang (beide Ansichten) ------------------------------ */
+
+export type VisitorsView = 'auswertung' | 'einzeln'
+
+/** ?ansicht=einzeln; ohne Angabe die Auswertung */
+export const viewFromParams = (p: URLSearchParams): VisitorsView => (p.get('ansicht') === 'einzeln' ? 'einzeln' : 'auswertung')
+
+/** Einzelaufrufe: Heute ab Mitternacht, sonst alles, was das Zugriffs-Log hat (2 Tage) */
+export const accessRangeOf = (r: TrafficRange): AccessRange => (r === 'today' ? 'today' : '2d')
+
+/* --- Merkmale aus der Auswertung --------------------------------------------- */
+
+/**
+ * Merkmale, nach denen eine Zeile der Auswertung die Einzelaufrufe filtert.
+ * Name in der Adresse = Schlüssel (?land=CH&sprache=de-CH …). Unbekannt
+ * (leere Sprache, unbekannter Browser, Land ohne Angabe) steht als «?»,
+ * «Direkt / Lesezeichen» als «(direkt)», eine Kampagne als
+ * Quelle␟Medium␟Name (wie in der Auswertung).
+ */
+export const FACETS = ['land', 'stadt', 'netz', 'sprache', 'pfad', 'quelle', 'kampagne', 'geraet', 'browser', 'system'] as const
+export type Facet = (typeof FACETS)[number]
+export type Facets = Partial<Record<Facet, string>>
+
+export const FACET_LABEL: Record<Facet, string> = {
+  land: 'Land', stadt: 'Stadt', netz: 'Netz', sprache: 'Sprache', pfad: 'Seite', quelle: 'Woher', kampagne: 'Kampagne', geraet: 'Gerät', browser: 'Browser', system: 'System',
+}
+
+/** «Direkt / Lesezeichen» in der Adresse (kein Host und keine utm_source kann so heissen) */
+export const DIRECT = '(direkt)'
+
+/** Browser und System ohne Version: «Chrome 131» → «Chrome» (wie die Auswertung zusammenfasst) */
+export const familyOf = (v: string): string => (v === UNKNOWN_VALUE ? v : v.replace(/ \d+$/, ''))
+
+const orUnknown = (v: string) => v || UNKNOWN_VALUE
+
+const FACET_MATCH: Record<Facet, (e: AccessEntryDto, v: string) => boolean> = {
+  // Länder zählt die Auswertung nur für das Internet
+  land: (e, v) => e.way === 'public' && orUnknown(e.country) === v,
+  stadt: (e, v) => e.city === v,
+  netz: (e, v) => String(e.network?.asn ?? '') === v,
+  sprache: (e, v) => orUnknown(e.language) === v,
+  // Die Auswertung kürzt Pfade auf 200 Zeichen
+  pfad: (e, v) => e.path === v || e.path.slice(0, 200) === v,
+  quelle: (e, v) => (e.source || DIRECT) === v,
+  kampagne: (e, v) => e.campaign !== null && [e.campaign.source, e.campaign.medium, e.campaign.campaign].join(TRAFFIC_SEP) === v,
+  geraet: (e, v) => e.device === v,
+  browser: (e, v) => orUnknown(familyOf(e.browser)) === v,
+  system: (e, v) => orUnknown(familyOf(e.system)) === v,
+}
+
+export const matchesFacets = (e: AccessEntryDto, f: Facets): boolean =>
+  FACETS.every((k) => f[k] === undefined || FACET_MATCH[k](e, f[k]!))
+
+/** Wert eines Merkmals lesbar (Chip «Land: Schweiz ✕»); Netz mit Namen aus den Einträgen, sonst AS-Nummer */
+export function facetText(k: Facet, v: string, entries: readonly AccessEntryDto[] = []): string {
+  if (v === UNKNOWN_VALUE) return 'Unbekannt'
+  switch (k) {
+    case 'land': return countryName(v)
+    case 'sprache': return languageName(v)
+    case 'geraet': return TRAFFIC_DEVICE_LABEL[v as TrafficDevice] ?? v
+    case 'quelle': return v === DIRECT ? 'Direkt / Lesezeichen' : v
+    case 'kampagne': {
+      const [source = '', medium = '', campaign = ''] = v.split(TRAFFIC_SEP)
+      return [campaign || source, campaign ? source : '', medium].filter(Boolean).join(' · ')
+    }
+    case 'netz': {
+      const n = entries.find((e) => String(e.network?.asn ?? '') === v)?.network
+      return n ? providerShort(n) : `AS${v}`
+    }
+    default: return v
+  }
+}
+
+/* --- Filter der Einzelaufrufe --------------------------------------------------- */
 
 export interface AccessFilters {
   status: AccessStatusFilter
-  range: LogRange
+  /** Zeitraum (gemeinsam mit der Auswertung) */
+  range: TrafficRange
+  /** Zugang (gemeinsam mit der Auswertung) */
   way: TrafficWay | 'all'
   search: string
+  /** Merkmale aus der Auswertung (Chips) */
+  facets: Facets
   /** Gleiche Aufrufe zusammenfassen (Standard an) */
   group: boolean
   /** Airlock-Prüfungen ausblenden (Standard an) */
@@ -27,19 +110,28 @@ export interface AccessFilters {
   row: string | null
 }
 
-export const DEFAULT_FILTERS: AccessFilters = { status: 'alle', range: '24h', way: 'all', search: '', group: true, hideProbes: true, bots: false, row: null }
+export const DEFAULT_FILTERS: AccessFilters = { status: 'alle', range: '7d', way: 'all', search: '', facets: {}, group: true, hideProbes: true, bots: false, row: null }
 
-/** Namen in der Adresse: ?status=abgewiesen&zeit=1h&zugang=tailnet&suche=…&einzeln=1&pruefungen=1&bots=1&zeile=… */
-const P = { status: 'status', range: 'zeit', way: 'zugang', search: 'suche', single: 'einzeln', probes: 'pruefungen', bots: 'bots', row: 'zeile' } as const
+/** Schalter im Menü «Anzeige», die von der Voreinstellung abweichen (Zahl am Knopf) */
+export const displayChanges = (f: Pick<AccessFilters, 'group' | 'hideProbes' | 'bots'>): number =>
+  (f.group ? 0 : 1) + (f.hideProbes ? 0 : 1) + (f.bots ? 1 : 0)
+
+/** Namen in der Adresse: ?status=abgewiesen&zeitraum=heute&zugang=tailnet&suche=…&einzeln=1&pruefungen=1&bots=1&zeile=…&land=CH … */
+const P = { status: 'status', range: 'zeitraum', way: 'zugang', search: 'suche', single: 'einzeln', probes: 'pruefungen', bots: 'bots', row: 'zeile' } as const
 
 export function readFilters(p: URLSearchParams): AccessFilters {
   const status = p.get(P.status)
-  const range = p.get(P.range)
+  const facets: Facets = {}
+  for (const k of FACETS) {
+    const v = p.get(k)
+    if (v) facets[k] = v.slice(0, 300)
+  }
   return {
     status: isAccessStatusFilter(status) ? status : 'alle',
-    range: LOG_RANGES.some((r) => r.key === range) ? (range as LogRange) : '24h',
+    range: rangeFromSlug(p.get(P.range)),
     way: wayFromSlug(p.get(P.way)),
     search: (p.get(P.search) ?? '').slice(0, 200),
+    facets,
     group: p.get(P.single) !== '1',
     hideProbes: p.get(P.probes) !== '1',
     bots: p.get(P.bots) === '1',
@@ -47,18 +139,47 @@ export function readFilters(p: URLSearchParams): AccessFilters {
   }
 }
 
-/** Filter in die Adresse schreiben; andere Parameter (tab) bleiben, Standardwerte fehlen */
+/** Filter in die Adresse schreiben; andere Parameter (tab, ansicht) bleiben, Standardwerte fehlen */
 export function writeFilters(p: URLSearchParams, f: AccessFilters): URLSearchParams {
   const next = new URLSearchParams(p)
-  const set = (k: string, v: string | null) => (v ? next.set(k, v) : next.delete(k))
+  const set = (k: string, v: string | null | undefined) => (v ? next.set(k, v) : next.delete(k))
   set(P.status, f.status === 'alle' ? null : f.status)
-  set(P.range, f.range === '24h' ? null : f.range)
+  set(P.range, f.range === '7d' ? null : rangeSlug(f.range))
   set(P.way, waySlug(f.way))
   set(P.search, f.search.trim() ? f.search : null)
+  for (const k of FACETS) set(k, f.facets[k])
   set(P.single, f.group ? null : '1')
   set(P.probes, f.hideProbes ? null : '1')
   set(P.bots, f.bots ? '1' : null)
   set(P.row, f.row)
+  return next
+}
+
+/**
+ * Adresse der Einzelaufrufe zu einer Zeile der Auswertung: Zeitraum und
+ * Zugang bleiben, die übrigen Filter der Einzelaufrufe beginnen neu (nur das
+ * gewählte Merkmal, bei 404 dazu der Status). Gibt den Suchteil zurück.
+ */
+export function einzelnSearch(current: URLSearchParams, facets: Facets, status: AccessStatusFilter = 'alle'): string {
+  const base = readFilters(current)
+  const next = writeFilters(new URLSearchParams({ tab: 'besucher', ansicht: 'einzeln' }), { ...DEFAULT_FILTERS, range: base.range, way: base.way, facets, status })
+  return `?${next.toString()}`
+}
+
+/**
+ * Alte Adressen: Reiter «Zugriffe» (?tab=zugriffe, bei statischen Seiten
+ * ?tab=logs) → ?tab=besucher&ansicht=einzeln. Filter, die es weiter gibt
+ * (Status, Suche, Zugang, Anzeige, Zeile), kommen mit; der alte Zeitraum
+ * (zeit=15m|1h|24h) nicht. null: keine alte Adresse.
+ */
+export function legacyAccessRedirect(p: URLSearchParams, isStatic: boolean): URLSearchParams | null {
+  const tab = p.get('tab')
+  if (tab !== 'zugriffe' && !(tab === 'logs' && isStatic)) return null
+  const next = new URLSearchParams({ tab: 'besucher', ansicht: 'einzeln' })
+  for (const k of [P.status, P.search, P.way, P.single, P.probes, P.bots, P.row]) {
+    const v = p.get(k)
+    if (v) next.set(k, v)
+  }
   return next
 }
 
@@ -73,18 +194,18 @@ export function searchText(e: AccessEntryDto): string {
 }
 
 export interface FilteredAccess {
-  /** Nach Zeitraum, Zugang, Suche, Prüfungen und Bots, vor dem Status (Basis der Zähler) */
+  /** Nach Zeitraum, Zugang, Suche, Merkmalen, Prüfungen und Bots, vor dem Status (Basis der Zähler) */
   base: AccessEntryDto[]
   /** Angezeigt (zusätzlich nach Status) */
   list: AccessEntryDto[]
   counts: Record<AccessStatusFilter, number>
-  /** Eigene Prüfungen bzw. Bots im Zeitraum (nach Zugang und Suche) – Zahlen neben den Schaltern */
+  /** Eigene Prüfungen bzw. Bots im Zeitraum (nach Zugang, Suche und Merkmalen) – Zahlen im Menü «Anzeige» */
   probes: number
   bots: number
 }
 
 /** Filtern (rein). Bots = sicher am User-Agent erkannt; «Bot?» (Rechenzentrum, Scanner) bleibt sichtbar. */
-export function filterAccess(entries: readonly AccessEntryDto[], f: AccessFilters, sinceMs: number): FilteredAccess {
+export function filterAccess(entries: readonly AccessEntryDto[], f: Omit<AccessFilters, 'range' | 'row'>, sinceMs: number): FilteredAccess {
   const needle = f.search.trim().toLowerCase()
   let probes = 0
   let bots = 0
@@ -93,6 +214,7 @@ export function filterAccess(entries: readonly AccessEntryDto[], f: AccessFilter
     if ((msOf(e.at) ?? 0) < sinceMs) continue
     if (f.way !== 'all' && e.way !== f.way) continue
     if (needle && !searchText(e).includes(needle)) continue
+    if (!matchesFacets(e, f.facets)) continue
     if (e.probe) probes++
     else if (e.bot === 'ua') bots++
     if (e.probe && f.hideProbes) continue

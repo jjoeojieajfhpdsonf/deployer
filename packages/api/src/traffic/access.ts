@@ -6,14 +6,16 @@ import { createGunzip } from 'node:zlib'
 import { isDockerNet, isScannerPath, type AccessBlock, type AccessEntryDto } from '@airlock/shared'
 import { CSP_REPORT_PREFIX, VISITS_LOG_FILE } from '../drivers/caddy-config.js'
 import { isOwnProbe } from '../lib/probe-ua.js'
-import { browserOf, languageOf, systemOf } from './agent.js'
-import { botReason, countryOf, deviceOf, wayOf } from './classify.js'
+import { browserOf, campaignOf, languageOf, systemOf } from './agent.js'
+import { botReason, countryOf, deviceOf, referrerOf, wayOf } from './classify.js'
 import { header, parseAccessLine, type AccessLine } from './parse.js'
 
 /**
- * Reiter «Zugriffe» (neu): einzelne Anfragen aus Caddys Zugriffs-Log
+ * Einzelaufrufe (Reiter «Besucher», bis «Besucher zusammen» «Zugriffe»):
+ * einzelne Anfragen aus Caddys Zugriffs-Log
  * (visits.log und die rotierten Dateien, höchstens 2 Tage). Die Zeile wird
- * hier zum AccessEntryDto – die Adresse nur gekürzt, Header nur ausgewählt.
+ * hier zum AccessEntryDto – die Adresse nur gekürzt, Header nur ausgewählt,
+ * aus der Query nur utm_source/medium/campaign (wie in der Auswertung).
  * Rein bis auf readAccessLog (liest Dateien, nie schreibend).
  */
 
@@ -88,8 +90,12 @@ export interface AccessLookups {
   isDatacenter: (asn: number) => boolean
 }
 
-/** Eine gelesene Zeile → Eintrag des Reiters (rein bis auf die Lookups) */
-export function toAccessEntry(a: AccessLine, hostIsPublic: boolean, l: AccessLookups): AccessEntryDto {
+/**
+ * Eine gelesene Zeile → Eintrag der Einzelaufrufe (rein bis auf die Lookups).
+ * ownHosts: alle Namen des Projekts – ein Referer darauf ist ein Klick
+ * innerhalb der Seite (wie in der Auswertung, referrerOf).
+ */
+export function toAccessEntry(a: AccessLine, hostIsPublic: boolean, l: AccessLookups, ownHosts: ReadonlySet<string> = new Set([a.host])): AccessEntryDto {
   const way = wayOf(a.ip, hostIsPublic)
   // Über den Tunnel ist die Verbindung cloudflared (im Docker-Netz) – dort zählt der Absender laut Cloudflare
   const dockerNet = way !== 'public' && isDockerNet(a.remoteIp)
@@ -126,6 +132,8 @@ export function toAccessEntry(a: AccessLine, hostIsPublic: boolean, l: AccessLoo
     device: deviceOf(a.userAgent),
     language: languageOf(a.acceptLanguage),
     referrer: cleanReferrer(a.referer),
+    source: referrerOf(a.referer, a.query, ownHosts),
+    campaign: campaignOf(a.query),
     proto: protoName(a.proto),
     tls: TLS_NAMES[a.tlsVersion] ?? '',
     durationMs: a.durationMs,
@@ -183,7 +191,8 @@ export async function readAccessLog(
   }
   lines.sort((x, y) => y.at - x.at)
   const capped = lines.length > o.limit
-  const entries = lines.slice(0, o.limit).map((a) => toAccessEntry(a, o.hosts.get(a.host)!.public, o.lookups))
+  const own = new Set([...o.hosts.keys()].map((h) => h.toLowerCase()))
+  const entries = lines.slice(0, o.limit).map((a) => toAccessEntry(a, o.hosts.get(a.host)!.public, o.lookups, own))
   // Doppelte (gleiche Zeile in alter und neuer Datei) nur einmal
   const seen = new Set<string>()
   return { entries: entries.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true))), capped }

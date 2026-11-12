@@ -193,6 +193,8 @@ const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
 const H = 'p-hallo'
+/** Besucher zusammen: Einzelaufrufe der statischen Seite hallo-welt */
+const EINZELN = `/projekte/${H}?tab=besucher&ansicht=einzeln`
 
 /** Etappe 6: Vorschau-Deploys (Reiter Deployments und Einstellungen) */
 function previewShots(group: string): Shot[] {
@@ -1042,25 +1044,33 @@ const shots: Shot[] = [
     group: 'p5', name: '5-reiter-hover', path: `/projekte/${L}`, full: false,
     prepare: async (pg) => { await pg.getByRole('tab', { name: /^Deployments/ }).hover(); await pg.waitForTimeout(200) },
   },
-  // Zugriffe neu (Vorlage docs/design-cal/zugriffe-neu/): Docker-Netz abgewiesen gewählt (Hinweis ts-docker-nosnat),
-  // Scanner aus einem Rechenzentrum, nur Abgewiesene, einzeln mit Prüfungen und Bots, Suche, Schublade unter
-  // 1100 px, Zustände des Logs (leer, wartet auf die Datei, nicht eingerichtet)
-  { group: 'zugriffe', name: 'zugriffe', path: `/projekte/${H}?tab=logs&zeile=z-gw` },
-  { group: 'zugriffe', name: 'zugriffe-scanner', path: `/projekte/${H}?tab=logs&suche=digitalocean&zeile=z-wp`, full: false },
-  { group: 'zugriffe', name: 'zugriffe-abgewiesen', path: `/projekte/${H}?tab=logs&status=abgewiesen&zeile=z-gw`, full: false },
-  { group: 'zugriffe', name: 'zugriffe-einzeln', path: `/projekte/${H}?tab=logs&einzeln=1&pruefungen=1&bots=1&zeile=z-typo-0` },
-  { group: 'zugriffe', name: 'zugriffe-suche', path: `/projekte/${H}?tab=logs&suche=niederlande`, full: false },
+  // Besucher zusammen: Einzelaufrufe (früher Reiter «Zugriffe», Vorlage docs/design-cal/besucher-zusammen/) –
+  // heute mit Docker-Netz abgewiesen gewählt (Hinweis ts-docker-nosnat), Scanner aus einem Rechenzentrum
+  // (7 Tage: Hinweis «nur die letzten 2 Tage»), nur Abgewiesene, einzeln mit Prüfungen und Bots (Zahl am Knopf
+  // «Anzeige»), Suche, Schublade unter 1100 px, Zustände des Logs (leer, wartet auf die Datei, nicht
+  // eingerichtet); neu: Filter-Chips aus der Auswertung, Menü «Anzeige» offen, 30 Tage
+  { group: 'einzelaufrufe', name: 'einzelaufrufe', path: `${EINZELN}&zeitraum=heute&zeile=z-gw` },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-scanner', path: `${EINZELN}&suche=digitalocean&zeile=z-wp`, full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-abgewiesen', path: `${EINZELN}&zeitraum=heute&status=abgewiesen&zeile=z-gw`, full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-einzeln', path: `${EINZELN}&einzeln=1&pruefungen=1&bots=1&zeile=z-typo-0` },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-suche', path: `${EINZELN}&suche=niederlande`, full: false },
   {
-    group: 'zugriffe', name: 'zugriffe-schublade', path: `/projekte/${H}?tab=logs`, full: false,
+    group: 'einzelaufrufe', name: 'einzelaufrufe-schublade', path: `${EINZELN}&zeitraum=heute`, full: false,
     prepare: async (pg) => {
       await pg.setViewportSize({ width: 1000, height: 900 })
       await pg.locator('.acc-row').nth(1).click()
       await pg.waitForTimeout(350)
     },
   },
-  { group: 'zugriffe', name: 'zugriffe-leer', path: `/projekte/${H}?tab=logs`, access: 'leer', full: false },
-  { group: 'zugriffe', name: 'zugriffe-wartet', path: `/projekte/${H}?tab=logs`, access: 'wartet', full: false },
-  { group: 'zugriffe', name: 'zugriffe-aus', path: `/projekte/${H}?tab=logs`, access: 'aus', full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-leer', path: `${EINZELN}&zeitraum=heute`, access: 'leer', full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-wartet', path: EINZELN, access: 'wartet', full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-aus', path: EINZELN, access: 'aus', full: false },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-filter', path: `${EINZELN}&zeitraum=heute&land=CH&browser=Chrome&zeile=z-neu`, full: false },
+  {
+    group: 'einzelaufrufe', name: 'einzelaufrufe-anzeige', path: `${EINZELN}&zeitraum=heute&bots=1`, full: false,
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Anzeige/ }).click(); await pg.waitForTimeout(300) },
+  },
+  { group: 'einzelaufrufe', name: 'einzelaufrufe-30-tage', path: `${EINZELN}&zeitraum=30-tage&status=nicht-gefunden`, full: false },
   // Etappe 3: Besucher – Reiter (öffentliche Seite mit Karte), mit Städten (DB-IP), nach Zugang getrennt,
   // internes Projekt (ohne Länder), leer, wartet auf das Log, nicht eingerichtet; Wert per Tastatur;
   // Karte in der Übersicht und «Aufrufe heute» in der Projektliste
@@ -1101,7 +1111,7 @@ const shots: Shot[] = [
     group: 'besucher', name: 'besucher-europa', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-geo',
     prepare: async (pg) => {
       await pg.getByRole('group', { name: 'Kartenausschnitt' }).getByRole('button', { name: 'Europa' }).click()
-      await pg.getByRole('img', { name: /^Schweiz:/ }).focus()
+      await pg.getByRole('link', { name: /^Schweiz:/ }).focus()
       // Fokus scrollt; der Ausschnitt (el) rechnet ab dem Seitenanfang
       await pg.evaluate(() => window.scrollTo(0, 0))
       await pg.waitForTimeout(250)
@@ -1110,9 +1120,32 @@ const shots: Shot[] = [
   {
     group: 'besucher', name: 'besucher-einstieg', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-grid-3',
     prepare: async (pg) => {
-      await pg.getByRole('group', { name: 'Alle Seiten, Einstieg oder Ausstieg' }).getByRole('button', { name: 'Einstieg' }).click()
+      await pg.getByRole('group', { name: 'Alle Seiten, Einstieg, Ausstieg oder nicht gefunden' }).getByRole('button', { name: 'Einstieg' }).click()
       await pg.evaluate(() => window.scrollTo(0, 0))
       await pg.waitForTimeout(250)
+    },
+  },
+  // Besucher zusammen: Seiten › 404 (ersetzt die Karte «Nicht gefunden»), Woher › Kampagnen, Geräte › Browser,
+  // Liste «Netz» mit Rechenzentren, «Wie gezählt wird» offen
+  ...([
+    ['besucher-404', 'Alle Seiten, Einstieg, Ausstieg oder nicht gefunden', '404', '.vs-grid-3'],
+    ['besucher-kampagnen', 'Links oder Kampagnen', 'Kampagnen', '.vs-grid-3'],
+    ['besucher-browser', 'Gerätetyp, Browser oder System', 'Browser', '.vs-grid-3'],
+    ['besucher-netz', 'Länder, Städte, Netz oder Sprachen', 'Netz', '.vs-geo'],
+  ] as const).map(([name, group, button, el]): Shot => ({
+    group: 'besucher', name, path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el,
+    prepare: async (pg) => {
+      await pg.getByRole('group', { name: group }).getByRole('button', { name: button, exact: true }).click()
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(250)
+    },
+  })),
+  {
+    group: 'besucher', name: 'besucher-info', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: /^Wie gezählt wird/ }).click()
+      await pg.locator('.vs-info').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(300)
     },
   },
   { group: 'besucher', name: 'server-besucher', path: '/server/besucher', traffic: 'ok' },
@@ -1368,9 +1401,15 @@ shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s,
 // Etappe 6: Ergebnisbilder (docs/design-cal/previews/umgesetzt-*.png)
 shots.push(...shots.filter((s) => s.group === 'vorschauen').map((s) => ({ ...s, group: 'vorschauen-ergebnis', name: s.name === 'vorschauen' ? 'umgesetzt-liste' : s.name.replace(/^vorschauen-/, 'umgesetzt-') })))
 
-// Zugriffe neu: Ergebnisbilder neben der Vorlage (docs/design-cal/zugriffe-neu/umgesetzt-*.png), erster Bildschirm wie die Vorlage
-shots.push(...shots.filter((s) => s.group === 'zugriffe').map((s) => ({ ...s, group: 'zugriffe-ergebnis', name: s.name === 'zugriffe' ? 'umgesetzt' : s.name.replace(/^zugriffe-/, 'umgesetzt-'), full: false })))
+// Zugriffe neu: Warnung in Server › Übersicht (docs/design-cal/zugriffe-neu/umgesetzt-server-netz-*.png)
 shots.push({ group: 'zugriffe-ergebnis', name: 'umgesetzt-server-netz', path: '/server', el: '.gateway-warning' })
+// Besucher zusammen: Ergebnisbilder neben der Vorlage (docs/design-cal/besucher-zusammen/umgesetzt-*.png)
+shots.push(
+  { group: 'besucher-zusammen', name: 'umgesetzt-auswertung', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  { group: 'besucher-zusammen', name: 'umgesetzt-einzelaufrufe', path: `${EINZELN}&zeitraum=heute&zeile=z-gw` },
+  ...shots.filter((s) => ['einzelaufrufe-filter', 'einzelaufrufe-anzeige', 'einzelaufrufe-scanner', 'besucher-404', 'besucher-netz', 'besucher-info', 'besucher-intern'].includes(s.name))
+    .map((s) => ({ ...s, group: 'besucher-zusammen', name: s.name.replace(/^(einzelaufrufe|besucher)-/, 'umgesetzt-') })),
+)
 
 // Etappe 7: Ergebnisbilder (docs/design-cal/spass/umgesetzt-*.png): Spass-Szenen und Hauptseiten im Theme «Terminal»
 shots.push(...shots.filter((s) => s.group === 'spass').map((s) => ({ ...s, group: 'spass-ergebnis', name: `umgesetzt-${s.name}` })))

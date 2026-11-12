@@ -4,7 +4,7 @@ import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { isDatacenterAsn } from '@airlock/shared'
+import { INTERNAL_REFERRER, isDatacenterAsn } from '@airlock/shared'
 import { accessId, blockOf, cleanReferrer, pickHeaders, protoName, readAccessLog, shortenIp, toAccessEntry } from './access.js'
 import { parseAccessLine } from './parse.js'
 import { caddyLine } from './test-lines.js'
@@ -76,6 +76,21 @@ describe('Eintrag aus einer Zeile', () => {
     const f = toAccessEntry(line({ ip: '84.72.10.3', host: 'hallo.example.ch', country: 'XX' }), true, lookups)
     assert.equal(f.country, 'CH')
     assert.equal(f.city, 'Bern')
+  })
+
+  test('Besucher zusammen: Quelle und Kampagne wie in der Auswertung, sonst nichts aus der Query', () => {
+    const own = new Set(['hallo.example.ch', 'hallo.int.example.ch'])
+    const ext = toAccessEntry(line({ host: 'hallo.example.ch', referer: 'https://www.google.com/search?q=geheim' }), true, lookups, own)
+    assert.equal(ext.source, 'google.com')
+    assert.equal(ext.campaign, null)
+    const inner = toAccessEntry(line({ host: 'hallo.example.ch', referer: 'https://hallo.int.example.ch/blog' }), true, lookups, own)
+    assert.equal(inner.source, INTERNAL_REFERRER)
+    assert.equal(toAccessEntry(line({ host: 'hallo.example.ch' }), true, lookups, own).source, '')
+    const utm = toAccessEntry(line({ host: 'hallo.example.ch', uri: '/?utm_source=newsletter&utm_medium=mail&utm_campaign=herbst&token=geheim' }), true, lookups, own)
+    assert.deepEqual(utm.campaign, { source: 'newsletter', medium: 'mail', campaign: 'herbst' })
+    assert.equal(utm.source, 'newsletter')
+    assert.equal(JSON.stringify(utm).includes('geheim'), false)
+    assert.equal(JSON.stringify(ext).includes('geheim'), false)
   })
 
   test('Eigene Prüfung und Bot nach User-Agent erkannt', () => {

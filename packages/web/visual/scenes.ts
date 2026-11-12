@@ -17,13 +17,17 @@ export const VISUAL_SCENES = [
   'aufbau-live', 'aufbau-live-vergroessert', 'aufbau-dienst-dialog', 'aufbau-dienst-diff', 'aufbau-dienst-wird-erstellt',
   'aufbau-dienst-pr-offen', 'aufbau-dienst-gescheitert', 'aufbau-ohne-github', 'aufbau-adminer', 'aufbau-dienst-entfernen',
   'projekt-fehler', 'fehler-build-claude', 'fehler-port', 'fehler-speicher', 'projekt-deployments', 'projekt-logs', 'logs-suche', 'logs-fehler', 'logs-leer',
-  // Zugriffe neu: Docker-Netz gewählt, Scanner, Abgewiesene, einzeln mit Prüfungen und Bots, Suche, Schublade (< 1100 px), Zustände
-  'zugriffe', 'zugriffe-scanner', 'zugriffe-abgewiesen', 'zugriffe-einzeln', 'zugriffe-suche', 'zugriffe-schublade', 'zugriffe-leer', 'zugriffe-wartet', 'zugriffe-aus',
+  // Besucher zusammen: Einzelaufrufe (bis dahin «zugriffe-*») – Docker-Netz gewählt, Scanner (7 Tage: Hinweis 2 Tage), Abgewiesene,
+  // einzeln mit Prüfungen und Bots, Suche, Schublade (< 1100 px), Zustände; neu: Chips aus der Auswertung, Menü «Anzeige», 30 Tage
+  'einzelaufrufe', 'einzelaufrufe-scanner', 'einzelaufrufe-abgewiesen', 'einzelaufrufe-einzeln', 'einzelaufrufe-suche', 'einzelaufrufe-schublade',
+  'einzelaufrufe-leer', 'einzelaufrufe-wartet', 'einzelaufrufe-aus', 'einzelaufrufe-filter', 'einzelaufrufe-anzeige', 'einzelaufrufe-30-tage',
   // Etappe 3: Besucher (Reiter, Städte, Zugang, intern, Zustände, Wert per Tastatur, Übersicht, Projektliste)
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
   'projekt-uebersicht-besucher', 'projekte-besucher',
   // Besucher neu: Messbeginn im Zeitraum, Säulen, Heute, 12 Monate, Kennzahl als Kurve, Europa, Einstieg, Server › Besucher
   'besucher-messbeginn', 'besucher-saeulen', 'besucher-heute', 'besucher-12-monate', 'besucher-kennzahl', 'besucher-seiten-pro-besuch', 'besucher-europa', 'besucher-einstieg',
+  // Besucher zusammen: Seiten › 404, Woher › Kampagnen, Geräte › Browser, Liste «Netz», «Wie gezählt wird» offen
+  'besucher-404', 'besucher-kampagnen', 'besucher-browser', 'besucher-netz', 'besucher-info',
   'server-besucher', 'server-besucher-geladen',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen',
   // Reiter Security neu: Header & CSP, Prüfungen, Verlauf, Befund mit Vorschlag von Claude, Schublade (< 1100 px), HSTS-Rückfrage
@@ -78,8 +82,8 @@ export const WIN95_SCENES: readonly string[] = [
   'projekt-security', 'security-header-csp',
   // Etappe 3: Besucher (Besucher neu: dazu Säulen nach Zugang)
   'besucher', 'projekt-uebersicht-besucher', 'besucher-saeulen',
-  // Zugriffe neu
-  'zugriffe',
+  // Besucher zusammen: Einzelaufrufe (bis dahin «zugriffe»)
+  'einzelaufrufe',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
   'statusseite-einstellungen',
   // Etappe 6: Vorschauen (Liste, Einstellungen)
@@ -104,8 +108,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
   // Besucher neu: Reiter und Säulen in Grünstufen
   'besucher-messbeginn', 'besucher-saeulen',
-  // Zugriffe neu
-  'zugriffe',
+  // Besucher zusammen: Einzelaufrufe (bis dahin «zugriffe»)
+  'einzelaufrufe',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

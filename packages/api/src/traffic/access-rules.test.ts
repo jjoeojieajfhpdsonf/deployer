@@ -17,7 +17,7 @@ function entry(o: Partial<AccessEntryDto> = {}): AccessEntryDto {
   return {
     id: `e${n}`, at: new Date(T0).toISOString(), method: 'GET', host: 'hallo.example.ch', path: '/', status: 200, block: null,
     way: 'public', dockerNet: false, ip: '84.72.10.x', country: 'CH', city: '', network: { asn: 13030, name: 'Init7 (Switzerland) Ltd.', datacenter: false },
-    browser: 'Safari 18', system: 'macOS', device: 'desktop', language: 'de-CH', referrer: '', proto: 'HTTP/2', tls: 'TLS 1.3',
+    browser: 'Safari 18', system: 'macOS', device: 'desktop', language: 'de-CH', referrer: '', source: '', campaign: null, proto: 'HTTP/2', tls: 'TLS 1.3',
     durationMs: 0.4, bytes: 1234, bot: null, probe: false, scanner: false, headers: [],
     ...o,
   }

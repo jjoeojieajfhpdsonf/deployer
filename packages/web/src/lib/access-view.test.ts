@@ -1,9 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AccessEntryDto } from '@airlock/shared'
-import { DEFAULT_FILTERS, accessCsv, byDay, dayLabel, filterAccess, fmtDuration, groupTime, readFilters, writeFilters } from './access-view.js'
+import {
+  DEFAULT_FILTERS, DIRECT, accessCsv, accessRangeOf, byDay, dayLabel, displayChanges, einzelnSearch, facetText, filterAccess, fmtDuration, groupTime,
+  legacyAccessRedirect, readFilters, viewFromParams, writeFilters, type Facets,
+} from './access-view.js'
 
-/** Zugriffe neu: Filter in der Adresse, Suche, Zähler, Tagestrenner, Zeitspanne, CSV */
+/** Einzelaufrufe (Reiter «Besucher»): Filter in der Adresse, Merkmale, Weiterleitung, Suche, Zähler, Tagestrenner, Zeitspanne, CSV */
 
 // Feste Ortszeit: 12.11.2026, 09:12:43 (Zürich, UTC+1)
 const NOW = 1794471163000
@@ -14,27 +17,90 @@ function entry(o: Partial<AccessEntryDto> = {}): AccessEntryDto {
   return {
     id: `e${n}`, at: at(0), method: 'GET', host: 'hallo.example.ch', path: '/', status: 200, block: null,
     way: 'public', dockerNet: false, ip: '84.72.10.x', country: 'CH', city: 'Bern', network: { asn: 13030, name: 'Init7 (Switzerland) Ltd.', datacenter: false },
-    browser: 'Firefox 132', system: 'macOS', device: 'desktop', language: 'de-CH', referrer: '', proto: 'HTTP/2', tls: 'TLS 1.3',
+    browser: 'Firefox 132', system: 'macOS', device: 'desktop', language: 'de-CH', referrer: '', source: '', campaign: null, proto: 'HTTP/2', tls: 'TLS 1.3',
     durationMs: 0.4, bytes: 1234, bot: null, probe: false, scanner: false, headers: [],
     ...o,
   }
 }
 
 describe('Filter in der Adresse', () => {
-  test('Standard ohne Parameter; nur Abweichungen landen in der Adresse; tab bleibt', () => {
-    assert.deepEqual(readFilters(new URLSearchParams('tab=logs')), DEFAULT_FILTERS)
-    const f = { ...DEFAULT_FILTERS, status: 'abgewiesen' as const, range: '1h' as const, way: 'tailnet' as const, search: '/wp', group: false, hideProbes: false, bots: true, row: 'abc' }
-    const p = writeFilters(new URLSearchParams('tab=logs'), f)
-    assert.equal(p.toString(), 'tab=logs&status=abgewiesen&zeit=1h&zugang=tailnet&suche=%2Fwp&einzeln=1&pruefungen=1&bots=1&zeile=abc')
+  test('Standard ohne Parameter; nur Abweichungen landen in der Adresse; tab und ansicht bleiben', () => {
+    assert.deepEqual(readFilters(new URLSearchParams('tab=besucher&ansicht=einzeln')), DEFAULT_FILTERS)
+    const f = {
+      ...DEFAULT_FILTERS, status: 'abgewiesen' as const, range: 'today' as const, way: 'tailnet' as const, search: '/wp', facets: { land: 'CH', browser: 'Safari' },
+      group: false, hideProbes: false, bots: true, row: 'abc',
+    }
+    const p = writeFilters(new URLSearchParams('tab=besucher&ansicht=einzeln'), f)
+    assert.equal(p.toString(), 'tab=besucher&ansicht=einzeln&status=abgewiesen&zeitraum=heute&zugang=tailnet&suche=%2Fwp&land=CH&browser=Safari&einzeln=1&pruefungen=1&bots=1&zeile=abc')
     assert.deepEqual(readFilters(p), f)
-    assert.equal(writeFilters(p, DEFAULT_FILTERS).toString(), 'tab=logs')
+    assert.equal(writeFilters(p, DEFAULT_FILTERS).toString(), 'tab=besucher&ansicht=einzeln')
   })
   test('Unsinn in der Adresse fällt auf den Standard', () => {
-    const f = readFilters(new URLSearchParams('status=kaputt&zeit=7d&zugang=mond&einzeln=ja'))
+    const f = readFilters(new URLSearchParams('status=kaputt&zeitraum=24h&zugang=mond&einzeln=ja'))
     assert.equal(f.status, 'alle')
-    assert.equal(f.range, '24h')
+    assert.equal(f.range, '7d')
     assert.equal(f.way, 'all')
     assert.equal(f.group, true)
+  })
+  test('Ansicht: ohne Angabe Auswertung; Einzelaufrufe nur heute oder alles aus dem Log (2 Tage)', () => {
+    assert.equal(viewFromParams(new URLSearchParams('tab=besucher')), 'auswertung')
+    assert.equal(viewFromParams(new URLSearchParams('tab=besucher&ansicht=einzeln')), 'einzeln')
+    assert.equal(accessRangeOf('today'), 'today')
+    assert.equal(accessRangeOf('7d'), '2d')
+    assert.equal(accessRangeOf('12m'), '2d')
+  })
+  test('Zeile der Auswertung → Einzelaufrufe: Zeitraum und Zugang bleiben, übrige Filter neu', () => {
+    const cur = new URLSearchParams('tab=besucher&zeitraum=30-tage&zugang=internet&suche=alt&zeile=x')
+    assert.equal(einzelnSearch(cur, { land: 'CH' }), '?tab=besucher&ansicht=einzeln&zeitraum=30-tage&zugang=internet&land=CH')
+    assert.equal(einzelnSearch(new URLSearchParams('tab=besucher'), { pfad: '/wp-login.php' }, 'nicht-gefunden'), '?tab=besucher&ansicht=einzeln&status=nicht-gefunden&pfad=%2Fwp-login.php')
+  })
+  test('Alte Adressen der Zugriffe leiten auf die Einzelaufrufe um, Filter kommen mit', () => {
+    const r = (q: string, isStatic: boolean) => legacyAccessRedirect(new URLSearchParams(q), isStatic)?.toString() ?? null
+    assert.equal(r('tab=zugriffe', false), 'tab=besucher&ansicht=einzeln')
+    assert.equal(r('tab=logs&status=abgewiesen&zeit=1h&zugang=tailnet&zeile=z-gw', true), 'tab=besucher&ansicht=einzeln&status=abgewiesen&zugang=tailnet&zeile=z-gw')
+    // Container-Projekte behalten den Reiter «Logs»
+    assert.equal(r('tab=logs&dienst=web', false), null)
+    assert.equal(r('tab=besucher', true), null)
+  })
+})
+
+describe('Merkmale aus der Auswertung', () => {
+  const de = entry({ country: 'DE', city: 'Berlin', network: { asn: 3320, name: 'Deutsche Telekom AG', datacenter: false }, language: 'de-DE', browser: 'Chrome 131', system: 'Windows 10', device: 'mobile', source: 'google.com', path: '/blog' })
+  const ch = entry({ campaign: { source: 'newsletter', medium: 'mail', campaign: 'herbst' }, source: 'newsletter', language: '', browser: '' })
+  const tail = entry({ way: 'tailnet', country: '', network: null, city: '' })
+  const list = [de, ch, tail]
+  const by = (facets: Facets) => filterAccess(list, { ...DEFAULT_FILTERS, facets }, 0).list.map((e) => e.id)
+  test('Jedes Merkmal filtert wie die Zeile der Auswertung', () => {
+    assert.deepEqual(by({ land: 'DE' }), [de.id])
+    assert.deepEqual(by({ stadt: 'Berlin' }), [de.id])
+    assert.deepEqual(by({ netz: '3320' }), [de.id])
+    assert.deepEqual(by({ sprache: 'de-DE' }), [de.id])
+    assert.deepEqual(by({ sprache: '?' }), [ch.id])
+    assert.deepEqual(by({ pfad: '/blog' }), [de.id])
+    assert.deepEqual(by({ quelle: 'google.com' }), [de.id])
+    assert.deepEqual(by({ quelle: DIRECT }), [tail.id])
+    assert.deepEqual(by({ kampagne: ['newsletter', 'mail', 'herbst'].join('\u001f') }), [ch.id])
+    assert.deepEqual(by({ geraet: 'mobile' }), [de.id])
+    assert.deepEqual(by({ browser: 'Chrome' }), [de.id])
+    assert.deepEqual(by({ browser: '?' }), [ch.id])
+    assert.deepEqual(by({ system: 'Windows' }), [de.id])
+    // Länder nur aus dem Internet (wie die Auswertung)
+    assert.deepEqual(by({ land: '?' }), [])
+    assert.deepEqual(by({ land: 'CH', browser: 'Firefox' }), [])
+  })
+  test('Chips lesbar: Land, Sprache, Gerät, Netz mit Namen, Direkt, Kampagne', () => {
+    assert.equal(facetText('land', 'CH'), 'Schweiz')
+    assert.equal(facetText('sprache', 'de-CH'), 'Deutsch (Schweiz)')
+    assert.equal(facetText('geraet', 'mobile'), 'Handy')
+    assert.equal(facetText('netz', '3320', list), 'Deutsche Telekom')
+    assert.equal(facetText('netz', '999', list), 'AS999')
+    assert.equal(facetText('quelle', DIRECT), 'Direkt / Lesezeichen')
+    assert.equal(facetText('kampagne', ['newsletter', 'mail', 'herbst'].join('\u001f')), 'herbst · newsletter · mail')
+    assert.equal(facetText('browser', '?'), 'Unbekannt')
+  })
+  test('Menü «Anzeige»: Zahl der Abweichungen von der Voreinstellung', () => {
+    assert.equal(displayChanges(DEFAULT_FILTERS), 0)
+    assert.equal(displayChanges({ group: false, hideProbes: false, bots: true }), 3)
   })
 })
 

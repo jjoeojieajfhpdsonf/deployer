@@ -305,7 +305,7 @@ export const api = {
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   /* Dateien eines Chat-Projekts (M3) */
-  /** Zugriffe neu: einzelne Anfragen aus visits.log (15m, 1h, 24h), Absender gekürzt */
+  /** Einzelaufrufe (Reiter «Besucher»): einzelne Anfragen aus visits.log (today, 2d; alt 15m, 1h, 24h), Absender gekürzt */
   access: (id: string, range: string) => call<AccessListDto>(`/projects/${id}/access?range=${range}`),
   /** UI-Qualität 4: Zeilen mit Zeit, Dienst und Stufe */
   logLines: (id: string, range: string, service: string | null) =>

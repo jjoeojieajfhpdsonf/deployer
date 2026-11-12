@@ -713,7 +713,7 @@ function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSel
       )}
 
       <div className="topo-side-actions">
-        {!confirming && <button type="button" className="button-small" onClick={() => onLogs(t.kind === 'compose' ? s.name : null)}>{isStatic ? 'Alle Zugriffe' : 'Alle Logs'}</button>}
+        {!confirming && <button type="button" className="button-small" onClick={() => onLogs(t.kind === 'compose' ? s.name : null)}>{isStatic ? 'Einzelaufrufe' : 'Alle Logs'}</button>}
         {restartable && !confirming && <button type="button" className="button-small" disabled={restartBusy} onClick={() => setConfirming(true)}>Neu starten</button>}
         {removable && !confirming && <button type="button" className="button-small" onClick={() => onRemove(s.name)}>Entfernen …</button>}
         {confirming && (

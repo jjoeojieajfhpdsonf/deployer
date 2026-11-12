@@ -190,6 +190,8 @@ function EnvRoutes() {
       <Route path="projekte" element={<Projects />} />
       <Route path="projekte/neu" element={<NewProject />} />
       <Route path="projekte/:id" element={<ProjectDetailRoute />} />
+      {/* Besucher zusammen: der frühere Reiter «Zugriffe» ist die Ansicht «Einzelaufrufe» im Reiter «Besucher» */}
+      <Route path="projekte/:id/zugriffe" element={<ToAccessView />} />
       {/* UI-Qualität 6: Externe Ziele als Reiter unter Security */}
       <Route path="security" element={<SecurityOverview section="projekte" />} />
       <Route path="security/extern" element={<SecurityOverview section="extern" />} />
@@ -212,6 +214,17 @@ function EnvRoutes() {
 }
 
 /** Alte Adresse eines Bereichs, der jetzt ein Reiter der Einstellungen ist (Suche und Sprungmarke bleiben). */
+/** …/projekte/:id/zugriffe → …/projekte/:id?tab=besucher&ansicht=einzeln (übrige Parameter bleiben) */
+function ToAccessView() {
+  const ep = useEnvPath()
+  const { id = '' } = useParams()
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.delete('tab')
+  const rest = params.toString()
+  return <Navigate to={`${ep(`/projekte/${id}`)}?tab=besucher&ansicht=einzeln${rest ? `&${rest}` : ''}`} replace />
+}
+
 function ToSettingsTab({ tab }: { tab: string }) {
   const ep = useEnvPath()
   const location = useLocation()

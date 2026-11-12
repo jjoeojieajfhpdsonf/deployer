@@ -394,7 +394,10 @@ function ProjectMenu({ p, url, onAct, busy }: { p: ProjectDto; url: string | und
       {(close) => (
         <>
           {url && <a role="menuitem" href={url} target="_blank" rel="noreferrer" onClick={close}>Öffnen</a>}
-          <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=logs`)} onClick={close}>Logs</Link>
+          {/* Statische Seiten: keine Container-Logs, dafür die Einzelaufrufe im Reiter «Besucher» */}
+          {p.runtimeKind === 'static'
+            ? <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=besucher&ansicht=einzeln`)} onClick={close}>Einzelaufrufe</Link>
+            : <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=logs`)} onClick={close}>Logs</Link>}
           <Link role="menuitem" to={ep(`/projekte/${p.id}?tab=deployments`)} onClick={close}>Deployments</Link>
           <div className="menu-sep" />
           <button role="menuitem" disabled={busy || p.status === 'deploying'} onClick={() => { close(); onAct('deploy') }}>Neu deployen</button>
