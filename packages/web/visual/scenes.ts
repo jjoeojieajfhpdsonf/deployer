@@ -64,6 +64,8 @@ export const WIN95_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
   // Etappe 3: Besucher
   'besucher', 'projekt-uebersicht-besucher',
+  // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
+  'statusseite-einstellungen',
   // Nur in Windows 95: Fenster minimiert (Taskleiste), maximiert, Hauptfenster maximiert, Startmenü, «Airlock beenden»
   'win95-minimiert', 'win95-maximiert', 'win95-hauptfenster-maximiert', 'win95-startmenue', 'win95-beenden',
   // Ganze App über den Taskleisten-Knopf minimiert und wieder geholt (die Taskleiste muss stehen bleiben)
