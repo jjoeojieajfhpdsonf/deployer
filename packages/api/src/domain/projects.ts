@@ -1,4 +1,4 @@
-import { eq, or, asc, and, desc } from 'drizzle-orm'
+import { eq, or, asc, and, desc, isNull } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db, schema } from '../db/index.js'
@@ -81,7 +81,7 @@ async function lastDeploymentDto(projectId: string): Promise<ProjectDto['lastDep
  * Befunde vom letzten abgeschlossenen – ein laufender Scan soll die Note in
  * der Übersicht nicht auf «keine Befunde» springen lassen.
  */
-async function securitySummary(projectId: string): Promise<ProjectDto['security']> {
+export async function securitySummary(projectId: string): Promise<ProjectDto['security']> {
   const latest = (await db.select().from(schema.scanRuns).where(eq(schema.scanRuns.projectId, projectId)).orderBy(desc(schema.scanRuns.startedAt)).limit(1))[0]
   if (!latest) return null
   const done = latest.status === 'done'
@@ -123,9 +123,11 @@ export async function listProjects(scope: ListScope): Promise<ProjectDto[]> {
   return Promise.all(rows.map(toDto))
 }
 
+/** Etappe 6: Vorschauen sind Projekte, erscheinen aber nur unter ihrem Projekt (Reiter Deployments) */
 export async function listProjectRows(scope: ListScope): Promise<Row[]> {
+  const notPreview = isNull(schema.projects.previewOf)
   return db.select().from(schema.projects)
-    .where(scope.kind === 'env' ? eq(schema.projects.environmentId, scope.envId) : undefined)
+    .where(scope.kind === 'env' ? and(eq(schema.projects.environmentId, scope.envId), notPreview) : notPreview)
     .orderBy(asc(schema.projects.name))
 }
 
@@ -138,10 +140,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 export async function findProject(scope: Scope, idOrSlug: string): Promise<Row> {
   const byKey = UUID_RE.test(idOrSlug) ? or(eq(schema.projects.id, idOrSlug), eq(schema.projects.slug, idOrSlug)) : eq(schema.projects.slug, idOrSlug)
+  // Etappe 6: Vorschauen nur für Server-Jobs (Deploy, Scan, Aufräumen). Von aussen – Oberfläche, REST, MCP –
+  // sind sie «nicht gefunden»: verwaltet werden sie nur über /projects/:id/previews des Projekts, und
+  // keine der Projekt-Routen (öffentlich machen, Ziele, Variablen …) erreicht sie.
+  const where = scope.kind === 'env'
+    ? and(byKey, eq(schema.projects.environmentId, scope.envId), isNull(schema.projects.previewOf))
+    : scope.kind === 'session' ? and(byKey, isNull(schema.projects.previewOf)) : byKey
   const rows = await db
     .select()
     .from(schema.projects)
-    .where(scope.kind === 'env' ? and(byKey, eq(schema.projects.environmentId, scope.envId)) : byKey)
+    .where(where)
     .limit(1)
   const row = rows[0]
   if (!row) throw notFound('Projekt')
@@ -295,6 +303,12 @@ export async function setDesiredState(id: string, desired: Row['desiredState']):
  */
 export async function deleteProject(scope: Scope, id: string, actor: string, purgeVolumes = false): Promise<void> {
   const project = await findProject(scope, id)
+
+  // 00. Etappe 6: zuerst die Vorschauen des Projekts (Container, Volumes, Routen, Kommentar am PR)
+  if (!project.previewOf) {
+    const { removeAllPreviews } = await import('./previews.js')
+    await removeAllPreviews(project, 'deleted', actor).catch((err) => log.warn('Vorschauen nicht vollständig entfernt', { slug: project.slug, err: String(err) }))
+  }
 
   // 0. M5: zuerst die öffentliche Seite schliessen – CNAME, Access-App und
   //    Tunnel-Regel bei Cloudflare. Scheitert das, wird gemeldet, aber

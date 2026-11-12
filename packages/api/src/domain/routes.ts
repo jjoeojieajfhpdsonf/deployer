@@ -17,6 +17,8 @@ import type { HeaderRuleSpec } from '../security/header-rules.js'
 import { internalServiceRoutes, type InternalServiceRoute } from '../lib/internal-routes.js'
 import { composeWebContainer } from '../lib/compose.js'
 import { statusRouteSpec } from '../status/route.js'
+import { assertPreviewTargets, withoutPublicPreviewRoutes } from '../lib/previews.js'
+import { isPreviewProject, previewPublicError } from './preview-guard.js'
 
 /**
  * Hostnamen und Caddy-Abgleich.
@@ -115,6 +117,14 @@ export async function setRoutes(
   targets: RouteTarget[],
   subdomain?: string,
 ): Promise<void> {
+  // Etappe 6: eine Vorschau bekommt nie ein öffentliches Ziel
+  if (await isPreviewProject(projectId)) {
+    try {
+      assertPreviewTargets(targets)
+    } catch {
+      throw previewPublicError()
+    }
+  }
   // M9: interne Adresse unter der Basis der Umgebung des Projekts
   const host = primaryHostIn(await envOfProject(projectId), subdomain ?? slug)
 
@@ -178,6 +188,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       pausedAt: schema.routes.pausedAt,
       pausePage: schema.routes.pausePage,
       pauseBackAt: schema.routes.pauseBackAt,
+      previewOf: schema.projects.previewOf,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -185,13 +196,16 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       schema.deployments,
       and(eq(schema.deployments.projectId, schema.projects.id), eq(schema.deployments.isActive, true)),
     )
+  // Etappe 6, zweite Sicherung: nie eine öffentliche Route für eine Vorschau
+  const previewIds = new Set(rows.filter((r) => r.previewOf).map((r) => r.projectId))
+  const allowed = withoutPublicPreviewRoutes(rows, (id) => previewIds.has(id))
 
   // Nur Projekte mit aktivem Deployment bekommen eine Route. Ein gestopptes
   // Projekt verschwindet damit aus Caddy, statt in einen toten Upstream zu
   // zeigen. Ausnahme: ein pausierter öffentlicher Name zeigt die
   // Wartungsseite, ob das Projekt läuft oder nicht.
   const paused = (r: (typeof rows)[number]) => r.target === 'public' && r.pausedAt !== null
-  return rows
+  return allowed
     .filter((r) => paused(r) || (r.deploymentId !== null && r.desiredState === 'running'))
     .map((r) => ({
       paused: paused(r),

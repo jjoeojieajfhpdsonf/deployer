@@ -160,7 +160,7 @@ export interface PlanPreview {
   busy: boolean
 }
 
-export type RemoveReason = 'pr_closed' | 'branch_deleted' | 'idle' | 'limit' | 'disabled'
+export type RemoveReason = 'pr_closed' | 'branch_deleted' | 'idle' | 'limit' | 'disabled' | 'manual' | 'deleted' | 'moved'
 
 export const REMOVE_REASON_TEXT: Record<RemoveReason, string> = {
   pr_closed: 'Pull Request geschlossen oder gemergt',
@@ -168,6 +168,9 @@ export const REMOVE_REASON_TEXT: Record<RemoveReason, string> = {
   idle: `${PREVIEW_IDLE_DAYS} Tage ohne Push`,
   limit: `mehr als ${PREVIEW_MAX} Vorschauen, die mit dem ältesten Push fällt raus`,
   disabled: 'Vorschauen am Projekt ausgeschaltet',
+  manual: 'in Airlock von Hand gelöscht',
+  deleted: 'Projekt in Airlock gelöscht',
+  moved: 'Projekt in eine andere Umgebung verschoben',
 }
 
 export interface PlanInput {
@@ -273,6 +276,54 @@ export function planPreviews(i: PlanInput): PlanOutput {
     update: update.filter((u) => !evicted.has(u.id)),
     link: link.filter((l) => !evicted.has(l.id)),
     remove,
+  }
+}
+
+/* --- Entfernen (Ablauf, mit austauschbaren Wegen) --------------------------------------- */
+
+export interface RemovalDeps {
+  /** Sperre des Vorschau-Projekts (dieselbe wie beim Deploy); null = Deploy läuft */
+  lock: () => Promise<{ release(): Promise<void> } | null>
+  /** Warten zwischen zwei Versuchen */
+  sleep: (ms: number) => Promise<void>
+  /** Kommentar/Check am PR auf «entfernt» (darf scheitern) */
+  report: () => Promise<void>
+  /**
+   * Projekt der Vorschau löschen: Container, gebaute Images, Netz air_<label>,
+   * Volumes air_<label>_* (purgeVolumes), Seitenordner, Routen (Caddy-Abgleich),
+   * eigene Variablen, Deployments, Scans und die Zeile in previews.
+   */
+  deleteProject: (purgeVolumes: true) => Promise<void>
+  audit: () => Promise<void>
+  warn: (msg: string) => void
+}
+
+/**
+ * Reihenfolge beim Entfernen einer Vorschau: Sperre (läuft ein Deploy:
+ * ohne wait abbrechen, mit wait bis zu einer Minute warten, dann trotzdem),
+ * Kommentar am PR, alles löschen – Volumes immer mit –, Sperre frei, Audit.
+ * DNS und Zertifikat haben keinen Eintrag je Vorschau (*.int.<basis>).
+ */
+export async function removeWith(d: RemovalDeps, o: { wait: boolean }): Promise<void> {
+  let lock = await d.lock()
+  for (let i = 0; !lock && o.wait && i < 30; i++) {
+    await d.sleep(2000)
+    lock = await d.lock()
+  }
+  if (!lock && !o.wait) throw new PreviewBusyError()
+  if (!lock) d.warn('Vorschau wird trotz laufendem Deploy entfernt')
+  try {
+    await d.report().catch((err) => d.warn(`Kommentar am PR nicht aktualisiert: ${String(err)}`))
+    await d.deleteProject(true)
+  } finally {
+    await lock?.release()
+  }
+  await d.audit()
+}
+
+export class PreviewBusyError extends Error {
+  constructor() {
+    super('Für diese Vorschau läuft gerade ein Deploy – gleich noch einmal versuchen')
   }
 }
 

@@ -68,6 +68,11 @@ export interface ServiceDeps {
   /** Passwort-Erzeuger (Tests: fest) */
   password?: () => string
   slug?: string
+  /**
+   * Etappe 6: würde die Dienst-Adresse <dienst>--<projekt> eine Vorschau-Adresse
+   * überdecken? Liefert das belegte Label, sonst null.
+   */
+  nameClash?: (service: string) => Promise<string | null>
 }
 
 export const toChangeDto = (r: ChangeRow): ServiceChangeDto => ({
@@ -86,6 +91,13 @@ interface Planned {
 }
 
 async function computePlan(change: ServiceChangeInput, d: ServiceDeps): Promise<Planned> {
+  if (change.action === 'add' && d.nameClash) {
+    const clash = await d.nameClash(change.name)
+    if (clash) {
+      const message = `Die Adresse ${clash} gehört schon einer Vorschau dieses Projekts. Bitte einen anderen Namen wählen.`
+      throw badRequest(message, [{ path: 'name', message }])
+    }
+  }
   const source = await d.source()
   if (change.action === 'add') {
     const r = await addService(source.text, change, { webService: d.webService, env: await d.env(), password: d.password, slug: d.slug })

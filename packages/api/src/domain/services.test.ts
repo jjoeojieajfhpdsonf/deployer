@@ -97,6 +97,18 @@ describe('Übernehmen & deployen', () => {
     assert.deepEqual([w.writes.length, w.added.length], [0, 0])
   })
 
+  test('Etappe 6: Name, dessen Adresse <dienst>--<projekt> eine Vorschau belegt, wird abgelehnt', async () => {
+    const w = world()
+    const { serviceLabelClash } = await import('../lib/previews.js')
+    w.deps.nameClash = async (s) => serviceLabelClash(s, 'shop', ['feature-login--shop'])
+    const add = { ...addDb, name: 'feature-login' }
+    await assert.rejects(planServiceChange(add, w.deps), (e: { status?: number; message: string }) => e.status === 400 && /Vorschau/.test(e.message))
+    await assert.rejects(applyServiceChange(add, composeBase(COMPOSE), 'ui:joel', w.deps), (e: { status?: number }) => e.status === 400)
+    assert.deepEqual([w.writes.length, w.added.length], [0, 0])
+    // anderer Name geht
+    await planServiceChange(addDb, w.deps)
+  })
+
   test('bestehendes Passwort wird nicht neu angelegt', async () => {
     const w = world({ env: { DB_PASSWORD: 'alt' } }) // allowlist-secret
     await applyServiceChange(addDb, composeBase(COMPOSE), 'ui:joel', w.deps)

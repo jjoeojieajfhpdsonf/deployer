@@ -133,6 +133,55 @@ describe('GitHub-Attrappe: Abläufe', () => {
     assert.ok(isServiceBranch(branch) && !isFixBranch(branch))
   })
 
+  test('Etappe 6: Branches (mehrere Seiten) und offene PRs, Forks erkannt', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ name: `b${i}`, commit: { sha: `${i}`.padStart(40, '0') } }))
+    const g = fake({
+      'GET /repos/joel/shop/branches': () => [200, g.calls.filter((c) => c.path.startsWith('/repos/joel/shop/branches')).length === 1 ? page1 : [{ name: 'main', commit: { sha: 'f'.repeat(40) } }]],
+      'GET /repos/joel/shop/pulls': () => [200, [
+        { number: 7, html_url: 'https://github.com/joel/shop/pull/7', head: { ref: 'feature/login', sha: 'a'.repeat(40), repo: { full_name: 'Joel/Shop' } } },
+        { number: 8, html_url: 'https://github.com/joel/shop/pull/8', head: { ref: 'main', sha: 'b'.repeat(40), repo: { full_name: 'fremd/shop' } } },
+        { number: 9, html_url: 'https://github.com/joel/shop/pull/9', head: { ref: 'x', sha: 'c'.repeat(40), repo: null } },
+      ]],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    const branches = await gh.branches('ghs_x', 'joel', 'shop')
+    assert.equal(branches.length, 101)
+    assert.deepEqual(branches.at(-1), { name: 'main', sha: 'f'.repeat(40) })
+    const pulls = await gh.openPulls('ghs_x', 'joel', 'shop')
+    assert.deepEqual(pulls.map((p) => [p.number, p.branch, p.fromFork]), [[7, 'feature/login', false], [8, 'main', true], [9, 'x', true]])
+    assert.match(g.calls.find((c) => c.path.startsWith('/repos/joel/shop/pulls'))!.path, /state=open/)
+  })
+
+  test('Etappe 6: Kommentar anlegen und ersetzen, Check-Run anlegen und abschliessen', async () => {
+    const g = fake({
+      'POST /repos/joel/shop/issues/7/comments': () => [201, { id: 555 }],
+      'PATCH /repos/joel/shop/issues/comments/555': () => [200, { id: 555 }],
+      'POST /repos/joel/shop/check-runs': () => [201, { id: 77 }],
+      'PATCH /repos/joel/shop/check-runs/77': () => [200, { id: 77 }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    assert.deepEqual(await gh.createComment('ghs_x', 'joel', 'shop', 7, 'erst'), { id: 555 })
+    await gh.updateComment('ghs_x', 'joel', 'shop', 555, 'dann')
+    assert.deepEqual(g.calls.map((c) => [c.method, c.path, (c.body as { body: string }).body]), [['POST', '/repos/joel/shop/issues/7/comments', 'erst'], ['PATCH', '/repos/joel/shop/issues/comments/555', 'dann']])
+    const run = await gh.createCheckRun('ghs_x', 'joel', 'shop', { name: 'Airlock-Vorschau', status: 'in_progress', title: 'läuft', summary: 's', headSha: 'a'.repeat(40) })
+    assert.equal(run.id, 77)
+    assert.equal((g.calls[2]!.body as { head_sha: string; conclusion?: string }).head_sha, 'a'.repeat(40))
+    assert.equal((g.calls[2]!.body as { conclusion?: string }).conclusion, undefined)
+    await gh.updateCheckRun('ghs_x', 'joel', 'shop', 77, { name: 'Airlock-Vorschau', status: 'completed', conclusion: 'success', title: 'Note A', summary: 's' })
+    assert.equal((g.calls[3]!.body as { conclusion: string }).conclusion, 'success')
+  })
+
+  test('Etappe 6: Token mit «Checks: write» nur auf Wunsch, Rechte der Installation lesbar', async () => {
+    const g = fake({
+      'POST /app/installations/:id/access_tokens': () => [201, { token: 'ghs_y', expires_at: '2026-11-10T20:00:00Z' }],
+      'GET /app/installations/:id': () => [200, { id: 42, permissions: { contents: 'write', pull_requests: 'write', checks: 'write', metadata: 'read' } }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    assert.equal((await gh.installationPermissions('jwt', '42')).checks, 'write')
+    await gh.installationToken('jwt', '42', ['shop'], { checks: 'write' })
+    assert.deepEqual((g.calls[1]!.body as { permissions: unknown }).permissions, { ...GITHUB_PERMISSIONS, checks: 'write' })
+  })
+
   test('Fehler von GitHub kommen mit Status und Meldung', async () => {
     const g = fake({ 'GET /repos/joel/solar/pulls/9': () => [403, { message: 'Resource not accessible by integration' }] })
     await assert.rejects(() => new GitHub({ api: 'https://api.test', fetch: g.fetch }).pull('t', 'joel', 'solar', 9), (e: unknown) => e instanceof GithubError && e.status === 403 && /not accessible/.test(e.message))

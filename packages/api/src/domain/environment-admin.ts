@@ -146,7 +146,8 @@ export async function updateEnvironment(key: string, patch: UpdateEnvironmentInp
 export async function deleteEnvironment(key: string, actor: string): Promise<void> {
   const env = resolveEnv(key)
   if (env.isDefault) throw conflict('Die Standard-Umgebung lässt sich nicht löschen. Zuerst eine andere zur Standard-Umgebung machen.')
-  const projects = await db.select({ slug: schema.projects.slug }).from(schema.projects).where(eq(schema.projects.environmentId, env.id))
+  // Etappe 6: Vorschauen zählen nicht (sie verschwinden mit ihrem Projekt)
+  const projects = await db.select({ slug: schema.projects.slug }).from(schema.projects).where(and(eq(schema.projects.environmentId, env.id), isNull(schema.projects.previewOf)))
   if (projects.length) throw conflict(`Die Umgebung hat noch ${projects.length === 1 ? 'ein Projekt' : `${projects.length} Projekte`} (${projects.map((p) => p.slug).join(', ')}). Zuerst löschen oder verschieben.`)
   const targets = await db.select({ hostname: schema.externalTargets.hostname }).from(schema.externalTargets).where(eq(schema.externalTargets.environmentId, env.id))
   if (targets.length) throw conflict(`Die Umgebung hat noch externe Ziele (${targets.map((t) => t.hostname).join(', ')}).`)
@@ -203,7 +204,7 @@ const isTemplateHeader = (h: string): h is HeaderKeyName => (templateHeaderKeys 
 export async function listHeaderTemplates(key: string): Promise<HeaderTemplateDto[]> {
   const env = resolveEnv(key)
   const templates = await db.select().from(schema.headerRuleTemplates).where(eq(schema.headerRuleTemplates.environmentId, env.id))
-  const projects = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.environmentId, env.id))
+  const projects = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(and(eq(schema.projects.environmentId, env.id), isNull(schema.projects.previewOf)))
   const own = projects.length
     ? await db.select().from(schema.headerRules).where(inArray(schema.headerRules.projectId, projects.map((p) => p.id)))
     : []
@@ -314,6 +315,13 @@ export async function moveProject(projectKey: string, toKey: string, actor: stri
   const plan = await previewMove(scope, projectKey, toKey)
   if (plan.blocked) throw new AppError('move_blocked', plan.blocked, 409)
   const p = await findProject(scope, projectKey)
+  // Etappe 6: Vorschauen hängen an Basis und Umgebung – vorher entfernen; die nächste
+  // Abfrage legt sie für offene Pull Requests in der neuen Umgebung wieder an
+  {
+    const { removeAllPreviews } = await import('./previews.js')
+    await removeAllPreviews(p, 'moved', actor)
+    await db.update(schema.projects).set({ previewSeen: null }).where(eq(schema.projects.id, p.id))
+  }
   if (plan.public?.hostname) {
     const { removePublic } = await import('./public.js')
     await removePublic(p, actor, { skipCaddy: true, strict: false })

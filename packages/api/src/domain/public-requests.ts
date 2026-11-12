@@ -4,6 +4,7 @@ import { db, schema } from '../db/index.js'
 import { audit } from './audit.js'
 import { notFound } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { assertNotPreview } from './preview-guard.js'
 
 /**
  * Vorgemerkte Öffentlich-Anfragen. Kommt «öffentlich» an, bevor ein Scan
@@ -105,6 +106,8 @@ export async function requestPublic(
   actor: string,
   why: string,
 ): Promise<Row> {
+  // Etappe 6: eine Vorschau lässt sich auch nicht für später öffentlich vormerken
+  await assertNotPreview(projectId)
   // Name und Zone getrennt: als voller Name vormerken (die Anfrage kennt nur Subdomain oder Hostname)
   const hostname = input.zone ? (input.apex ? input.zone : input.subdomain ? `${input.subdomain}.${input.zone}` : null) : input.hostname ?? null
   const values = {

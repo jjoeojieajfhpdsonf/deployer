@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, isNull } from 'drizzle-orm'
 import type { BackupProjectDto, BackupRunDto, BackupStatusDto } from '@airlock/shared'
 import { db, schema, tryLockProject, type ProjectLock } from '../db/index.js'
 import { config } from '../config.js'
@@ -67,7 +67,8 @@ const fmt = (d: Date | null) => (d ? d.toLocaleString('de-CH', { timeZone: proce
  */
 async function copyProjectVolumes(modes: ResolvedBackupSettings['projects'], runId: string): Promise<string[]> {
   const warnings: string[] = []
-  const projects = await db.select({ id: schema.projects.id, slug: schema.projects.slug }).from(schema.projects).orderBy(schema.projects.slug)
+  // Etappe 6: Vorschauen nicht – ihre Datenbanken starten leer und verschwinden mit dem Branch
+  const projects = await db.select({ id: schema.projects.id, slug: schema.projects.slug }).from(schema.projects).where(isNull(schema.projects.previewOf)).orderBy(schema.projects.slug)
   let imageReady = false
   for (const p of projects) {
     const mode = modes[p.slug] ?? 'live'
@@ -292,7 +293,7 @@ export async function abandonUnfinishedBackups(): Promise<number> {
 /** Projekte aller Umgebungen: Compose-Projekte für live/stop/skip (nur sie haben Volumes), alle für den Restore */
 async function allProjects(): Promise<BackupProjectDto[]> {
   const rows = await db.select({ slug: schema.projects.slug, name: schema.projects.name, environmentId: schema.projects.environmentId, sourceType: schema.projects.sourceType })
-    .from(schema.projects).orderBy(schema.projects.slug)
+    .from(schema.projects).where(isNull(schema.projects.previewOf)).orderBy(schema.projects.slug)
   return rows.map((r) => ({ slug: r.slug, name: r.name, environment: environmentById(r.environmentId)?.name ?? '', sourceType: r.sourceType }))
 }
 

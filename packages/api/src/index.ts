@@ -26,6 +26,7 @@ import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 import { registerGithub } from './domain/github.js'
 import { startAutoDeployJob } from './jobs/auto-deploy.js'
+import { startPreviewJobs } from './jobs/previews.js'
 import { startBackupJob } from './jobs/backup.js'
 import { abandonUnfinishedBackups } from './backup/run.js'
 import { startTrafficIngest, stopTrafficIngest } from './traffic/service.js'
@@ -104,6 +105,8 @@ async function main(): Promise<void> {
   // M8: GitHub App im Fix-Assistenten, Auto-Deploy nach Merge (Polling)
   registerGithub()
   startAutoDeployJob()
+  // Etappe 6: Vorschau-Deploys je Branch/PR (Abfrage wie Auto-Deploy, kein Webhook)
+  startPreviewJobs()
   // Meilenstein Backup: abgebrochene Läufe abschliessen, nächtlicher Lauf und «48 h ohne Erfolg»
   await abandonUnfinishedBackups()
     .then((n) => n && log.warn('Abgebrochene Backup-Läufe als gescheitert markiert', { läufe: n }))

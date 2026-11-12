@@ -18,6 +18,7 @@ import { listProjectFiles, readProjectFiles, updateProjectFiles } from './files.
 import { baseBranch, connectedRepo, github, repoToken } from './github.js'
 import type { findProject } from './projects.js'
 import { parseComposeSpec } from './topology-build.js'
+import { serviceNameClash } from './previews.js'
 import {
   resolveChanges, serviceEditAbility, toChangeDto, visibleChanges,
   type ChangeRow, type ComposeSource, type ResolveDeps, type ServiceDeps,
@@ -123,6 +124,7 @@ export function serviceDeps(p: Project, actor: string): ServiceDeps {
     insert: async (row) => (await db.insert(schema.serviceChanges).values({ ...row, projectId: p.id }).returning())[0]! as ChangeRow,
     watch: (deploymentId) => watchDeploy(p, deploymentId),
     audit: auditFor(p, actor),
+    nameClash: (service) => serviceNameClash(p, service),
   }
 }
 

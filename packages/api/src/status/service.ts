@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm'
 import {
   addDays, dayInZone, showsOnStatusPage, STATUS_DAYS, STATUS_DEFAULT_TITLE, STATUS_HOST_LABEL,
   type IncidentCreateInput, type IncidentDto, type IncidentUpdateInput, type PublicProjectState,
@@ -58,7 +58,8 @@ async function projectsWithVisibility(envIds?: string[]): Promise<(ProjectRow & 
   const rows = await db.select({
     id: schema.projects.id, name: schema.projects.name, environmentId: schema.projects.environmentId,
     desiredState: schema.projects.desiredState, showOnStatus: schema.projects.showOnStatus,
-  }).from(schema.projects).where(envIds ? inArray(schema.projects.environmentId, envIds) : undefined)
+  // Etappe 6: Vorschauen nie auf der Statusseite
+  }).from(schema.projects).where(envIds ? and(inArray(schema.projects.environmentId, envIds), isNull(schema.projects.previewOf)) : isNull(schema.projects.previewOf))
   const pub = await db.select({ projectId: schema.routes.projectId, pausedAt: schema.routes.pausedAt }).from(schema.routes).where(eq(schema.routes.target, 'public'))
   const byProject = new Map(pub.map((r) => [r.projectId, r]))
   return rows.map((p) => {

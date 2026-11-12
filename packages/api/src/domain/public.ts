@@ -20,6 +20,7 @@ import { audit } from './audit.js'
 import { notify } from '../notify/send.js'
 import { AppError, badRequest, conflict } from '../lib/errors.js'
 import { log } from '../lib/log.js'
+import { assertNotPreview } from './preview-guard.js'
 
 /**
  * M5: öffentlich über Cloudflare Tunnel.
@@ -221,6 +222,8 @@ export interface PublicPlan {
  * Fehlen Name oder Access in der Eingabe, gilt der bisherige Stand.
  */
 export async function planPublic(project: Project, input: PublicInput): Promise<PublicPlan> {
+  // Etappe 6: Vorschauen nie öffentlich, auch nicht per Schalter
+  await assertNotPreview(project.id)
   // M9: Token, Konto und Tunnel der Umgebung des Projekts
   const ctx = requireCtx(project.environmentId)
   const cf = ctx.cf
@@ -265,6 +268,7 @@ export async function planPublic(project: Project, input: PublicInput): Promise<
  * bei Cloudflare neu angelegt hat.
  */
 export async function applyPublic(plan: PublicPlan, actor: string, progress?: Progress): Promise<{ hostname: string }> {
+  await assertNotPreview(plan.project.id)
   const ctx = requireCtx(plan.project.environmentId)
   const cf = ctx.cf
   const { project, hostname, zone, before } = plan

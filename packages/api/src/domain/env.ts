@@ -5,6 +5,7 @@ import { config } from '../config.js'
 import { loadOrCreateKey, encrypt, decrypt } from '../lib/crypto.js'
 import type { EnvEntryDto, EnvEntryInput } from '@airlock/shared'
 import { conflict } from '../lib/errors.js'
+import { mergeEnvLevels, type EnvLevelEntry } from '../lib/previews.js'
 
 /**
  * Umgebungsvariablen eines Projekts. Als geheim markierte Werte liegen
@@ -28,32 +29,69 @@ export async function listEnvDto(projectId: string): Promise<EnvEntryDto[]> {
     .sort((a, b) => a.key.localeCompare(b.key))
 }
 
+type StoredEnv = { key: string; isSecret: boolean; value: string | null; valueEncrypted: Buffer | null }
+
+const decrypted = (rows: StoredEnv[], k: Buffer): EnvLevelEntry[] =>
+  rows.map((r) => ({ key: r.key, isSecret: r.isSecret, value: r.isSecret && r.valueEncrypted ? decrypt(r.valueEncrypted, k) : (r.value ?? '') }))
+
+/**
+ * Etappe 6: Ebenen der Variablen. Ein normales Projekt hat nur seine eigenen;
+ * eine Vorschau erbt die des Projekts, darüber die Ebene «Vorschau» des
+ * Projekts, darüber eigene Werte der einzelnen Vorschau (gleichnamige
+ * überschreiben, der Rest wird geerbt).
+ */
+async function envLevels(projectId: string): Promise<StoredEnv[][]> {
+  const own = await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, projectId))
+  const row = (await db.select({ previewOf: schema.projects.previewOf }).from(schema.projects).where(eq(schema.projects.id, projectId)).limit(1))[0]
+  if (!row?.previewOf) return [own]
+  const parent = await db.select().from(schema.projectEnv).where(eq(schema.projectEnv.projectId, row.previewOf))
+  const preview = await db.select().from(schema.projectPreviewEnv).where(eq(schema.projectPreviewEnv.projectId, row.previewOf))
+  return [parent, preview, own]
+}
+
 /** Nur fuer die Pipeline: entschluesselte Werte fuer den Container. */
 export async function resolveEnv(projectId: string): Promise<Record<string, string>> {
-  const rows = await db
-    .select()
-    .from(schema.projectEnv)
-    .where(eq(schema.projectEnv.projectId, projectId))
-  const out: Record<string, string> = {}
   const k = key()
-  for (const r of rows) {
-    out[r.key] = r.isSecret && r.valueEncrypted ? decrypt(r.valueEncrypted, k) : (r.value ?? '')
-  }
-  return out
+  const merged = mergeEnvLevels(...(await envLevels(projectId)).map((rows) => decrypted(rows, k)))
+  return Object.fromEntries(merged.map((e) => [e.key, e.value]))
 }
 
 /**
  * Nur die nicht-geheimen Werte. Für statische Builds: was dort hineingeht,
- * kann in der ausgelieferten Seite landen.
+ * kann in der ausgelieferten Seite landen. (Vorschau: geheim auf der Ebene,
+ * die gewinnt, heisst nicht hinein.)
  */
 export async function resolvePublicEnv(projectId: string): Promise<Record<string, string>> {
-  const rows = await db
-    .select()
-    .from(schema.projectEnv)
-    .where(eq(schema.projectEnv.projectId, projectId))
+  const levels = (await envLevels(projectId)).map((rows) => rows.map((r) => ({ key: r.key, isSecret: r.isSecret, value: r.isSecret ? '' : (r.value ?? '') })))
   const out: Record<string, string> = {}
-  for (const r of rows) if (!r.isSecret) out[r.key] = r.value ?? ''
+  for (const e of mergeEnvLevels(...levels)) if (!e.isSecret) out[e.key] = e.value
   return out
+}
+
+/* --- Etappe 6: Ebene «Vorschau» eines Projekts ------------------------------------------ */
+
+/** Für die UI: wie listEnvDto, geheime Werte null */
+export async function listPreviewEnvDto(projectId: string): Promise<EnvEntryDto[]> {
+  const rows = await db.select().from(schema.projectPreviewEnv).where(eq(schema.projectPreviewEnv.projectId, projectId))
+  return rows
+    .map((r) => ({ key: r.key, isSecret: r.isSecret, value: r.isSecret ? null : (r.value ?? '') }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+}
+
+/** Ersetzt die Ebene «Vorschau» atomar; leeres Secret behält den gespeicherten Wert (wie replaceEnv) */
+export async function replacePreviewEnv(projectId: string, entries: EnvEntryInput[]): Promise<void> {
+  const k = key()
+  const existing = await db.select().from(schema.projectPreviewEnv).where(eq(schema.projectPreviewEnv.projectId, projectId))
+  const byKey = new Map(existing.map((e) => [e.key, e]))
+  await db.transaction(async (tx) => {
+    await tx.delete(schema.projectPreviewEnv).where(eq(schema.projectPreviewEnv.projectId, projectId))
+    if (entries.length === 0) return
+    await tx.insert(schema.projectPreviewEnv).values(entries.map((e) => {
+      if (!e.isSecret) return { projectId, key: e.key, isSecret: false, value: e.value, valueEncrypted: null }
+      const keepOld = e.value === '' && byKey.get(e.key)?.isSecret
+      return { projectId, key: e.key, isSecret: true, value: null, valueEncrypted: keepOld ? byKey.get(e.key)!.valueEncrypted! : encrypt(e.value, k) }
+    }))
+  })
 }
 
 /**
