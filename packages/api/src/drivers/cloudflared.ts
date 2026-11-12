@@ -2,7 +2,7 @@ import tarStream from 'tar-stream'
 import { config } from '../config.js'
 import * as docker from './docker.js'
 import { AppError } from '../lib/errors.js'
-import { LABEL, LEGACY_LABEL_NS } from '../lib/names.js'
+import { HOMEBENTO, LABEL, LEGACY_LABEL_NS } from '../lib/names.js'
 
 /**
  * cloudflared als Container, den Airlock selbst startet und verwaltet
@@ -101,7 +101,8 @@ export async function startCloudflared(tunnelToken: string, image = config.CLOUD
     name,
     Image: image,
     Cmd: ['tunnel', '--no-autoupdate', 'run', '--token-file', `${TOKEN_DIR}/token`],
-    Labels: { [SYSTEM_LABEL]: 'cloudflared' },
+    // Airlock-eigener Container: in HomeBento nicht als Dienst vorschlagen
+    Labels: { [SYSTEM_LABEL]: 'cloudflared', [HOMEBENTO.ignore]: 'true' },
     HostConfig: {
       // Nur im Netz «tunnel» (mit Caddy): nicht im edge-Netz, also nie direkt
       // bei Airlock; keine Projekt-Netze, nicht das interne Netz.

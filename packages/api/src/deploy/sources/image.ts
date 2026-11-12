@@ -1,5 +1,6 @@
 import * as docker from '../../drivers/docker.js'
 import { appendLine } from '../journal.js'
+import { projectHomebentoLabels } from '../../domain/homebento.js'
 import { badRequest } from '../../lib/errors.js'
 import type { schema } from '../../db/index.js'
 
@@ -69,6 +70,8 @@ export async function startImageContainer(opts: {
     network,
     env,
     labels: {
+      // Abgrenzung HomeBento: Name, Hauptadresse, Icon (falls bekannt)
+      ...(await projectHomebentoLabels(project, image)),
       [docker.LABEL_MANAGED]: 'true',
       [docker.LABEL_PROJECT]: project.slug,
       [docker.LABEL_DEPLOYMENT]: deploymentId,

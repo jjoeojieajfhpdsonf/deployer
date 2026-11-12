@@ -22,8 +22,8 @@ export interface TrafficStore {
   markSince(entries: Map<string, number>): Promise<void>
   /** Gespeicherte Messbeginne aller Projekte */
   allSince(): Promise<Map<string, number>>
-  /** Aufrufe (ohne Bots, nur 2xx/3xx) je Projekt ab Zeitpunkt */
-  viewsSince(from: number): Promise<Map<string, number>>
+  /** Aufrufe und eindeutige Besucher (ohne Bots, nur 2xx/3xx) je Projekt ab Zeitpunkt */
+  viewsSince(from: number): Promise<Map<string, { views: number; visitors: number }>>
   /** Projekte, die schon einmal eine HTML-Seite ausgeliefert haben (seit from) */
   projectsWithPages(from: number): Promise<Set<string>>
   /** Zeilen vor dem Zeitpunkt löschen; Anzahl gelöschter Zeilen */
@@ -100,10 +100,10 @@ export const pgTrafficStore: TrafficStore = {
   },
 
   async viewsSince(from) {
-    const rows = await db.select({ projectId: t.projectId, views: sum(t.views) }).from(t)
+    const rows = await db.select({ projectId: t.projectId, views: sum(t.views), visitors: sum(t.visitors) }).from(t)
       .where(and(gte(t.hour, new Date(from)), eq(t.bot, false), gte(t.status, 100), lt(t.status, 400)))
       .groupBy(t.projectId)
-    return new Map(rows.map((r) => [r.projectId, Number(r.views ?? 0)]))
+    return new Map(rows.map((r) => [r.projectId, { views: Number(r.views ?? 0), visitors: Number(r.visitors ?? 0) }]))
   },
 
   async projectsWithPages(from) {

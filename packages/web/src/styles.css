@@ -1005,6 +1005,9 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 }
 .alert + .alert { margin-top: 10px; }
 .alert-icon { flex: none; color: var(--bad); display: grid; }
+/* Warnung (z. B. Platte über 80 %): gleiche Form, Warnfarbe; der Text sagt, was los ist */
+.alert-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.alert-warn .alert-icon { color: var(--warn); }
 .alert-body { flex: 1; min-width: 0; }
 .alert-body strong { display: block; font-size: var(--fs-15); font-weight: 600; overflow-wrap: anywhere; hyphens: auto; }
 .alert-body span { color: var(--ink-dim); overflow-wrap: anywhere; }
@@ -1465,17 +1468,13 @@ button.acc-chip:hover:not(:disabled) { background: var(--line-strong); border: 0
 
 /* --- Unterer Bereich der Übersicht --------------------------------------------------- */
 
-/* Aktivität und Server: unter 1100 px gestapelt, darüber 2 : 1; ab 1700 px eine dritte Karte,
-   aber nur, wenn es dafür echte Daten gibt (Aufrufe heute) – sonst bleibt es bei zwei */
+/* Aktivität und Aufrufe heute: unter 1100 px gestapelt, darüber 2 : 1. Die zweite Karte gibt es
+   nur mit echten Daten (Zugriffs-Log wird gelesen) – sonst nimmt die Aktivität die ganze Breite.
+   (Abgrenzung HomeBento: die Server-Karte mit CPU/RAM ist weg.) */
 .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-14); align-items: start; }
 .split > * { min-width: 0; container-type: inline-size; }
-.split > .split-wide { display: none; }
 @media (min-width: 1100px) {
-  .split { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-}
-@media (min-width: 1700px) {
-  .split:has(> .split-wide) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
-  .split > .split-wide { display: block; }
+  .split:has(> :nth-child(2)) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 }
 
 .activity { list-style: none; margin: 0; padding: 0; }

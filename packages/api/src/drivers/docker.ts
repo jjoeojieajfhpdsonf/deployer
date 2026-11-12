@@ -4,7 +4,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { config } from '../config.js'
 import { assertCreatePolicy } from './policy.js'
 import { AppError } from '../lib/errors.js'
-import { LABEL, LEGACY_LABEL_NS, projectNetwork, legacyProjectNetwork, PROJECT_PREFIX, LEGACY_PROJECT_PREFIX, normalizeLabels } from '../lib/names.js'
+import { LABEL, LEGACY_LABEL_NS, projectNetwork, legacyProjectNetwork, PROJECT_PREFIX, LEGACY_PROJECT_PREFIX, normalizeLabels, withHomebentoDefault } from '../lib/names.js'
 
 /**
  * Einziger Ort im Projekt, der dockerode kennt. Jede Container-Erstellung
@@ -124,7 +124,8 @@ export function buildCreateOptions(spec: ContainerSpec): Record<string, unknown>
     name: spec.name,
     Image: spec.image,
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
-    Labels: spec.labels,
+    // HomeBento: ohne homebento.name (Projekt-Container) ausgeblendet – Scan, Build, Kopien, Prüfungen
+    Labels: withHomebentoDefault(spec.labels),
     ...(spec.cmd ? { Cmd: spec.cmd } : {}),
     ...(spec.entrypoint ? { Entrypoint: spec.entrypoint } : {}),
     ...(spec.workingDir ? { WorkingDir: spec.workingDir } : {}),

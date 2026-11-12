@@ -68,7 +68,7 @@ cli() {
 mkimage() {
   local tag="$1"; shift
   local c changes=()
-  c="$(docker create --label "$LBL" "$BASE" true)"
+  c="$(docker create --label "$LBL" --label homebento.ignore=true "$BASE" true)"
   for l in "$LBL" "$@"; do changes+=(--change "LABEL ${l}"); done
   docker commit "${changes[@]}" "$c" "$tag" >/dev/null
   docker rm "$c" >/dev/null
@@ -87,12 +87,12 @@ help_text="$(docker run --rm "$IMAGE" node dist/cli.js help)"
 grep -q 'cleanup --apply' <<<"$help_text" || fail "Hilfe nennt cleanup nicht"
 
 echo "2. Netz, Wegwerf-Datenbank, Socket-Proxy wie compose.yaml"
-docker network create --label "$LBL" "$NET" >/dev/null
-docker run -d --name "$DB" --label "$LBL" --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock "$BASE" >/dev/null
+docker network create --label "$LBL" --label homebento.ignore=true "$NET" >/dev/null
+docker run -d --name "$DB" --label "$LBL" --label homebento.ignore=true --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock "$BASE" >/dev/null
 proxy_env=(-e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e VOLUMES=1 -e INFO=1 -e VERSION=1 -e POST=1 -e BUILD=1 -e EXEC=0)
-docker run -d --name "$PROXY" --label "$LBL" --network "$NET" "${proxy_env[@]}" -e SYSTEM=1 \
+docker run -d --name "$PROXY" --label "$LBL" --label homebento.ignore=true --network "$NET" "${proxy_env[@]}" -e SYSTEM=1 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro tecnativa/docker-socket-proxy:0.3.0 >/dev/null
-docker run -d --name "$PROXY_NOSYS" --label "$LBL" --network "$NET" "${proxy_env[@]}" -e SYSTEM=0 \
+docker run -d --name "$PROXY_NOSYS" --label "$LBL" --label homebento.ignore=true --network "$NET" "${proxy_env[@]}" -e SYSTEM=0 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro tecnativa/docker-socket-proxy:0.3.0 >/dev/null
 for _ in $(seq 1 30); do
   docker exec "$DB" pg_isready -U airlock -d airlock >/dev/null 2>&1 && break
@@ -117,10 +117,10 @@ mkimage "${P}-fremd:c1" >/dev/null
 ID_DANGLING="$(mkimage "airlock/${GONE}:d1" airlock.managed=true "airlock.project=${GONE}" smoke.n=1)"
 mkimage "airlock/${GONE}:d1" airlock.managed=true "airlock.project=${GONE}" smoke.n=2 >/dev/null
 ID_USED="$(mkimage "airlock/${GONE}:e1" airlock.managed=true "airlock.project=${GONE}")"
-docker run -d --name "${P}-benutzt" --label "$LBL" --entrypoint sleep "airlock/${GONE}:e1" 600 >/dev/null
-docker create --name "${P}-build" --label "$LBL" --label airlock.managed=true --label "airlock.project=${GONE}" --label airlock.role=build "$BASE" true >/dev/null
-docker create --name "${P}-gestoppt" --label "$LBL" --label airlock.managed=true --label "airlock.project=${LIVE}" "$BASE" true >/dev/null
-docker volume create --label "$LBL" --label "com.docker.compose.project=air_${GONE}" --label com.docker.compose.volume=data "air_${GONE}_data" >/dev/null
+docker run -d --name "${P}-benutzt" --label "$LBL" --label homebento.ignore=true --entrypoint sleep "airlock/${GONE}:e1" 600 >/dev/null
+docker create --name "${P}-build" --label "$LBL" --label homebento.ignore=true --label airlock.managed=true --label "airlock.project=${GONE}" --label airlock.role=build "$BASE" true >/dev/null
+docker create --name "${P}-gestoppt" --label "$LBL" --label homebento.ignore=true --label airlock.managed=true --label "airlock.project=${LIVE}" "$BASE" true >/dev/null
+docker volume create --label "$LBL" --label homebento.ignore=true --label "com.docker.compose.project=air_${GONE}" --label com.docker.compose.volume=data "air_${GONE}_data" >/dev/null
 
 echo "4. Datenbank: Projekt ${LIVE} mit aktiver Fassung und 7 abgelösten (Grenze 5)"
 cli "$PROXY" cleanup --only-label "$LBL" --min-age-minutes 0 >/dev/null # führt die Migrationen aus

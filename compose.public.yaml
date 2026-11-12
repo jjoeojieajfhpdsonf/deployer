@@ -28,6 +28,9 @@ services:
     image: cloudflare/cloudflared:2025.8.1
     restart: unless-stopped
     container_name: airlock-cloudflared
+    # Airlock-eigener Dienst: in HomeBento nicht als Kachel vorschlagen
+    labels:
+      homebento.ignore: "true"
     # Token aus der Datei, nicht aus der Umgebung (sonst in docker inspect).
     command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
     secrets:

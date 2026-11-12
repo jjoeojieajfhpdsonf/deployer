@@ -116,7 +116,7 @@ docker run --rm "$IMAGE" sh -c 'command -v ssh && command -v ssh-keyscan && comm
 echo "2. Wegwerf-Git-Server mit privatem Repo (nur SSH, nur git-shell)"
 docker network create "$NET" >/dev/null
 docker volume create "$VOL" >/dev/null
-docker run -d --name "$SRV" --network "$NET" alpine:3.20 sh -c '
+docker run -d --name "$SRV" --label homebento.ignore=true --network "$NET" alpine:3.20 sh -c '
   set -e
   apk add --no-cache openssh-server git >/dev/null
   ssh-keygen -A >/dev/null

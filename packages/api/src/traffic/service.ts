@@ -388,11 +388,22 @@ export async function trafficSummary(projectId: string, range: TrafficRange, way
 }
 
 /** Aufrufe heute (Ortszeit, nur 2xx/3xx) je Projekt, inklusive der letzten Minute */
-export async function trafficToday(now = Date.now()): Promise<Record<string, number>> {
+export async function trafficToday(now = Date.now()): Promise<TrafficToday> {
   const from = startOfToday(now, displayTimeZone())
-  const views = await store.viewsSince(from)
+  const counts = await store.viewsSince(from)
   for (const r of aggregator.peek()) {
-    if (!r.bot && r.hour >= from && r.status > 0 && r.status < 400) views.set(r.projectId, (views.get(r.projectId) ?? 0) + r.views)
+    if (r.bot || r.hour < from || r.status <= 0 || r.status >= 400) continue
+    const c = counts.get(r.projectId) ?? { views: 0, visitors: 0 }
+    counts.set(r.projectId, { views: c.views + r.views, visitors: c.visitors + r.visitors })
   }
-  return Object.fromEntries(views)
+  const views: Record<string, number> = {}
+  const visitors: Record<string, number> = {}
+  for (const [id, c] of counts) { views[id] = c.views; visitors[id] = c.visitors }
+  return { views, visitors }
+}
+
+/** Aufrufe und eindeutige Besucher heute je Projekt-ID (Besucher werden bei ihrem ersten Aufruf des Tages gezählt) */
+export interface TrafficToday {
+  views: Record<string, number>
+  visitors: Record<string, number>
 }

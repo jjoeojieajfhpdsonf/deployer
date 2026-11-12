@@ -1018,7 +1018,7 @@ export const system: SystemStatusDto = {
   nipioEnabled: true,
   hostsBlock: null,
   tls: { mode: 'cloudflare', acmeCa: 'production', cert: null, tailscaleIp: '100.88.41.12' },
-  server: { name: 'heimserver', cpuPercent: 14, memUsedBytes: 9.8e9, memTotalBytes: 32e9, diskUsedBytes: 318e9, diskTotalBytes: 500e9, diskPercent: 64 },
+  server: { name: 'heimserver',memUsedBytes: 9.8e9, memTotalBytes: 32e9, diskUsedBytes: 318e9, diskTotalBytes: 500e9, diskPercent: 64 },
   scanQueue: 0,
   publicTunnel: { configured: false, status: null, connections: 0 },
   // Wie auf dem Server vor dem Fix: Tailnet-Anfragen kommen maskiert vom Docker-Gateway
@@ -1513,7 +1513,11 @@ export function traffic(id: string, range: TrafficRange, way: TrafficWay | 'all'
 }
 
 /** Projektliste: Aufrufe heute (nur mit Besucher-Auswertung) */
-export const trafficToday: TrafficTodayDto = { views: { 'p-foto': 31, 'p-haushalt': 214, 'p-wetter': 4, 'p-kontoauszug': 12, 'p-verein': 57, 'p-hallo': 168 }, ingest: 'ok' }
+export const trafficToday: TrafficTodayDto = {
+  views: { 'p-foto': 31, 'p-haushalt': 214, 'p-wetter': 4, 'p-kontoauszug': 12, 'p-verein': 57, 'p-hallo': 168 },
+  visitors: { 'p-foto': 9, 'p-haushalt': 38, 'p-wetter': 2, 'p-kontoauszug': 3, 'p-verein': 21, 'p-hallo': 64 },
+  ingest: 'ok',
+}
 
 /* --- Etappe 5: Statusseite --------------------------------------------------------- */
 

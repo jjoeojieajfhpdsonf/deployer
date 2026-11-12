@@ -1,7 +1,7 @@
 import { parse, stringify } from 'yaml'
 import { posix } from 'node:path'
 import { AppError } from './errors.js'
-import { LABEL, IMAGE_PREFIX, LEGACY_LABEL_NS } from './names.js'
+import { LABEL, IMAGE_PREFIX, LEGACY_LABEL_NS, composeHomebentoLabels } from './names.js'
 
 /**
  * Prüfung und Normalisierung einer compose.yaml.
@@ -26,6 +26,12 @@ export interface ComposeContext {
   cpuLimit: number
   /** Projekt-Env und Secrets, nur für den Web-Dienst. */
   projectEnv: Record<string, string>
+  /**
+   * Abgrenzung HomeBento: Projektname und Hauptadresse für die homebento.*-Labels
+   * (Web-Dienst mit Adresse, übrige Dienste «Projekt · Dienst»). Fehlt es, bleiben
+   * die Dienste ohne homebento.*-Labels (z. B. Prüfung beim Bearbeiten).
+   */
+  homebento?: { projectName: string; href: string | null }
   /** Mit Repo: Pfade auflösen (im Repo, ohne Symlinks). Ohne Repo: null. */
   repo: null | {
     resolvePath: (rel: string) => Promise<string>
@@ -517,6 +523,15 @@ export async function normalizeCompose(text: string, ctx: ComposeContext): Promi
       ...escaped,
       ...ext,
       labels: {
+        // HomeBento: Vorschlag von Airlock; eigene homebento.*-Labels in der Datei gewinnen.
+        // Ändert sich Name oder Adresse, erzeugt Compose den Dienst beim nächsten Deploy neu (Volumes bleiben).
+        ...(ctx.homebento ? escapeDollars(composeHomebentoLabels({
+          projectName: ctx.homebento.projectName,
+          service: name,
+          webService: ctx.webService,
+          href: ctx.homebento.href,
+          image: typeof s.image === 'string' ? s.image : null,
+        })) : {}),
         ...escapeDollars(userLabels),
         [LABEL.managed]: 'true',
         [LABEL.project]: ctx.slug,

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { listScopeFor } from '../scope.js'
 import { statfs, readFile } from 'node:fs/promises'
-import { cpus, totalmem, freemem } from 'node:os'
+import { totalmem, freemem } from 'node:os'
 import { scanQueueLength } from '../../security/scan.js'
 import { asc, ne } from 'drizzle-orm'
 import { db, schema, pool } from '../../db/index.js'
@@ -61,7 +61,8 @@ export async function hostsBlock(): Promise<string | null> {
 }
 
 /**
- * Auslastung des Rechners, auf dem der Container läuft. Auf Linux teilt der
+ * Arbeitsspeicher des Rechners, auf dem der Container läuft – nur noch für den
+ * Vorschlag der RAM-Grenze eines Projekts (CPU/RAM als Anzeige: HomeBento). Auf Linux teilt der
  * Container Kernel und /proc mit dem Server – die Werte sind die des Servers.
  * Unter Docker Desktop sind es die der VM.
  */
@@ -76,22 +77,6 @@ async function memoryUsage(): Promise<{ used: number; total: number } | null> {
     /* kein /proc (Entwicklung auf dem Mac) */
   }
   return { used: totalmem() - freemem(), total: totalmem() }
-}
-
-/** CPU über ein kurzes Messfenster (200 ms), ohne Bibliothek. */
-async function cpuPercent(): Promise<number | null> {
-  const sample = () => cpus().reduce((a, c) => {
-    const t = c.times
-    a.idle += t.idle
-    a.total += t.user + t.nice + t.sys + t.idle + t.irq
-    return a
-  }, { idle: 0, total: 0 })
-  const a = sample()
-  await new Promise((r) => setTimeout(r, 200))
-  const b = sample()
-  const total = b.total - a.total
-  if (total <= 0) return null
-  return Math.round((1 - (b.idle - a.idle) / total) * 100)
 }
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
@@ -167,7 +152,6 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
       hostsBlock: await hostsBlock(),
       server: {
         name: config.SERVER_NAME || PRODUCT_NAME,
-        cpuPercent: await cpuPercent(),
         memUsedBytes: mem?.used ?? null,
         memTotalBytes: mem?.total ?? null,
         diskUsedBytes: diskTotalBytes !== null && diskFreeBytes !== null ? diskTotalBytes - diskFreeBytes : null,

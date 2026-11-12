@@ -498,6 +498,21 @@ export function publicStateOf(routes: RouteDto[]): PublicState {
   return r.pausedAt ? 'paused' : 'live'
 }
 
+/**
+ * Hauptadresse eines Projekts (HomeBento-Label, GET /summary): die öffentliche,
+ * solange sie live ist, sonst die im Tailnet, dann die im LAN; ohne Adresse null.
+ */
+export function mainUrlOf(routes: Pick<RouteDto, 'target' | 'targets' | 'urls' | 'pausedAt'>[]): string | null {
+  const has = (r: (typeof routes)[number], t: RouteTarget) => r.target === t || Boolean(r.targets?.includes(t))
+  const live = routes.find((r) => r.target === 'public' && !r.pausedAt && r.urls.length > 0)
+  if (live) return live.urls[0]!
+  for (const t of ['tailnet', 'lan'] as const) {
+    const r = routes.find((x) => has(x, t) && x.urls.length > 0)
+    if (r) return r.urls[0]!
+  }
+  return null
+}
+
 /** Übergänge der Karte «Veröffentlichung»; access = nur Cloudflare Access an/aus. */
 export type PublicOp = 'publish' | 'pause' | 'resume' | 'unpublish' | 'access'
 
@@ -1008,10 +1023,12 @@ export interface SystemStatusDto {
     cert: { ok: boolean; subject: string | null; issuer: string | null; validTo: string | null; daysLeft: number | null; error: string | null; problem: string | null } | null
     tailscaleIp: string | null
   }
-  /** Übersicht: Name des Servers, Auslastung, Scans in der Warteschlange */
+  /**
+   * Name des Servers, Platte, Scans in der Warteschlange. CPU/RAM als Anzeige gibt es seit der
+   * Abgrenzung nur noch in HomeBento; der Arbeitsspeicher bleibt für den Vorschlag der RAM-Grenze.
+   */
   server: {
     name: string
-    cpuPercent: number | null
     memUsedBytes: number | null
     memTotalBytes: number | null
     diskUsedBytes: number | null

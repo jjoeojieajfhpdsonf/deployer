@@ -264,6 +264,8 @@ export interface TrafficSummaryDto {
 export interface TrafficTodayDto {
   /** Nur Projekte mit Aufrufen heute; fehlt eines, waren es 0 (sofern ingest 'ok') */
   views: Record<string, number>
+  /** Eindeutige Besucher heute je Projekt-ID (gleiche Regel wie views: fehlt eines, waren es 0) */
+  visitors: Record<string, number>
   /** Zählt Airlock überhaupt mit? Sonst zeigt die Liste keine Zahl (statt einer falschen 0) */
   ingest: TrafficSourceDto['ingest']
 }

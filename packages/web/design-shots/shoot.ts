@@ -1846,7 +1846,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
                 const way = (url.searchParams.get('way') ?? 'all') as import('@airlock/shared').TrafficWay | 'all'
                 return json(route, fx.traffic(tm[1]!, range, way, s.traffic))
               }
-              if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, ingest: 'off' } : fx.trafficToday)
+              if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, visitors: {}, ingest: 'off' } : fx.trafficToday)
               // Besucher neu: «Gerade eben» und Server › Besucher
               const rm = path.match(/^\/api\/v1\/projects\/([^/]+)\/traffic\/recent$/)
               if (rm) return json(route, fx.trafficRecent(rm[1]!, s.traffic))

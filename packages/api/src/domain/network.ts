@@ -3,7 +3,7 @@ import * as docker from '../drivers/docker.js'
 import { getSetting, setSetting } from '../db/index.js'
 import { audit } from './audit.js'
 import { log } from '../lib/log.js'
-import { LABEL } from '../lib/names.js'
+import { HOMEBENTO, LABEL } from '../lib/names.js'
 
 /**
  * Netz des Servers: LAN-IP, LAN-Netz und Tailscale-IP, gelesen vom Host.
@@ -79,7 +79,7 @@ async function readHostNetwork(): Promise<Detected | null> {
     Image: image,
     Entrypoint: ['sh', '-c'],
     Cmd: ['ip -4 route get 1.1.1.1 2>/dev/null; echo ---; ip -4 -o addr show'],
-    Labels: { [LABEL.system]: 'netcheck' },
+    Labels: { [LABEL.system]: 'netcheck', [HOMEBENTO.ignore]: 'true' },
     NetworkDisabled: false,
     HostConfig: {
       NetworkMode: 'host',

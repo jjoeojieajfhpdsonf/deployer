@@ -12,12 +12,19 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# HomeBento (Dashboard für den ganzen Homeserver) schlägt Container anhand von
+# Labels als Kacheln vor. Airlocks eigene Dienste gehören nicht dazu – nur die
+# Projekte (die bekommen homebento.name/href von Airlock). README «Mit HomeBento».
+x-homebento-ignore: &homebento-ignore
+  homebento.ignore: "true"
+
 services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     logging: *logging
     container_name: airlock-postgres
+    labels: *homebento-ignore
     environment:
       POSTGRES_USER: airlock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt (siehe .env.example)}
@@ -39,6 +46,7 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-socket-proxy
+    labels: *homebento-ignore
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -91,6 +99,7 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-caddy
+    labels: *homebento-ignore
     # --resume: nach einem Neustart von Caddy allein die zuletzt von Airlock
     # geladene Konfiguration (autosave.json) wiederherstellen. Ohne das laedt
     # Caddy nur das Bootstrap-Caddyfile, und alle Projekt-Routen fehlen, bis
@@ -137,6 +146,8 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-app
+    # Auch Airlock selbst: in HomeBento von Hand als Dienst mit dem Plugin anlegen (README)
+    labels: *homebento-ignore
     depends_on:
       postgres:
         condition: service_healthy
@@ -215,6 +226,7 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-status
+    labels: *homebento-ignore
     command: ["caddy", "file-server", "--root", "/srv/status", "--listen", ":8080"]
     user: "65534:65534"
     read_only: true
@@ -261,6 +273,7 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-firewall
+    labels: *homebento-ignore
     network_mode: host
     cap_drop: [ALL]
     cap_add: [NET_ADMIN]
@@ -291,6 +304,7 @@ services:
     restart: unless-stopped
     logging: *logging
     container_name: airlock-backup
+    labels: *homebento-ignore
     # Feste Kennung: restic merkt sich den Host je Stand (Aufbewahrung, forget)
     hostname: airlock-backup
     # Reapt die Prozesse der Auftraege, leitet SIGTERM an den Ausfuehrer weiter

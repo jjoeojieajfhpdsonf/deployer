@@ -70,9 +70,9 @@ grep -q 'intrusion-check' <<<"$help_text" || fail "Hilfe nennt intrusion-check n
 grep -q 'release-isolation' <<<"$help_text" || fail "Hilfe nennt release-isolation nicht"
 
 echo "2. Netz, Wegwerf-Datenbank, Socket-Proxy wie compose.yaml (EXEC aus)"
-docker network create --label "$LBL" "$NET" >/dev/null
-docker run -d --name "$DB" --label "$LBL" --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock "$BASE" >/dev/null
-docker run -d --name "$PROXY" --label "$LBL" --network "$NET" \
+docker network create --label "$LBL" --label homebento.ignore=true "$NET" >/dev/null
+docker run -d --name "$DB" --label "$LBL" --label homebento.ignore=true --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock "$BASE" >/dev/null
+docker run -d --name "$PROXY" --label "$LBL" --label homebento.ignore=true --network "$NET" \
   -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e VOLUMES=1 -e INFO=1 -e VERSION=1 -e POST=1 -e BUILD=1 -e SYSTEM=1 -e EXEC=0 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro tecnativa/docker-socket-proxy:0.3.0 >/dev/null
 for _ in $(seq 1 30); do
@@ -91,7 +91,7 @@ psql -c "INSERT INTO projects (id, name, slug, source_type, environment_id) SELE
 [ "$(psql -c "SELECT count(*) FROM projects WHERE id = '${P_ID}'")" = 1 ] || fail "Projekt nicht angelegt"
 
 echo "4. Test-Container mit Projekt-Labels (Grundlinie: nur «sleep»)"
-docker run -d --name "$WEB" --label "$LBL" --label airlock.managed=true --label "airlock.project=${SLUG}" \
+docker run -d --name "$WEB" --label "$LBL" --label homebento.ignore=true --label airlock.managed=true --label "airlock.project=${SLUG}" \
   --label "airlock.deployment=${D_ID}" --restart unless-stopped --entrypoint sleep "$BASE" 3600 >/dev/null
 sleep 1
 

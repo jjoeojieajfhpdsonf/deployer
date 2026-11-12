@@ -47,7 +47,7 @@ docker run --rm "$IMAGE" node dist/cli.js help | grep -q 'reset-2fa <benutzer>' 
 
 echo "3. Wegwerf-Datenbank"
 docker network create "$NET" >/dev/null
-docker run -d --name "$DB" --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock postgres:17-alpine >/dev/null
+docker run -d --name "$DB" --label homebento.ignore=true --network "$NET" -e POSTGRES_USER=airlock -e POSTGRES_PASSWORD="$PW" -e POSTGRES_DB=airlock postgres:17-alpine >/dev/null
 for _ in $(seq 1 30); do
   docker exec "$DB" pg_isready -U airlock -d airlock >/dev/null 2>&1 && break
   sleep 1

@@ -6,6 +6,7 @@ import { config } from '../../config.js'
 import { normalizeCompose, withServiceEnv, withMappedEnv, retargetCompose, type NormalizedCompose } from '../../lib/compose.js'
 import { readRepoFile, resolveInRepo } from '../../lib/repo-files.js'
 import { resolveEnv } from '../../domain/env.js'
+import { projectMainUrl } from '../../domain/homebento.js'
 import { badRequest } from '../../lib/errors.js'
 import * as docker from '../../drivers/docker.js'
 import { appendLine } from '../journal.js'
@@ -83,6 +84,7 @@ export async function prepareCompose(
     // Bewusst leer: das Artefakt bleibt ohne Secrets. Siehe materialize().
     projectEnv: {},
     repo,
+    homebento: { projectName: project.name, href: await projectMainUrl(project) },
   })
   appendLine(deploymentId, `Geprüft: ${normalized.services.length} Dienste (${normalized.services.join(', ')})`)
 

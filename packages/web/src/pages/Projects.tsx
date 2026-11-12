@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { publicStateOf, sumCounts, DISK_BLOCK_PERCENT, DISK_HINT_PERCENT, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
+import { publicStateOf, sumCounts, DISK_BLOCK_PERCENT, DISK_HINT_PERCENT, type ProjectDto, type SystemStatusDto, type TrafficTodayDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api } from '../api.js'
@@ -103,7 +103,8 @@ export function Projects() {
         <Loading label="Projekte werden geladen"><SkStats /><SkProjectCards /></Loading>
       ) : list.length === 0 ? (
         <>
-          <Stats list={list} system={system.data} />
+          <Stats list={list} system={system.data} today={today.data} />
+          <DiskBanner s={system.data} />
           <div className="state state-empty section">
             <h2>Noch kein Projekt</h2>
             <p>
@@ -115,7 +116,8 @@ export function Projects() {
         </>
       ) : (
         <>
-          <Stats list={list} system={system.data} />
+          <Stats list={list} system={system.data} today={today.data} />
+          <DiskBanner s={system.data} />
 
           {failed.slice(0, 3).map((p) => (
             <FailedBanner
@@ -165,10 +167,10 @@ export function Projects() {
         </>
       )}
 
+      {/* Abgrenzung HomeBento: CPU/RAM zeigt HomeBento; Airlock zeigt hier nur Aktivität und Aufrufe.
+          Die zweite Karte nur mit echten Zahlen (Zugriffs-Log wird gelesen) – sonst Aktivität allein */}
       <div className="split">
         <Activity projects={list} />
-        <ServerPanel s={system.data} />
-        {/* Etappe 6: dritte Karte ab 1700 px – nur mit echten Zahlen (Zugriffs-Log wird gelesen) */}
         {today.data?.ingest === 'ok' && list.some((p) => p.routes.length > 0) && <ViewsTodayPanel projects={list} views={today.data.views} />}
       </div>
     </section>
@@ -177,7 +179,7 @@ export function Projects() {
 
 /* --- Kennzahlen ----------------------------------------------------------------- */
 
-function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto | undefined }) {
+function Stats({ list, system, today }: { list: ProjectDto[]; system: SystemStatusDto | undefined; today: TrafficTodayDto | undefined }) {
   // Zählung aus p.state (gleiche Quelle wie Pillen und Karten)
   // «laufen» ohne die mit gescheitertem Deploy (die stehen als «Deploy-Fehler» daneben, nicht doppelt) – wie der Filter
   const running = list.filter(isRunningOk).length
@@ -196,9 +198,13 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
   const publicUrls = publicList.length <= 2
     ? publicList.flatMap((p) => p.routes.find((r) => r.target === 'public')?.urls[0] ?? [])
     : []
-  const srv = system?.server
-  const memPct = pct(srv?.memUsedBytes, srv?.memTotalBytes)
-  const diskPct = pct(srv?.diskUsedBytes, srv?.diskTotalBytes)
+  // Besucher heute: Summe über die Projekte dieser Umgebung (eindeutige Besucher je Projekt)
+  const counting = today?.ingest === 'ok'
+  const visitors = Object.values(today?.visitors ?? {}).reduce((a, n) => a + n, 0)
+  const views = Object.values(today?.views ?? {}).reduce((a, n) => a + n, 0)
+  const topId = Object.entries(today?.visitors ?? {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])[0]?.[0]
+  const topVisited = list.length > 1 ? list.find((p) => p.id === topId) : undefined
+  const fmt = (n: number) => n.toLocaleString('de-CH')
 
   return (
     <div className="stats">
@@ -240,12 +246,21 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
         </div>
       </div>
       <div className="stat">
-        <div className="label">Arbeitsspeicher</div>
-        <div className="stat-value">{gb(srv?.memUsedBytes)} <small>/ {gb(srv?.memTotalBytes)} GB</small></div>
-        <div className="stat-sub">
-          CPU {srv?.cpuPercent ?? '–'} % · Disk {diskPct ?? '–'} %
-          {memPct !== null && memPct >= 90 && <span className="warn"> · Speicher knapp</span>}
-        </div>
+        <div className="label">Besucher heute</div>
+        {counting ? (
+          <>
+            <div className="stat-value">{fmt(visitors)}</div>
+            <div className="stat-sub">
+              {fmt(views)} {views === 1 ? 'Aufruf' : 'Aufrufe'}
+              {topVisited && <> · <span className="truncate" title={`am meisten: ${topVisited.name}`}>am meisten: {topVisited.name}</span></>}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="stat-value">–</div>
+            <div className="stat-sub">{today?.ingest === 'off' ? 'Zugriffs-Log wird nicht gelesen' : 'noch keine Zahlen'}</div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -571,7 +586,7 @@ function ViewsTodayPanel({ projects, views }: { projects: ProjectDto[]; views: R
   const max = Math.max(1, ...top.map((r) => r.n))
   const fmt = (n: number) => n.toLocaleString('de-CH')
   return (
-    <section className="panel panel-pad split-wide" aria-labelledby="views-today-h">
+    <section className="panel panel-pad" aria-labelledby="views-today-h">
       <div className="panel-head">
         <h2 id="views-today-h">Aufrufe heute</h2>
         <span className="muted num">{fmt(total)} zusammen</span>
@@ -592,40 +607,24 @@ function ViewsTodayPanel({ projects, views }: { projects: ProjectDto[]; views: R
   )
 }
 
-function ServerPanel({ s }: { s: SystemStatusDto | undefined }) {
-  const srv = s?.server
-  const rows: { label: string; value: string; p: number | null }[] = [
-    { label: 'CPU', value: srv?.cpuPercent !== null && srv?.cpuPercent !== undefined ? `${srv.cpuPercent} %` : '–', p: srv?.cpuPercent ?? null },
-    { label: 'Arbeitsspeicher', value: `${gb(srv?.memUsedBytes)} / ${gb(srv?.memTotalBytes)} GB`, p: pct(srv?.memUsedBytes, srv?.memTotalBytes) },
-    { label: 'Speicherplatz', value: `${gb(srv?.diskUsedBytes)} / ${gb(srv?.diskTotalBytes)} GB`, p: pct(srv?.diskUsedBytes, srv?.diskTotalBytes) },
-  ]
-  const q = s?.scanQueue ?? 0
+/**
+ * Abgrenzung HomeBento: Die Server-Karte (CPU/RAM/Disk) ist weg, die Disk-Warnung bleibt –
+ * Deploys hängen davon ab. Ab 80 % ein Hinweis mit Text, ab 95 % sind Deploys gesperrt.
+ */
+function DiskBanner({ s }: { s: SystemStatusDto | undefined }) {
+  const p = s?.server.diskPercent
+  if (typeof p !== 'number' || p < DISK_HINT_PERCENT) return null
+  const blocked = p >= DISK_BLOCK_PERCENT
   return (
-    <section className="panel panel-pad" aria-labelledby="server-h">
-      <div className="panel-head">
-        <h2 id="server-h">Server</h2>
-        <Link to="/server" className="muted">Server</Link>
+    <div className={`alert${blocked ? '' : ' alert-warn'}`} role={blocked ? 'alert' : 'status'}>
+      <span className="alert-icon">{blocked ? <IconAlert /> : <IconWarn />}</span>
+      <div className="alert-body">
+        <strong>Platte zu {p} % belegt{blocked ? ' – Deploys gesperrt' : ''}</strong>
+        <span>{gb(s?.server.diskUsedBytes)} von {gb(s?.server.diskTotalBytes)} GB. {blocked ? 'Erst nach dem Aufräumen lässt sich wieder deployen.' : `Ab ${DISK_BLOCK_PERCENT} % nimmt Airlock keine Deploys mehr an.`}</span>
       </div>
-      <div className="meters">
-        {rows.map((r) => (
-          <div key={r.label}>
-            <div className="meter-head"><span>{r.label}</span><span className="num">{r.value}</span></div>
-            <div className="meter-track" role="progressbar" aria-label={r.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r.p ?? undefined}>
-              <div className={`meter-fill${r.p !== null && r.p >= 90 ? ' tone-bad' : r.p !== null && r.p >= 75 ? ' tone-warn' : ''}`} style={{ width: `${r.p ?? 0}%` }} />
-            </div>
-          </div>
-        ))}
-        {/* Nacht 3, Etappe 3: ab 80 % ein Hinweis mit Text (nicht nur die Farbe des Balkens) */}
-        {typeof srv?.diskPercent === 'number' && srv.diskPercent >= DISK_HINT_PERCENT && (
-          <p className="meter-hint">
-            <strong>Platte zu {srv.diskPercent} % belegt{srv.diskPercent >= DISK_BLOCK_PERCENT ? ' – Deploys gesperrt' : ''}.</strong>{' '}
-            <Link to="/server/speicher">Aufräumen</Link>
-          </p>
-        )}
-        <div className="meter-note">
-          Scanner: {q === 0 ? 'bereit, nichts in der Warteschlange' : q === 1 ? '1 Scan läuft' : `${q} Scans in der Warteschlange`}
-        </div>
+      <div className="alert-actions">
+        <Link className="button" to="/server/speicher">Aufräumen</Link>
       </div>
-    </section>
+    </div>
   )
 }

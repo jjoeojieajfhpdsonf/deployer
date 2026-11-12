@@ -64,7 +64,7 @@ const realDeps: TrafficRouteDeps = {
  * GET  /projects/:id/access/stream?since=<ISO>
  *      Neue Anfragen live (`data: <AccessEntryDto>`), mit since lückenloser Anschluss
  * GET  /traffic/today (auch /environments/:env/traffic/today)
- *      Aufrufe heute je Projekt der Umgebung (Projektliste)
+ *      Aufrufe und Besucher heute je Projekt der Umgebung (Projektliste)
  * GET  /system/traffic/sources
  *      Stand der DB-IP-Dateien und ob Cloudflare Städte schickt
  * GET  /system/traffic/city-db, POST …/city-db, DELETE …/city-db
@@ -145,7 +145,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: { heartbeatMs?: 
   const today = async (request: FastifyRequest): Promise<TrafficTodayDto> => {
     const ids = await d.visibleProjects(request)
     const all = await d.today()
-    return { views: Object.fromEntries(Object.entries(all).filter(([id]) => ids.has(id))), ingest: d.ingestState() }
+    const only = (m: Record<string, number>) => Object.fromEntries(Object.entries(m).filter(([id]) => ids.has(id)))
+    return { views: only(all.views), visitors: only(all.visitors), ingest: d.ingestState() }
   }
   app.get('/traffic/today', today)
   app.get('/environments/:env/traffic/today', today)

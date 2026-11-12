@@ -118,7 +118,7 @@ command -v docker >/dev/null || fail "docker fehlt"
 for f in smoke-beobachten smoke-durchsetzen smoke-abgeschottet; do [ -f "$GOLDEN/$f.nft" ] || fail "Vorlage $f.nft fehlt"; done
 
 echo "Baue Firewall-Image ($IMAGE) …"
-docker build -q -t "$IMAGE" --label "$LBL" "$ROOT/firewall" >/dev/null || fail "Build von firewall/ gescheitert"
+docker build -q -t "$IMAGE" --label "$LBL" --label homebento.ignore=true "$ROOT/firewall" >/dev/null || fail "Build von firewall/ gescheitert"
 
 nft_host list tables >/dev/null 2>&1 || fail "nft im Container geht nicht (NET_ADMIN? nf_tables im Kernel?)"
 if nft_host list table inet "$TABLE" >/dev/null 2>&1; then
@@ -128,8 +128,8 @@ fi
 PROD_BEFORE="$(nft_host list table inet airlock 2>/dev/null | grep -v '^#' || true)"
 
 echo "Test-Netze und -Container …"
-docker network create --label "$LBL" "$NET" >/dev/null
-docker network create --label "$LBL" "$OTHER" >/dev/null
+docker network create --label "$LBL" --label homebento.ignore=true "$NET" >/dev/null
+docker network create --label "$LBL" --label homebento.ignore=true "$OTHER" >/dev/null
 NETID="$(docker network inspect -f '{{.Id}}' "$NET")"
 BRID="${NETID:0:12}"
 BRIDGE="br-${BRID}"
@@ -147,16 +147,16 @@ P_ALLOW=$((20000 + RANDOM % 5000))
 P_DENY=$((P_ALLOW + 1))
 
 # Dienst wie in compose.yaml, eigene Tabelle/Gruppen/Ordner
-docker run -d --name "$FW" --label "$LBL" --net host --cap-drop ALL --cap-add NET_ADMIN \
+docker run -d --name "$FW" --label "$LBL" --label homebento.ignore=true --net host --cap-drop ALL --cap-add NET_ADMIN \
   --read-only --tmpfs /tmp --security-opt no-new-privileges:true --memory 64m --pids-limit 64 \
   -e AIRLOCK_FW_TABLE="$TABLE" -e AIRLOCK_FW_OBSERVE_GROUP="$OG" -e AIRLOCK_FW_BLOCK_GROUP="$BG" \
   -v "$WORK:/firewall" "$IMAGE" >/dev/null
 # Lauscher: Projekt-Dienst im Test-Netz, Container in einem anderen Netz, zwei Ports auf dem Server (nur am Gateway)
-docker run -d --name "$WEBC" --label "$LBL" --network "$NET" --network-alias "$WEB" "$IMAGE" nc -lk -p 8000 -e true >/dev/null
-docker run -d --name "$OTHERC" --label "$LBL" --network "$OTHER" "$IMAGE" nc -lk -p 8000 -e true >/dev/null
-docker run -d --name "$HOSTL" --label "$LBL" --net host "$IMAGE" sh -c \
+docker run -d --name "$WEBC" --label "$LBL" --label homebento.ignore=true --network "$NET" --network-alias "$WEB" "$IMAGE" nc -lk -p 8000 -e true >/dev/null
+docker run -d --name "$OTHERC" --label "$LBL" --label homebento.ignore=true --network "$OTHER" "$IMAGE" nc -lk -p 8000 -e true >/dev/null
+docker run -d --name "$HOSTL" --label "$LBL" --label homebento.ignore=true --net host "$IMAGE" sh -c \
   "nc -lk -s $GW -p $P_ALLOW -e true & nc -lk -s $GW -p $P_DENY -e true & wait" >/dev/null
-docker run -d --name "$CLI" --label "$LBL" --network "$NET" "$IMAGE" sleep 3600 >/dev/null
+docker run -d --name "$CLI" --label "$LBL" --label homebento.ignore=true --network "$NET" "$IMAGE" sleep 3600 >/dev/null
 OTHER_IP="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$OTHER\").IPAddress}}" "$OTHERC")"
 sleep 2
 docker exec "$FW" sh -c 'cat /tmp/tcpdump-*.err 2>/dev/null' | grep -q "listening on nflog" || {
