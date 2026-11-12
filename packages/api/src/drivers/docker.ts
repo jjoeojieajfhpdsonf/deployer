@@ -425,6 +425,124 @@ export async function removeProjectVolumes(composeProject: string): Promise<stri
   return removed
 }
 
+/* --- Nacht 3, Etappe 3: Speicher (docker system df) und Aufräumen ---------- */
+
+export interface DfImage { id: string; tags: string[]; labels: Record<string, string>; size: number; sharedSize: number; created: number; containers: number }
+export interface DfContainer { id: string; names: string[]; labels: Record<string, string>; state: string; created: number; sizeRw: number; imageId: string; mounts: string[] }
+export interface DfVolume { name: string; labels: Record<string, string>; size: number | null; refCount: number | null; createdAt: string | null }
+export interface DfBuildCache { id: string; size: number; inUse: boolean; shared: boolean; lastUsedAt: string | null; createdAt: string | null }
+export interface SystemDf { layersSize: number; images: DfImage[]; containers: DfContainer[]; volumes: DfVolume[]; buildCache: DfBuildCache[] }
+
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+/**
+ * GET /system/df (wie `docker system df -v`). Braucht im Socket-Proxy
+ * SYSTEM=1 (nur lesend; unter /system gibt es keine schreibende Route).
+ * Volumes: Docker rechnet die Grösse jedes Volumes aus – das kann dauern.
+ */
+export async function systemDf(timeoutMs = 120_000): Promise<SystemDf> {
+  const raw = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    docker.modem.dial({
+      path: '/system/df?',
+      method: 'GET',
+      options: { _query: { type: ['image', 'container', 'volume', 'build-cache'] } },
+      abortSignal: AbortSignal.timeout(timeoutMs),
+      statusCodes: { 200: true, 400: 'bad parameter', 403: 'forbidden', 500: 'server error' },
+    } as never, (err: unknown, data: unknown) => (err ? reject(err) : resolve((data ?? {}) as Record<string, unknown>)))
+  })
+  const arr = (k: string) => (Array.isArray(raw[k]) ? (raw[k] as Record<string, unknown>[]) : [])
+  return {
+    layersSize: num(raw.LayersSize),
+    images: arr('Images').map((i) => ({
+      id: String(i.Id ?? ''),
+      tags: ((i.RepoTags as string[] | null) ?? []).filter((t) => t && t !== '<none>:<none>'),
+      labels: (i.Labels as Record<string, string> | null) ?? {},
+      size: num(i.Size),
+      sharedSize: num(i.SharedSize),
+      created: num(i.Created),
+      containers: num(i.Containers),
+    })),
+    containers: arr('Containers').map((c) => ({
+      id: String(c.Id ?? ''),
+      names: ((c.Names as string[] | null) ?? []).map((n) => n.replace(/^\//, '')),
+      labels: (c.Labels as Record<string, string> | null) ?? {},
+      state: String(c.State ?? ''),
+      created: num(c.Created),
+      sizeRw: num(c.SizeRw),
+      imageId: String(c.ImageID ?? ''),
+      mounts: ((c.Mounts as { Name?: string; Type?: string }[] | null) ?? []).filter((m) => m.Type === 'volume' && m.Name).map((m) => m.Name!),
+    })),
+    volumes: arr('Volumes').map((v) => {
+      const u = v.UsageData as { Size?: number; RefCount?: number } | null | undefined
+      return {
+        name: String(v.Name ?? ''),
+        labels: (v.Labels as Record<string, string> | null) ?? {},
+        size: u && typeof u.Size === 'number' && u.Size >= 0 ? u.Size : null,
+        refCount: u && typeof u.RefCount === 'number' && u.RefCount >= 0 ? u.RefCount : null,
+        createdAt: typeof v.CreatedAt === 'string' ? v.CreatedAt : null,
+      }
+    }),
+    buildCache: arr('BuildCache').map((b) => ({
+      id: String(b.ID ?? ''),
+      size: num(b.Size),
+      inUse: b.InUse === true,
+      shared: b.Shared === true,
+      lastUsedAt: typeof b.LastUsedAt === 'string' ? b.LastUsedAt : null,
+      createdAt: typeof b.CreatedAt === 'string' ? b.CreatedAt : null,
+    })),
+  }
+}
+
+/**
+ * Image entfernen (nie erzwungen): Docker lehnt ab, solange ein Container es
+ * benutzt (409). Gibt false zurück, wenn es schon weg war.
+ */
+export async function removeImage(id: string): Promise<boolean> {
+  try {
+    await docker.getImage(id).remove({ force: false, noprune: false })
+    return true
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return false
+    throw err
+  }
+}
+
+/**
+ * Build-Cache, der länger als `untilHours` nicht benutzt wurde (POST
+ * /build/prune, nur unbenutzte Einträge). Build-Cache trägt keine Labels –
+ * er enthält aber auch keine Daten, nur Zwischenstände von Builds.
+ */
+export async function pruneBuildCache(untilHours: number): Promise<number> {
+  const res = await new Promise<{ SpaceReclaimed?: number }>((resolve, reject) => {
+    docker.modem.dial({
+      path: '/build/prune?',
+      method: 'POST',
+      options: { _query: { filters: { until: [`${untilHours}h`] } }, _body: {} },
+      abortSignal: AbortSignal.timeout(10 * 60_000),
+      statusCodes: { 200: true, 400: 'bad parameter', 403: 'forbidden', 500: 'server error' },
+    } as never, (err: unknown, data: unknown) => (err ? reject(err) : resolve((data ?? {}) as { SpaceReclaimed?: number })))
+  })
+  return num(res.SpaceReclaimed)
+}
+
+/** Gestoppten Container entfernen, nie erzwungen: läuft er inzwischen, lehnt Docker ab (409). */
+export async function removeStoppedContainer(id: string): Promise<void> {
+  try {
+    await docker.getContainer(id).remove({ force: false, v: false })
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode !== 404) throw err
+  }
+}
+
+/** Ein Volume löschen (nie erzwungen: eingehängt → 409). */
+export async function removeVolume(name: string): Promise<void> {
+  try {
+    await docker.getVolume(name).remove()
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode !== 404) throw err
+  }
+}
+
 /** Subnetze eines Netzes, z.B. fuer die Sperrliste der Repo-URLs. */
 /** IPv4-Adresse eines Containers in einem Netz; null, wenn nicht vorhanden. */
 export async function containerIp(container: string, network: string): Promise<string | null> {

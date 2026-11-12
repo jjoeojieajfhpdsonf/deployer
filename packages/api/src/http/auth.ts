@@ -270,6 +270,8 @@ export const SUDO_ROUTES: readonly string[] = [
   // Ersetzen (PUT …/git-access) fragt der Handler nur, wenn es schon einen Zugang gibt.
   'DELETE /api/v1/projects/:id/git-access',
   'DELETE /api/v1/projects/:id/git-access/host-key',
+  // Nacht 3, Etappe 3: verwaistes Volume löschen (darin liegen Daten; dazu Namen eintippen)
+  'DELETE /api/v1/system/storage/volumes/:name',
 ]
 const sudoRoutes = new Set(SUDO_ROUTES)
 
@@ -351,6 +353,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
       // das Ziel sonst auf einen fremden Speicher umstellen und alle Daten abziehen.
       if (route.startsWith('/api/v1/system/backup')) {
         throw new AppError('forbidden', 'Das Backup lässt sich nur mit einer Anmeldung einrichten und auslösen, nicht mit einem API-Token', 403)
+      }
+      // Nacht 3, Etappe 3: Speicher – die Liste nennt Volumes und Projekte aller Umgebungen,
+      // Aufräumen und Volumes löschen nur mit Anmeldung. MCP liest Summen (get_disk_usage).
+      if (route.startsWith('/api/v1/system/storage')) {
+        throw new AppError('forbidden', 'Speicher und Aufräumen gibt es nur mit einer Anmeldung, nicht mit einem API-Token (MCP: get_disk_usage)', 403)
       }
       // Etappe 3: Städte-Datenbank laden/entfernen (Download bei DB-IP) nur mit Anmeldung
       if (route.startsWith('/api/v1/system/traffic') && request.method !== 'GET') {

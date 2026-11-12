@@ -35,11 +35,8 @@ import { conflict, badRequest, AppError } from '../lib/errors.js'
 import { log } from '../lib/log.js'
 import { PREVIEW_SECRET_MISSING, previewSecretsMissingMessage, type DeploymentDto, type DeployReason } from '@airlock/shared'
 import { isOwnImage } from '../lib/names.js'
-
-/** Wie viele erfolgreiche Fassungen pro Projekt für ein Rollback aufgehoben werden. */
-export const KEEP_VERSIONS = 5
-/** Wie viele fehlgeschlagene Versuche (wegen ihrer Logs) aufgehoben werden. */
-export const KEEP_FAILED = 10
+import { keptDeploymentIds } from '../storage/plan.js'
+import { assertDiskRoom, keepVersionsSetting } from '../storage/service.js'
 
 type Project = typeof schema.projects.$inferSelect
 type Deployment = typeof schema.deployments.$inferSelect
@@ -127,6 +124,9 @@ async function reasonAtStart(project: Project, actor: string, job: Job, explicit
 }
 
 async function startJob(project: Project, actor: string, job: Job, o: StartOptions = {}): Promise<DeploymentDto> {
+  // Nacht 3, Etappe 3: ab 95 % belegter Platte keine Deploys (auch Auto-Deploy, Vorschau, MCP).
+  // Rollback und «Neu erstellen» brauchen kein neues Image und bleiben möglich.
+  if (job.kind === 'deploy') await assertDiskRoom()
   const lock = await tryLockProject(project.id)
   if (!lock) throw conflict('Für dieses Projekt läuft bereits ein Deploy')
 
@@ -720,8 +720,9 @@ async function cleanupFailed(projectId: string, deploymentId: string): Promise<v
 }
 
 /**
- * Aufbewahrung: die aktive Fassung, die letzten KEEP_VERSIONS erfolgreichen
- * und die letzten KEEP_FAILED übrigen (wegen ihrer Logs). Was herausfällt,
+ * Aufbewahrung: die aktive Fassung, die letzten «keepVersions» erfolgreichen
+ * (Server › Speicher, Standard 5) und die letzten KEEP_FAILED übrigen (wegen
+ * ihrer Logs, storage/plan.ts). Was herausfällt,
  * verliert Zeile, Artefakt-Ordner und gebaute Images – ausser ein
  * aufbewahrter Eintrag verweist noch auf dasselbe Image (Rollbacks teilen es).
  */
@@ -732,15 +733,8 @@ export async function pruneOldDeployments(projectId: string): Promise<void> {
     .where(eq(schema.deployments.projectId, projectId))
     .orderBy(desc(schema.deployments.startedAt))
 
-  const keep = new Set<string>()
-  let good = 0
-  let other = 0
-  for (const r of rows) {
-    if (r.isActive) keep.add(r.id)
-    else if (r.status === 'superseded') { if (good++ < KEEP_VERSIONS) keep.add(r.id) }
-    else if (r.status === 'pending' || r.status === 'pulling' || r.status === 'starting' || r.status === 'healthchecking') keep.add(r.id)
-    else if (other++ < KEEP_FAILED) keep.add(r.id)
-  }
+  // Nacht 3, Etappe 3: Grenze einstellbar (Server › Speicher), Regel gemeinsam mit dem Aufräumen
+  const keep = keptDeploymentIds(rows, await keepVersionsSetting())
 
   const imagesInUse = new Set<string>()
   for (const r of rows) {
@@ -757,6 +751,8 @@ export async function pruneOldDeployments(projectId: string): Promise<void> {
     }
     await dropArtifactDir(r.id)
     await rm(scanSourceDir(r.id), { recursive: true, force: true }).catch(() => {})
+    // Nacht 3, Etappe 3: auch das Deploy-Log der Fassung (blieb bisher liegen)
+    await rm(logPathFor(r.id), { force: true }).catch(() => {})
     await db.delete(schema.deployments).where(eq(schema.deployments.id, r.id))
   }
 }

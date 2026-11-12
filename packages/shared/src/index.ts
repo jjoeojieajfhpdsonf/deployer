@@ -979,6 +979,8 @@ export interface SystemStatusDto {
     memTotalBytes: number | null
     diskUsedBytes: number | null
     diskTotalBytes: number | null
+    /** Nacht 3, Etappe 3: belegt in Prozent wie `df` (Hinweis ab 80 %, Deploys gesperrt ab 95 %) */
+    diskPercent?: number | null
   }
   scanQueue: number
   /** M5: Cloudflare Tunnel */
@@ -1474,3 +1476,5 @@ export * from './fun.js'
 export * from './auth.js'
 // Nacht 3, Etappe 2: private Git-Repos (GitHub-App, Deploy-Key, Token, Server-Schlüssel)
 export * from './git.js'
+// Nacht 3, Etappe 3: Server › Speicher (Belegung, Aufräumen, verwaiste Volumes, Warnstufen)
+export * from './storage.js'

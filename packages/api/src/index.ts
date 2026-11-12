@@ -8,6 +8,7 @@ import { pruneSessions } from './auth/store-pg.js'
 import { buildApp } from './http/app.js'
 import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
+import { startStorageJobs } from './storage/service.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
@@ -98,6 +99,8 @@ async function main(): Promise<void> {
   startGatewayJob()
 
   startCleanupJob()
+  // Nacht 3, Etappe 3: wöchentliches Aufräumen (Server › Speicher), Platte ab 90 % melden
+  startStorageJobs()
   startExpiryJob()
   // M6
   await abandonUnfinishedScans()
