@@ -33,6 +33,9 @@ COPY --from=build /app/packages/api/migrations ./packages/api/migrations
 COPY --from=build /app/packages/api/node_modules ./packages/api/node_modules
 COPY --from=build /app/packages/web/dist ./packages/web/dist
 ENV WEB_DIST=/app/packages/web/dist
+# Notausgang (Nacht 3): «docker exec airlock-app node dist/cli.js reset-2fa admin»
+# – dist/ im Arbeitsverzeichnis zeigt auf die gebaute API (packages/api/dist/cli.js).
+RUN ln -s packages/api/dist /app/dist && test -f /app/dist/cli.js
 
 # Laeuft bewusst als root INNERHALB des Containers: der Prozess braucht den
 # Caddy-Admin-Socket (von Caddy mit 0200 root angelegt). Ein unprivilegierter
