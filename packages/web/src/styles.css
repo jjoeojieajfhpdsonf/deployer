@@ -2202,7 +2202,8 @@ form.failure-fix .form-actions { margin: 0; }
 .vs-line-visitors { fill: none; stroke: var(--chart-visitors); stroke-width: 1.5; stroke-dasharray: 5 4; stroke-linejoin: round; }
 .vs-fill-top { stop-color: var(--chart-public); stop-opacity: 0.22; }
 .vs-fill-bottom { stop-color: var(--chart-public); stop-opacity: 0; }
-.vs-dot { fill: var(--chart-public); }
+/* Einzelner Wert ohne Nachbarn: kurze Linie mit runden Enden = runder Punkt (auch bei gestrecktem SVG) */
+.vs-dot { stroke: var(--chart-public); stroke-width: 7; stroke-linecap: round; }
 .vs-bar { fill: var(--vs-c); }
 .vs-cross { stroke: var(--ink-dim); stroke-width: 1; }
 .vs-hit { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--chart-public); box-shadow: 0 0 0 2px var(--surface); pointer-events: none; }

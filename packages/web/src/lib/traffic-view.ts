@@ -33,6 +33,33 @@ export function metricValue(p: Pick<TrafficPointDto, 'views' | 'visitors' | 'not
 /** Dezimalzahl mit Komma wie in der Vorlage («7,9»): der Punkt von de-CH steht in Cal Sans wie eine Lücke */
 export const fmtDecimal = (v: number, digits = 1) => v.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
+/**
+ * Werte der Kurve für eine Kennzahl. Besonderheit «Seiten pro Besuch» in
+ * Stunden: Besucher zählen nur in der Stunde ihres ersten Aufrufs, eine
+ * einzelne Stunde hat also meist Aufrufe ohne Besucher (kein Wert) oder
+ * einen Besucher mit nur einem Aufruf. Darum dort der laufende Schnitt des
+ * Tages: Aufrufe ÷ Besucher seit Mitternacht bis zum Ende der Stunde. Tage,
+ * Wochen, Monate rechnen je Abschnitt.
+ */
+export function metricSeries(series: Pick<TrafficPointDto, 'at' | 'views' | 'visitors' | 'notFound' | 'bots'>[], m: TrafficMetric, bucket: TrafficBucket): (number | null)[] {
+  if (m !== 'pagesPerVisit' || bucket !== 'hour') return series.map((p) => metricValue(p, m))
+  let day = ''
+  let views = 0
+  let visitors = 0
+  return series.map((p) => {
+    const d = dateOf(p.at)
+    const key = d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : ''
+    if (key !== day) {
+      day = key
+      views = 0
+      visitors = 0
+    }
+    views += p.views
+    visitors += p.visitors
+    return visitors > 0 ? views / visitors : null
+  })
+}
+
 /** Zahl einer Kennzahl für die Anzeige (Seiten pro Besuch mit einer Nachkommastelle) */
 export const fmtMetric = (v: number | null, m: TrafficMetric) => (v === null ? '–' : m === 'pagesPerVisit' ? fmtDecimal(v) : nf(Math.round(v)))
 

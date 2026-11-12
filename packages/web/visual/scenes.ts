@@ -21,7 +21,7 @@ export const VISUAL_SCENES = [
   'besucher', 'besucher-staedte', 'besucher-tailnet', 'besucher-intern', 'besucher-leer', 'besucher-wartet', 'besucher-aus', 'besucher-wert',
   'projekt-uebersicht-besucher', 'projekte-besucher',
   // Besucher neu: Messbeginn im Zeitraum, Säulen, Heute, 12 Monate, Kennzahl als Kurve, Europa, Einstieg, Server › Besucher
-  'besucher-messbeginn', 'besucher-saeulen', 'besucher-heute', 'besucher-12-monate', 'besucher-kennzahl', 'besucher-europa', 'besucher-einstieg',
+  'besucher-messbeginn', 'besucher-saeulen', 'besucher-heute', 'besucher-12-monate', 'besucher-kennzahl', 'besucher-seiten-pro-besuch', 'besucher-europa', 'besucher-einstieg',
   'server-besucher', 'server-besucher-geladen',
   'projekt-security', 'projekt-security-laeuft', 'projekt-einstellungen', 'veroeffentlichung-live', 'veroeffentlichung-pausiert',
   // Öffentliche Adressen: Name · Domain, Vorschau, Prüfung (frei, fremder DNS-Eintrag, apex mit Worker, Neues Projekt)
