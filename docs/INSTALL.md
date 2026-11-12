@@ -105,6 +105,12 @@ Danach legt Claude über MCP (`propose_fix`) für Projekte aus diesen Repos eine
 
 Wenn etwas schiefgeht: Die Rückleitung ist eine Stunde gültig; danach auf der Seite neu starten. Eine schon angelegte, aber nicht verbundene App bei GitHub unter Settings → Developer settings → GitHub Apps löschen. «Verbindung trennen» in Airlock löscht Schlüssel und Secrets, nicht die App bei GitHub.
 
+### Private Repos
+
+- **GitHub:** Ein privates Repo deployt Airlock über die App, sobald es in der Installation freigegeben ist (GitHub → Settings → Applications → die App → Configure → Repository access). An den Rechten der App ändert sich nichts: zum Klonen holt Airlock ein eigenes Token mit nur «Contents: read» für dieses eine Repo.
+- **GitLab, Gitea, eigener Server:** Neues Projekt → Repo-Adresse als SSH (`git@gitlab.com:user/app.git`) → Zugang «Deploy-Key» → **Deploy-Key erzeugen** → den öffentlichen Schlüssel beim Repo eintragen (GitLab: Settings → Repository → Deploy keys, «Grant write permissions» aus) → **Repo prüfen** → Fingerabdruck des Servers mit dem veröffentlichten vergleichen (GitLab.com: docs.gitlab.com, «SSH host keys fingerprints») und bestätigen. Alternativ «Zugangstoken (HTTPS)» mit einem Token, das nur lesen darf (GitLab: `read_repository`).
+- Prüfen, dass das Image ssh mitbringt und ein Clone per Deploy-Key klappt (baut das Image, startet einen Wegwerf-Git-Server, braucht nur `docker`): `scripts/smoke-git-privat.sh` – endet mit «OK: privates Repo per Deploy-Key geklont».
+
 ## 5. Passkey und zweiter Faktor (empfohlen)
 
 Konto (Profil-Menü) → **Sicherheit**. Jede Änderung dort fragt einmal nach dem Passwort (erneute Bestätigung, gilt 10 Minuten).

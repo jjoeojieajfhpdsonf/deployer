@@ -291,6 +291,20 @@ An Claude gehen nur der Befund und die betroffenen Dateien, nie Secrets oder Wer
 - Die Rückleitung nach der Anmeldung läuft über den Browser, Airlock muss dafür nicht öffentlich erreichbar sein.
 - Damit werden auch private Repos als Quelle möglich (bisher nur öffentliche).
 
+### Private Git-Repos
+
+Umgesetzt in Nacht 3, Etappe 2 (Migration 0025, `domain/git-access.ts`, `lib/git.ts`, `lib/ssh-key.ts`).
+
+- **GitHub über die App:** Für Deploy, Auto-Deploy und Vorschauen (auch von Fix-Branches) holt Airlock pro Vorgang ein Installations-Token mit nur «Contents: read» für genau dieses Repo (eine Stunde gültig) und klont als `x-access-token`. Fix-Pull-Requests behalten ihr Schreib-Token. Steht ein Repo nicht in der gespeicherten Liste der Installation, fragt Airlock die Liste einmal frisch ab. Bekommt die App kein Token, versucht Airlock es ohne (öffentliches Repo deployt weiter).
+- **Andere Anbieter (GitLab, Gitea, eigener Server):** pro Projekt ein Zugang in `git_credentials`, höchstens einer:
+  - **Deploy-Key:** ed25519, erzeugt mit `node:crypto` und im OpenSSH-Format geschrieben; der öffentliche Schlüssel erscheint zum Kopieren («Bei GitLab unter Deploy Keys eintragen, nur lesend»), der private liegt AES-GCM-verschlüsselt mit der Schlüsseldatei. Repo-Adresse dann als SSH (`git@host:pfad` oder `ssh://git@host[:port]/pfad`).
+  - **Zugangstoken (HTTPS):** Benutzername (Standard `oauth2`) und Token, verschlüsselt. Nur über `https://`, nie über `http://`.
+- **Server-Schlüssel (TOFU):** Beim ersten «Repo prüfen» mit Deploy-Key holt Airlock die Schlüssel des Git-Servers (`ssh-keyscan` an die geprüfte Adresse) und zeigt die Fingerabdrücke; erst nach «Fingerabdruck stimmt» verbindet es, danach nur noch mit `StrictHostKeyChecking=yes` gegen genau diese (HostKeyAlias = Name bzw. `[name]:port`). Ein anderer Schlüssel ist ein harter Fehler («kann ein Angriff sein»); neu bestätigen geht nur nach «Server neu bestätigen» (erneute Bestätigung).
+- **Nie nach aussen:** Token und Schlüssel stehen nur in der Umgebung bzw. einer 0600-Datei des git-Kindprozesses (`GIT_CONFIG_COUNT`/`http.extraHeader`, `GIT_SSH_COMMAND -i`, eigener 0700-Ordner, danach gelöscht) – nie in Argumenten, URL, `.git/config` (origin wird nach dem Clone entfernt), Build-Kontext (ohne `.git`), Log, Fehlermeldung (gesäubert), Audit-Parametern oder API-Antworten (nur öffentlicher Schlüssel, Fingerabdrücke, Benutzername). Ein Test durchsucht Log, Ordner und Build-Kontext nach dem Token (`lib/git-auth.test.ts`).
+- **Neues Projekt › Git-Repo:** Abschnitt «Zugang zum Repo» (GitHub-App bzw. öffentlich, Deploy-Key, Token) mit «Repo prüfen» (`git ls-remote` über genau den Weg des späteren Deploys). Klare Meldungen mit Weg, z. B. «Die GitHub-App hat keinen Zugriff auf dieses Repo – in GitHub unter Installation › Repository access freigeben» mit Link. Der Server prüft vor dem Anlegen noch einmal (auch über API und MCP) und lehnt mit 400 am Feld ab. Ein beim Anlegen erzeugter Zugang gilt 24 Stunden, bis er einem Projekt gehört.
+- **Einstellungen › Repo-Zugang:** Weg, öffentlicher Schlüssel, bestätigter Server, zuletzt benutzt; Prüfen, Deploy-Key einrichten, Token hinterlegen. Ersetzen (wenn schon einer da ist), Entfernen und «Server neu bestätigen» verlangen die erneute Bestätigung (sudo).
+- **Rechte:** Zugänge und Server-Schlüssel nur mit Anmeldung, nie mit API-Token oder MCP (`/api/v1/git/*`, `/projects/:id/git-access`). Öffentliche Repos gehen wie bisher ohne Zugang.
+
 ### Automatisch deployen nach Merge
 
 Pro Projekt einstellbar (`auto_deploy`): Airlock prüft alle 5 Minuten, ob der Deploy-Branch einen neuen Commit hat, und deployt dann neu. Kein Webhook, weil Airlock nie öffentlich erreichbar ist. Ein Befund, der nach dem Nachscan fehlt, wird als behoben markiert; beim Pull Request hinterlässt Airlock einen Kommentar mit dem Ergebnis.
@@ -665,6 +679,7 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 | Finding | `id`, `scan_run_id`, `tool`, `severity`, `title`, `location`, `fix`, `status` (`open`, `accepted`, `fixed`), `accept_reason` |
 | HeaderRule | `id`, `project_id`, `header`, `value`, `mode` (`report-only`, `enforce`), `created_at` |
 | GitConnection | `id`, `provider` (`github`, `gitlab`), `app_id`, `installation_id`, `repos`, `private_key_encrypted`, `created_at` |
+| GitCredential | `id`, `project_id` (eindeutig, leer bis zum Anlegen), `kind` (`ssh_key`, `https_token`), `public_key`, `private_key_enc`, `username`, `token_enc`, `host`, `known_hosts`, `host_confirmed_at`, `last_used_at` |
 | FixRequest | `id`, `finding_id`, `way` (`mcp`, `api`), `status` (`proposed`, `applied`, `pr_open`, `merged`, `verified`, `rejected`), `branch`, `pr_url`, `diff`, `created_at` |
 | SecurityEvent | `id`, `project_id`, `source` (`crowdsec`, `cloudflare`, `drift`, `falco`), `severity`, `kind`, `ip`, `details`, `at`, `status` (`open`, `acknowledged`) |
 | ApiToken | `id`, `name`, `token_hash`, `last_used_at`, `revoked_at` |
@@ -701,7 +716,7 @@ Umgesetzt in Nacht 3, Etappe 1 (für das eine Konto; die Stufen für mehrere Ben
 - **TOTP** (RFC 6238, eigener Code mit `node:crypto`): SHA-1, 6 Ziffern, 30 s, ±1 Zeitfenster, jedes Fenster nur einmal (atomar über `last_step`). Aktiv erst nach einem richtigen Code; Geheimnis AES-GCM-verschlüsselt mit der Schlüsseldatei.
 - **Wiederherstellungscodes:** 10 × 12 Zeichen (Crockford-Base32, 60 Bit), gespeichert als HMAC-SHA256 mit einem Schlüssel aus der Schlüsseldatei, je einmal gültig; beim ersten Faktor automatisch, sonst «Neue Codes erzeugen». Einmal angezeigt, Download als .txt.
 - **Pflicht:** «Zweiter Faktor erforderlich» ist Standard an, aber nur wirksam, wenn ein Faktor eingerichtet ist (nie aussperren). Dann braucht jede Anmeldung Passkey oder Passwort + TOTP bzw. Wiederherstellungscode (zweiter Schritt über ein kurzes Cookie, 5 Minuten, höchstens 5 Versuche).
-- **Erneute Bestätigung (sudo, 10 Minuten)** serverseitig für: öffentlich schalten (auch Fortsetzen und Anfrage freigeben), Projekt löschen, API-Token anlegen, Backup zurückholen, jede 2FA-Änderung, Passkey hinzufügen/löschen. Antwort ohne Bestätigung: 403 `sudo_required`; die Oberfläche fragt (Passkey oder Passwort, mit Pflicht zusätzlich Code) und wiederholt die Aktion. API-Tokens und MCP bleiben ohne 2FA und ohne sudo.
+- **Erneute Bestätigung (sudo, 10 Minuten)** serverseitig für: öffentlich schalten (auch Fortsetzen und Anfrage freigeben), Projekt löschen, API-Token anlegen, Backup zurückholen, jede 2FA-Änderung, Passkey hinzufügen/löschen, Repo-Zugang ersetzen/entfernen und Git-Server neu bestätigen (Etappe 2). Antwort ohne Bestätigung: 403 `sudo_required`; die Oberfläche fragt (Passkey oder Passwort, mit Pflicht zusätzlich Code) und wiederholt die Aktion. API-Tokens und MCP bleiben ohne 2FA und ohne sudo.
 - **Sperre:** 5 Fehlversuche (Passwort, Code) je Adresse und je Konto → 15 Minuten, jede weitere Sperre doppelt so lang (höchstens 24 Stunden). Gilt nicht für Passkeys; eine Passkey-Anmeldung hebt Sperren auf. Alles, was ein Passwort prüft, dauert mindestens 800 ms (gleich bei richtig und falsch, auch ohne gespeichertes Passwort). Fehlversuche (`auth.login` mit Grund und Adresse) und Sperren (`auth.lockout`) stehen im Audit-Log.
 - **Notausgang:** `docker exec airlock-app node dist/cli.js reset-2fa admin` (siehe INSTALL.md) entfernt alle Faktoren, meldet alle Sitzungen ab, schreibt `auth.2fa.reset`.
 
