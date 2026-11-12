@@ -320,7 +320,7 @@ export async function projectIntrusionDto(p: Project): Promise<ProjectIntrusionD
   const allow = await db.select().from(schema.intrusionAllow).where(eq(schema.intrusionAllow.projectId, p.id)).orderBy(schema.intrusionAllow.createdAt)
   return {
     watch: {
-      state: kind === 'static' ? 'statisch' : !recent.length ? 'ohne-container' : learning.length ? 'lernt' : 'aktiv',
+      state: p.sourceType === 'external' ? 'extern' : kind === 'static' ? 'statisch' : !recent.length ? 'ohne-container' : learning.length ? 'lernt' : 'aktiv',
       learnUntil: learning.length ? new Date(Math.max(...learning.map((c) => c.learnUntil.getTime()))).toISOString() : null,
       containers: recent.length,
       lastCheckAt: lastCheck ? lastCheck.toISOString() : null,

@@ -275,6 +275,7 @@ const WATCH_TEXT: Record<ProjectIntrusionDto['watch']['state'], string> = {
   lernt: 'Lernt die Grundlinie',
   'ohne-container': 'Kein laufender Container',
   statisch: 'Dateien werden stündlich geprüft',
+  extern: 'Web und Netz',
 }
 
 /**
@@ -327,7 +328,8 @@ export function ProjectIntrusion({ p }: { p: ProjectDto }) {
     onSuccess: (r) => { done(r); notifyOk('Wieder überwacht', { id: `intrusion-normal-${p.id}` }) },
   })
   const active = d?.incidents.filter((i) => i.status !== 'erledigt') ?? []
-  const isStatic = p.runtimeKind === 'static'
+  // Ohne eigenen Container: kein Stoppen bei Vorfällen, kein Isolieren (bestehender Dienst: Airlock fasst ihn nicht an)
+  const isStatic = p.runtimeKind === 'static' || p.sourceType === 'external'
 
   return (
     <section className="set-card intrusion-card" aria-labelledby={titleId}>
@@ -351,6 +353,7 @@ export function ProjectIntrusion({ p }: { p: ProjectDto }) {
             {d.watch.state === 'lernt' && d.watch.learnUntil ? `Neue Container lernen bis ${fmtDateTime(d.watch.learnUntil)}, welche Programme und Dateien normal sind. Danach meldet Airlock Neues.`
               : d.watch.state === 'aktiv' ? `${d.watch.containers} Container: Prozesse jede Minute, Dateien alle 5 Minuten${lastCheck(d.watch.lastCheckAt)}`
                 : d.watch.state === 'statisch' ? `Die ausgelieferten Dateien werden stündlich mit der Fassung verglichen${lastCheck(d.watch.lastCheckAt)}`
+                : d.watch.state === 'extern' ? 'Bestehender Dienst: Airlock beobachtet die Anfragen an seine Adressen (Web) und das Netz. Prozesse und Dateien eines Containers, den Airlock nicht verwaltet, sieht es nicht.'
                   : 'Sobald ein Container läuft, lernt Airlock seine Grundlinie und prüft dann jede Minute.'}
           </p>
           {d.isolation && (

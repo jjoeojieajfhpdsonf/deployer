@@ -106,6 +106,9 @@ export function Publication({ p, request, onShown }: {
           {s.state === 'live' && <LiveState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
           {s.state === 'paused' && <PausedState p={p} s={s} actions={actions} z={z} titleId={titleId} />}
 
+          {/* Bestehender Dienst / Admin-Oberfläche: öffentlich nur mit Schutz (der Server prüft es bei jedem Weg) */}
+          <AdminGuardNotice p={p} />
+
           {/* Platz für eine vorgemerkte Öffentlich-Anfrage (etwa von MCP), die nach dem Scan wirksam wird */}
           {s.pendingRequest && <div className="set-row-block"><PendingRequest p={p} s={s} /></div>}
           <div className="set-row-block set-row-block-quiet"><ProgressSteps live={actions.progress} last={s.progress} pending={actions.pending} /></div>
@@ -235,7 +238,39 @@ function usePublicNameDraft(initial: () => PublicName, z: Zones) {
 
 /** Fehler des Servers, die am Namensfeld stehen (Zone, belegt, fremder DNS-Eintrag) – nicht die der Schwelle */
 const nameError = (err: Actions['error']) =>
-  err && (err.status === 400 || err.status === 409) && !['not_publishable', 'public_disabled'].includes(err.code) && !/läuft schon/.test(err.message) ? err.message : null
+  err && (err.status === 400 || err.status === 409) && !['not_publishable', 'public_disabled', 'guard_required'].includes(err.code) && !/läuft schon/.test(err.message) ? err.message : null
+
+/**
+ * Bekannte Admin-Oberfläche (Image oder Seitentitel) ohne Schutz: Hinweis mit
+ * Begründung, «Airlock-Login einschalten» und – nach erneuter Bestätigung –
+ * «Ohne Schutz erlauben». Nach dem Übersteuern bleibt ein ruhiger Hinweis mit
+ * «Wieder verbieten».
+ */
+function AdminGuardNotice({ p }: { p: ProjectDto }) {
+  const qc = useQueryClient()
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['project', p.id] })
+    void qc.invalidateQueries({ queryKey: ['public', p.id] })
+  }
+  const login = useMutation({ meta: { errorTitle: 'Airlock-Login nicht eingeschaltet' }, mutationFn: () => api.setAccess(p.id, 'login'), onSuccess: refresh })
+  const override = useMutation({ meta: { errorTitle: 'Nicht übersteuert' }, mutationFn: (on: boolean) => api.adminOverride(p.id, on), onSuccess: refresh })
+  if (!p.adminUi || p.accessGuard === 'login' || p.accessGuard === 'cloudflare') return null
+  const overridden = Boolean(p.adminOverride)
+  return (
+    <div className={`set-row-block admin-guard${overridden ? '' : ' admin-guard-warn'}`} role="note">
+      <p>
+        <IconWarn /> <strong>{p.adminUi.name}</strong> ist eine Verwaltungsoberfläche. Wer sie erreicht, kann Server, Netz oder Daten ändern,
+        und solche Oberflächen werden im Internet gezielt gesucht. {overridden ? 'Ohne Schutz öffentlich ist ausdrücklich erlaubt.' : 'Öffentlich deshalb nur mit Schutz.'}
+      </p>
+      <div className="form-actions">
+        {!overridden && <button type="button" className="button-primary" onClick={() => login.mutate()} disabled={login.isPending}>Airlock-Login einschalten</button>}
+        {overridden
+          ? <button type="button" className="link-button" onClick={() => override.mutate(false)} disabled={override.isPending}>Wieder verbieten</button>
+          : <button type="button" className="link-button" onClick={() => override.mutate(true)} disabled={override.isPending}>Ohne Schutz erlauben …</button>}
+      </div>
+    </div>
+  )
+}
 
 function PrivateState({ p, s, actions, z, titleId, openRequest, onOpened }: {
   p: ProjectDto; s: PublicStatusDto; actions: Actions; z: Zones; titleId: string

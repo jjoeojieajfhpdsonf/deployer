@@ -774,6 +774,8 @@ export interface ProjectDto {
   accessGuard?: AccessGuard
   /** Erkannte Admin-Oberfläche (Image oder Seitentitel); öffentlich nur mit Schutz */
   adminUi?: { key: string; name: string } | null
+  /** Admin-Oberfläche ausdrücklich ohne Schutz öffentlich erlaubt (erneute Bestätigung) */
+  adminOverride?: boolean
   /** M3, nur Quelle files: als was die aktive Fassung erkannt wurde. */
   filesKind: 'compose' | 'dockerfile' | 'static-build' | 'static' | null
   lastChangeAt: string

@@ -135,7 +135,9 @@ export function ProjectDetail() {
     refetchInterval: watching ? false : poll,
   })
   const staticSite = q.data?.project.runtimeKind === 'static'
-  const TABS = staticSite ? ALL_TABS.filter((t) => t !== 'logs') : ALL_TABS
+  // Bestehender Dienst: keine Deploys und keine Container-Logs von Airlock
+  const externalSvc = q.data?.project.sourceType === 'external'
+  const TABS = externalSvc ? ALL_TABS.filter((t) => t !== 'logs' && t !== 'deployments') : staticSite ? ALL_TABS.filter((t) => t !== 'logs') : ALL_TABS
   // Statische Seiten: «Alle Zugriffe» im Aufbau → Einzelaufrufe im Reiter «Besucher»
   const goToLogs = async (service: string | null) => {
     const target = staticSite ? 'besucher' : 'logs'
@@ -234,15 +236,20 @@ export function ProjectDetail() {
         actions={
           <>
             {/* Sichtbar nur das Häufige; alles Weitere im «⋯»-Menü (Rückfragen dort, wie in der Projektkarte) */}
-            {url && isLive(p) && <a className="button" href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
-            <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
-              Neu deployen
-            </button>
+            {url && isLive(p) && <a className={externalSvc ? 'button button-primary' : 'button'} href={url} target="_blank" rel="noreferrer">Öffnen ↗</a>}
+            {/* Bestehender Dienst: Airlock deployt nichts – kein «Neu deployen» */}
+            {!externalSvc && (
+              <button className="button-primary" onClick={() => act.mutate('deploy')} disabled={act.isPending || p.status === 'deploying'}>
+                Neu deployen
+              </button>
+            )}
             <ProjectHeadMenu p={p} busy={act.isPending} onAct={(w) => act.mutate(w)} onDelete={goToDelete} />
           </>
         }
       >
-        <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>
+        {externalSvc
+          ? <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · {p.external?.label ?? 'Ziel unbekannt'}</p>
+          : <p className="lede">{KIND_LABEL[p.sourceType] ?? p.sourceType} · <span className="version">{shortVersion(p.activeDeployment?.version)}</span>{p.activeDeployment ? '' : ' · noch nichts aktiv'}</p>}
       </PageHead>
 
       {p.legacyContainers && p.status !== 'deploying' && (
@@ -408,11 +415,13 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
   const [confirm, setConfirm] = useState<MenuConfirm>(null)
   // Statische Seiten haben keinen Container: nichts neu zu starten
   const restartable = p.desiredState === 'running' && p.runtimeKind !== 'static' && Boolean(p.activeDeployment)
+  // Bestehender Dienst: kein Neustart, kein Stopp – nur Erreichbarkeit (offline nehmen) und Löschen
+  const managed = p.sourceType !== 'external'
   return (
     <RowMenu label="Weitere Aktionen" onClose={() => setConfirm(null)}>
       {(close) => (
         <>
-          {restartable && (confirm === 'restart' ? (
+          {managed && restartable && (confirm === 'restart' ? (
             <>
               <div className="menu-confirm"><IconWarn /> {isPublic(p) ? 'Öffentlich erreichbar – ' : ''}kurz offline, dann dieselbe Fassung wieder.</div>
               <button role="menuitem" className="menu-danger-solid" disabled={busy} onClick={() => { close(); setConfirm(null); onAct('restart') }}>Ja, neu starten</button>
@@ -421,10 +430,10 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
           ) : (
             <button role="menuitem" disabled={busy} onClick={() => setConfirm('restart')}>Neu starten …</button>
           ))}
-          <StopStartMenuItems p={p} close={close} busy={busy} confirm={confirm} setConfirm={setConfirm} onStop={() => onAct('stop')} onStart={() => onAct('start')} />
+          {managed && <StopStartMenuItems p={p} close={close} busy={busy} confirm={confirm} setConfirm={setConfirm} onStop={() => onAct('stop')} onStart={() => onAct('start')} />}
           <OfflineMenuItems p={p} close={close} confirm={confirm} setConfirm={setConfirm} />
           <div className="menu-sep" />
-          <button role="menuitem" className="menu-danger" onClick={() => { close(); setConfirm(null); onDelete() }}>Löschen …</button>
+          <button role="menuitem" className="menu-danger" onClick={() => { close(); setConfirm(null); onDelete() }}>{managed ? 'Löschen …' : 'Aus Airlock entfernen …'}</button>
         </>
       )}
     </RowMenu>

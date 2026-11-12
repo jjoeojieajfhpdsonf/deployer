@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { AddressRowInput, ContainerField, DeploymentDto, EnvEntryDto, FailureAction, FailureExplanation, ProjectDto, ResourceSample } from '@airlock/shared'
+import type { AddressRowInput, ContainerField, DeploymentDto, EnvEntryDto, FailureAction, FailureExplanation, ProjectDto, ProjectHealthDto, ResourceSample } from '@airlock/shared'
 import { browserCanProbe, deployFixPrompt, envTexts, explainFailure, logTail, missingEnvVar, sourceSchema, splitAddresses } from '@airlock/shared'
 import type { ContainerPatch, ContainerRequest } from './ProjectSettings.js'
 import { copyText } from '../lib/clipboard.js'
@@ -34,7 +34,8 @@ export function useProjectHealth(p: ProjectDto) {
   return useQuery({
     queryKey: ['health', p.id],
     queryFn: () => api.health(p.id, true),
-    enabled: Boolean(p.activeDeployment) && p.desiredState === 'running',
+    // Bestehender Dienst: ohne Fassung, Healthcheck = HTTP auf das Ziel
+    enabled: (Boolean(p.activeDeployment) || p.sourceType === 'external') && p.desiredState === 'running',
     // Messwerte (CPU, RAM) sind keine Ereignisse: einmal pro Minute, Zustandswechsel kommen über den Strom
     refetchInterval: FALLBACK_MS,
   })
@@ -79,8 +80,10 @@ export function ProjectOverview({
 
       <div className="overview-grid">
         <div className="overview-main">
-          {live && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
-          {(st === 'stopped' || (st === 'down' && !deployFailed && !containerDown) || st === 'deploying') && (
+          {/* Bestehender Dienst: Ziel und Healthcheck statt Container-Messwerten und Deploys */}
+          {p.sourceType === 'external' && <ExternalPanel p={p} data={h ?? null} loading={health.isLoading} />}
+          {p.sourceType !== 'external' && live && <HealthPanel p={p} loading={health.isLoading} data={h ?? null} />}
+          {p.sourceType !== 'external' && (st === 'stopped' || (st === 'down' && !deployFailed && !containerDown) || st === 'deploying') && (
             <section className="panel panel-pad ov-section">
               <h2 className="ov-title">Zustand</h2>
               <p className="muted ov-empty">
@@ -92,7 +95,7 @@ export function ProjectOverview({
           )}
           {/* Etappe 3: Aufrufe und Besucher (fehlt ohne Adresse oder ohne Zugriffs-Log) */}
           <VisitorsCard p={p} onOpen={() => onTab('besucher')} />
-          <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />
+          {p.sourceType !== 'external' && <DeployTimeline projectId={p.id} onTab={onTab} onRollback={onRollback} />}
           <SecurityCard p={p} onTab={onTab} />
           <Activity projectId={p.id} />
         </div>
@@ -103,6 +106,51 @@ export function ProjectOverview({
         </aside>
       </div>
     </div>
+  )
+}
+
+/* --- Bestehender Dienst ------------------------------------------------------- */
+
+/**
+ * «Wird nicht von Airlock verwaltet»: Ziel, ob es gefunden wird, und der
+ * Healthcheck (HTTP auf das Ziel). Keine Aktionen am Ziel – Airlock startet,
+ * stoppt und ändert es nicht.
+ */
+function ExternalPanel({ p, data, loading }: { p: ProjectDto; data: ProjectHealthDto | null; loading: boolean }) {
+  const e = p.external
+  const missing = e?.found === false
+  const hc = data?.health ?? null
+  return (
+    <section className="panel panel-pad ov-section ext-panel" aria-labelledby="ext-h">
+      <h2 className="ov-title" id="ext-h">Wird nicht von Airlock verwaltet</h2>
+      <p className="muted">
+        {e?.mode === 'address'
+          ? 'Läuft schon und bleibt, wie es ist: Airlock macht es nur erreichbar – kein Deploy, keine Änderung am Gerät.'
+          : 'Läuft schon und bleibt, wie es ist: Airlock macht es nur erreichbar – kein Deploy, kein Neustart, keine Labels am Container.'}
+      </p>
+      <dl className="ext-facts">
+        <div><dt>Ziel</dt><dd>{e?.label ?? '–'}</dd></div>
+        {e?.image && <div><dt>Image</dt><dd><code>{e.image}</code></dd></div>}
+        {e?.composeProject && <div><dt>Compose</dt><dd>{e.composeProject}{e.composeService ? ` · Dienst ${e.composeService}` : ''}</dd></div>}
+        {e?.mode === 'container' && <div><dt>Weg für Caddy</dt><dd>{e.network === 'host' ? 'Host-Netz über host-gateway' : e.network ? `Netz ${e.network}` : '–'}</dd></div>}
+        {e?.mode === 'address' && e.url?.startsWith('https:') && <div><dt>HTTPS zum Ziel</dt><dd>{e.insecureTls ? 'eigenes Zertifikat erlaubt' : 'Zertifikat wird geprüft'}</dd></div>}
+        <div>
+          <dt>Healthcheck</dt>
+          <dd>
+            {loading && !hc ? 'wird geprüft …'
+              : !hc ? '–'
+              : hc.ok ? <><IconOk /> antwortet{hc.status ? ` mit HTTP ${hc.status}` : ''} · {hc.ms} ms</>
+              : <><IconBad /> {hc.error ?? 'antwortet nicht'}</>}
+          </dd>
+        </div>
+      </dl>
+      {missing && (
+        <p className="ext-missing" role="status">
+          <IconWarn /> <strong>Ziel fehlt.</strong> Airlock sucht den Container jede Minute am Namen und an den Compose-Labels.
+          Bis er wieder da ist, zeigt die Adresse die Pause-Seite.
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -528,7 +576,8 @@ const WAY_LABEL: Record<string, string> = { lan: 'LAN', tailnet: 'Tailnet', publ
 
 function Addresses({ p, down }: { p: ProjectDto; down: boolean }) {
   const { primary, more } = splitAddresses(p.routes)
-  const live = p.desiredState === 'running' && Boolean(p.activeDeployment) && !down
+  // Bestehender Dienst: aktiv, solange das Ziel gefunden wird (ohne Fassung)
+  const live = p.desiredState === 'running' && (Boolean(p.activeDeployment) || (p.sourceType === 'external' && p.external?.found !== false)) && !down
   const idle = down ? 'antwortet nicht' : 'nicht aktiv'
   const row = (r: AddressRowInput) => <AddressRow key={r.url} projectId={p.id} url={r.url} ways={r.ways} access={r.access} live={live} idle={idle} />
   const viaServer = live && [...primary, ...more].some((r) => !browserCanProbe(r.url, window.location.protocol))

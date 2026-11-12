@@ -325,6 +325,45 @@ Im Reiter «Aufbau» («+ Dienst», bei einem Dienst «Entfernen …»), nur fü
 - **Messung.** Jede Minute wie der Healthcheck der Übersicht (Container läuft, Antwort 2xx/3xx; statische Seiten: aktive Fassung). Gestoppt oder öffentlich pausiert zählt als Wartung, nicht zur Verfügbarkeit. Tageswerte in `status_daily` (Minuten erreichbar/gestört/Wartung, Kalendertag in der Zeitzone der Anzeige), gesammelt ab Etappe 5; ältere Tage zeigt die Seite als «keine Daten». Ein Tag ist «kurze Störung» unter 5 % gestörter Minuten, sonst «Störung» (Schwelle 5 %: entschieden nach Nacht 2).
 - **Störungen.** «Störung melden» (Titel, Text, Zustand: wird untersucht, Ursache erkannt, behoben; betroffene Projekte) und Updates mit Verlauf; offene stehen oben, behobene 14 Tage unten. Automatisch (entschieden nach Nacht 2: für jedes Projekt auf der Seite, also auch angehakte interne): ein Projekt auf der Seite ist 5 Minuten ununterbrochen gestört → Eintrag «… nicht erreichbar» (Zustand «wird untersucht»); läuft es wieder → Update «behoben». RSS 2.0 der letzten 50 Störungen (`/feed.xml`). Ändern nur mit Anmeldung, nie mit API-Token.
 
+## Bestehender Dienst
+
+Etwas, das schon läuft und nicht von Airlock deployt wurde, über Airlock erreichbar machen – intern und auf Wunsch öffentlich –, ohne es zu verwalten. Projektart `external` (Migration 0032).
+
+- **Zwei Wege** (Neues Projekt › «Bestehender Dienst»; MCP `create_project` mit `source {type:"external", …}`):
+  - **Container auf diesem Server:** Airlock liest laufende Container über den Socket-Proxy (nur lesen). Nicht angeboten werden Container von Airlock selbst und verwaltete (`airlock.managed`, `airlock.role`, `airlock.system`, Compose-Projekt `airlock`). Container, die schon eine Route haben, erscheinen ausgegraut («Schon über Airlock erreichbar»). Port aus EXPOSE bzw. veröffentlichten Ports, sonst eingeben.
+  - **Adresse im Heimnetz:** `http(s)://IP:Port`, nur als IPv4 aus 10/8, 172.16/12, 192.168/16 und 100.64/10 (Tailnet). Kein Name, keine Zugangsdaten, kein Pfad. Option «Eigenes Zertifikat erlauben» für selbstsigniertes HTTPS.
+  - Vor dem Anlegen prüft Airlock die Erreichbarkeit und zeigt Status, Seitentitel, Weg und erkannte Admin-Oberfläche. Antwortet das Ziel nicht, fragt die Oberfläche nach («Trotzdem anlegen»).
+- **Netz:** Caddy wird in ein Netz des Containers gehängt, wie bei Projekten. Gewählt wird alphabetisch das erste eigene Netz; dort zeigt die Route auf Name:Port. Im Standardnetz `bridge` zeigt sie auf die IP. Bei `network_mode: host` erreicht Caddy den Container über `host.docker.internal` (host-gateway, `extra_hosts` in compose.yaml). Welche fremden Netze Airlock Caddy angehängt hat, steht in `app_settings` (`external.caddy_networks`); nur diese trennt es wieder.
+- **Verhalten:**
+  - Keine Deploys, kein Start, Stopp, Neustart, Rollback (409 «nicht verwaltet»), keine Volumes, keine Variablen, kein Ausgang, keine Grenzen.
+  - Aufbau: nur Zugang → Eingang → Ziel.
+  - Übersicht: «Wird nicht von Airlock verwaltet» mit Ziel, Weg und Healthcheck.
+  - Healthcheck = HTTP auf das Ziel; jede Antwort unter 500 zählt.
+  - Alles Übrige wie bei Projekten: Adressen, Veröffentlichung, Header/CSP, Besucher, Statusseite.
+- **Scans:** Webseite (ZAP), Header (über Caddy), Dateien/Panels (Nuclei), TLS (testssl, nur bei https-Ziel); keine Image- und Code-Stufen. Scanner entstehen weiter nur in `air_<slug>`. Airlock leitet für die Dauer des Scans eine TCP-Verbindung zum Ziel durch (`security/external-relay.ts`, lauscht nur auf seiner Adresse im Projekt-Netz).
+- **Vorfälle:** nur Web und Netz. Prozess- und Datei-Überwachung entfallen, weil Airlock fremde Container nicht kennt.
+- **Wiederfinden:** Jede Minute am Namen, sonst am Compose-Projekt und -Dienst. Name, ID, Netz und IP werden nachgeführt. Fehlt das Ziel: Zustand «Ziel fehlt» (rot, Hinweis), die Route bleibt und zeigt die Pause-Seite.
+- **Nur lesen:** Airlock setzt an fremden Containern nichts – keine Labels, kein Netz, kein Start oder Stopp. Das Summary kennzeichnet bestehende Dienste mit `kind: "external"`.
+
+### Zugang (alle Projekte)
+
+Einstellungen › Zugang (bei bestehenden Diensten zuoberst): «Offen», «Airlock-Login» oder «Cloudflare Access».
+
+- **Airlock-Login** (Caddy `forward_auth`): Caddy fragt vor jeder Anfrage `GET /api/v1/gate/check`. Ohne gültigen Cookie folgt eine 302 auf die Oberfläche (`/api/v1/gate/start`) und, falls nötig, die Anmeldung mit Passkey bzw. zweitem Faktor. Danach stellt Airlock einen einmaligen Code aus (60 s, an Host und Sitzung gebunden) und leitet zum Rückruf `/.airlock/gate` am Projekt-Host.
+  - Der Rückruf setzt den Cookie `airlock_gate`: nur für diesen Host (kein Domain-Attribut), HttpOnly, SameSite=Lax, Secure bei HTTPS.
+  - Das Token ist mit dem Schlüssel von Airlock signiert und an Host und Sitzung gebunden. Abmelden meldet auch hier ab.
+  - Caddy entfernt den Cookie, bevor die Anfrage an die App geht.
+  - `check` und `callback` beantwortet Airlock nur, wenn die Anfrage von Caddy kommt.
+  - Rücksprung nur auf Pfade desselben Hosts, `start` nur für geschützte Namen (keine offene Weiterleitung).
+  - Header-Check und Scan laufen ohne Login (Probe-Server).
+  - Login klappt von Geräten, die die Oberfläche erreichen (Tailnet, LAN).
+- **Cloudflare Access:** nur öffentlich. Airlock legt die Access-Anwendung über die API an. Fehlt dem Token das Recht, erklärt die Meldung, wie man es ergänzt oder die Anwendung von Hand anlegt.
+- **Schwächer machen** (z. B. Login → Offen) geht nur mit Anmeldung und erneuter Bestätigung (sudo), nie mit einem Token.
+- **Admin-Oberflächen** (`ADMIN_UIS` in shared: *arr, Portainer, Proxmox, Router, NAS-Oberflächen, Home Assistant, Torrent-Clients, Pi-hole/AdGuard, Adminer/phpMyAdmin/pgAdmin, Nginx Proxy Manager, Dockge, Cockpit/Webmin; Erkennung über Image oder Seitentitel):
+  - Sie werden nur mit Schutz öffentlich. Geprüft wird in `planPublic`, also bei jedem Weg nach «öffentlich» und beim Abschalten des Schutzes.
+  - Die Meldung nennt den Grund.
+  - Übersteuern: `POST /projects/:id/admin-override`, nur mit sudo, im Audit-Log.
+
 ## Fix-Assistent
 
 Neben jedem Befund bietet Airlock einen Weg an, ihn zu beheben statt nur zu akzeptieren. Welcher Weg angeboten wird, hängt vom Befund und von der Quelle des Projekts ab. Jede Änderung braucht deine Zustimmung, erzeugt eine neue Version und wird durch einen Nachscan bestätigt.

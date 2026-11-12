@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
+import { config } from '../config.js'
 import { serverJob } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 import { audit } from './audit.js'
@@ -21,6 +22,8 @@ export async function afterExternalCreate(p: Row, guard: 'offen' | 'login' | und
   }
   await refreshExternalTargets().catch((err) => log.warn('Ziel nicht nachgesehen', { err: String(err) }))
   await reconcileCaddy()
+  // Wie nach einem Deploy (SCAN_AFTER_DEPLOY, Smoke-Tests schalten es ab)
+  if (!config.SCAN_AFTER_DEPLOY) return
   await enqueueProjectScan(serverJob('bestehender-dienst'), p.id, { actor, trigger: 'deploy' })
     .catch((err) => log.warn('Erster Scan des bestehenden Dienstes nicht eingereiht', { slug: p.slug, err: String(err) }))
 }

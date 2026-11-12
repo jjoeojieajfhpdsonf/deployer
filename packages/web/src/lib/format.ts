@@ -90,6 +90,7 @@ export const KIND_LABEL: Record<string, string> = {
   compose: 'Compose',
   static: 'Statisch',
   files: 'Chat',
+  external: 'Bestehender Dienst',
 }
 
 /** Wer etwas getan hat, kurz: UI, Tokenname, Airlock. */

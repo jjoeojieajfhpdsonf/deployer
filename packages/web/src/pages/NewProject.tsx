@@ -13,8 +13,9 @@ import { PageHead } from '../components/PageHead.js'
 import { Field, FieldError, FormError } from '../components/Field.js'
 import { useFormErrors, type Errors } from '../lib/form.js'
 import { RepoAccessFields, useRepoAccess } from '../components/RepoAccess.js'
+import { ExternalFields, emptyExternal, externalSource, useExternalProbe, type ExternalDraft } from '../components/ExternalSource.js'
 
-type Kind = 'image' | 'dockerfile' | 'compose' | 'static' | 'chat'
+type Kind = 'image' | 'dockerfile' | 'compose' | 'static' | 'existing' | 'chat'
 type Origin = 'upload' | 'repo'
 
 const KINDS: { kind: Kind; title: string; hint: string }[] = [
@@ -23,6 +24,7 @@ const KINDS: { kind: Kind; title: string; hint: string }[] = [
   { kind: 'dockerfile', title: 'Repo mit Dockerfile', hint: 'Wird geklont und gebaut' },
   { kind: 'compose', title: 'Docker Compose', hint: 'Mehrere Dienste, z.B. App und Datenbank' },
   { kind: 'static', title: 'Statische Seite', hint: 'ZIP oder Repo, optional mit Build-Befehl' },
+  { kind: 'existing', title: 'Bestehender Dienst', hint: 'Läuft schon – Airlock macht ihn nur erreichbar' },
   { kind: 'chat', title: 'Per Chat', hint: 'Claude legt das Projekt über den MCP-Server an' },
 ]
 
@@ -38,6 +40,7 @@ const PRESET: Record<string, { kind: Kind; origin: Origin }> = {
   image: { kind: 'image', origin: 'upload' },
   upload: { kind: 'static', origin: 'upload' },
   chat: { kind: 'chat', origin: 'upload' },
+  bestehend: { kind: 'existing', origin: 'upload' },
 }
 
 /** Vorschau von Kurzname und Adresse, 300 ms nach der letzten Eingabe */
@@ -139,7 +142,13 @@ export function NewProject() {
   const pubName: PublicName = { label: pubDraft.touched ? pubDraft.label : slug, zone: pubDraft.zone || mainZone, apex: pubDraft.apex }
   const access = pubAccess ?? Boolean(currentEnv?.accessDefault)
   const pubCheck = usePublicNameCheck({ projectId: null, name: pubName, enabled: pub && canPublish && kind !== 'chat', takeOver: false, canTakeOver: false })
-  const needsPort = kind !== 'static'
+  // Bestehender Dienst: Ziel, Erreichbarkeit und Zugang; kein Deploy, keine Variablen
+  const existing = kind === 'existing'
+  const [ext, setExt] = useState<ExternalDraft>(emptyExternal)
+  const extProbe = useExternalProbe(ext)
+  const [ackUnreachable, setAckUnreachable] = useState(false)
+  useEffect(() => setAckUnreachable(false), [ext.container, ext.port, ext.url, ext.mode, ext.insecureTls])
+  const needsPort = kind !== 'static' && !existing
   const usesUpload = (kind === 'static' || kind === 'compose') && origin === 'upload'
   const usesRepo = kind === 'dockerfile' || ((kind === 'static' || kind === 'compose') && origin === 'repo')
   // Nacht 3, Etappe 2: Zugang zum Repo (GitHub-App/öffentlich, Deploy-Key, Token) und «Repo prüfen»
@@ -150,7 +159,8 @@ export function NewProject() {
   function payload(uploadId?: string) {
     const r = opt(ref)
     const source =
-      kind === 'image' ? { type: 'image', image }
+      existing ? externalSource(ext)
+      : kind === 'image' ? { type: 'image', image }
       : kind === 'dockerfile' ? { type: 'dockerfile', repoUrl, ref: r, dockerfile, context }
       : kind === 'compose'
         ? usesRepo
@@ -166,9 +176,10 @@ export function NewProject() {
       ...(usesRepo && repoAccess.credentialId ? { gitCredentialId: repoAccess.credentialId } : {}),
       ...(needsPort ? { port: port.trim() === '' ? undefined : Number(port) } : {}),
       healthcheckPath,
-      env: env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
+      env: existing ? [] : env.map((x) => ({ key: x.key, value: x.value, isSecret: x.isSecret })),
       targets: [...(tailnet ? ['tailnet' as const] : []), ...(lan ? ['lan' as const] : [])],
-      deploy: true,
+      deploy: !existing,
+      ...(existing && ext.login ? { accessGuard: 'login' as const } : {}),
       ...(pub && canPublish ? {
         public: {
           ...(pubName.apex ? { apex: true } : { subdomain: normalizePublicLabel(pubName.label) }),
@@ -210,6 +221,15 @@ export function NewProject() {
     ev.preventDefault()
     setError(null)
     if (!form.validateAll()) return
+    // Bestehender Dienst: vor dem Anlegen die Erreichbarkeit prüfen und zeigen; nicht erreichbar → nachfragen
+    if (existing && !ackUnreachable) {
+      const r = extProbe.current ?? (await extProbe.run())
+      if (!r?.ok) {
+        setAckUnreachable(true)
+        setError('Das Ziel antwortet gerade nicht (Ergebnis oben). Trotzdem anlegen? Die Adresse zeigt dann die Fehlermeldung von Caddy, bis der Dienst antwortet.')
+        return
+      }
+    }
     setBusy(true)
     // Repo erreichbar? Vor dem Anlegen, mit Meldung und Weg im Abschnitt «Zugang»
     if (usesRepo && !(await repoAccess.ensureOk())) {
@@ -286,6 +306,8 @@ export function NewProject() {
             {/* Wie bei den anderen Feldern: bei einer Meldung kein allgemeiner Hinweis; die Vorschau bleibt, sobald es einen Namen gibt */}
             {showPreview && <NamePreview name={name} id={`${form.idFor('name')}-hint`} />}
           </div>
+
+          {existing && <ExternalFields d={ext} onChange={setExt} errors={e} probe={extProbe} idFor={form.idFor} />}
 
           {kind === 'image' && (
             <Field id={form.idFor('source.image')} label="Image" error={e['source.image']} hint="Mit Tag, z.B. nginx:alpine oder ghcr.io/user/app:1.2">
@@ -365,7 +387,7 @@ export function NewProject() {
 
         {usesRepo && <RepoAccessFields a={repoAccess} repoUrl={repoUrl} sectionRef={accessRef} />}
 
-        <EnvEditor rows={env} onChange={setEnv} prefix="env" errors={e} field={form.field} />
+        {!existing && <EnvEditor rows={env} onChange={setEnv} prefix="env" errors={e} field={form.field} />}
 
         <fieldset className="field-group">
           <legend>Erreichbarkeit</legend>
@@ -423,8 +445,8 @@ export function NewProject() {
         <FormError id={form.idFor('_form')} message={error ?? e._form ?? (usesUpload ? undefined : e.source && !usesRepo ? e.source : undefined)} />
 
         <div className="form-actions">
-          <button type="submit" className="button-primary" disabled={busy} aria-busy={busy || undefined}>
-            Anlegen und deployen
+          <button type="submit" className="button-primary" disabled={busy || extProbe.p.state === 'busy'} aria-busy={busy || extProbe.p.state === 'busy' || undefined}>
+            {existing ? (ackUnreachable ? 'Trotzdem anlegen' : 'Prüfen und anlegen') : 'Anlegen und deployen'}
           </button>
         </div>
         </>)}

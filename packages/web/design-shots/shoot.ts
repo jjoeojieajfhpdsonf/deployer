@@ -478,6 +478,38 @@ const shots: Shot[] = [
   },
   { group: 'projekte', name: 'projekte', path: '/projekte' },
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
+  // Bestehender Dienst: Übersicht (Container, Adresse mit Login, Ziel fehlt), Aufbau, Einstellungen › Zugang mit
+  // Pflicht-Hinweis, Neues Projekt (Container gewählt und geprüft, Adresse mit eigenem Zertifikat)
+  { group: 'bestehend', name: 'bestehend-uebersicht', path: '/projekte/p-ext-sonarr' },
+  { group: 'bestehend', name: 'bestehend-adresse', path: '/projekte/p-ext-nas', full: false },
+  { group: 'bestehend', name: 'bestehend-ziel-fehlt', path: '/projekte/p-ext-weg', full: false },
+  { group: 'bestehend', name: 'bestehend-aufbau', path: '/projekte/p-ext-sonarr?tab=aufbau', full: false },
+  {
+    group: 'bestehend', name: 'bestehend-zugang', path: '/projekte/p-ext-sonarr?tab=einstellungen', full: false,
+    prepare: async (pg) => { await pg.locator('#set-zugang').waitFor(); await pg.waitForTimeout(200) },
+  },
+  {
+    group: 'bestehend', name: 'bestehend-neu-container', path: '/projekte/neu?quelle=bestehend',
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('Jellyfin')
+      await pg.getByRole('radio', { name: /^jellyfin/ }).check()
+      await pg.getByRole('button', { name: 'Erreichbarkeit prüfen' }).click()
+      await pg.getByText('Erreichbar', { exact: true }).waitFor()
+      await pg.waitForTimeout(200)
+    },
+  },
+  {
+    group: 'bestehend', name: 'bestehend-neu-adresse', path: '/projekte/neu?quelle=bestehend', full: false,
+    prepare: async (pg) => {
+      await pg.getByLabel('Name', { exact: true }).fill('NAS')
+      await pg.getByRole('radio', { name: 'Adresse im Heimnetz' }).check()
+      await pg.getByLabel('Adresse', { exact: true }).fill('https://192.168.1.20:5001')
+      await pg.getByRole('button', { name: 'Erreichbarkeit prüfen' }).click()
+      await pg.getByText('Nicht erreichbar', { exact: true }).waitFor()
+      await pg.locator('.ext-probe-box').scrollIntoViewIfNeeded()
+      await pg.waitForTimeout(200)
+    },
+  },
   { group: 'uebergang', name: 'projekt-alte-container', path: `/projekte/${P}`, full: false, legacy: true },
   { group: 'projekte', name: 'projekt-fehler', path: `/projekte/${W}` },
   // UI-Qualität 2: Fehler erklären – je Muster die Fehlerbox mit ihrer Aktion
@@ -1890,6 +1922,11 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, { check: fx.repoCheck(s.repoCheck ?? 'erreichbar') })
             }
             if (route.request().method() === 'POST' && path === '/api/v1/git/credentials') return json(route, { credential: fx.deployKey(true) }, 201)
+            // Bestehender Dienst: laufende fremde Container und Erreichbarkeit (aus der Anfrage)
+            if (path === '/api/v1/external/containers') return json(route, { containers: fx.externalContainers })
+            if (route.request().method() === 'POST' && path === '/api/v1/external/probe') {
+              return json(route, { probe: fx.externalProbe((route.request().postDataJSON() ?? {}) as { container?: string; url?: string; insecureTls?: boolean }) })
+            }
             // Abgrenzung HomeBento: neues Token mit Name und Umfang aus der Anfrage – Beispielwert, kein echtes Token
             if (route.request().method() === 'POST' && /^\/api\/v1(\/environments\/[^/]+)?\/tokens$/.test(path)) {
               const b = (route.request().postDataJSON() ?? {}) as { name?: string; scope?: 'voll' | 'lesen' }

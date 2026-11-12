@@ -15,6 +15,7 @@ import { useProjectHealth } from './ProjectOverview.js'
 import { EnvEditor, type EnvRow } from './EnvEditor.js'
 import { Publication, SetRow } from './Publication.js'
 import { Reachability } from './Reachability.js'
+import { AccessGuardSection } from './AccessGuard.js'
 import { useHeaderRules } from './HeaderFix.js'
 import { Switch } from './Switch.js'
 import { MoveProject } from './MoveProject.js'
@@ -66,23 +67,26 @@ export function ProjectSettings({
 }) {
   const auto = useQuery({ queryKey: ['auto-deploy', p.id], queryFn: () => api.autoDeploy(p.id) })
   // Antwort 8: Port, Healthcheck und Grenzen nur bei Projekten mit Container (nicht bei statischen Seiten)
-  const hasContainer = p.runtimeKind !== 'static'
+  // Bestehender Dienst: nur Zugang, Erreichbarkeit, Statusseite, Header – nichts, was einen Container von Airlock voraussetzt
+  const ext = p.sourceType === 'external'
+  const hasContainer = p.runtimeKind !== 'static' && !ext
   // Nacht 3, Etappe 2: Repo-Zugang nur bei Projekten aus einem Git-Repo
   const hasRepo = Boolean(p.source && 'repoUrl' in p.source && p.source.repoUrl)
   const sections: Section[] = [
+    ...(ext ? [{ id: 'set-zugang', label: 'Zugang' }] : []),
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
+    ...(!ext ? [{ id: 'set-zugang', label: 'Zugang' }] : []),
     // Nacht 3, Etappe 4: ausgehende Verbindungen der Container (auch statisch: Build und Scan)
-    { id: 'set-ausgang', label: 'Ausgang' },
+    ...(!ext ? [{ id: 'set-ausgang', label: 'Ausgang' }] : []),
     { id: 'set-statusseite', label: 'Statusseite' },
-    { id: 'set-umgebung', label: 'Umgebungsvariablen' },
+    ...(!ext ? [{ id: 'set-umgebung', label: 'Umgebungsvariablen' }] : []),
     ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
     { id: 'set-header', label: 'Security-Header' },
     ...(hasRepo ? [{ id: 'set-repo-zugang', label: 'Repo-Zugang' }] : []),
-    ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
+    ...(auto.data?.available && !ext ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
     // Etappe 6: immer da – bei Projekten ohne Git-Repo und GitHub-App deaktiviert mit Begründung
-    { id: 'set-vorschauen', label: 'Vorschauen' },
-    { id: 'set-ablauf', label: 'Ablauf' },
+    ...(!ext ? [{ id: 'set-vorschauen', label: 'Vorschauen' }, { id: 'set-ablauf', label: 'Ablauf' }] : []),
     { id: 'set-verschieben', label: 'Verschieben' },
     { id: 'set-gefahrenzone', label: 'Gefahrenzone', danger: true },
   ]
@@ -115,19 +119,21 @@ export function ProjectSettings({
         </ul>
       </nav>
       <div className="set-sections">
+        {ext && <AccessGuardSection p={p} prominent />}
         <Publication p={p} request={publishRequested} onShown={onPublishShown} />
         <Reachability p={p} />
-        <EgressSettings p={p} />
+        {!ext && <AccessGuardSection p={p} />}
+        {!ext && <EgressSettings p={p} />}
         <StatusPageSection p={p} />
-        <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
+        {!ext && <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />}
         {hasContainer && (
           <Container p={p} request={containerRequest ?? null} onShown={onContainerShown} onSaved={onContainerSaved} onDeploy={onDeploy} deploying={deploying} />
         )}
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
         {hasRepo && <RepoAccessSettings p={p} />}
-        {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
-        <PreviewSettings projectId={p.id} />
-        <Expiry p={p} />
+        {auto.data?.available && !ext && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
+        {!ext && <PreviewSettings projectId={p.id} />}
+        {!ext && <Expiry p={p} />}
         {/* M9: in eine andere Umgebung verschieben */}
         <section className="set-card" id="set-verschieben" aria-label="In andere Umgebung verschieben">
           <MoveProject p={p} />

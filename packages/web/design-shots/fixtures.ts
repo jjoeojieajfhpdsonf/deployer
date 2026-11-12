@@ -229,7 +229,61 @@ export const failureProjects: ProjectDto[] = [
 ]
 
 /** Alle Projekte, die irgendeine Variante zeigt (für Detail-Anfragen) */
-export const allProjects: ProjectDto[] = [...projects, halloWelt, ...failureProjects]
+/* --- Bestehender Dienst: nur für die Projektseite (nicht in der Liste, sonst ändern sich deren Bilder) --- */
+
+const extBase = (over: P): ProjectDto => project({
+  sourceType: 'external', runtimeKind: 'external', port: null, security: null, activeDeployment: null, lastDeployment: null,
+  status: 'running', desiredState: 'running', ...over,
+})
+export const externalProjects: ProjectDto[] = [
+  extBase({
+    id: 'p-ext-sonarr', name: 'Sonarr', slug: 'sonarr',
+    source: { type: 'external', container: 'sonarr', port: 8989, insecureTls: false } as ProjectDto['source'],
+    routes: [route(['tailnet'], `sonarr.${BASE}`)],
+    external: { mode: 'container', label: 'Container sonarr, Port 8989', container: 'sonarr', port: 8989, url: null, insecureTls: false, image: 'lscr.io/linuxserver/sonarr:4.0.9', composeProject: 'media', composeService: 'sonarr', network: 'media_default', found: true },
+    accessGuard: 'offen', adminUi: { key: 'arr', name: 'Sonarr, Radarr & Co. (*arr)' }, adminOverride: false,
+    security: { scanId: 'p-ext-sonarr-s', status: 'done', score: 90, grade: 'A', finishedAt: ago(20 * MIN), open: { critical: 0, high: 0, medium: 2, low: 2 } },
+    state: { key: 'running', label: 'läuft', tone: 'ok', detail: null },
+  }),
+  extBase({
+    id: 'p-ext-nas', name: 'NAS', slug: 'nas',
+    source: { type: 'external', url: 'https://192.168.1.20:5001', insecureTls: true } as ProjectDto['source'],
+    routes: [route(['tailnet', 'lan'], `nas.${BASE}`)],
+    external: { mode: 'address', label: 'https://192.168.1.20:5001', container: null, port: null, url: 'https://192.168.1.20:5001', insecureTls: true, image: null, composeProject: null, composeService: null, network: null, found: null },
+    accessGuard: 'login', adminUi: { key: 'nas', name: 'NAS-Oberfläche' }, adminOverride: false,
+    state: { key: 'running', label: 'läuft', tone: 'ok', detail: null },
+  }),
+  extBase({
+    id: 'p-ext-weg', name: 'Uptime', slug: 'uptime',
+    source: { type: 'external', container: 'uptime-kuma', port: 3001, insecureTls: false } as ProjectDto['source'],
+    routes: [route(['tailnet'], `uptime.${BASE}`)],
+    external: { mode: 'container', label: 'Container uptime-kuma, Port 3001', container: 'uptime-kuma', port: 3001, url: null, insecureTls: false, image: 'louislam/uptime-kuma:1', composeProject: null, composeService: null, network: 'monitoring', found: false },
+    accessGuard: 'offen', adminUi: null, adminOverride: false,
+    state: { key: 'down', label: 'Ziel fehlt', tone: 'bad', detail: 'Container uptime-kuma, Port 3001 wurde nicht gefunden. Die Adresse zeigt die Pause-Seite, bis es wieder da ist.' },
+  }),
+]
+
+/** Neues Projekt › Bestehender Dienst: laufende fremde Container */
+export const externalContainers: import('@airlock/shared').ExternalContainerDto[] = [
+  { id: 'a1b2c3d4e5f6', name: 'homeassistant', image: 'ghcr.io/home-assistant/home-assistant:stable', status: 'Up 6 days', composeProject: null, composeService: null, hostMode: true, networks: [], ports: [], adminUi: { key: 'homeassistant', name: 'Home Assistant' }, takenBy: null },
+  { id: 'b2c3d4e5f6a1', name: 'jellyfin', image: 'jellyfin/jellyfin:10.10', status: 'Up 2 days', composeProject: 'media', composeService: 'jellyfin', hostMode: false, networks: ['media_default'], ports: [{ port: 8096, published: 8096 }, { port: 8920, published: null }], adminUi: null, takenBy: null },
+  { id: 'c3d4e5f6a1b2', name: 'sonarr', image: 'lscr.io/linuxserver/sonarr:4.0.9', status: 'Up 2 days', composeProject: 'media', composeService: 'sonarr', hostMode: false, networks: ['media_default'], ports: [{ port: 8989, published: null }], adminUi: { key: 'arr', name: 'Sonarr, Radarr & Co. (*arr)' }, takenBy: 'Sonarr' },
+  { id: 'd4e5f6a1b2c3', name: 'whoami', image: 'traefik/whoami:v1.10', status: 'Up 3 hours', composeProject: null, composeService: null, hostMode: false, networks: ['bridge'], ports: [{ port: 80, published: null }], adminUi: null, takenBy: null },
+]
+
+export function externalProbe(input: { container?: string; url?: string; insecureTls?: boolean }): import('@airlock/shared').ExternalProbeDto {
+  if (input.url) {
+    return input.insecureTls
+      ? { ok: true, status: 200, ms: 38, title: 'Synology DiskStation', detail: 'Antwortet mit HTTP 200 («Synology DiskStation»).', selfSigned: true, adminUi: { key: 'nas', name: 'NAS-Oberfläche' }, via: '192.168.x (privat)' }
+      : { ok: false, status: 200, ms: 41, title: 'Synology DiskStation', detail: 'Der Dienst antwortet über HTTPS mit einem eigenen (selbstsignierten) Zertifikat. Mit «Eigenes Zertifikat erlauben» nimmt Airlock es an.', selfSigned: true, adminUi: { key: 'nas', name: 'NAS-Oberfläche' }, via: '192.168.x (privat)' }
+  }
+  if (input.container === 'homeassistant') {
+    return { ok: true, status: 200, ms: 12, title: 'Home Assistant', detail: 'Antwortet mit HTTP 200 («Home Assistant»).', selfSigned: false, adminUi: { key: 'homeassistant', name: 'Home Assistant' }, via: 'Host-Netz (host-gateway)' }
+  }
+  return { ok: true, status: 200, ms: 9, title: 'Jellyfin', detail: 'Antwortet mit HTTP 200 («Jellyfin»).', selfSigned: false, adminUi: null, via: 'Netz media_default' }
+}
+
+export const allProjects: ProjectDto[] = [...projects, halloWelt, ...failureProjects, ...externalProjects]
 
 /* --- Veröffentlichung: Privat, Öffentlich, Pausiert ------------------------------------ */
 
@@ -395,6 +449,8 @@ export function deployments(id: string): DeploymentDto[] {
       dep(id, 1, { version: v, ...at(2 * HOUR, 4), seq: 1, reason: { kind: 'first' }, actor: 'mcp:claude-code-mac', message: 'Erste Version' }),
     ]
   }
+  // Bestehender Dienst: Airlock deployt nichts
+  if (p.sourceType === 'external') return []
   const active = p.activeDeployment!
   const same = active.version ?? 'a3f9c21d0be4'
   if (id === 'p-foto') {
@@ -432,6 +488,9 @@ export const deployLog = [
 ].join('\n')
 
 export function health(id: string): ProjectHealthDto {
+  // Bestehender Dienst: HTTP auf das Ziel, ohne Messwerte
+  if (id === 'p-ext-weg') return { kind: 'external', container: { running: false, missing: true, startedAt: null, exitCode: null }, health: { at: ago(30_000), ok: false, status: null, error: 'Container uptime-kuma, Port 3001 wurde nicht gefunden.', ms: 0, url: '/', port: 3001 }, samples: [] }
+  if (id.startsWith('p-ext-')) return { kind: 'external', container: id === 'p-ext-sonarr' ? { running: true, startedAt: null, exitCode: null } : null, health: { at: ago(30_000), ok: true, status: 200, error: null, ms: id === 'p-ext-nas' ? 38 : 11, url: '/', port: null }, samples: [] }
   const failed = id === 'p-wetter'
   // Antwort 8: Bildarchiv (Speichergrenze 512 MB) läuft mit der alten Fassung knapp unter der Grenze
   const tight = id === 'p-fehler-oom'
@@ -483,6 +542,20 @@ export function topology(id: string): Topo {
   const limits = { cpu: p.cpuLimit, memoryMb: p.memoryLimitMb }
   const lanCidr = '192.168.0.0/24'
   const tailCidr = '100.64.0.0/10'
+  if (p.sourceType === 'external') {
+    // Bestehender Dienst: nur Zugang → Eingang → Ziel
+    const e = p.external!
+    const access = [way('public', false, null), way('tailnet', true, tailCidr), way('lan', id === 'p-ext-nas', id === 'p-ext-nas' ? lanCidr : null)]
+    const hosts = [host(p.routes[0]!.hostname, { ways: id === 'p-ext-nas' ? ['tailnet', 'lan'] : ['tailnet'], headers: 3, service: `svc:${p.slug}` })]
+    const up = e.found !== false
+    const services = [svc(p.slug, { name: e.container ?? e.url!.replace(/^https?:\/\//, ''), image: e.image, port: e.port ?? 5001, web: true, state: up ? 'running' : 'missing', version: e.image?.split(':')[1] ?? null })]
+    return {
+      kind: 'external', access, hosts, services, main: `svc:${p.slug}`, limits, volumes: [],
+      external: { label: e.label, mode: e.mode, found: e.found },
+      edit: { way: null, reason: 'Wird nicht von Airlock verwaltet', changes: [], webService: null },
+      edges: routeEdges(access, hosts, up),
+    }
+  }
   if (id === 'p-foto') {
     // Compose: Web, Worker, Postgres; Fotos-Volume geteilt, Daten der Datenbank im eigenen Volume
     const access = [way('public', false, null), way('tailnet', true, tailCidr), way('lan', true, lanCidr)]
@@ -708,7 +781,15 @@ export function scan(id: string, onlyDone = false): ScanReportDto | null {
       score: p.security.score, grade: p.security.grade, error: null, trigger: 'deploy', actor: 'admin', queue: null,
       previousScore: previous[id] ?? (p.security.score ?? 0) - 3,
       nextScheduledAt: new Date(Date.parse(startedAt) + 7 * DAY).toISOString(),
-      stages: isStatic ? {
+      stages: p.sourceType === 'external' ? {
+        // Bestehender Dienst: Webseite, Header, Dateien/Panels – kein Image, kein Code von Airlock
+        'trivy-image': { ran: false, state: 'skipped', note: 'entfällt: wird nicht von Airlock verwaltet, kein Image', checks: CHECKS.trivyImage },
+        'trivy-source': { ran: false, state: 'skipped', note: 'entfällt: wird nicht von Airlock verwaltet, kein Quellcode', checks: CHECKS.trivySource },
+        headers: { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, checked: 'über Caddy, wie Besucher die Seite sehen', durationMs: 1_100 },
+        'zap-baseline': { ran: true, state: 'done', findings: by('zap'), checks: CHECKS.zap, durationMs: 88_000 },
+        nuclei: { ran: true, state: 'done', findings: by('nuclei'), checks: CHECKS.nuclei, durationMs: 44_000 },
+        testssl: { ran: false, state: 'skipped', note: 'Ziel spricht kein HTTPS; TLS endet bei Caddy' },
+      } : isStatic ? {
         'trivy-image': { ran: false, state: 'skipped', note: 'kein Image, statische Seite', checks: CHECKS.trivyImage },
         'trivy-source': { ran: true, state: 'done', findings: by('trivy'), checks: CHECKS.trivySource, durationMs: 12_000 },
         headers: { ran: true, state: 'done', findings: by('header-check'), checks: CHECKS.headers, durationMs: 900 },
@@ -783,6 +864,8 @@ export function withCspQuality(r: ScanReportDto): ScanReportDto {
 }
 
 function findingsFor(id: string): FindingDto[] {
+  // Bestehender Dienst: keine Image-Stufe, also keine Trivy-Befunde
+  if (id.startsWith('p-ext-')) return findings.filter((f) => f.tool !== 'trivy').slice(-3)
   return id === securityProjectId ? findings : id === 'p-hallo' ? halloFindings : id === 'p-foto' ? [] : findings.slice(5)
 }
 

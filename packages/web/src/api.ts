@@ -27,7 +27,7 @@ import type {
   IncidentListDto, IntrusionIncidentDetailDto, IntrusionIncidentUpdateInput, ProjectIntrusionDto, IntrusionSettingsInput,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
-import type { TokenScope } from '@airlock/shared'
+import type { AccessGuard, ExternalContainerDto, ExternalProbeDto, TokenScope } from '@airlock/shared'
 import { requestSudo } from './lib/sudo.js'
 
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
@@ -258,6 +258,14 @@ export const api = {
   namePreview: (name: string) => call<{ preview: NamePreviewDto }>(`/projects/name-preview?name=${encodeURIComponent(name)}`),
   createProject: (input: unknown) =>
     call<{ project: ProjectDto; deployment: DeploymentDto | null }>(e('/projects'), { method: 'POST', body: body(input) }),
+  /** Bestehender Dienst: laufende fremde Container (nur lesen) und Erreichbarkeit vor dem Anlegen */
+  externalContainers: () => call<{ containers: ExternalContainerDto[] }>('/external/containers'),
+  externalProbe: (input: { container?: string; port?: number; url?: string; insecureTls?: boolean }) =>
+    call<{ probe: ExternalProbeDto }>('/external/probe', { method: 'POST', body: body(input) }),
+  /** Zugang: offen, Airlock-Login, Cloudflare Access (schwächer machen verlangt die erneute Bestätigung) */
+  setAccess: (id: string, guard: AccessGuard) => call<{ project: ProjectDto }>(`/projects/${id}/access`, { method: 'PUT', body: body({ guard }) }),
+  /** Admin-Oberfläche trotzdem ohne Schutz öffentlich (bzw. wieder verbieten); verlangt die erneute Bestätigung */
+  adminOverride: (id: string, on: boolean) => call<{ project: ProjectDto }>(`/projects/${id}/admin-override`, { method: 'POST', body: body({ on }) }),
   updateProject: (id: string, patch: unknown) =>
     call<{ project: ProjectDto }>(`/projects/${id}`, { method: 'PATCH', body: body(patch) }),
   deleteProject: (id: string, purgeVolumes = false) =>

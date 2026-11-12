@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { EnvEntryDto, ProjectDto, ProjectHealthDto } from '@airlock/shared'
+import { ACCESS_GUARD_LABEL, type EnvEntryDto, type ProjectDto, type ProjectHealthDto } from '@airlock/shared'
 import { api } from '../api.js'
 import { relativeTime, shortVersion } from '../lib/format.js'
 import { ageMs, fmtDate, msOf } from '../lib/dates.js'
@@ -164,6 +164,24 @@ export function KeyFacts({
   const secret = env.filter((e) => e.isSecret).length
   const kind = isFiles && !isStatic ? (p.filesKind === 'compose' ? 'compose' : 'dockerfile') : p.runtimeKind
   const total = (files.data?.files ?? []).reduce((n, f) => n + f.size, 0)
+
+  // Bestehender Dienst: keine Fassung, keine Grenzen, keine Variablen – nur Ziel, Zugang, Healthcheck
+  if (p.sourceType === 'external') {
+    return (
+      <section className="panel panel-pad ov-section" aria-labelledby="ov-facts">
+        <div className="ov-head">
+          <h2 className="ov-title" id="ov-facts">Eckdaten</h2>
+          <button type="button" className="link-button" onClick={() => onTab('einstellungen')}>Einstellungen</button>
+        </div>
+        <dl className="kf">
+          <Row label="Quelle"><span className="kf-strong">Bestehender Dienst</span><span className="kf-dim"> · nicht verwaltet</span></Row>
+          <Row label="Ziel"><span className="kf-strong">{p.external?.label ?? '–'}</span></Row>
+          <Row label="Zugang"><span className="kf-strong">{ACCESS_GUARD_LABEL[p.accessGuard ?? 'offen']}</span>{p.adminUi && <span className="kf-dim"> · {p.adminUi.name}</span>}</Row>
+          <Row label="Healthcheck"><code className="kf-code">{p.healthcheckPath}</code></Row>
+        </dl>
+      </section>
+    )
+  }
 
   return (
     <section className="panel panel-pad ov-section" aria-labelledby="ov-facts">

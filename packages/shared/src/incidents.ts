@@ -178,6 +178,8 @@ export type IntrusionWatchState =
   | 'ohne-container'
   /** Statische Seite: Dateien werden stündlich gegen das Artefakt geprüft */
   | 'statisch'
+  /** Bestehender Dienst: nur Web und Netz – Prozesse und Dateien eines fremden Containers sieht Airlock nicht */
+  | 'extern'
 
 export interface ProjectIntrusionDto {
   watch: {

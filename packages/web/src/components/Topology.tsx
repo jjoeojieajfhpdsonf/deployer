@@ -271,12 +271,19 @@ function NodeView({ d, selected, onSelect, nodeRef }: { d: NodeDesc; selected: b
 
 /* --- Fläche mit Linien -------------------------------------------------------------- */
 
-const COLS: { title: string; sub: (t: TopologyDto) => string; empty: string }[] = [
+const COLS_BASE: { title: string; sub: (t: TopologyDto) => string; empty: string }[] = [
   { title: 'Zugang', sub: () => 'wer hereinkommt', empty: 'Kein Weg eingerichtet' },
   { title: 'Eingang', sub: () => 'Caddy · Header', empty: 'Keine Route – nirgends erreichbar' },
   { title: 'Dienste', sub: (t) => (t.kind === 'compose' ? 'aus compose.yaml' : t.kind === 'static' ? 'statische Seite' : 'ein Container'), empty: 'Kein Dienst' },
   { title: 'Daten', sub: () => 'Datenbank · Volumes', empty: 'Keine Datenbank, keine Volumes' },
 ]
+/** Bestehender Dienst: Zugang → Eingang → Ziel; Daten kennt Airlock nicht */
+const COLS_EXTERNAL: typeof COLS_BASE = [
+  COLS_BASE[0]!, COLS_BASE[1]!,
+  { title: 'Ziel', sub: (t) => (t.external?.mode === 'address' ? 'Adresse im Heimnetz' : 'Container, nicht verwaltet'), empty: 'Kein Ziel' },
+  { title: 'Daten', sub: () => 'verwaltet der Dienst selbst', empty: 'Nicht von Airlock verwaltet' },
+]
+const colsFor = (t: TopologyDto) => (t.kind === 'external' ? COLS_EXTERNAL : COLS_BASE)
 
 function Canvas({ t, cols, nodes, selected, onSelect, hub, reduced }: {
   t: TopologyDto; cols: NodeDesc[][]; nodes: Map<string, NodeDesc>; selected: string | null; onSelect: (id: string) => void
@@ -323,7 +330,7 @@ function Canvas({ t, cols, nodes, selected, onSelect, hub, reduced }: {
   return (
     <div className="topo-canvas">
       <div className="topo-cols-head">
-        {COLS.map((c) => (
+        {colsFor(t).map((c) => (
           <div key={c.title} className="topo-col-head">
             <h3>{c.title}</h3>
             <span>{c.sub(t)}</span>
@@ -336,8 +343,8 @@ function Canvas({ t, cols, nodes, selected, onSelect, hub, reduced }: {
         </svg>
         {boxes.at.size > 0 && <LiveLayer hub={hub} boxes={boxes.at} reduced={reduced} />}
         {cols.map((list, i) => (
-          <div key={i} className="topo-col" aria-label={COLS[i]!.title} role="group">
-            {list.length === 0 && <p className="topo-col-empty">{COLS[i]!.empty}</p>}
+          <div key={i} className="topo-col" aria-label={colsFor(t)[i]!.title} role="group">
+            {list.length === 0 && <p className="topo-col-empty">{colsFor(t)[i]!.empty}</p>}
             {list.map((d) => (
               <NodeView key={d.id} d={d} selected={selected === d.id} onSelect={onSelect}
                 nodeRef={(el) => { if (el) els.current.set(d.id, el); else els.current.delete(d.id) }} />
@@ -365,12 +372,12 @@ function List({ t, cols, selected, onSelect }: { t: TopologyDto; cols: NodeDesc[
   return (
     <div className="topo-list">
       {cols.map((list, i) => (
-        <section key={i} className="topo-list-group" aria-label={COLS[i]!.title}>
+        <section key={i} className="topo-list-group" aria-label={colsFor(t)[i]!.title}>
           <div className="topo-col-head">
-            <h3>{COLS[i]!.title}</h3>
-            <span>{COLS[i]!.sub(t)}</span>
+            <h3>{colsFor(t)[i]!.title}</h3>
+            <span>{colsFor(t)[i]!.sub(t)}</span>
           </div>
-          {list.length === 0 && <p className="topo-col-empty">{COLS[i]!.empty}</p>}
+          {list.length === 0 && <p className="topo-col-empty">{colsFor(t)[i]!.empty}</p>}
           {list.map((d) => <NodeView key={d.id} d={d} selected={selected === d.id} onSelect={onSelect} />)}
         </section>
       ))}
@@ -447,7 +454,7 @@ export function Topology(props: TopologyProps) {
 
   const selected = picked && layout.byId.has(picked) ? picked : (t.main ?? layout.cols.flat().find((d) => !d.action)?.id ?? null)
   const current = selected ? layout.byId.get(selected) ?? null : null
-  const counts = [plural(t.services.length, 'Dienst', 'Dienste'), t.volumes.length ? plural(t.volumes.length, 'Volume', 'Volumes') : null].filter(Boolean).join(' · ')
+  const counts = [t.kind === 'external' ? 'Ziel nicht verwaltet' : plural(t.services.length, 'Dienst', 'Dienste'), t.volumes.length ? plural(t.volumes.length, 'Volume', 'Volumes') : null].filter(Boolean).join(' · ')
 
   const legend = (
     <div className="topo-legend">
@@ -682,6 +689,23 @@ function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSel
   const removable = t.kind === 'compose' && Boolean(t.edit?.way) && !s.web && !removal
   const isStatic = t.kind === 'static'
   const restartable = !isStatic && p.desiredState === 'running' && Boolean(p.activeDeployment)
+  // Bestehender Dienst: nur Erreichbarkeit und Ziel – kein Ausgang, keine Messwerte, keine Logs, kein Neustart
+  if (t.kind === 'external') {
+    return (
+      <>
+        <SideHead title={s.name} badge={<Pill {...st} />} sub={<>{s.image ?? t.external?.label ?? ''}{s.port ? ` · Port ${s.port}` : ''}</>} />
+        <h3 className="topo-side-label">Erreichbar über</h3>
+        <Reach p={p} t={t} onPublish={onPublish} />
+        <h3 className="topo-side-label">Ziel</h3>
+        <p className="topo-side-text">{t.external?.label}</p>
+        <p className="topo-side-note">
+          {t.external?.found === false
+            ? 'Fehlt gerade – Airlock sucht ihn jede Minute am Namen und an den Compose-Labels. Bis dahin zeigt die Adresse die Pause-Seite.'
+            : 'Wird nicht von Airlock verwaltet: kein Deploy, kein Neustart, keine Messwerte. Airlock macht ihn nur erreichbar.'}
+        </p>
+      </>
+    )
+  }
   const sub = isStatic
     ? <>Statische Seite{s.version ? <> · <span className="topo-mono">{shortVersion(s.version)}</span></> : null}</>
     : <>{s.image ?? 'Image unbekannt'}{s.port ? ` · Port ${s.port}` : ''}</>

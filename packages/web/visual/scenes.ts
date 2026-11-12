@@ -26,6 +26,10 @@ export const VISUAL_SCENES = [
   'vorfaelle', 'vorfaelle-leer', 'vorfall-dialog', 'projekt-einbruch', 'projekt-einbruch-ruhig', 'projekt-einbruch-lernt', 'projekt-einbruch-isoliert', 'isolieren-bestaetigen',
   // Projekte
   'projekte', 'projekt-uebersicht',
+  // Bestehender Dienst: Übersicht (Container, Adresse mit Login, Ziel fehlt), Aufbau, Einstellungen › Zugang,
+  // Neues Projekt (Container gewählt und geprüft, Adresse mit eigenem Zertifikat)
+  'bestehend-uebersicht', 'bestehend-adresse', 'bestehend-ziel-fehlt', 'bestehend-aufbau', 'bestehend-zugang',
+  'bestehend-neu-container', 'bestehend-neu-adresse',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
   // grosser Bildschirm (1920 px, Seite bis 1760 px), vergrössert (Dialog übers ganze Fenster)
   'aufbau', 'aufbau-einzelcontainer', 'aufbau-statisch', 'aufbau-nicht-oeffentlich', 'aufbau-host', 'aufbau-schmal', 'aufbau-sehr-schmal', 'aufbau-breit', 'aufbau-vergroessert',

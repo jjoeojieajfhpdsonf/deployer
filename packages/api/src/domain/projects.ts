@@ -75,6 +75,7 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     external: ext,
     accessGuard: accessGuardOf(r.loginGuard, routes),
     adminUi: adminUiOf(r),
+    adminOverride: r.adminOverrideAt !== null,
   }
 }
 

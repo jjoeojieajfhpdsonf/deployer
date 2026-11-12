@@ -37,6 +37,7 @@ import { useProjects } from './lib/projects.js'
 import { EnvProvider, EnvReady, useEnv, useEnvPath } from './lib/env.js'
 import { Account } from './pages/Account.js'
 import { AccountSecurity } from './pages/AccountSecurity.js'
+import { GateContinue } from './pages/GateContinue.js'
 import { Design } from './pages/Design.js'
 import { Setup } from './pages/Setup.js'
 import { useSetup } from './lib/setup.js'
@@ -154,6 +155,8 @@ export function App() {
           <Route path="/umgebungen/neu" element={<NewEnvironment />} />
           <Route path="/konto" element={<Account />} />
           <Route path="/konto/sicherheit" element={<AccountSecurity />} />
+          {/* Zugang «Airlock-Login»: nach der Anmeldung zurück zur geschützten Projekt-Adresse */}
+          <Route path="/zugang" element={<GateContinue />} />
           {/* Interne Komponenten-Übersicht (nur angemeldet, nicht in der Navigation) */}
           <Route path="/design" element={<Design />} />
           {/* Erster Start des Servers (UI-Qualität 7) */}

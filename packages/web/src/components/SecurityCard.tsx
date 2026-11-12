@@ -161,7 +161,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
     return (
       <section className="panel panel-pad ov-section" aria-labelledby="ov-sec">
         {head}
-        <p className="muted ov-empty">{scanning ? 'Der erste Scan läuft.' : 'Noch kein Scan. Er startet nach dem ersten erfolgreichen Deploy.'}</p>
+        <p className="muted ov-empty">{scanning ? 'Der erste Scan läuft.' : p.sourceType === 'external' ? 'Noch kein Scan. Er startet nach dem Anlegen und prüft Webseite, Header und offene Dateien.' : 'Noch kein Scan. Er startet nach dem ersten erfolgreichen Deploy.'}</p>
       </section>
     )
   }

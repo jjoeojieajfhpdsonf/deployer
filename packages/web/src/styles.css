@@ -4095,3 +4095,51 @@ button.topo-node.topo-node-pending.topo-node-selected, button.topo-node.topo-nod
 .ach-off { margin: 0; color: var(--muted); }
 /* Konfetti (canvas-confetti): eigene Leinwand, nie klickbar */
 .confetti-canvas { position: fixed; inset: 0; z-index: 70; width: 100vw; height: 100vh; pointer-events: none; }
+
+/* --- Bestehender Dienst und Zugang -------------------------------------------------- */
+
+/* Neues Projekt: Container-Liste (Auswahl), Port, Erreichbarkeit */
+.ext-pick { border: 0; padding: 0; margin: var(--sp-5) 0 0; min-width: 0; }
+.ext-pick > .label { padding: 0; font-size: var(--fs-14); font-weight: 500; color: var(--ink); }
+.ext-list { list-style: none; margin: var(--sp-3) 0 0; padding: 0; max-height: 360px; overflow-y: auto; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }
+.ext-list li + li { border-top: 1px solid var(--line); }
+.ext-item { margin: 0; padding: var(--sp-3) var(--sp-4); }
+.ext-item:hover:not(.choice-disabled) { background: var(--surface-2, rgba(0, 0, 0, 0.02)); }
+.ext-item strong { font-weight: 500; }
+.ext-meta { overflow-wrap: anywhere; }
+.ext-meta code { font-size: var(--fs-13); }
+.ext-admin { color: var(--warn); }
+.ext-admin svg, .ext-probe svg, .ext-missing svg, .access-admin svg, .admin-guard svg { vertical-align: -2px; }
+.ext-probe-box { margin-top: var(--sp-5); display: grid; gap: var(--sp-3); }
+.ext-probe-head { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.ext-probe-head .hint { margin: 0; }
+.ext-probe { margin: 0; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-md); font-size: var(--fs-14); display: grid; gap: var(--sp-1); }
+.ext-probe p { margin: 0; }
+.ext-probe-ok { background: var(--ok-bg); box-shadow: inset 0 0 0 1px var(--ok-line); }
+.ext-probe-ok > p:first-child svg { color: var(--ok); }
+.ext-probe-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.ext-probe-warn svg { color: var(--warn); }
+.ext-probe-bad { background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); }
+.ext-probe-bad > svg, .ext-probe-bad > p:first-child svg { color: var(--bad); }
+
+/* Projekt-Übersicht: «Wird nicht von Airlock verwaltet» */
+.ext-panel > .muted { margin: 0 0 var(--sp-4); font-size: var(--fs-14); max-width: 64ch; }
+.ext-facts { margin: 0; display: grid; }
+.ext-facts > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--sp-3); align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+.ext-facts dt { font-size: var(--fs-13); color: var(--muted); }
+.ext-facts dd { margin: 0; font-size: var(--fs-14); overflow-wrap: anywhere; }
+.ext-facts dd svg { vertical-align: -2px; }
+.ext-missing { margin: var(--sp-4) 0 0; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-md); background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); font-size: var(--fs-14); }
+.ext-missing svg { color: var(--bad); }
+
+/* Einstellungen › Zugang */
+.set-card-prominent { box-shadow: inset 0 0 0 1px var(--line-strong, var(--line)), var(--sh-card); }
+.set-head h2 svg { vertical-align: -2px; margin-right: 4px; }
+.access-options { padding: var(--sp-2) var(--sp-7) var(--sp-5); }
+.access-options .choice small { max-width: 64ch; }
+.access-admin { color: var(--ink-dim); }
+.access-admin svg { color: var(--warn); }
+.admin-guard p { margin: 0 0 var(--sp-3); font-size: var(--fs-14); max-width: 72ch; }
+.admin-guard .form-actions { margin: 0; }
+.admin-guard-warn { background: var(--warn-bg); }
+.admin-guard-warn svg { color: var(--warn); }
