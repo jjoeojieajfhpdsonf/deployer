@@ -3,13 +3,14 @@ import { FIXED_NOW } from './fixed-clock.js'
 import { test, expect } from '@playwright/test'
 import { contextOptions, installRoutes, openShot, shots } from '../design-shots/shoot.js'
 import { VISUAL_PORT } from './playwright.config.js'
-import { VISUAL_SCENES, WIN95_SCENES } from './scenes.js'
+import { TERMINAL_SCENES, VISUAL_SCENES, WIN95_SCENES } from './scenes.js'
 
 /** Hauptseiten und wichtige Zustände (Liste in visual/scenes.ts), je Hell und Dunkel; einige auch in «Windows 95». */
 const RUNS = [
   { theme: 'hell', t: 'light', scenes: VISUAL_SCENES },
   { theme: 'dunkel', t: 'dark', scenes: VISUAL_SCENES },
   { theme: 'win95', t: 'win95', scenes: WIN95_SCENES },
+  { theme: 'terminal', t: 'terminal', scenes: TERMINAL_SCENES },
 ] as const
 for (const { theme, t, scenes } of RUNS) {
   for (const name of scenes) {

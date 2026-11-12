@@ -51,6 +51,9 @@ export const VISUAL_SCENES = [
   'statusseite-oeffentlich', 'statusseite-oeffentlich-tooltip', 'statusseite-oeffentlich-ruhig',
   // Etappe 6: Vorschau-Deploys – Liste, Löschen bestätigen, an und leer, aus; Einstellungen, Variablen, ohne Git-Repo
   'vorschauen', 'vorschauen-loeschen', 'vorschauen-leer', 'vorschauen-aus', 'vorschauen-einstellungen', 'vorschauen-variablen', 'vorschauen-nicht-moeglich',
+  // Etappe 7: Spass-Paket – «sudo» in ⌘K, Matrix-Regen (festes Bild, Schalter an), Achievements im Konto und als
+  // Meldung, Snake-Seite für unbekannte interne Namen (eigenes HTML, hell/dunkel nach dem Gerät)
+  'terminal-freigeschaltet', 'matrix-regen', 'konto-achievements', 'achievement-neu', 'snake-404',
 ] as const
 
 /**
@@ -74,6 +77,18 @@ export const WIN95_SCENES: readonly string[] = [
   'win95-minimiert', 'win95-maximiert', 'win95-hauptfenster-maximiert', 'win95-startmenue', 'win95-beenden',
   // Ganze App über den Taskleisten-Knopf minimiert und wieder geholt (die Taskleiste muss stehen bleiben)
   'win95-app-minimiert', 'win95-app-zurueck',
+  // Etappe 7: Disketti (nur in Windows 95) – offener Befund, gescheiterter Deploy, «Ja» öffnet den Ablauf
+  'disketti', 'disketti-fehler', 'disketti-ja',
+]
+
+/**
+ * Etappe 7: verstecktes Theme «Terminal» – die Hauptseiten (Bilder *-terminal.png),
+ * visuell und mit axe. Cursor und Matrix-Regen ruhen (reduzierte Bewegung); die
+ * Matrix-Szene zeichnet ein festes Bild.
+ */
+export const TERMINAL_SCENES: readonly string[] = [
+  'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-deployments', 'projekt-security', 'projekt-einstellungen',
+  'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))
