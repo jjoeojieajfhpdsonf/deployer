@@ -84,6 +84,7 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if ((m = p.match(/^\/projects\/([^/]+)\/files$/))) return { body: fx.files(m[1]!) }
   if (p === '/system/expiry') return { body: { days: 30, fromEnv: 30, changed: false } }
   if ((m = p.match(/^\/projects\/([^/]+)\/scans\/latest$/))) return { body: { report: fx.scan(m[1]!, u.searchParams.get('done') === '1') } }
+  if ((m = p.match(/^\/projects\/([^/]+)\/scans$/))) return { body: { scans: fx.scanHistory(m[1]!) } }
   // M8: Fix-Assistent
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
@@ -263,7 +264,7 @@ function spassShots(group: string): Shot[] {
       prepare: async (pg) => {
         await bubble(pg)
         await pg.locator('.disketti-bubble').getByRole('button', { name: 'Ja', exact: true }).click()
-        await pg.locator('.finding .claude-fix').first().waitFor()
+        await pg.locator('.sec-detail .claude-fix').first().waitFor()
         await pg.waitForTimeout(500)
       },
     },
@@ -483,19 +484,49 @@ const shots: Shot[] = [
     group: 'security', name: 'projekt-security-laeuft-ausgabe', path: `/projekte/${fx.runningScanProjectId}?tab=security`, full: false,
     prepare: async (pg) => { await pg.locator('.live-scan .stage-tail summary').first().click(); await pg.waitForTimeout(200) },
   },
-  // CSP-Fix: Analyse und gesperrtes Scharfschalten; Zustand nach automatischem Zurücksetzen
+  // Reiter Security neu: Header & CSP, Prüfungen (über die Chip «Image» angesprungen), Verlauf,
+  // Befund mit Vorschlag von Claude, Schublade unter 1100 px
+  { group: 'security', name: 'security-header-csp', path: `/projekte/${S}?tab=security&ansicht=header` },
   {
-    group: 'csp', name: 'security-csp-gesperrt', path: `/projekte/${S}?tab=security`, full: false,
+    group: 'security', name: 'security-pruefungen', path: `/projekte/${S}?tab=security`,
     prepare: async (pg) => {
-      await pg.locator('.csp-analysis').evaluate((el) => el.scrollIntoView({ block: 'start' }))
-      await pg.evaluate(() => window.scrollBy(0, -140))
+      await pg.locator('.sec-chip', { hasText: 'Image' }).click()
+      await pg.waitForTimeout(400)
+      await pg.evaluate(() => window.scrollTo(0, 0))
+      await pg.waitForTimeout(150)
+    },
+  },
+  { group: 'security', name: 'security-verlauf', path: `/projekte/${S}?tab=security&ansicht=verlauf` },
+  {
+    group: 'security', name: 'security-befund-vorschlag', path: `/projekte/${S}?tab=security`,
+    prepare: async (pg) => {
+      await pg.locator('.sec-row', { hasText: 'Container läuft als root' }).click()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'security', name: 'security-schublade', path: `/projekte/${S}?tab=security`, full: false,
+    prepare: async (pg) => {
+      await pg.setViewportSize({ width: 1000, height: 900 })
+      await pg.waitForTimeout(300)
+      await pg.locator('.sec-row', { hasText: 'Session-Cookie' }).click()
+      await pg.waitForTimeout(450)
+    },
+  },
+  // CSP-Fix: «Würde blockieren» und gesperrtes Scharfschalten; Zustand nach automatischem Zurücksetzen
+  {
+    group: 'csp', name: 'security-csp-gesperrt', path: `/projekte/${S}?tab=security&ansicht=header`, full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Regel ansehen' }).click()
+      await pg.locator('#header-caddy-csp').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
   },
   {
-    group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security`, full: false, cspReverted: true,
+    group: 'csp', name: 'security-csp-zurueckgesetzt', path: `/projekte/${S}?tab=security&ansicht=header`, full: false, cspReverted: true,
     prepare: async (pg) => {
-      await pg.locator('#header-caddy-title').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.locator('#header-caddy-csp').evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
@@ -504,17 +535,17 @@ const shots: Shot[] = [
   {
     group: 'csp', name: 'security-csp-qualitaet', path: `/projekte/${S}?tab=security`, full: false, cspQuality: true,
     prepare: async (pg) => {
-      const card = pg.locator('.finding').filter({ hasText: 'CSP: Failure to Define Directive' }).first()
-      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.locator('.sec-row', { hasText: 'CSP: Failure to Define Directive' }).click()
+      await pg.locator('.sec-list').evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
   },
   // M8: Header über Caddy – Rückfrage vor HSTS
   {
-    group: 'fix', name: 'security-hsts-rueckfrage', path: `/projekte/${S}?tab=security`, full: false,
+    group: 'fix', name: 'security-hsts-rueckfrage', path: `/projekte/${S}?tab=security&ansicht=header`, full: false,
     prepare: async (pg) => {
-      const b = pg.getByRole('button', { name: 'HSTS setzen', exact: true })
+      const b = pg.getByRole('button', { name: 'Strict-Transport-Security setzen', exact: true })
       await b.scrollIntoViewIfNeeded()
       await b.click()
       await pg.waitForTimeout(250)
@@ -524,10 +555,10 @@ const shots: Shot[] = [
   {
     group: 'fix', name: 'security-mit-claude-loesen', path: `/projekte/${S}?tab=security`, full: false,
     prepare: async (pg) => {
-      const cards = pg.locator('.finding').filter({ hasText: 'Container läuft als root' })
-      await cards.first().getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.locator('.sec-row', { hasText: 'Container läuft als root' }).click()
+      await pg.locator('.sec-detail').getByRole('button', { name: 'Mit Claude lösen' }).click()
       await pg.waitForTimeout(300)
-      await cards.first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.locator('.sec-detail').evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
@@ -535,10 +566,9 @@ const shots: Shot[] = [
   {
     group: 'fix', name: 'security-image-hinweis', path: `/projekte/${S}?tab=security`, full: false,
     prepare: async (pg) => {
-      const card = pg.locator('.finding').filter({ hasText: 'CVE-2026-31337' }).first()
-      await card.getByRole('button', { name: 'Mit Claude lösen' }).click()
+      await pg.locator('.sec-detail').getByRole('button', { name: 'Mit Claude lösen' }).click()
       await pg.waitForTimeout(300)
-      await card.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pg.locator('.sec-detail').evaluate((el) => el.scrollIntoView({ block: 'start' }))
       await pg.evaluate(() => window.scrollBy(0, -24))
       await pg.waitForTimeout(150)
     },
@@ -546,8 +576,8 @@ const shots: Shot[] = [
   {
     group: 'fix', name: 'security-vorschlag-claude', path: `/projekte/${S}?tab=security`, full: false,
     prepare: async (pg) => {
-      await pg.locator('#fix-requests-title').scrollIntoViewIfNeeded()
-      await pg.evaluate(() => window.scrollBy(0, 300))
+      await pg.locator('.sec-row', { hasText: 'Container läuft als root' }).click()
+      await pg.locator('.fix-box').scrollIntoViewIfNeeded()
       await pg.waitForTimeout(150)
     },
   },
@@ -1061,6 +1091,11 @@ const shots: Shot[] = [
   {
     group: 'besucher', name: 'besucher-kennzahl', path: `/projekte/${H}?tab=besucher&zeitraum=30-tage`, traffic: 'ok', full: false, el: '.vs-main',
     prepare: async (pg) => { await pg.getByRole('button', { name: /^Nicht gefunden/ }).click(); await pg.waitForTimeout(250) },
+  },
+  {
+    // Seiten pro Besuch in Stunden (Messbeginn im Zeitraum): laufender Schnitt seit Mitternacht, nie eine leere Kurve
+    group: 'besucher', name: 'besucher-seiten-pro-besuch', path: `/projekte/${H}?tab=besucher`, traffic: 'jung', full: false, el: '.vs-main',
+    prepare: async (pg) => { await pg.getByRole('button', { name: /^Seiten pro Besuch/ }).click(); await pg.waitForTimeout(250) },
   },
   {
     group: 'besucher', name: 'besucher-europa', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte', full: false, el: '.vs-geo',

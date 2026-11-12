@@ -8,7 +8,7 @@ import { Topology } from '../components/Topology.js'
 import { confirmLeave, hasUnsaved, leaveWithoutAsking } from '../lib/unsaved.js'
 import { StatusBadge } from '../components/Status.js'
 import { DeployProgress } from '../components/DeployProgress.js'
-import { ProjectSecurity } from '../components/Security.js'
+import { ProjectSecurity } from '../components/SecurityTab.js'
 import { PublicPillFor } from '../components/Publication.js'
 import { ProjectSettings, useKeepToggle, type ContainerPatch, type ContainerRequest } from '../components/ProjectSettings.js'
 import { notifyOk } from '../lib/feedback.js'
@@ -93,18 +93,19 @@ export function ProjectDetail() {
   const goToPublish = () => {
     void setTab('einstellungen').then((ok) => { if (ok) setPublishRequested(true) })
   }
-  // «Verwalten» bei den Security-Headern (Einstellungen, Aufbau): Security › Liste «Header über Caddy»
+  // «Verwalten» bei den Security-Headern (Einstellungen, Aufbau): Security › Header & CSP
   const manageHeaders = () => {
-    void setTab('security').then((ok) => {
-      if (!ok) return
-      // Die Liste erscheint, sobald der Reiter geladen ist
+    void (async () => {
+      if (tab !== 'security' && !(await confirmLeave())) return
+      setParams({ tab: 'security', ansicht: 'header' }, { replace: false })
+      // Die Tabelle erscheint, sobald der Reiter geladen ist
       const go = (tries: number) => {
         const el = document.getElementById('header-caddy')
         if (el) el.scrollIntoView({ block: 'start' })
         else if (tries > 0) setTimeout(() => go(tries - 1), 100)
       }
       go(20)
-    })
+    })()
   }
   // Etappe 6: «In den Einstellungen einschalten» (Deployments › Vorschauen) → Einstellungen › Vorschauen
   const goToPreviewSettings = () => {

@@ -36,10 +36,13 @@ export function ClaudeFixAction({
   before,
   after,
   onCopied,
+  strong,
 }: {
   projectId: string
   finding: FindingDto
   sourceType?: string
+  /** Gefüllter Claude-Knopf (Detailkarte im Reiter Security); sonst wie die übrigen kleinen Knöpfe */
+  strong?: boolean
   before?: ReactNode
   after?: ReactNode
   onCopied?: () => void
@@ -59,7 +62,7 @@ export function ClaudeFixAction({
       <div className="finding-actions">
         {before}
         {offered && (
-          <button type="button" className="button-small" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
+          <button type="button" className={strong && label === 'Mit Claude lösen' ? 'button-small button-claude' : 'button-small'} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
             {label === 'Mit Claude lösen' && <span className="claude-spark"><IconSpark /></span>}{label}
           </button>
         )}
@@ -89,7 +92,7 @@ export function ClaudeFixAction({
                       Auftrag kopieren
                     </button>
                     <span role="status" className="fix-note">
-                      {copied === 'ok' && 'Kopiert. In Claude einfügen; der Vorschlag erscheint nach kurzer Zeit unter «Vorschläge von Claude».'}
+                      {copied === 'ok' && 'Kopiert. In Claude einfügen; der Vorschlag erscheint nach kurzer Zeit hier beim Befund.'}
                       {copied === 'manual' && 'Kopieren ging nicht. Bitte den Text oben von Hand markieren.'}
                     </span>
                   </div>
@@ -126,7 +129,11 @@ export function Diff({ text }: { text: string }) {
   )
 }
 
-function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixRequestDto; onDone: (msg: string) => void }) {
+/**
+ * Ein Vorschlag von Claude mit Erklärung und Diff; «Übernehmen» und
+ * «Verwerfen» erst nach Rückfrage. Steht in der Detailkarte des Befunds.
+ */
+export function FixCard({ projectId, fix, onDone, compact }: { projectId: string; fix: FixRequestDto; onDone: (msg: string) => void; compact?: boolean }) {
   const qc = useQueryClient()
   const applyC = useConfirm()
   const rejectC = useConfirm()
@@ -137,7 +144,7 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
   }
   const apply = useMutation({
     mutationFn: () => api.applyFix(projectId, fix.id),
-    onSuccess: (r) => done(r.fix.status === 'failed' ? `Vorschlag übernommen, aber: ${r.fix.note}` : 'Vorschlag übernommen. Deploy und Nachscan laufen; der Status erscheint unter «Vorschläge von Claude».'),
+    onSuccess: (r) => done(r.fix.status === 'failed' ? `Vorschlag übernommen, aber: ${r.fix.note}` : 'Vorschlag übernommen. Deploy und Nachscan laufen; der Status steht beim Befund.'),
     onSettled: applyC.close,
   })
   const reject = useMutation({
@@ -148,11 +155,13 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
   const busy = apply.isPending || reject.isPending
   const err = apply.error ?? reject.error
 
+  const Tag = compact ? 'div' : 'li'
   return (
-    <li className={`finding fix-card fix-${fix.status}`}>
-      <div className="finding-head">
-        <span className={`badge fix-status fix-status-${fix.status}`}>{FIX_STATUS_LABEL[fix.status]}</span>
-        <strong>Fix für «{fix.findingTitle}»</strong>
+    <Tag className={`${compact ? 'fix-box' : 'finding'} fix-card fix-${fix.status}`}>
+      <div className={compact ? 'fix-box-head' : 'finding-head'}>
+        {compact && <span className="claude-spark"><IconSpark /></span>}
+        <strong>{compact ? (fix.status === 'proposed' ? 'Vorschlag von Claude' : `Fix von Claude: ${FIX_STATUS_LABEL[fix.status]}`) : <>Fix für «{fix.findingTitle}»</>}</strong>
+        {!compact && <span className={`badge fix-status fix-status-${fix.status}`}>{FIX_STATUS_LABEL[fix.status]}</span>}
         <span className="muted">von {fix.actor.replace(/^token:/, '')} · {relativeTime(fix.createdAt)}</span>
       </div>
       {fix.explanation && <p>{fix.explanation}</p>}
@@ -182,37 +191,14 @@ function FixCard({ projectId, fix, onDone }: { projectId: string; fix: FixReques
         </div>
       )}
       {err && <p role="alert" className="error">{err instanceof ApiError ? err.message : 'Nicht gespeichert'}</p>}
-    </li>
+    </Tag>
   )
 }
 
-/** Abschnitt «Vorschläge von Claude» (nur wenn es welche gibt). */
-export function FixRequestsSection({ projectId, onDone, watch }: { projectId: string; onDone: (msg: string) => void; watch?: boolean }) {
-  const q = useQuery({
-    queryKey: fixesKey(projectId),
-    queryFn: () => api.fixRequests(projectId),
-    // Neue Vorschläge (Audit), Deploy und Nachscan kommen über den Ereignisstrom (UI-Qualität 3)
-    refetchInterval: poll,
-  })
-  const fixes = q.data?.fixes ?? []
-  if (!fixes.length) return null
-  const open = fixes.filter((f) => f.status === 'proposed' || f.status === 'applied' || f.status === 'pr_open' || f.status === 'merged')
-  const rest = fixes.filter((f) => !open.includes(f))
-  return (
-    <section className="fix-requests" aria-labelledby="fix-requests-title">
-      <div className="section-head findings-head">
-        <div>
-          <h2 id="fix-requests-title">Vorschläge von Claude <span className="muted findings-count">{open.length}<span className="visually-hidden"> offen</span></span></h2>
-          <p>Claude legt sie über MCP an. Übernommen wird erst nach deiner Rückfrage; der Scan nach dem Deploy bestätigt die Behebung.</p>
-        </div>
-      </div>
-      {open.length > 0 && <ul className="finding-list">{open.map((f) => <FixCard key={f.id} projectId={projectId} fix={f} onDone={onDone} />)}</ul>}
-      {rest.length > 0 && (
-        <details>
-          <summary>{rest.length === 1 ? '1 abgeschlossener Vorschlag' : `${rest.length} abgeschlossene Vorschläge`}</summary>
-          <ul className="finding-list">{rest.map((f) => <FixCard key={f.id} projectId={projectId} fix={f} onDone={onDone} />)}</ul>
-        </details>
-      )}
-    </section>
-  )
+/** Vorschläge von Claude zum Projekt; neue (Audit), Deploy und Nachscan kommen über den Ereignisstrom (UI-Qualität 3) */
+export function useFixRequests(projectId: string) {
+  return useQuery({ queryKey: fixesKey(projectId), queryFn: () => api.fixRequests(projectId), refetchInterval: poll })
 }
+
+/** Laufend oder wartend (nicht abgeschlossen) */
+export const fixInFlight = (f: FixRequestDto) => f.status === 'proposed' || f.status === 'applied' || f.status === 'pr_open' || f.status === 'merged'

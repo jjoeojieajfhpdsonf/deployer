@@ -257,7 +257,7 @@ export const trafficHourly = pgTable('traffic_hourly', {
   index('traffic_hourly_hour_idx').on(t.hour),
 ])
 
-/** «Besucher neu» (Migration 0024): je Merkmal eine Zählerzeile (Einstieg, Ausstieg, Sprache, Browser, System, Netz, Kampagne) */
+/** «Besucher neu» (Migration 0030): je Merkmal eine Zählerzeile (Einstieg, Ausstieg, Sprache, Browser, System, Netz, Kampagne) */
 export const trafficDims = pgTable('traffic_dims', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   hour: timestamp('hour', { withTimezone: true }).notNull(),

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import type { CspAnalysisDto, FindingDto, ProjectDto, ScanReportDto, ScanStageDto } from '@airlock/shared'
 import { countOpenFindings, headerFixFor, openTotal, scanStageLabel } from '@airlock/shared'
 import { api } from '../api.js'
@@ -128,6 +129,9 @@ function StageFoot({ stages }: { stages: Record<string, ScanStageDto> }) {
 
 export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security') => void }) {
   const qc = useQueryClient()
+  const [, setParams] = useSearchParams()
+  // Direkt in eine Ansicht des Security-Reiters (Header & CSP, Verlauf)
+  const openSecurity = (ansicht: 'header' | 'verlauf') => setParams({ tab: 'security', ansicht })
   const r = useQuery({ queryKey: ['scan-done', p.id], queryFn: () => api.latestScan(p.id, true), enabled: Boolean(p.security) })
   const rules = useHeaderRules(p.id)
   const report: ScanReportDto | null | undefined = r.data?.report
@@ -146,7 +150,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
   const head = (
     <div className="ov-head">
       <h2 className="ov-title" id="ov-sec">Security</h2>
-      <button type="button" className="link-button" onClick={() => onTab('security')}>{total > 0 ? 'Alle Befunde' : 'Verlauf'}</button>
+      <button type="button" className="link-button" onClick={() => (total > 0 ? onTab('security') : openSecurity('verlauf'))}>{total > 0 ? 'Alle Befunde' : 'Verlauf'}</button>
     </div>
   )
 
@@ -206,7 +210,7 @@ export function SecurityCard({ p, onTab }: { p: ProjectDto; onTab: (t: 'security
                     projectId={p.id}
                     finding={f}
                     sourceType={p.sourceType}
-                    before={<HeaderFixAction projectId={p.id} finding={f} rules={rules.data} onDone={() => void qc.invalidateQueries({ queryKey: ['scan-done', p.id] })} />}
+                    before={<HeaderFixAction projectId={p.id} finding={f} rules={rules.data} onDone={() => void qc.invalidateQueries({ queryKey: ['scan-done', p.id] })} onOpenCsp={() => openSecurity('header')} />}
                   />
                 </div>
               </li>

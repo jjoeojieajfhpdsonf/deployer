@@ -56,6 +56,9 @@ const checks = [
   ['seg-1', ['surface', 'surface-2'], 3, 'Gestapelter Balken, grösster Teil'],
   // Projektseite: Claude-Funke als Auslöser (Zeichen neben dem Token-Namen)
   ['claude', ['claude-bg', 'surface', 'surface-2'], 3, 'Auslöser-Zeichen'],
+  // Security › Befunde: «Vorschlag bereit» und Kopf des Vorschlags (Text auf der Tönung), Knopf «Mit Claude lösen»
+  ['claude', ['claude-bg'], 4.5, 'Claude-Text (immer auf der Tönung)'],
+  ['claude-ink', ['claude'], 4.5, 'Text auf Claude-Knopf'],
   // Code-Editor der Pause-Seite: Syntaxfarben auf dem Editor-Grund und der aktiven Zeile
   ...['cm-ink', 'cm-tag', 'cm-attr', 'cm-string', 'cm-number', 'cm-comment'].map((c) => [c, ['cm-bg', 'cm-active'], 4.5, 'Code im Editor']),
   ['cm-gutter', ['cm-bg'], 3, 'Zeilennummern'],

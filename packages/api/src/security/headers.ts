@@ -19,6 +19,23 @@ const TOOL = 'header-check'
 
 const one = (h: string | string[] | undefined): string | undefined => (Array.isArray(h) ? h[0] : h)
 
+/**
+ * Gesehene Werte der Security-Header, für «App setzt …» in der Oberfläche
+ * (Reiter Security › Header & CSP). Schlüssel wie die Header-Regeln;
+ * frame-ancestors aus der CSP, sonst aus X-Frame-Options. Werte gekürzt.
+ */
+export function observedHeaders(h: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  const put = (k: string, v: string | undefined) => { if (v && v.trim()) out[k] = v.trim().slice(0, 500) }
+  const csp = one(h['content-security-policy'])
+  put('content-security-policy', csp)
+  put('content-security-policy-report-only', one(h['content-security-policy-report-only']))
+  const fa = csp && /(?:^|;)\s*frame-ancestors\s+([^;]+)/i.exec(csp)?.[1]
+  put('frame-ancestors', fa ? fa.trim() : one(h['x-frame-options']) ? `X-Frame-Options: ${one(h['x-frame-options'])}` : undefined)
+  for (const k of ['x-content-type-options', 'referrer-policy', 'permissions-policy', 'strict-transport-security']) put(k, one(h[k]))
+  return out
+}
+
 export function checkHeaders(r: HttpResponseLike): FindingInput[] {
   const out: FindingInput[] = []
   const h = r.headers
