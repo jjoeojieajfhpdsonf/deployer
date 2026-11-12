@@ -1,5 +1,6 @@
 /**
- * Reiter «Zugriffe» (neu): einzelne Anfragen aus Caddys Zugriffs-Log
+ * Einzelaufrufe im Reiter «Besucher» (bis «Besucher zusammen» eigener
+ * Reiter «Zugriffe»): einzelne Anfragen aus Caddys Zugriffs-Log
  * (visits.log im Volume caddy_access, 2 Tage). Hier liegen die DTOs und alle
  * reinen Regeln, die Oberfläche und API teilen: Einteilung nach Status,
  * Herkunft, Zusammenfassen gleicher Aufrufe, Erklärungen bei Auffälligem
@@ -63,6 +64,15 @@ export interface AccessEntryDto {
   language: string
   /** Referrer ohne Query und Fragment, '' ohne */
   referrer: string
+  /**
+   * Quelle wie in der Auswertung (Karte «Woher», Links): Host ohne «www.»,
+   * INTERNAL_REFERRER bei Klicks innerhalb der Seite, ohne Referer
+   * utm_source bzw. ref, sonst '' (direkt oder Lesezeichen). Damit filtern
+   * die Einzelaufrufe genau nach der Zeile der Auswertung.
+   */
+  source: string
+  /** Kampagne: nur utm_source, utm_medium, utm_campaign aus der Query (der Rest nie); null ohne */
+  campaign: { source: string; medium: string; campaign: string } | null
   /** «HTTP/2» */
   proto: string
   /** «TLS 1.3», '' ohne TLS (Tunnel endet vor Caddy, nip.io über HTTP) */
@@ -92,6 +102,18 @@ export interface AccessListDto {
 
 /** Höchstens so viele Einträge je Abruf */
 export const ACCESS_MAX = 5000
+
+/** So viele Tage hält Caddy das Zugriffs-Log (roll_keep_days in caddy-config.ts) */
+export const ACCESS_LOG_DAYS = 2
+
+/**
+ * Zeitraum der Einzelaufrufe (GET …/access?range=): «today» ab Mitternacht
+ * (Ortszeit), «2d» alles, was das Log hat. 15m, 1h, 24h aus der Zeit des
+ * Reiters «Zugriffe» bleiben gültig.
+ */
+export const ACCESS_RANGES = ['today', '2d', '15m', '1h', '24h'] as const
+export type AccessRange = (typeof ACCESS_RANGES)[number]
+export const isAccessRange = (v: unknown): v is AccessRange => ACCESS_RANGES.includes(v as AccessRange)
 
 /* --- Status ------------------------------------------------------------------ */
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import topology from 'world-atlas/countries-110m.json'
 import { countryName, type TrafficRowDto } from '@airlock/shared'
 import { MAP_VIEWS, countryShapes, type MapView, type Topology } from '../lib/world-map.js'
@@ -10,7 +11,9 @@ import { mapLevel, mapSteps, nf, plural, stepLabel } from '../lib/traffic-view.j
  * mit Zahlenbereichen), Tooltip mit Land und Anzahl per Maus und Tastatur
  * (Länder mit Aufrufen sind fokussierbar), grüner Punkt in der Mitte des
  * Landes des letzten Aufrufs (nur Land, nie Koordinaten des Besuchers).
- * Ausschnitt Welt oder Europa. Wird erst geladen, wenn der Reiter Länder
+ * Ausschnitt Welt oder Europa. Seit «Besucher zusammen» ist jedes Land mit
+ * Aufrufen ein Link (Klick, Enter) zu den Einzelaufrufen aus diesem Land.
+ * Wird erst geladen, wenn der Reiter Länder
  * zeigt (eigener Chunk).
  *
  * Geometrie: Natural Earth 1:110 Mio. (gemeinfrei) über world-atlas (ISC).
@@ -18,12 +21,20 @@ import { mapLevel, mapSteps, nf, plural, stepLabel } from '../lib/traffic-view.j
 
 let shapes: ReturnType<typeof countryShapes> | null = null
 
-export default function WorldMap({ countries, view, last }: {
+export default function WorldMap({ countries, view, last, href }: {
   countries: TrafficRowDto[]
   view: MapView
   /** Herkunft des letzten Aufrufs (Land, optional Stadt) */
   last?: { country: string; city?: string } | null
+  /** Suchteil der Einzelaufrufe zu einem Land (ohne: Länder sind keine Links) */
+  href?: (code: string) => string | null
 }) {
+  const navigate = useNavigate()
+  const to = href
+  const go = (code: string) => {
+    const search = href?.(code)
+    if (search) navigate({ search })
+  }
   shapes ??= countryShapes(topology as unknown as Topology)
   const byCode = useMemo(() => new Map(countries.map((c) => [c.key, c.views])), [countries])
   const max = Math.max(0, ...countries.filter((c) => c.key && c.key !== 'T1').map((c) => c.views))
@@ -46,7 +57,7 @@ export default function WorldMap({ countries, view, last }: {
           viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`}
           preserveAspectRatio="xMidYMid meet"
           role="group"
-          aria-label={`${view === 'world' ? 'Weltkarte' : 'Europakarte'} der Aufrufe nach Land${top.length ? `: ${top.join(', ')}` : ''}. Länder mit Aufrufen per Tabulator erreichbar.`}
+          aria-label={`${view === 'world' ? 'Weltkarte' : 'Europakarte'} der Aufrufe nach Land${top.length ? `: ${top.join(', ')}` : ''}. Länder mit Aufrufen per Tabulator erreichbar${href ? ', Enter zeigt ihre Einzelaufrufe' : ''}.`}
         >
           {visible.map((s) => {
             const n = byCode.get(s.code) ?? 0
@@ -60,10 +71,16 @@ export default function WorldMap({ countries, view, last }: {
                 onMouseEnter={() => setTip(s.code)}
                 {...(n > 0 && inView(s) ? {
                   tabIndex: 0,
-                  role: 'img',
-                  'aria-label': `${countryName(s.code)}: ${plural(n, 'Aufruf', 'Aufrufe')}`,
+                  // Besucher zusammen: ein Land mit Aufrufen ist ein Link zu den Einzelaufrufen
+                  role: to ? 'link' : 'img',
+                  'aria-label': `${countryName(s.code)}: ${plural(n, 'Aufruf', 'Aufrufe')}${to ? ' – Einzelaufrufe zeigen' : ''}`,
                   onFocus: () => setTip(s.code),
                   onBlur: () => setTip(null),
+                  ...(to ? {
+                    className: `vs-map-c vs-map-${level} vs-map-link`,
+                    onClick: () => go(s.code),
+                    onKeyDown: (e: KeyboardEvent<SVGPathElement>) => { if (e.key === 'Enter') { e.preventDefault(); go(s.code) } },
+                  } : {}),
                 } : { 'aria-hidden': true })}
               />
             )

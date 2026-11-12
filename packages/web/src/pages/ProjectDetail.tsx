@@ -18,8 +18,8 @@ import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
 import { PreviewsSection } from '../components/Previews.js'
-import { Access } from '../components/Access.js'
-import { TrafficTab } from '../components/VisitorsTab.js'
+import { VisitorsTab } from '../components/VisitorsTab.js'
+import { legacyAccessRedirect } from '../lib/access-view.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { poll } from '../lib/live.js'
@@ -43,10 +43,12 @@ export function ProjectDetail() {
   const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
   // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt.
-  // Etappe 3: «Besucher» (Auswertung) gleich nach «Logs»/«Zugriffe» (einzelne Einträge)
-  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'besucher', 'security', 'einstellungen']
+  // Besucher zusammen: Übersicht · Aufbau · Deployments · (Logs) · Besucher · Security · Einstellungen –
+  // die einzelnen Aufrufe (früher Reiter «Zugriffe») sind eine Ansicht im Reiter «Besucher»;
+  // statische Seiten haben keinen Container und darum keinen Reiter «Logs»
+  const ALL_TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'besucher', 'security', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
-  const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
+  const tab: Tab = fromUrl && ALL_TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
   // landen direkt richtig, und Zurück im Browser wechselt den Reiter.
   // UI-Qualität 8: Reiterwechsel mit ungespeicherten Eingaben (z.B. Variablen) erst nach Rückfrage
@@ -123,17 +125,27 @@ export function ProjectDetail() {
   }
   // Logs: Dienst steht in der Adresse (?tab=logs&dienst=web), damit «Alle Logs» im Aufbau gefiltert landet
   const logService = params.get('dienst')
-  const goToLogs = async (service: string | null) => {
-    if (tab !== 'logs' && !(await confirmLeave())) return
-    setParams(service ? { tab: 'logs', dienst: service } : { tab: 'logs' }, { replace: false })
-  }
-
   const q = useQuery({
     queryKey: ['project', id],
     queryFn: () => api.getProject(id),
     // Ereignisstrom statt Polling (UI-Qualität 3); während DeployProgress läuft, meldet der eigene Strom
     refetchInterval: watching ? false : poll,
   })
+  const staticSite = q.data?.project.runtimeKind === 'static'
+  const TABS = staticSite ? ALL_TABS.filter((t) => t !== 'logs') : ALL_TABS
+  // Statische Seiten: «Alle Zugriffe» im Aufbau → Einzelaufrufe im Reiter «Besucher»
+  const goToLogs = async (service: string | null) => {
+    const target = staticSite ? 'besucher' : 'logs'
+    if (tab !== target && !(await confirmLeave())) return
+    setParams(staticSite ? { tab: 'besucher', ansicht: 'einzeln' } : service ? { tab: 'logs', dienst: service } : { tab: 'logs' }, { replace: false })
+  }
+  // Besucher zusammen: alte Adressen des Reiters «Zugriffe» (?tab=zugriffe, statisch ?tab=logs) → Einzelaufrufe
+  const loaded = Boolean(q.data)
+  useEffect(() => {
+    if (!loaded) return
+    const next = legacyAccessRedirect(params, staticSite)
+    if (next) setParams(next, { replace: true })
+  }, [loaded, staticSite, params, setParams])
 
   const act = useMutation({
     meta: { errorTitle: 'Aktion nicht ausgeführt' },
@@ -204,8 +216,8 @@ export function ProjectDetail() {
     aufbau: { label: 'Aufbau' },
     security: { label: 'Security', count: openFindings, tone: secTone, countLabel: openFindings === 1 ? '1 offener Befund' : `${openFindings} offene Befunde` },
     deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
-    // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
-    logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
+    // Statische Seiten haben keinen Container und keinen Reiter «Logs» (ihre Aufrufe: Besucher › Einzelaufrufe)
+    logs: { label: 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
     besucher: { label: 'Besucher' },
     einstellungen: { label: 'Einstellungen' },
   }
@@ -337,7 +349,7 @@ export function ProjectDetail() {
           onDeployments={() => void setTab('deployments')}
         />
       )}
-      {tab === 'logs' && (isStatic ? <Access projectId={id} slug={p.slug} /> : (
+      {tab === 'logs' && !isStatic && (
         <LogsTab
           projectId={id}
           slug={p.slug}
@@ -345,8 +357,8 @@ export function ProjectDetail() {
           service={logService}
           onService={(s) => setParams(s ? { tab: 'logs', dienst: s } : { tab: 'logs' }, { replace: true })}
         />
-      ))}
-      {tab === 'besucher' && <TrafficTab p={p} onAccessLog={isStatic ? () => void setTab('logs') : undefined} onLogs={() => void setTab('logs')} />}
+      )}
+      {tab === 'besucher' && <VisitorsTab p={p} onLogs={isStatic ? undefined : () => void setTab('logs')} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings

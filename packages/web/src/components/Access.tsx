@@ -1,26 +1,34 @@
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ACCESS_BLOCK_LABEL, ACCESS_KIND_WORD, ACCESS_MAX, ACCESS_STATUS_FILTERS, LOG_RANGES, TRAFFIC_DEVICE_LABEL, TRAFFIC_WAYS, TRAFFIC_WAY_LABEL,
-  accessHints, accessKind, accessOrigin, botLabel, browserFamily, countryName, groupAccess, languageName, singleGroups,
+  ACCESS_BLOCK_LABEL, ACCESS_KIND_WORD, ACCESS_LOG_DAYS, ACCESS_MAX, ACCESS_STATUS_FILTERS, TRAFFIC_DEVICE_LABEL, TRAFFIC_WAY_LABEL,
+  accessHints, accessKind, accessOrigin, botLabel, browserFamily, countryName, groupAccess, languageName, singleGroups, trafficRange,
   type AccessBlock, type AccessEntryDto, type AccessGroup, type TrafficWay,
 } from '@airlock/shared'
 import { api, subscribeAccess } from '../api.js'
-import { accessCsv, byDay, filterAccess, fmtDuration, groupTime, readFilters, writeFilters, type AccessFilters } from '../lib/access-view.js'
+import {
+  FACETS, FACET_LABEL, accessCsv, accessRangeOf, byDay, displayChanges, facetText, filterAccess, fmtDuration, groupTime, readFilters, writeFilters,
+  type AccessFilters, type Facet,
+} from '../lib/access-view.js'
 import { fmtStamp, fmtTime, fmtUtc, msOf, nowIso } from '../lib/dates.js'
 import { flagOf } from '../lib/traffic-view.js'
-import { IconDownload, IconExternal, IconSearch } from './Icons.js'
+import { IconCheck, IconDownload, IconExternal, IconSearch, IconSliders } from './Icons.js'
 import { Highlight, downloadText, searchPattern, useLiveFeed } from './LogTools.js'
 import { EmptyState, ErrorState, Loading, SkRows } from './States.js'
+import { useMenu } from './useMenu.js'
 
 /**
- * Reiter «Zugriffe» (neu, Vorlage docs/design-cal/zugriffe-neu/): einzelne
- * Anfragen aus Caddys Zugriffs-Log (visits.log, 2 Tage). Werkzeugleiste mit
- * Suche, Status, Zeitraum, Live und CSV; zweite Zeile Zugang und Schalter.
- * Tabelle mit Tagestrennern, gleiche Aufrufe zusammengefasst; rechts das
- * Detail (unter 1100 px als Schublade). Alle Filter stehen in der Adresse.
- * Pfeiltasten wechseln die Zeile, Enter öffnet das Detail.
+ * Einzelaufrufe im Reiter «Besucher» (bis «Besucher zusammen» eigener
+ * Reiter «Zugriffe», Vorlage docs/design-cal/besucher-zusammen/): einzelne
+ * Anfragen aus Caddys Zugriffs-Log (visits.log, 2 Tage). Zeitraum und
+ * Zugang teilt die Kopfzeile mit der Auswertung; rechts darin Live und CSV.
+ * Darunter Suche, Status mit Anzahl, Filter-Chips aus der Auswertung
+ * («Land: Schweiz ✕») und das Menü «Anzeige» (Zusammenfassen, Prüfungen,
+ * Bots). Tabelle mit Tagestrennern, gleiche Aufrufe zusammengefasst; rechts
+ * das Detail (unter 1100 px als Schublade). Alle Filter stehen in der
+ * Adresse. Pfeiltasten wechseln die Zeile, Enter öffnet das Detail.
  */
 
 /** So lange gilt eine Zeile aus dem Live-Strom als neu (Markierung) */
@@ -75,12 +83,54 @@ function Origin({ e, re }: { e: AccessEntryDto; re: RegExp | null }) {
   )
 }
 
-export function Access({ projectId, slug }: { projectId: string; slug: string }) {
+/**
+ * Menü «Anzeige ▾»: Gleiche zusammenfassen, Airlock-Prüfungen ausblenden,
+ * Bots zeigen. Weicht etwas von der Voreinstellung ab, steht die Anzahl am
+ * Knopf (Zustand nie nur im geschlossenen Menü).
+ */
+function DisplayMenu({ f, probes, bots, onChange }: { f: AccessFilters; probes: number; bots: number; onChange: (patch: Partial<AccessFilters>) => void }) {
+  const listId = useId()
+  const { open, toggle, triggerRef, rootRef, listProps } = useMenu()
+  const changed = displayChanges(f)
+  const items: { key: 'group' | 'hideProbes' | 'bots'; label: string; n?: number }[] = [
+    { key: 'group', label: 'Gleiche Aufrufe zusammenfassen' },
+    { key: 'hideProbes', label: 'Airlock-Prüfungen ausblenden', n: probes },
+    { key: 'bots', label: 'Bots zeigen', n: bots },
+  ]
+  return (
+    <div className="menu acc-display" ref={rootRef}>
+      <button
+        ref={triggerRef} type="button" className="button-small acc-display-btn" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? listId : undefined}
+        onClick={toggle}
+      >
+        <IconSliders /> Anzeige
+        {changed > 0 && <span className="acc-display-n num" aria-hidden="true">{changed}</span>}
+        {changed > 0 && <span className="sr-only">, {changed === 1 ? 'eine Einstellung' : `${changed} Einstellungen`} geändert</span>}
+        <span className="acc-display-caret" aria-hidden="true">▾</span>
+      </button>
+      <div {...listProps} role="menu" id={listId} aria-label="Anzeige der Einzelaufrufe">
+        {items.map((it) => (
+          <button key={it.key} type="button" role="menuitemcheckbox" aria-checked={f[it.key]} onClick={() => onChange({ [it.key]: !f[it.key] })}>
+            <span>{it.label}{it.n !== undefined && <span className="acc-check-num"> ({it.n.toLocaleString('de-CH')})</span>}</span>
+            {f[it.key] && <IconCheck className="menu-check" size={14} />}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function Access({ projectId, slug, toolsSlot }: {
+  projectId: string; slug: string
+  /** Platz rechts in der Kopfzeile des Reiters (Live, CSV) */
+  toolsSlot: HTMLElement | null
+}) {
   const [params, setParams] = useSearchParams()
   const f = readFilters(params)
   const update = (patch: Partial<AccessFilters>) => setParams((p) => writeFilters(p, { ...readFilters(p), ...patch }), { replace: true })
   const searchId = useId()
   const narrow = useNarrow()
+  const accessRange = accessRangeOf(f.range)
 
   const [live, setLive] = useState(true)
   const [streamed, setStreamed] = useState<AccessEntryDto[]>([])
@@ -96,8 +146,8 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
 
   // Kein Polling: der Stand des Zeitraums einmal, neue Anfragen live
   const q = useQuery({
-    queryKey: ['access', projectId, f.range],
-    queryFn: () => api.access(projectId, f.range),
+    queryKey: ['access', projectId, accessRange],
+    queryFn: () => api.access(projectId, accessRange),
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   })
@@ -139,16 +189,18 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
   const search = useDeferredValue(f.search)
   const re = useMemo(() => searchPattern(search), [search])
   const sinceMs = msOf(q.data?.since) ?? 0
+  const facetKey = JSON.stringify(f.facets)
   const view = useMemo(
     () => filterAccess(all, { ...f, search }, sinceMs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [all, search, f.way, f.hideProbes, f.bots, f.status, sinceMs],
+    [all, search, f.way, f.hideProbes, f.bots, f.status, facetKey, sinceMs],
   )
   const groups = useMemo(() => (f.group ? groupAccess(view.list) : singleGroups(view.list)), [view.list, f.group])
   const shown = groups.slice(0, limit)
   const days = byDay(shown, Date.now())
   const selected = f.row ? groups.find((g) => g.id === f.row) ?? groups.find((g) => g.entries.some((e) => e.id === f.row)) ?? null : null
-  const range = LOG_RANGES.find((r) => r.key === f.range)!
+  const longRange = f.range !== 'today'
+  const from = longRange ? `aus den letzten ${ACCESS_LOG_DAYS} Tagen` : 'von heute'
 
   // Tastatur: Pfeiltasten wechseln die Zeile, Enter öffnet das Detail
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
@@ -187,69 +239,68 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
     setPending([])
     setLive(true)
   }
-  const download = () => downloadText(`${slug}-zugriffe-${fmtStamp(nowIso()).replace(/[ :]/g, '-')}.csv`, accessCsv(view.list), 'text/csv')
-  const reset = () => update({ status: 'alle', way: 'all', search: '', row: null })
+  const download = () => downloadText(`${slug}-einzelaufrufe-${fmtStamp(nowIso()).replace(/[ :]/g, '-')}.csv`, accessCsv(view.list), 'text/csv')
+  const reset = () => update({ status: 'alle', way: 'all', search: '', facets: {}, row: null })
+  const dropFacet = (k: Facet) => {
+    const facets = { ...f.facets }
+    delete facets[k]
+    update({ facets, row: null })
+  }
 
   const data = q.data
-  const toolbar = data && !data.error && data.ingest !== 'off' && (
-    <div className="acc-bar" role="group" aria-label="Werkzeuge der Zugriffe">
-      <div className="acc-bar-row">
-        <div className="search acc-search">
-          <IconSearch />
-          <label htmlFor={searchId} className="sr-only">Suchen (Pfad, Land, Provider, Status)</label>
-          <input
-            id={searchId} type="search" value={f.search} placeholder="Suchen …" autoComplete="off" spellCheck={false}
-            title="Pfad, Land, Provider oder Status" onChange={(e) => update({ search: e.target.value, row: null })}
-          />
-        </div>
-        <div className="segmented" role="group" aria-label="Nach Status filtern">
-          {ACCESS_STATUS_FILTERS.map((s) => (
-            <button key={s.key} type="button" aria-pressed={f.status === s.key} title={s.hint} onClick={() => update({ status: s.key })}>
-              {s.label} <span className="num">{view.counts[s.key].toLocaleString('de-CH')}</span>
-            </button>
-          ))}
-        </div>
-        <div className="segmented" role="group" aria-label="Zeitraum">
-          {LOG_RANGES.map((r) => (
-            <button key={r.key} type="button" aria-pressed={f.range === r.key} onClick={() => update({ range: r.key, row: null })}>{r.label}</button>
-          ))}
-        </div>
-        <span className="acc-bar-gap" />
-        {!live && <span className="logbar-paused">Pausiert{pending.length > 0 ? ` · ${pending.length.toLocaleString('de-CH')} neu` : ''}</span>}
-        <button type="button" className="button-small logbar-live" aria-pressed={live} onClick={() => (live ? setLive(false) : resume())} title={live ? 'Neue Anfragen erscheinen sofort oben' : 'Neue Anfragen werden gesammelt'}>
-          <span className={`logbar-dot${live ? ' logbar-dot-on' : ''}`} aria-hidden="true" />
-          Live
-        </button>
-        <button type="button" className="button-small" onClick={download} disabled={view.list.length === 0} title="Die angezeigten Anfragen als CSV (Absender gekürzt)">
-          <IconDownload /> CSV
-        </button>
+  const ready = Boolean(data && !data.error && data.ingest !== 'off')
+  const right = ready && (
+    <>
+      {!live && <span className="logbar-paused">Pausiert{pending.length > 0 ? ` · ${pending.length.toLocaleString('de-CH')} neu` : ''}</span>}
+      <button type="button" className="button-small logbar-live" aria-pressed={live} onClick={() => (live ? setLive(false) : resume())} title={live ? 'Neue Anfragen erscheinen sofort oben' : 'Neue Anfragen werden gesammelt'}>
+        <span className={`logbar-dot${live ? ' logbar-dot-on' : ''}`} aria-hidden="true" />
+        Live
+      </button>
+      <button type="button" className="button-small" onClick={download} disabled={view.list.length === 0} title="Die angezeigten Anfragen als CSV (Absender gekürzt)">
+        <IconDownload /> CSV
+      </button>
+    </>
+  )
+  const chips = FACETS.filter((k) => f.facets[k] !== undefined)
+  const toolbar = ready && (
+    <div className="acc-bar" role="group" aria-label="Filter der Einzelaufrufe">
+      <div className="search acc-search">
+        <IconSearch />
+        <label htmlFor={searchId} className="sr-only">Suchen (Pfad, Land, Provider, Status)</label>
+        <input
+          id={searchId} type="search" value={f.search} placeholder="Suchen …" autoComplete="off" spellCheck={false}
+          title="Pfad, Land, Provider oder Status" onChange={(e) => update({ search: e.target.value, row: null })}
+        />
       </div>
-      <div className="acc-bar-row">
-        <div className="segmented" role="group" aria-label="Nach Zugang filtern">
-          <button type="button" aria-pressed={f.way === 'all'} onClick={() => update({ way: 'all' })}>Alle Zugänge</button>
-          {TRAFFIC_WAYS.map((w) => (
-            <button key={w} type="button" aria-pressed={f.way === w} onClick={() => update({ way: w })}>{TRAFFIC_WAY_LABEL[w]}</button>
-          ))}
-        </div>
-        <label className="acc-check">
-          <input type="checkbox" checked={f.group} onChange={(e) => update({ group: e.target.checked })} />
-          Gleiche Aufrufe zusammenfassen
-        </label>
-        <label className="acc-check">
-          <input type="checkbox" checked={f.hideProbes} onChange={(e) => update({ hideProbes: e.target.checked })} />
-          Airlock-Prüfungen ausblenden <span className="acc-check-num">({view.probes.toLocaleString('de-CH')})</span>
-        </label>
-        <label className="acc-check">
-          <input type="checkbox" checked={f.bots} onChange={(e) => update({ bots: e.target.checked })} />
-          Bots zeigen <span className="acc-check-num">({view.bots.toLocaleString('de-CH')})</span>
-        </label>
+      <div className="segmented" role="group" aria-label="Nach Status filtern">
+        {ACCESS_STATUS_FILTERS.map((s) => (
+          <button key={s.key} type="button" aria-pressed={f.status === s.key} title={s.hint} onClick={() => update({ status: s.key })}>
+            {s.label} <span className="num">{view.counts[s.key].toLocaleString('de-CH')}</span>
+          </button>
+        ))}
       </div>
+      {chips.length > 0 && (
+        <ul className="acc-chips" aria-label="Filter aus der Auswertung">
+          {chips.map((k) => {
+            const text = `${FACET_LABEL[k]}: ${facetText(k, f.facets[k]!, all)}`
+            return (
+              <li key={k}>
+                <button type="button" className="acc-chip" onClick={() => dropFacet(k)} title={`Filter «${text}» entfernen`}>
+                  <span>{text}</span><span className="acc-chip-x" aria-hidden="true">✕</span><span className="sr-only"> – entfernen</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <span className="acc-bar-gap" />
+      <DisplayMenu f={f} probes={view.probes} bots={view.bots} onChange={update} />
     </div>
   )
 
   let body: ReactNode
   if (!data && q.isError) body = <ErrorState compact what="Das Zugriffs-Log" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} />
-  else if (!data) body = <Loading label="Zugriffe werden geladen"><SkRows n={6} /></Loading>
+  else if (!data) body = <Loading label="Einzelaufrufe werden geladen"><SkRows n={6} /></Loading>
   else if (data.error) body = <ErrorState compact what="Das Zugriffs-Log" error={new Error(data.error)} retrying={q.isFetching} onRetry={() => void q.refetch()} />
   else if (data.ingest === 'off') {
     body = (
@@ -260,7 +311,7 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
   } else if (all.length === 0) {
     body = data.ingest === 'waiting'
       ? <EmptyState compact title="Caddy hat noch nichts ins Zugriffs-Log geschrieben">Die Datei <code>visits.log</code> fehlt noch. Sobald jemand das Projekt aufruft, erscheint die Anfrage hier.</EmptyState>
-      : <EmptyState compact title={`Noch keine Anfragen ${range.within}`} action={f.range !== '24h' ? <button type="button" className="button-small" onClick={() => update({ range: '24h' })}>Letzte 24 Stunden zeigen</button> : undefined}>Öffne die Seite, dann erscheint der Aufruf hier.</EmptyState>
+      : <EmptyState compact title={`Noch keine Anfragen ${longRange ? `in den letzten ${ACCESS_LOG_DAYS} Tagen` : 'heute'}`} action={!longRange ? <button type="button" className="button-small" onClick={() => update({ range: '7d' })}>Letzte {ACCESS_LOG_DAYS} Tage zeigen</button> : undefined}>Öffne die Seite, dann erscheint der Aufruf hier.</EmptyState>
   } else if (view.list.length === 0) {
     body = (
       <EmptyState
@@ -268,13 +319,13 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
         title={f.search.trim() ? `Keine Anfrage passt zu «${f.search.trim()}»` : 'Keine Anfragen mit diesen Filtern'}
         action={<button type="button" className="button-small" onClick={reset}>Filter zurücksetzen</button>}
       >
-        {view.probes + view.bots > 0 && (f.hideProbes || !f.bots) ? 'Ausgeblendet sind auch Airlock-Prüfungen und Bots (Schalter oben).' : null}
+        {view.probes + view.bots > 0 && (f.hideProbes || !f.bots) ? 'Ausgeblendet sind auch Airlock-Prüfungen und Bots (Menü «Anzeige»).' : null}
       </EmptyState>
     )
   } else {
     const detailId = 'acc-detail-h'
     const detail = selected
-      ? <AccessDetail g={selected} headingId={detailId} headingRef={headingRef} onWay={(w) => update({ way: w })} onPath={(p) => update({ search: p })} />
+      ? <AccessDetail g={selected} headingId={detailId} headingRef={headingRef} onWay={(w) => update({ way: w })} onPath={(p) => update({ facets: { ...f.facets, pfad: p }, row: null })} />
       : (
         <div className="acc-detail-empty">
           <p><strong>Zeile wählen</strong></p>
@@ -326,7 +377,7 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
             </table>
           </div>
           <p className="acc-foot">
-            {groups.length.toLocaleString('de-CH')} {groups.length === 1 ? 'Zeile' : 'Zeilen'} · {view.list.length.toLocaleString('de-CH')} {view.list.length === 1 ? 'Anfrage' : 'Anfragen'} {range.from}
+            {groups.length.toLocaleString('de-CH')} {groups.length === 1 ? 'Zeile' : 'Zeilen'} · {view.list.length.toLocaleString('de-CH')} {view.list.length === 1 ? 'Anfrage' : 'Anfragen'} {from}
             {data.capped ? ` (die neuesten ${ACCESS_MAX.toLocaleString('de-CH')})` : ''} · Absender gekürzt
             {groups.length > shown.length && <> · <button type="button" className="link-button" onClick={() => setLimit((l) => l + PAGE)}>Weitere {Math.min(PAGE, groups.length - shown.length)} zeigen</button></>}
           </p>
@@ -354,13 +405,23 @@ export function Access({ projectId, slug }: { projectId: string; slug: string })
   }
 
   return (
-    <div className="tab-panel acc">
-      <h2 className="sr-only">Zugriffe</h2>
-      <p className="sr-only" role="status">{live && streamOpen === false ? 'Live-Verbindung unterbrochen, verbinde neu.' : ''}</p>
-      {toolbar}
-      {live && streamOpen === false && <p className="acc-offline logs-offline">Live-Verbindung unterbrochen, verbinde neu …</p>}
-      {body}
-    </div>
+    <>
+      {toolsSlot && right && createPortal(right, toolsSlot)}
+      <div id="vs-view" role="tabpanel" aria-labelledby="vs-tab-einzeln" className="vs-view acc">
+        <p className="sr-only" role="status">{live && streamOpen === false ? 'Live-Verbindung unterbrochen, verbinde neu.' : ''}</p>
+        {toolbar}
+        {ready && longRange && (
+          <p className="notice notice-info acc-range-note" role="note">
+            <span>
+              <strong>Einzelaufrufe nur für die letzten {ACCESS_LOG_DAYS} Tage</strong> – so lange bewahrt Caddy das Zugriffs-Log auf.
+              {' '}Die Zahlen für {trafficRange(f.range).label} zeigt die Auswertung.
+            </span>
+          </p>
+        )}
+        {live && streamOpen === false && <p className="acc-offline logs-offline">Live-Verbindung unterbrochen, verbinde neu …</p>}
+        {body}
+      </div>
+    </>
   )
 }
 
@@ -378,6 +439,7 @@ function AccessDetail({ g, headingId, headingRef, onWay, onPath }: {
     : TRAFFIC_WAY_LABEL[e.way]
   const device = e.browser || e.system ? [e.browser, e.system, TRAFFIC_DEVICE_LABEL[e.device]].filter(Boolean).join(' · ') : '–'
   const guide = hints.find((h) => h.link)?.link
+  const campaign = e.campaign ? [e.campaign.campaign, e.campaign.source, e.campaign.medium].filter(Boolean).join(' · ') : ''
   const kv: [string, ReactNode][] = [
     ['Host', <code key="h">{e.host}</code>],
     ['Absender', <code key="a">{e.ip}</code>],
@@ -386,6 +448,7 @@ function AccessDetail({ g, headingId, headingRef, onWay, onPath }: {
     ['Gerät', device],
     ['Sprache', e.language ? languageName(e.language) : '–'],
     ['Referrer', e.referrer ? <span key="r" className="acc-wrap-any">{e.referrer}</span> : '–'],
+    ...(campaign ? [['Kampagne', campaign] as [string, ReactNode]] : []),
     ['Protokoll', [e.proto, e.tls].filter(Boolean).join(' · ') || '–'],
     ['Dauer', fmtDuration(e.durationMs)],
     ...(e.block ? [['Grund der Sperre', BLOCK_REASON[e.block]] as [string, ReactNode]] : []),

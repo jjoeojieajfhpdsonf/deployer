@@ -99,7 +99,7 @@ function tapAccess(a: AccessLine, host: HostInfo): void {
     const cutoff = a.at - DOCKER_BLOCK_WINDOW_MS
     dockerBlocks = [...dockerBlocks.filter((e) => e.at > cutoff), { at: a.at, host: a.host }].slice(-1000)
   }
-  const entry = toAccessEntry(a, host.public, accessLookups)
+  const entry = toAccessEntry(a, host.public, accessLookups, host.ownHosts)
   const list = accessRecent.get(host.projectId) ?? []
   list.unshift(entry)
   if (list.length > ACCESS_RECENT_MAX) list.length = ACCESS_RECENT_MAX

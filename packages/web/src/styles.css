@@ -1145,16 +1145,26 @@ a.tab { text-decoration: none; }
   .switch, .switch-thumb, .set-saved, .set-collapse, .set-disclose svg, .set-nav-link { transition: none; }
 }
 
-/* --- Reiter «Zugriffe» (neu, Vorlage docs/design-cal/zugriffe-neu/) ----------- */
-.acc-bar { display: grid; gap: 10px; margin-bottom: 14px; }
-.acc-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+/* --- Einzelaufrufe im Reiter «Besucher» (früher Reiter «Zugriffe», Vorlage docs/design-cal/besucher-zusammen/) ---
+   Zeile unter der Kopfzeile: Suche, Status mit Anzahl, Chips aus der Auswertung, rechts «Anzeige ▾». */
+.acc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .acc-bar-gap { flex: 1; }
 .acc-bar .segmented button { min-height: 30px; padding: 0 11px; font-size: var(--fs-13); }
-.acc-search { width: 200px; }
+.acc-search { width: 220px; }
 .acc-search input { min-height: 36px; height: 36px; padding-top: 0; padding-bottom: 0; box-shadow: var(--sh-ring); font-size: var(--fs-14); }
-.acc-check { display: inline-flex; align-items: center; gap: 7px; margin: 0 var(--sp-2) 0 var(--sp-1); font-size: var(--fs-13); font-weight: 400; color: var(--ink-dim); cursor: pointer; }
 .acc-check-num { color: var(--muted); font-variant-numeric: tabular-nums; }
-.acc-offline { margin: 0 0 var(--sp-3); font-size: var(--fs-13); }
+.acc-offline { margin: 0; font-size: var(--fs-13); }
+/* Filter aus der Auswertung: «Land: Schweiz ✕» – ein Klick entfernt ihn */
+.acc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+button.acc-chip { min-height: 0; height: 30px; gap: 8px; padding: 0 8px 0 11px; border: 0; border-radius: var(--r-sm); background: var(--surface-3); box-shadow: none; color: var(--ink); font-size: var(--fs-13); font-weight: 500; }
+button.acc-chip:hover:not(:disabled) { background: var(--line-strong); border: 0; color: var(--ink); }
+.acc-chip-x { font-size: var(--fs-12); color: var(--ink-dim); }
+/* Menü «Anzeige»: Zahl am Knopf, sobald etwas von der Voreinstellung abweicht */
+.acc-display .menu-list { min-width: 300px; }
+.acc-display-btn { gap: 6px; }
+.acc-display-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--ink); color: var(--surface); font-size: var(--fs-12); font-weight: 600; line-height: 18px; text-align: center; }
+.acc-display-caret { font-size: var(--fs-12); color: var(--muted); }
+.acc-range-note { margin: 0; }
 
 .acc-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
 .acc-list { padding: 0; overflow: hidden; }
@@ -1772,7 +1782,7 @@ html [data-sonner-toaster] [data-sonner-toast][data-type='error'] [data-icon] { 
 .log { margin: var(--sp-3) 0 0; padding: 14px var(--sp-4); max-height: 340px; overflow: auto; font-size: var(--fs-13); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-tall { max-height: 64vh; min-height: 320px; }
 
-/* UI-Qualität 4: Werkzeugleiste der Reiter «Logs» und «Zugriffe» */
+/* UI-Qualität 4: Werkzeugleiste des Reiters «Logs» (Live-Knopf auch in den Einzelaufrufen) */
 .logbar { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .logbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .logbar-row-end { justify-content: flex-start; }
@@ -2461,17 +2471,32 @@ form.failure-fix .form-actions { margin: 0; }
 .tr-key { display: inline-block; width: 16px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--ink); }
 .tr-key-visitors { border-top: 2px dashed var(--muted); }
 
-/* --- Besucher neu: Reiter «Besucher» (Vorlage docs/design-cal/besucher-neu/) ---------------
-   Kopfzeile → Kennzahlen mit Kurve (eine Karte) → Karte «Woher» → drei Listen → Netz/Sprachen/
-   Kampagnen → Gerade eben. Farben nur über Tokens: Kurve/Säulen --chart-*, Karte --map-0 … 4,
-   gestapelte Balken --seg-1 … 5. Zustände nie nur über Farbe (Wörter, Legende, Tooltip).
-   Bewegung (Emil): Kurvenwechsel 150 ms Überblenden, neue Live-Zeile 200 ms; reduziert: keine. */
+/* --- Reiter «Besucher» (Besucher neu, seit «Besucher zusammen» mit den Einzelaufrufen;
+   Vorlagen docs/design-cal/besucher-neu/ und besucher-zusammen/) ---------------
+   Kopfzeile (Auswertung · Einzelaufrufe, Zeitraum, Zugang, rechts live bzw. Live/CSV) →
+   Kennzahlen mit Kurve (eine Karte) → Karte «Woher» mit Liste → Seiten · Woher · Geräte →
+   «Wie gezählt wird». Farben nur über Tokens: Kurve/Säulen --chart-*, Karte --map-0 … 4.
+   Zustände nie nur über Farbe (Wörter, Legende, Tooltip). Jede Zeile einer Liste ist ein Link
+   zu den Einzelaufrufen («›»). Bewegung (Emil): Kurvenwechsel 150 ms Überblenden, Popover wie
+   die Menüs (150 ms ease-out auf, 100 ms ease-in zu); reduziert: keine. */
 .vs-page { display: grid; gap: var(--sp-4); }
-.vs-page > .panel + .panel { margin-top: 0; }
-.vs-page > .state-empty { margin: 0; }
-.vs-page .notice { margin: 0; }
-.vs-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
-.vs-active { margin: 0 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); color: var(--ink); white-space: nowrap; }
+.vs-view { display: grid; gap: var(--sp-4); min-width: 0; }
+.vs-view > .panel + .panel { margin-top: 0; }
+.vs-view > .state-empty { margin: 0; }
+.vs-view .notice { margin: 0; }
+.vs-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.vs-top .segmented button { min-height: 30px; padding: 0 10px; font-size: var(--fs-13); }
+.vs-top .segmented .num { margin-left: 5px; }
+.vs-top-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-left: auto; }
+/* Ansicht: die gewählte gefüllt (Vorlage), wie ein Primärknopf */
+.vs-mode button[role='tab'][aria-selected='true'],
+:is(:root[data-theme='dark'], .theme-dark) .vs-mode button[role='tab'][aria-selected='true']:not(.theme-light *) { background: var(--ink); color: var(--surface); box-shadow: none; }
+.vs-mode button[role='tab']:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.vs-active { margin: 0; display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-13); color: var(--ink-dim); white-space: nowrap; }
+.vs-active-count { display: inline-flex; align-items: center; gap: 6px; }
+.vs-active strong { color: var(--ink); font-weight: 600; }
+.vs-live-link { color: var(--ink); text-decoration: none; font-weight: 500; }
+.vs-live-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .vs-active-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px var(--surface-2); }
 .vs-active-on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
 .vs-flag { margin-right: 6px; font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-size: 0.95em; }
@@ -2548,21 +2573,28 @@ form.failure-fix .form-actions { margin: 0; }
 .vs-card { display: flex; flex-direction: column; }
 .vs-card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); min-height: 30px; }
 .vs-card-title { margin: 0; font-size: var(--fs-16); font-weight: 600; letter-spacing: 0; }
-.vs-sub { margin: 0; font-size: var(--fs-15); font-weight: 600; }
 .vs-card-note { font-size: var(--fs-13); color: var(--muted); }
 .vs-card-lede { margin: -4px 0 var(--sp-3); }
 .vs-card-foot { margin: var(--sp-3) 0 0; font-size: var(--fs-13); color: var(--muted); }
 .vs-grid-3 { display: grid; grid-template-columns: 5fr 4fr 4fr; gap: var(--sp-4); align-items: stretch; }
-/* Ohne Kampagnen (und intern ohne Netz): die übrigen Karten teilen sich die Breite */
-.vs-grid-3.vs-grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 .vs-grid-3 > .panel { margin: 0; min-width: 0; }
 
-/* Ranglisten: Balken als Fläche hinter der Zeile */
+/* Ranglisten: Balken als Fläche hinter der Zeile; als Link mit «›» am Ende */
 .vs-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.vs-rank li { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto 48px; align-items: center; gap: var(--sp-3); min-height: 32px; padding: 0 var(--sp-3); font-size: var(--fs-14); }
+.vs-rank-row {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto 48px 10px; align-items: center; gap: var(--sp-3);
+  min-height: 32px; padding: 0 var(--sp-2) 0 var(--sp-3); border-radius: var(--r-sm); color: var(--ink); font-size: var(--fs-14); text-decoration: none;
+}
+a.vs-rank-link { transition: box-shadow 150ms ease; }
+@media (hover: hover) and (pointer: fine) {
+  a.vs-rank-link:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+  a.vs-rank-link:hover .vs-rank-go { color: var(--ink); }
+}
+a.vs-rank-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .vs-rank-bar { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-sm); background: var(--surface-2); }
 .vs-rank-warn .vs-rank-bar { background: var(--warn-bg); }
-.vs-rank-label, .vs-rank-n, .vs-rank-share { position: relative; }
+.vs-rank-label, .vs-rank-n, .vs-rank-share, .vs-rank-go { position: relative; }
+.vs-rank-go { color: var(--muted); font-size: var(--fs-13); text-align: center; }
 .vs-rank-label { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
 .vs-rank-label code { overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: var(--fs-13); background: none; padding: 0; color: var(--ink); }
 .vs-rank-n { color: var(--ink); text-align: right; }
@@ -2573,8 +2605,11 @@ form.failure-fix .form-actions { margin: 0; }
 
 /* Karte «Woher die Besucher kommen» */
 .vs-geo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr); gap: var(--sp-8); align-items: start; }
+/* Ohne Aufrufe aus dem Internet (internes Projekt): keine Karte, nur die Liste */
+.vs-geo.vs-geo-nomap { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .vs-geo-side { display: grid; gap: var(--sp-2); }
-.vs-geo-side .vs-card-foot { margin: var(--sp-2) 0 var(--sp-4); }
+.vs-geo-side .vs-card-foot { margin: var(--sp-2) 0 0; }
+.vs-map-link { cursor: pointer; }
 .vs-map { margin: 0; }
 .vs-map-plot { position: relative; aspect-ratio: 360 / 141; }
 .vs-map-plot svg { display: block; width: 100%; height: 100%; }
@@ -2596,30 +2631,32 @@ form.failure-fix .form-actions { margin: 0; }
 .vs-map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .vs-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--vs-m); }
 .vs-swatch-last { border-radius: 50%; background: var(--ok); }
-.vs-agents .vs-card-foot { margin: var(--sp-2) 0 0; }
-.vs-stack-words { margin: 0 0 var(--sp-2); font-size: var(--fs-13); color: var(--ink-dim); }
-.vs-stack-bar { display: flex; gap: 2px; height: 10px; border-radius: var(--r-pill); overflow: hidden; background: var(--surface-2); }
-.vs-seg { min-width: 3px; }
-.vs-seg-1 { background: var(--seg-1); }
-.vs-seg-2 { background: var(--seg-2); }
-.vs-seg-3 { background: var(--seg-3); }
-.vs-seg-4 { background: var(--seg-4); }
-.vs-seg-5 { background: var(--seg-5); }
 
-/* Gerade eben */
-.vs-recent { width: 100%; border-collapse: collapse; font-size: var(--fs-14); }
-.vs-recent td { padding: 7px var(--sp-3) 7px 0; border-top: 1px solid var(--line); vertical-align: middle; }
-.vs-recent tr:first-child td { border-top: none; }
-.vs-recent-time { width: 84px; color: var(--muted); }
-.vs-recent-from { width: 260px; white-space: nowrap; }
-.vs-recent-path code { font-family: var(--mono); font-size: var(--fs-13); background: none; padding: 0; color: var(--ink); }
-.vs-recent-status { width: 48px; padding-right: 0; text-align: right; color: var(--ink-dim); }
-.vs-recent-status.vs-warn { color: var(--warn); font-weight: 600; }
-@media (prefers-reduced-motion: no-preference) {
-  .vs-row-new td { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
-  @starting-style { .vs-row-new td { opacity: 0; transform: translateY(-4px); } }
+/* «Wie gezählt wird»: eine Zeile mit ⓘ, Einzelheiten im Popover (Verhalten wie die Menüs) */
+.vs-info { position: relative; }
+.vs-info-line { margin: 0; font-size: var(--fs-13); line-height: 1.6; color: var(--muted); }
+.vs-info-line a { color: var(--ink-dim); }
+button.vs-info-btn { display: inline-flex; vertical-align: top; min-height: 0; height: auto; gap: 6px; padding: 0 1px 0 0; border: 0; background: none; box-shadow: none; color: var(--ink-dim); font-size: var(--fs-13); font-weight: 500; line-height: inherit; }
+button.vs-info-btn svg { align-self: center; }
+button.vs-info-btn:hover:not(:disabled) { background: none; border: 0; color: var(--ink); }
+button.vs-info-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--r-xs); }
+.vs-pop {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20; width: min(560px, 100%); padding: var(--sp-3) var(--sp-4);
+  border-radius: 14px; background: var(--surface); box-shadow: var(--sh-pop); color: var(--ink-dim); font-size: var(--fs-13); line-height: 1.55;
+  display: none; opacity: 0; transform: translateY(4px) scale(0.98); transform-origin: bottom left;
+  transition: opacity 100ms ease-in, transform 100ms ease-in, display 100ms allow-discrete;
 }
-.vs-source { margin: 0; max-width: none; }
+.vs-pop p { margin: 0; }
+.vs-pop p + p { margin-top: var(--sp-2); }
+.vs-pop[data-open] { display: block; opacity: 1; transform: none; transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out), display 150ms allow-discrete; }
+@starting-style {
+  .vs-pop[data-open] { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vs-pop, .vs-pop[data-open] { transform: none; transition: none; }
+}
+:root[data-theme='win95'] .vs-pop { border-radius: 0; }
+:root[data-theme='terminal'] .vs-pop { border-radius: 0; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* Server › Besucher */
 .ts-sources { display: grid; gap: var(--sp-4); }
@@ -2630,7 +2667,7 @@ form.failure-fix .form-actions { margin: 0; }
 
 @media (max-width: 1100px) {
   .vs-geo { grid-template-columns: minmax(0, 1fr); }
-  .vs-grid-3, .vs-grid-3.vs-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .vs-grid-3 { grid-template-columns: minmax(0, 1fr); }
   .vs-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .vs-kpi:nth-child(4) { border-left: none; }
   .vs-kpi:nth-child(n + 4) { border-top: 1px solid var(--line); }

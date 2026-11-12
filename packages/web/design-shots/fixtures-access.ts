@@ -37,13 +37,13 @@ const browser = (ua: string, lang = 'de-CH,de;q=0.9', site = 'none'): Pick<Base,
 
 const internet = (o: Partial<Base>): Base => ({
   method: 'GET', host: PUB, path: '/', status: 200, block: null, way: 'public', dockerNet: false, ip: '84.72.10.x', country: 'CH', city: 'Zürich',
-  network: ZSCALER, browser: 'Chrome 131', system: 'Windows 10', device: 'desktop', language: 'de-CH', referrer: '', proto: 'HTTP/2', tls: '',
+  network: ZSCALER, browser: 'Chrome 131', system: 'Windows 10', device: 'desktop', language: 'de-CH', referrer: '', source: '', campaign: null, proto: 'HTTP/2', tls: '',
   durationMs: 0.6, bytes: 2140, bot: null, probe: false, scanner: false, ...browser(CHROME), ...o,
 })
 
 const internal = (o: Partial<Base>): Base => ({
   method: 'GET', host: INT, path: '/', status: 200, block: null, way: 'tailnet', dockerNet: false, ip: '100.88.41.x', country: '', city: '',
-  network: null, browser: 'Safari 18', system: 'iOS 18', device: 'mobile', language: 'de-CH', referrer: '', proto: 'HTTP/2', tls: 'TLS 1.3',
+  network: null, browser: 'Safari 18', system: 'iOS 18', device: 'mobile', language: 'de-CH', referrer: '', source: '', campaign: null, proto: 'HTTP/2', tls: 'TLS 1.3',
   durationMs: 0.4, bytes: 2140, bot: null, probe: false, scanner: false, ...browser(IPHONE), ...o,
 })
 
@@ -73,7 +73,7 @@ function list(): AccessEntryDto[] {
     ['z-zs-2', 7 * MIN + 41 * SEC, internet({})],
     ['z-gw-3', 7 * MIN + 42 * SEC, masked()],
     ['z-mac', 18 * MIN, internal({ way: 'lan', ip: '192.168.1.x', browser: 'Safari 18', system: 'macOS', device: 'desktop', ...browser(MAC) })],
-    ['z-de', 1 * HOUR + 29 * MIN, internet({ path: '/impressum', country: 'DE', city: 'Berlin', network: TELEKOM, browser: 'Firefox 132', system: 'macOS', referrer: 'https://www.google.com/', ...browser(FIREFOX, 'de-DE,de;q=0.8', 'cross-site') })],
+    ['z-de', 1 * HOUR + 29 * MIN, internet({ path: '/impressum', country: 'DE', city: 'Berlin', network: TELEKOM, browser: 'Firefox 132', system: 'macOS', referrer: 'https://www.google.com/', source: 'google.com', ...browser(FIREFOX, 'de-DE,de;q=0.8', 'cross-site') })],
     // Nachts: Scanner aus einem Rechenzentrum, Stammgast aus dem Heimnetz der Eltern
     ['z-wp', 14 * HOUR + 46 * MIN, internet({ path: '/wp-login.php', status: 404, country: 'NL', city: 'Amsterdam', network: DO, browser: '', system: '', language: '', bot: 'datacenter', scanner: true, bytes: 18, headers: [['user-agent', 'Mozilla/5.0']] })],
     ['z-env', 14 * HOUR + 46 * MIN + 2 * SEC, internet({ path: '/.env', status: 404, country: 'NL', city: 'Amsterdam', network: DO, browser: '', system: '', language: '', bot: 'datacenter', scanner: true, bytes: 18, headers: [['user-agent', 'Mozilla/5.0']] })],
@@ -93,8 +93,11 @@ function list(): AccessEntryDto[] {
 export type AccessVariant = 'ok' | 'leer' | 'wartet' | 'aus'
 
 export function accessFixture(id: string, range: string | null, variant: AccessVariant = 'ok'): AccessListDto {
-  const minutes = range === '15m' ? 15 : range === '1h' ? 60 : 24 * 60
-  const since = ago(minutes * MIN)
+  // Besucher zusammen: today ab Mitternacht (Zürich), 2d = alles aus dem Log; 15m, 1h, 24h wie früher
+  const midnight = new Date(new Date(Date.now()).toLocaleString('en-US', { timeZone: 'Europe/Zurich' }))
+  const sinceToday = Date.now() - ((midnight.getHours() * 60 + midnight.getMinutes()) * MIN + midnight.getSeconds() * SEC)
+  const minutes = range === '15m' ? 15 : range === '1h' ? 60 : range === '2d' ? 2 * 24 * 60 : 24 * 60
+  const since = range === 'today' ? new Date(sinceToday).toISOString() : ago(minutes * MIN)
   if (variant === 'aus') return { entries: [], since, ingest: 'off', capped: false, error: null }
   if (variant === 'wartet') return { entries: [], since, ingest: 'waiting', capped: false, error: null }
   if (variant === 'leer' || id !== 'p-hallo') return { entries: [], since, ingest: 'ok', capped: false, error: null }
