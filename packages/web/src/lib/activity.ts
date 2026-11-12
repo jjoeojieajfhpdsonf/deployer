@@ -210,6 +210,24 @@ const EVENTS: Record<string, Describe> = {
     sub: [p.snapshot ? `Stand ${str(p.snapshot)}` : null, Array.isArray(p.restored) && p.restored.length ? (p.restored as string[]).join(', ') : null],
   }),
   'backup.key_verify': (p) => ({ title: p.matches ? 'Schlüssel-Datei geprüft: passt' : 'Schlüssel-Datei geprüft: anderer Schlüssel', category: p.matches ? 'config' : 'error' }),
+
+  // Nacht 3, Etappe 3: Server › Speicher
+  'storage.cleanup': (p, e) => ({
+    title: e.result === 'error' ? 'Aufräumen mit Fehlern' : 'Server aufgeräumt',
+    category: e.result === 'error' ? 'error' : 'config',
+    sub: [
+      p.trigger === 'schedule' ? 'wöchentlich' : p.trigger === 'cli' ? 'Kommandozeile' : 'von Hand',
+      num(p.freedBytes) !== null ? `${fmtGb(num(p.freedBytes)!)} frei` : null,
+      num(p.removed) !== null ? `${num(p.removed)} entfernt` : null,
+    ],
+  }),
+  'storage.settings': (p) => ({ title: 'Aufräumen eingestellt', category: 'config', sub: [num(p.keepVersions) !== null ? `${num(p.keepVersions)} Fassungen behalten` : null] }),
+  'storage.volume.delete': (p, e) => ({ title: e.result === 'error' ? 'Volume löschen' : 'Verwaistes Volume gelöscht', category: e.result === 'error' ? 'error' : 'danger', sub: [str(p.volume)] }),
+}
+
+/** «1,2 GB», «340 MB» (Aufräumen) */
+function fmtGb(n: number): string {
+  return n >= 1e9 ? `${(n / 1e9).toLocaleString('de-CH', { maximumFractionDigits: 1 })} GB` : `${Math.round(n / 1e6)} MB`
 }
 
 /** MCP-Werkzeuge, falls ihr Aufruf allein steht */
@@ -220,7 +238,7 @@ const MCP_TOOL: Record<string, string> = {
   get_scan_report: 'Scan-Bericht gelesen', accept_finding: 'Befund akzeptiert', set_targets: 'Erreichbarkeit geändert',
   pause_public: 'Öffentlich pausiert', resume_public: 'Wieder öffentlich', unpublish: 'Offline genommen', set_security_header: 'Header gesetzt',
   propose_fix: 'Vorschlag gemacht', apply_fix: 'Vorschlag übernommen', get_fix_context: 'Befund gelesen', list_domains: 'Domains abgefragt',
-  get_backup_status: 'Backup-Stand abgefragt',
+  get_backup_status: 'Backup-Stand abgefragt', get_disk_usage: 'Speicher abgefragt',
   add_external_target: 'Externes Ziel eingetragen', verify_external_target: 'Externes Ziel geprüft',
 }
 
@@ -351,6 +369,7 @@ export const isNotifyEvent = (e: AuditEventDto) => e.action.startsWith('notify.'
 const NOTIFY_CATEGORY: Record<string, Category> = {
   deploy_failed: 'error', finding_critical: 'danger', finding_high: 'danger', project_public: 'public',
   external_verification_lost: 'scan', infra_problem: 'error', expiry: 'paused', gateway_warning: 'access',
+  disk_space: 'error',
 }
 
 /** Wie weit ein MCP-Aufruf von seinem Ereignis entfernt sein darf (mit wait läuft der Deploy mit) */

@@ -11,6 +11,7 @@ import type {
   BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
   TrafficPointDto, TrafficRange, TrafficRowDto, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
   PreviewDto, PreviewsDto,
+  StorageDto, CleanupItemDto, CleanupResultDto,
 } from '@airlock/shared'
 import { TRAFFIC_RANGES, TRAFFIC_WAYS } from '@airlock/shared'
 import { addDays, availabilityOf, dayInZone, overallOf, statusDays } from '@airlock/shared'
@@ -986,7 +987,7 @@ export const system: SystemStatusDto = {
   nipioEnabled: true,
   hostsBlock: null,
   tls: { mode: 'cloudflare', acmeCa: 'production', cert: null, tailscaleIp: '100.88.41.12' },
-  server: { name: 'heimserver', cpuPercent: 14, memUsedBytes: 9.8e9, memTotalBytes: 32e9, diskUsedBytes: 318e9, diskTotalBytes: 500e9 },
+  server: { name: 'heimserver', cpuPercent: 14, memUsedBytes: 9.8e9, memTotalBytes: 32e9, diskUsedBytes: 318e9, diskTotalBytes: 500e9, diskPercent: 64 },
   scanQueue: 0,
   publicTunnel: { configured: false, status: null, connections: 0 },
   // Wie auf dem Server vor dem Fix: Tailnet-Anfragen kommen maskiert vom Docker-Gateway
@@ -1099,7 +1100,75 @@ export const notifications: NotifySettingsDto = {
     backup_failed: { push: true, email: true },
     backup_stale: { push: true, email: true },
     gateway_warning: { push: false, email: false },
+    disk_space: { push: true, email: true },
   },
+}
+
+/* --- Nacht 3, Etappe 3: Server › Speicher ------------------------------------ */
+
+/** ok: 64 % belegt, einiges freigebbar · voll: 92 % (Warnung) · gesperrt: 96 % · leer: nichts zu tun */
+export type StorageVariant = 'ok' | 'voll' | 'gesperrt' | 'leer'
+
+export function storage(v: StorageVariant = 'ok'): StorageDto {
+  const percent = v === 'voll' ? 92 : v === 'gesperrt' ? 96 : 64
+  const total = 500e9
+  const used = Math.round((total * percent) / 100)
+  const level = percent >= 95 ? 'gesperrt' : percent >= 90 ? 'warnung' : percent >= 80 ? 'hinweis' : 'ok'
+  const leer = v === 'leer'
+  const items: CleanupItemDto[] = leer ? [] : [
+    { kind: 'deployment', name: '3f9a1c20', project: 'fotoalbum', reason: 'Fassung über der Rollback-Grenze (Eintrag in der Liste)', bytes: null },
+    { kind: 'deployment', name: '8b2e47d1', project: 'haushaltsbuch', reason: 'Fassung über der Rollback-Grenze (Eintrag in der Liste)', bytes: null },
+    { kind: 'image', name: 'airlock/fotoalbum:3f9a1c20e4b1', project: 'fotoalbum', reason: 'Ältere Fassung über der Rollback-Grenze', bytes: 412e6 },
+    { kind: 'image', name: 'airlock/haushaltsbuch-web:8b2e47d10c3a', project: 'haushaltsbuch', reason: 'Ältere Fassung über der Rollback-Grenze', bytes: 286e6 },
+    { kind: 'image', name: 'airlock/umfrage:51c0aa8e2d93', project: 'umfrage', reason: 'Projekt oder Vorschau gelöscht', bytes: 1.31e9 },
+    { kind: 'image', name: '9e4d2b7a1f60', project: 'wetterstation', reason: 'Ohne Tag (dangling)', bytes: 198e6 },
+    { kind: 'container', name: 'air_rezepte-api_build_4c1e', project: 'rezepte-api', reason: 'Gestoppter Wegwerf-Container (Build)', bytes: 41e6 },
+    { kind: 'site-version', name: 'vereinsseite/1d7c03e9a2b54f10', project: 'vereinsseite', reason: 'Fassung über der Rollback-Grenze', bytes: 18e6 },
+    { kind: 'upload', name: '6a0f3e52-91b4-4c2d-8e7a-0d3b5c9f1e27.zip', project: null, reason: 'Kein Projekt benutzt diese Datei mehr', bytes: 22e6 },
+    { kind: 'log', name: '3f9a1c20-5b7e-4d21-9c44-7a0e2f6b8d13.log', project: 'fotoalbum', reason: 'Fassung über der Rollback-Grenze', bytes: 0.4e6 },
+  ]
+  const byKindOf = (kind: CleanupItemDto['kind']) => {
+    const of = items.filter((i) => i.kind === kind)
+    return { kind, count: of.length, bytes: of.reduce((s, i) => s + (i.bytes ?? 0), 0) }
+  }
+  const byKind = (['deployment', 'image', 'container', 'site-version', 'upload', 'artifact', 'log'] as const).map(byKindOf).filter((k) => k.count > 0)
+  const buildCache = leer ? { count: 0, bytes: 0 } : { count: 37, bytes: 3.84e9 }
+  const planned = (kind: CleanupItemDto['kind']) => byKind.find((k) => k.kind === kind)?.bytes ?? 0
+  return {
+    disk: { usedBytes: used, totalBytes: total, percent, level },
+    categories: [
+      { key: 'images', label: 'Images', bytes: 61.2e9, reclaimableBytes: planned('image'), count: 48, note: 'Nur Images mit Airlock-Label. Das aktive Image eines Projekts und Images fremder Container bleiben immer.' },
+      { key: 'build-cache', label: 'Build-Cache', bytes: 9.6e9, reclaimableBytes: buildCache.bytes, count: 214, note: 'Unbenutzt und älter als 7 Tage.' },
+      { key: 'containers', label: 'Container', bytes: 1.2e9, reclaimableBytes: planned('container'), count: 23, note: 'Nur gestoppte Wegwerf-Container von Airlock (Build, Scan, Backup). Container-Logs begrenzt Docker auf 50 MB je Container.' },
+      { key: 'volumes', label: 'Volumes', bytes: 148.5e9, reclaimableBytes: 0, count: 19, note: 'Nie automatisch. Enthält auch die Ablagen von Airlock (Seiten, Daten, Backup-Staging).' },
+      { key: 'sites', label: 'Statische Seiten', bytes: 0.31e9, reclaimableBytes: planned('site-version'), count: null, note: 'Ausgelieferte Fassungen; die aktive und die für ein Rollback bleiben.' },
+      { key: 'uploads', label: 'Uploads', bytes: 0.14e9, reclaimableBytes: planned('upload'), count: 9, note: 'Hochgeladene ZIP- und Compose-Dateien; die eines Projekts bleiben.' },
+      { key: 'artifacts', label: 'Deploy-Artefakte', bytes: 2.1e6, reclaimableBytes: planned('artifact'), count: 31, note: 'Compose-Dateien der aufbewahrten Fassungen (für ein Rollback).' },
+      { key: 'logs', label: 'Logs', bytes: 0.19e9, reclaimableBytes: planned('log'), count: null, note: 'Deploy-Logs und Zugriffs-Log von Caddy (rotiert, höchstens 2 Tage).' },
+      { key: 'backup-staging', label: 'Backup-Staging', bytes: 0, reclaimableBytes: 0, count: null, note: 'Zwischenablage des Backups; leert der Backup-Lauf selbst.' },
+    ],
+    plan: { items, total: items.length, byKind, buildCache, bytes: byKind.reduce((s, k) => s + k.bytes, 0) + buildCache.bytes },
+    orphanVolumes: leer ? [] : [
+      { name: 'air_umfrage_db', project: 'umfrage', bytes: 734e6, createdAt: ago(41 * DAY), inUse: false },
+      { name: 'air_umfrage_uploads', project: 'umfrage', bytes: 96e6, createdAt: ago(41 * DAY), inUse: false },
+      { name: 'dep_spielwiese_data', project: 'spielwiese', bytes: 12e6, createdAt: ago(120 * DAY), inUse: false },
+    ],
+    settings: { keepVersions: 5, pruneBuildCache: true },
+    lastRun: { at: ago(6 * DAY + 3 * HOUR), actor: 'system', trigger: 'schedule', ok: true, freedBytes: 7.42e9, removed: 31, failed: 0 },
+    nextRunAt: new Date(Date.now() + DAY - 3 * HOUR).toISOString(),
+    deploysBlocked: percent >= 95,
+    measuredAt: ago(4 * MIN),
+    running: false,
+    problems: [],
+  }
+}
+
+/** Ergebnis von «Jetzt aufräumen» */
+export function storageCleanupResult(): { result: CleanupResultDto; storage: StorageDto } {
+  return {
+    result: { run: { at: new Date().toISOString(), actor: 'ui:joel', trigger: 'manual', ok: true, freedBytes: 6.11e9, removed: 10, failed: 0 }, errors: [] },
+    storage: storage('leer'),
+  }
 }
 
 

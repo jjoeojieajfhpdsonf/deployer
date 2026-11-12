@@ -14,6 +14,9 @@ export const VISUAL_SCENES = [
   // Nacht 3, Etappe 2: private Git-Repos – Neues Projekt (Deploy-Key + Server bestätigen, GitHub-App ohne Zugriff,
   // erreichbar), Einstellungen › Repo-Zugang (Deploy-Key bestätigt, «Prüfen» beim ersten Kontakt)
   'neues-projekt-deploy-key', 'neues-projekt-repo-kein-zugriff', 'neues-projekt-repo-erreichbar', 'einstellungen-repo-zugang', 'einstellungen-repo-zugang-pruefen',
+  // Nacht 3, Etappe 3: Server › Speicher – Übersicht, alle Posten, voll (92 %), gesperrt (96 %), nichts zu tun,
+  // «Jetzt aufräumen» bestätigen, verwaistes Volume löschen; Hinweis im Dashboard ab 80 %
+  'speicher', 'speicher-posten', 'speicher-voll', 'speicher-gesperrt', 'speicher-leer', 'speicher-aufraeumen', 'speicher-volume-loeschen', 'projekte-platte-voll',
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
@@ -78,6 +81,8 @@ export const WIN95_SCENES: readonly string[] = [
   'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
   // Nacht 3, Etappe 2: Deploy-Key und Server bestätigen, Repo-Zugang in den Einstellungen
   'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
+  // Nacht 3, Etappe 3: Server › Speicher (mit Warnung)
+  'speicher', 'speicher-voll',
   // Etappe 3: Besucher
   'besucher', 'projekt-uebersicht-besucher',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
@@ -106,6 +111,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
   // Nacht 3, Etappe 2
   'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
+  // Nacht 3, Etappe 3
+  'speicher', 'speicher-voll',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

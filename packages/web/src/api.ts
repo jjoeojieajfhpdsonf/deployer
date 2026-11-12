@@ -20,6 +20,7 @@ import type {
   AchievementsDto, AchievementId,
   LoginResultDto, LoginOptionsDto, SecurityDto, SudoStatusDto, TotpSetupDto, RecoveryCodesDto, PasskeyDto, SessionDto, SessionMethod,
   RepoCheckDto, GitCredentialDto, CreateGitCredentialInput, ProjectGitAccessDto,
+  StorageDto, StorageSettingsDto, CleanupResultDto,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { requestSudo } from './lib/sudo.js'
@@ -66,7 +67,7 @@ export interface ExternalTargetDto {
   txt: { name: string; value: string }
 }
 
-export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'backup_failed' | 'backup_stale' | 'gateway_warning'
+export type NotifyEvent = 'deploy_failed' | 'finding_critical' | 'finding_high' | 'project_public' | 'external_verification_lost' | 'infra_problem' | 'expiry' | 'weekly_summary' | 'backup_failed' | 'backup_stale' | 'gateway_warning' | 'disk_space'
 
 export interface NotifySettingsDto {
   ntfy: { url: string; topic: string; hasToken: boolean } | null
@@ -416,6 +417,12 @@ export const api = {
   cloudflareDisconnect: () => call<CfStatusDto>(e('/cloudflare'), { method: 'DELETE' }),
 
   /* Backup (serverweit, nur mit Anmeldung) */
+  // Nacht 3, Etappe 3: Server › Speicher
+  storage: (refresh = false) => call<{ storage: StorageDto }>(`/system/storage${refresh ? '?refresh=1' : ''}`),
+  runStorageCleanup: () => call<{ result: CleanupResultDto; storage: StorageDto }>('/system/storage/cleanup', { method: 'POST' }),
+  putStorageSettings: (input: StorageSettingsDto) => call<{ settings: StorageSettingsDto; storage: StorageDto }>('/system/storage/settings', { method: 'PUT', body: body(input) }),
+  deleteOrphanVolume: (name: string, confirm: string) =>
+    call<{ storage: StorageDto }>(`/system/storage/volumes/${encodeURIComponent(name)}`, { method: 'DELETE', body: body({ confirm }) }),
   backup: () => call<BackupStatusDto>('/system/backup'),
   putBackupSettings: (input: unknown) => call<BackupSettingsDto>('/system/backup/settings', { method: 'PUT', body: body(input) }),
   testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),

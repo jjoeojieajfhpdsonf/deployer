@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { publicStateOf, sumCounts, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
+import { publicStateOf, sumCounts, DISK_BLOCK_PERCENT, DISK_HINT_PERCENT, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
 import { PublicPillFor } from '../components/Publication.js'
 import { usePublicActions } from '../lib/public.js'
 import { api } from '../api.js'
@@ -602,6 +602,13 @@ function ServerPanel({ s }: { s: SystemStatusDto | undefined }) {
             </div>
           </div>
         ))}
+        {/* Nacht 3, Etappe 3: ab 80 % ein Hinweis mit Text (nicht nur die Farbe des Balkens) */}
+        {typeof srv?.diskPercent === 'number' && srv.diskPercent >= DISK_HINT_PERCENT && (
+          <p className="meter-hint">
+            <strong>Platte zu {srv.diskPercent} % belegt{srv.diskPercent >= DISK_BLOCK_PERCENT ? ' – Deploys gesperrt' : ''}.</strong>{' '}
+            <Link to="/server/speicher">Aufräumen</Link>
+          </p>
+        )}
         <div className="meter-note">
           Scanner: {q === 0 ? 'bereit, nichts in der Warteschlange' : q === 1 ? '1 Scan läuft' : `${q} Scans in der Warteschlange`}
         </div>
