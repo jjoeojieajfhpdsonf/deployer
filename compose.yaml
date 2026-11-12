@@ -177,6 +177,8 @@ services:
       - caddy_access:/caddy-access:ro
       # Etappe 5: Statusseite – nur Airlock schreibt (STATUS_DIR), airlock-status liest
       - status_site:/srv/status
+      # Nacht 3, Etappe 4: Ausgangsregeln an den Firewall-Dienst (FIREWALL_DIR)
+      - firewall:/firewall
     networks:
       internal: {}
       edge:
@@ -231,6 +233,44 @@ services:
     volumes:
       - status_site:/srv/status:ro
     networks: [status]
+
+  firewall:
+    # Nacht 3, Etappe 4 «Container-Ausgang begrenzen»: setzt die Regeln, die
+    # Airlock in das Volume firewall schreibt (rules.nft), in EINER eigenen
+    # nftables-Tabelle (inet airlock). Gilt nur für Verkehr aus den Bridges
+    # der Projekt-Netze (air_*): Caddy, Airlock, Datenbank, Socket-Proxy,
+    # cloudflared, Backup und Statusseite sind nie betroffen; Docker-Regeln und
+    # die Tailscale-Regel (mangle POSTROUTING) fasst der Dienst nicht an.
+    # - network_mode: host – die Regeln gehören in den Netz-Namensraum des Hosts
+    # - nur NET_ADMIN (nft, NFLOG lesen); kein Socket, kein Netz zu Airlock,
+    #   kein offener Port; Dateisystem nur lesend
+    # - prüft jeden Stand gegen eine feste Grammatik (firewall/airlock-fw):
+    #   auch ein falscher Stand kann SSH, LAN oder Tailscale nicht aussperren
+    # Notausgang: docker exec airlock-firewall airlock-fw flush (docs/INSTALL.md)
+    # Gestoppt oder abgestürzt bleiben die Regeln im Kernel stehen (sicher);
+    # beim Start baut der Dienst die Tabelle aus rules.nft neu auf.
+    # Prüfen: scripts/smoke-ausgang.sh
+    image: airlock/firewall:local
+    build:
+      context: ./firewall
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    container_name: airlock-firewall
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    volumes:
+      # rules.nft (von Airlock), status.json und events.log (von hier), disabled (Notausgang)
+      - firewall:/firewall
 
   backup:
     # Backup (docs/MILESTONE-BACKUP.md): restic (gepinnt in backup/Dockerfile)
@@ -312,6 +352,11 @@ volumes:
   caddy_access:
   # Etappe 5: Statusseite (Airlock schreibt, airlock-status liest)
   status_site:
+  # Nacht 3, Etappe 4: gewünschte Ausgangsregeln (Airlock) und Zustand/Protokoll
+  # des Firewall-Dienstes. Auf der Platte, nicht tmpfs: nach einem Neustart des
+  # Servers baut der Dienst die Regeln sofort wieder auf, noch bevor Airlock läuft.
+  firewall:
+    name: airlock_firewall
   sites:
   data:
   # Backup: Staging (Name fest, Airlock haengt es in Wegwerf-Container fuer

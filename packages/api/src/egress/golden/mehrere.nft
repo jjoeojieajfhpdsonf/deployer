@@ -1,0 +1,57 @@
+# Airlock: Ausgang der Projekt-Netze. Erzeugt von Airlock (egress/rules.ts), nicht von Hand aendern.
+table inet airlock {
+  chain egress {
+    type filter hook forward priority -1; policy accept;
+    iifname "br-000000000001" jump p_000000000001
+    iifname "br-0a1b2c3d4e5f" jump p_0a1b2c3d4e5f
+    iifname "br-ffffffffffff" jump p_ffffffffffff
+  }
+  chain egress_host {
+    type filter hook input priority -1; policy accept;
+    iifname "br-000000000001" jump h_000000000001
+    iifname "br-0a1b2c3d4e5f" jump h_0a1b2c3d4e5f
+    iifname "br-ffffffffffff" jump h_ffffffffffff
+  }
+  # air_wiki abgeschottet beobachten
+  chain p_000000000001 {
+    ct state established,related return
+    oifname "br-000000000001" return
+    limit rate 20/minute burst 20 packets log group 7801
+  }
+  chain h_000000000001 {
+    ct state established,related return
+    meta l4proto ipv6-icmp return
+    limit rate 20/minute burst 20 packets log group 7801
+  }
+  # air_shop internet beobachten
+  chain p_0a1b2c3d4e5f {
+    ct state established,related return
+    oifname "br-0a1b2c3d4e5f" return
+    meta l4proto { tcp, udp } th dport 53 return
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } limit rate 20/minute burst 20 packets log group 7801
+    ip6 daddr { fc00::/7, fe80::/10 } limit rate 20/minute burst 20 packets log group 7801
+  }
+  chain h_0a1b2c3d4e5f {
+    ct state established,related return
+    meta l4proto ipv6-icmp return
+    meta l4proto { tcp, udp } th dport 53 return
+    limit rate 20/minute burst 20 packets log group 7801
+  }
+  # air_blog internet durchsetzen
+  chain p_ffffffffffff {
+    ct state established,related return
+    oifname "br-ffffffffffff" return
+    meta l4proto { tcp, udp } th dport 53 return
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } limit rate 20/minute burst 20 packets log group 7802
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } reject with icmpx admin-prohibited
+    ip6 daddr { fc00::/7, fe80::/10 } limit rate 20/minute burst 20 packets log group 7802
+    ip6 daddr { fc00::/7, fe80::/10 } reject with icmpx admin-prohibited
+  }
+  chain h_ffffffffffff {
+    ct state established,related return
+    meta l4proto ipv6-icmp return
+    meta l4proto { tcp, udp } th dport 53 return
+    limit rate 20/minute burst 20 packets log group 7802
+    reject with icmpx admin-prohibited
+  }
+}

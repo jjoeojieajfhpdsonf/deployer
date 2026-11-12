@@ -732,6 +732,11 @@ export interface ProjectDto {
    * älteren Antworten.
    */
   showOnStatus?: boolean | null
+  /**
+   * Nacht 3, Etappe 4: Ausgang der Container (bei Vorschauen der des Projekts).
+   * Fehlt bei älteren Antworten.
+   */
+  egress?: { mode: import('./egress.js').EgressMode; enforce: boolean }
   /** Läuft der Container als root? Nur Hinweis, kein Fehler (siehe Plan). */
   runsAsRoot: boolean | null
   /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). */
@@ -1478,3 +1483,5 @@ export * from './auth.js'
 export * from './git.js'
 // Nacht 3, Etappe 3: Server › Speicher (Belegung, Aufräumen, verwaiste Volumes, Warnstufen)
 export * from './storage.js'
+// Nacht 3, Etappe 4: Ausgang der Projekt-Container (Modus, Ausnahmen, Versuche, Firewall-Dienst)
+export * from './egress.js'
