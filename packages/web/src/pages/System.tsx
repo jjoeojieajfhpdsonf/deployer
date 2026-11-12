@@ -76,7 +76,7 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 
   if (!status.data) {
     return (
-      <section className="page page-medium">
+      <section className="page">
         <PageHead crumbs={[{ label: 'System' }]} title="System" />
         {status.isError
           ? <ErrorState what="Der Systemstatus" error={status.error} retrying={status.isFetching} onRetry={() => void status.refetch()} />
@@ -88,7 +88,8 @@ export function System({ section = 'uebersicht' }: { section?: SystemSection }) 
 
   const current = SECTIONS.find((x) => x.key === section)!
   return (
-    <section className="page page-medium">
+    // Etappe 6: Server ist eine Übersicht (breit); Formulare darin behalten ihre eigene Breite
+    <section className="page">
       <PageHead
         crumbs={section === 'uebersicht' ? [{ label: 'Server' }] : [{ label: 'Server', to: '/server' }, { label: current.label }]}
         title="Server"

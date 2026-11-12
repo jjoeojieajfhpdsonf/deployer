@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { publicStateOf, sumCounts, DISK_BLOCK_PERCENT, DISK_HINT_PERCENT, type ProjectDto, type SystemStatusDto } from '@airlock/shared'
@@ -75,11 +75,8 @@ export function Projects() {
       .sort((a, b) => urgency(b) - urgency(a) || a.name.localeCompare(b.name, 'de-CH'))
   }, [list, view, query])
 
-  // Karte «Neues Projekt» füllt die freien Spalten der letzten Reihe; bei voller Reihe entfällt sie
-  const [grid, setGrid] = useState<HTMLUListElement | null>(null)
-  const cols = useGridColumns(grid)
-  const free = (cols - (shown.length % cols)) % cols
-  const showNew = view === 'alle' && !query.trim() && free > 0
+  // Etappe 6: «Neues Projekt» ist eine normale Kachel am Ende des Rasters (ohne Filter und Suche)
+  const showNew = view === 'alle' && !query.trim()
   const [chatGuide, setChatGuide] = useState(false)
 
   const failed = list.filter(deployFailedState)
@@ -152,11 +149,11 @@ export function Projects() {
             </div>
 
             {/* Projekte als Karten im Raster (cal.com: Karten statt Tabelle) */}
-            <ul className="pcards" aria-label="Projekte" ref={setGrid}>
+            <ul className="pcards" aria-label="Projekte">
               {shown.map((p) => (
                 <ProjectCard key={p.id} p={p} onAct={(what) => act.mutate({ id: p.id, what })} busy={act.isPending} viewsToday={viewsToday(p)} />
               ))}
-              {showNew && <NewProjectCard span={free} onChat={() => setChatGuide(true)} />}
+              {showNew && <NewProjectCard onChat={() => setChatGuide(true)} />}
             </ul>
             {shown.length === 0 && (
               <p className="empty-inline">
@@ -171,6 +168,8 @@ export function Projects() {
       <div className="split">
         <Activity projects={list} />
         <ServerPanel s={system.data} />
+        {/* Etappe 6: dritte Karte ab 1700 px – nur mit echten Zahlen (Zugriffs-Log wird gelesen) */}
+        {today.data?.ingest === 'ok' && list.some((p) => p.routes.length > 0) && <ViewsTodayPanel projects={list} views={today.data.views} />}
       </div>
     </section>
   )
@@ -254,20 +253,6 @@ function Stats({ list, system }: { list: ProjectDto[]; system: SystemStatusDto |
 
 /* --- Neues Projekt im Raster ---------------------------------------------------------- */
 
-/** Spaltenzahl des Rasters (auto-fill), gemessen am Element; folgt der Fensterbreite. */
-function useGridColumns(el: HTMLElement | null) {
-  const [cols, setCols] = useState(3)
-  useLayoutEffect(() => {
-    if (!el) return
-    const read = () => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length))
-    read()
-    const ro = new ResizeObserver(read)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [el])
-  return cols
-}
-
 const SOURCES: { key: 'git' | 'image' | 'upload' | 'chat'; title: string; hint: string; Icon: ComponentType<{ size?: number }> }[] = [
   { key: 'git', title: 'Git-Repo', hint: 'GitHub, GitLab oder eigene URL', Icon: IconGit },
   { key: 'image', title: 'Image', hint: 'Fertiges Container-Image', Icon: IconBox },
@@ -276,28 +261,17 @@ const SOURCES: { key: 'git' | 'image' | 'upload' | 'chat'; title: string; hint: 
 ]
 
 /**
- * Gestrichelte Karte in den freien Spalten der letzten Reihe: mit einer Spalte
- * nur Titel und Knopf, ab zwei Spalten die vier Quellen als Kacheln.
+ * Gestrichelte Kachel am Ende des Rasters, so gross wie eine Projektkarte:
+ * Titel, ein Satz und die vier Quellen als 2×2-Kacheln (Etappe 6).
  */
-function NewProjectCard({ span, onChat }: { span: number; onChat: () => void }) {
+function NewProjectCard({ onChat }: { onChat: () => void }) {
   const ep = useEnvPath()
-  const head = (
-    <div className="pnew-head">
-      <span className="pnew-mark" aria-hidden="true"><IconPlus /></span>
-      <h3>Neues Projekt</h3>
-    </div>
-  )
-  if (span < 2) {
-    return (
-      <li className="pnew pnew-compact">
-        {head}
-        <Link className="button" to={ep('/projekte/neu')}>Quelle wählen</Link>
-      </li>
-    )
-  }
   return (
-    <li className="pnew" style={{ gridColumn: `span ${span}` }}>
-      {head}
+    <li className="pnew">
+      <div className="pnew-head">
+        <span className="pnew-mark" aria-hidden="true"><IconPlus /></span>
+        <h3>Neues Projekt</h3>
+      </div>
       <p className="pnew-lede">Deployen aus einer dieser Quellen. Jedes Projekt wird vor dem Veröffentlichen gescannt.</p>
       <ul className="pnew-sources" aria-label="Quelle für ein neues Projekt">
         {SOURCES.map(({ key, title, hint, Icon }) => {
@@ -575,6 +549,42 @@ function Activity({ projects }: { projects: ProjectDto[] }) {
           ))}
         </ul>
       )}
+    </section>
+  )
+}
+
+/**
+ * Etappe 6: «Aufrufe heute» als dritte Karte auf breiten Bildschirmen (CSS blendet sie unter
+ * 1700 px aus). Dieselben Zahlen wie «… Aufrufe heute» auf den Karten; nur Projekte mit Adresse.
+ */
+function ViewsTodayPanel({ projects, views }: { projects: ProjectDto[]; views: Record<string, number> }) {
+  const ep = useEnvPath()
+  const rows = projects
+    .filter((p) => p.routes.length > 0)
+    .map((p) => ({ p, n: views[p.id] ?? 0 }))
+    .sort((a, b) => b.n - a.n || a.p.name.localeCompare(b.p.name, 'de-CH'))
+  const total = rows.reduce((sum, r) => sum + r.n, 0)
+  const top = rows.slice(0, 5)
+  const max = Math.max(1, ...top.map((r) => r.n))
+  const fmt = (n: number) => n.toLocaleString('de-CH')
+  return (
+    <section className="panel panel-pad split-wide" aria-labelledby="views-today-h">
+      <div className="panel-head">
+        <h2 id="views-today-h">Aufrufe heute</h2>
+        <span className="muted num">{fmt(total)} zusammen</span>
+      </div>
+      <ul className="meters views-today">
+        {top.map(({ p, n }) => (
+          <li key={p.id}>
+            <div className="meter-head">
+              <Link to={ep(`/projekte/${p.id}?tab=besucher`)}>{p.name}</Link>
+              <span className="num">{fmt(n)}</span>
+            </div>
+            <div className="meter-track" aria-hidden="true"><div className="meter-fill" style={{ width: `${Math.round((n / max) * 100)}%` }} /></div>
+          </li>
+        ))}
+      </ul>
+      {rows.length > top.length && <p className="meter-note">und {rows.length - top.length} weitere Projekte mit Adresse</p>}
     </section>
   )
 }
