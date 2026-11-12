@@ -46,7 +46,7 @@ export async function prepareCompose(
   let repo: Parameters<typeof normalizeCompose>[1]['repo'] = null
 
   if (local || cfg.repoUrl) {
-    const { dir, commit } = local ?? (await cloneForDeployment(deploymentId, cfg.repoUrl!, ref ?? cfg.ref))
+    const { dir, commit } = local ?? (await cloneForDeployment(project, deploymentId, ref ?? cfg.ref))
     const composePath = cfg.composePath ?? 'compose.yaml'
     text = await readRepoFile(dir, composePath, COMPOSE_MAX_BYTES)
     version = commit

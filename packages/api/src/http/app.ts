@@ -25,6 +25,7 @@ import { tokenRoutes } from './routes/tokens.js'
 import { securityRoutes } from './routes/security.js'
 import { fixRoutes, cspReportRoutes } from './routes/fix.js'
 import { githubRoutes } from './routes/github.js'
+import { gitRoutes } from './routes/git.js'
 import { mcpRoutes } from '../mcp/http.js'
 import { DEFAULT_LIMITS } from '../lib/unzip.js'
 import { redactSecrets, redactDeep } from '../lib/redact.js'
@@ -151,6 +152,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(fixRoutes)
       await api.register(cspReportRoutes)
       await api.register(githubRoutes)
+      // Nacht 3, Etappe 2: private Git-Repos (Deploy-Key, Token, Server-Schlüssel)
+      await api.register(gitRoutes)
       await api.register(projectRoutes)
       await api.register(deploymentRoutes)
       await api.register(eventRoutes)

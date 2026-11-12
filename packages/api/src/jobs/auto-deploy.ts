@@ -8,7 +8,8 @@ import { serverJob } from '../lib/scope.js'
 /** Server-Job: alle Umgebungen */
 const JOB = serverJob('auto-deploy')
 import { repoUrlPolicy } from '../domain/git-policy.js'
-import { connectedRepo, repoToken, github } from '../domain/github.js'
+import { connectedRepo, repoToken, readToken, github } from '../domain/github.js'
+import { credentialOfProject, gitAuthFor } from '../domain/git-access.js'
 import { audit } from '../domain/audit.js'
 import { startDeploy } from '../deploy/pipeline.js'
 import { lsRemoteHead } from '../lib/git.js'
@@ -57,15 +58,19 @@ async function checkProjects(): Promise<void> {
       const src = p.sourceConfig as { repoUrl?: string; ref?: string }
       if (!src.repoUrl) continue
       const pinned = Boolean(src.ref && /^[0-9a-f]{40}$/.test(src.ref))
-      const gh = await connectedRepo(p).catch(() => null)
+      // Nacht 3, Etappe 2: eigener Zugang (Deploy-Key, Token) geht vor der App
+      const own = await credentialOfProject(p.id)
+      const gh = own ? null : await connectedRepo(p).catch(() => null)
       let head: string
       if (gh) {
-        const token = await repoToken(gh.repo)
+        // Nur lesen: Token mit «Contents: read» für genau dieses Repo
+        const token = await readToken(gh.repo)
         const branch = src.ref && !pinned ? src.ref : await github().defaultBranch(token, gh.owner, gh.repo)
         head = await github().branchHead(token, gh.owner, gh.repo, branch)
       } else {
-        // Öffentliches Repo ohne App: anonym über git ls-remote
-        head = await lsRemoteHead({ url: src.repoUrl, ref: pinned ? null : src.ref ?? null, policy: await repoUrlPolicy() })
+        // Ohne App: git ls-remote, mit dem Zugang des Projekts oder anonym (öffentliches Repo)
+        const access = await gitAuthFor(p)
+        head = await lsRemoteHead({ url: src.repoUrl, ref: pinned ? null : src.ref ?? null, policy: await repoUrlPolicy(), auth: access.auth })
       }
       const active = await activeDeployment(p.id)
       const busy = (await db.select({ s: schema.deployments.status }).from(schema.deployments).where(and(eq(schema.deployments.projectId, p.id), inArray(schema.deployments.status, [...BUSY])))).length > 0

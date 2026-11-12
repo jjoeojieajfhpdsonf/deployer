@@ -121,7 +121,7 @@ async function prepareStaticFromRepo(
   cfg: StaticConfig,
   ref?: string,
 ): Promise<{ version: string }> {
-  const { dir, commit } = await cloneForDeployment(deploymentId, cfg.repoUrl!, ref ?? cfg.ref)
+  const { dir, commit } = await cloneForDeployment(project, deploymentId, ref ?? cfg.ref)
   return prepareStaticFromDir(project, deploymentId, dir, commit, cfg)
 }
 
