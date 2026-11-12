@@ -50,6 +50,9 @@ export const projects = pgTable('projects', {
   previewsEnabled: boolean('previews_enabled').notNull().default(false),
   previewsCheckedAt: timestamp('previews_checked_at', { withTimezone: true }),
   previewSeen: jsonb('preview_seen').$type<PreviewSeen>(),
+  // Nacht 3, Etappe 4: Ausgang der Container (migrations/0026_egress.sql); Vorschauen folgen preview_of
+  egressMode: text('egress_mode').$type<import('@airlock/shared').EgressMode>().notNull().default('internet'),
+  egressEnforce: boolean('egress_enforce').notNull().default(true),
 })
 
 /** Etappe 6: was Airlock vom Repo schon kennt (Branch → Kopf, Nummern offener PRs) */
@@ -650,3 +653,33 @@ export const statusIncidentUpdates = pgTable('status_incident_updates', {
   actor: text('actor').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('status_incident_updates_idx').on(t.incidentId, t.createdAt)])
+
+/* --- Nacht 3, Etappe 4: Container-Ausgang (migrations/0026_egress.sql) ------------ */
+
+export const egressExceptions = pgTable('egress_exceptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  target: text('target').notNull(),
+  port: integer('port'),
+  protocol: text('protocol').$type<import('@airlock/shared').EgressProtocol>().notNull().default('tcp'),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('egress_exceptions_project_idx').on(t.projectId)])
+
+/** Beobachtete und gesperrte Versuche je Stunde; Etappe 5 liest die gesperrten (egress/service.ts) */
+export const egressAttempts = pgTable('egress_attempts', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  verdict: text('verdict').$type<import('@airlock/shared').EgressVerdict>().notNull(),
+  protocol: text('protocol').notNull(),
+  destination: text('destination').notNull(),
+  /** 0 = ohne Port (ICMP) */
+  port: integer('port').notNull().default(0),
+  bucket: timestamp('bucket', { withTimezone: true }).notNull(),
+  count: integer('count').notNull().default(0),
+  toServer: boolean('to_server').notNull().default(false),
+  firstSeen: timestamp('first_seen', { withTimezone: true }).notNull(),
+  lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.verdict, t.protocol, t.destination, t.port, t.bucket] }),
+  index('egress_attempts_last_seen_idx').on(t.lastSeen),
+])

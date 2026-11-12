@@ -9,6 +9,7 @@ import { buildApp } from './http/app.js'
 import { reconcileOnBoot } from './jobs/reconcile.js'
 import { startCleanupJob } from './jobs/cleanup.js'
 import { startStorageJobs } from './storage/service.js'
+import { startEgressJobs } from './egress/service.js'
 import { startExpiryJob } from './jobs/expiry.js'
 import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
@@ -101,6 +102,8 @@ async function main(): Promise<void> {
   startCleanupJob()
   // Nacht 3, Etappe 3: wöchentliches Aufräumen (Server › Speicher), Platte ab 90 % melden
   startStorageJobs()
+  // Nacht 3, Etappe 4: Ausgangsregeln an den Firewall-Dienst (sofort, dann jede Minute), Protokoll abholen
+  startEgressJobs()
   startExpiryJob()
   // M6
   await abandonUnfinishedScans()

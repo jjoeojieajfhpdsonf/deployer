@@ -44,6 +44,8 @@ export async function toDto(r: Row): Promise<ProjectDto> {
     desiredState: r.desiredState,
     keep: r.keep,
     showOnStatus: r.showOnStatus,
+    // Nacht 3, Etappe 4: Ausgang (Hinweis im Aufbau); Vorschauen erscheinen hier nicht
+    egress: { mode: r.egressMode, enforce: r.egressEnforce },
     cpuLimit: Number(r.cpuLimit),
     memoryLimitMb: r.memoryLimitMb,
     createdAt: r.createdAt.toISOString(),
