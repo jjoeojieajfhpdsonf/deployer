@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { LABEL_MAX, LABEL_SEP, compositeLabel, isSafeLabel, labelPart } from './dns-label.js'
+import { internalServiceLabel } from './internal-routes.js'
 import {
   PREVIEW_IDLE_DAYS, PREVIEW_MAX, RESERVED_PUBLIC_LABELS, UI_HOST_LABEL, previewStateLabel,
   type PreviewScanDto, type PreviewState,
@@ -17,75 +19,42 @@ import {
  *              3 je Projekt, die mit dem ältesten Push fällt raus.
  */
 
-/** Ein DNS-Label hat höchstens 63 Zeichen */
-export const LABEL_MAX = 63
+export { LABEL_MAX } from './dns-label.js'
 /** Trenner zwischen Branch und Projekt (wie Etappe 4: <dienst>--<projekt>) */
-export const PREVIEW_SEP = '--'
+export const PREVIEW_SEP = LABEL_SEP
 
-const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+/** Gültiges DNS-Label für eine Vorschau (gemeinsame Regel, lib/dns-label.ts) */
+export const isPreviewLabel = isSafeLabel
 
-/**
- * Gültiges DNS-Label für eine Vorschau? Kleinbuchstaben, Ziffern, Bindestrich,
- * nicht am Rand, ≤ 63 Zeichen. Dazu nie «--» an Stelle 3 und 4: solche Labels
- * sind für IDN reserviert («xn--…», RFC 5890) und werden teils abgelehnt.
- */
-export function isPreviewLabel(label: string): boolean {
-  return label.length <= LABEL_MAX && LABEL_RE.test(label) && label.slice(2, 4) !== '--'
-}
-
-/**
- * Branch-Name → Teil des Labels: Kleinbuchstaben, ä/ö/ü → ae/oe/ue, ß → ss,
- * Akzente weg, alles andere (/, _, ., Leerzeichen, Emoji …) → ein Bindestrich,
- * keine Bindestriche am Rand. Läufe von Bindestrichen werden zu einem – so
- * steht «--» im Label nur als Trenner zum Projekt.
- */
+/** Branch-Name → Teil des Labels (ohne refs/heads/; Regel wie lib/dns-label.ts) */
 export function branchSlug(branch: string): string {
-  return branch
-    .replace(/^refs\/heads\//, '')
-    .toLowerCase()
-    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
-    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return labelPart(branch.replace(/^refs\/heads\//, ''))
 }
-
-const shortHash = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 6)
 
 /** Namen, die nie eine Vorschau tragen (Oberfläche, Statusseite, interne Basis …) */
 const RESERVED = new Set<string>([...RESERVED_PUBLIC_LABELS, UI_HOST_LABEL, 'airlock', 'deployer'])
 
 /**
- * Label einer Vorschau: <branch-slug>--<projekt>. Zu lang, ungültig oder
+ * Label einer Vorschau: <branch-slug>--<projekt>. Zu lang, ungültig (IDN) oder
  * belegt (Projekt, interne Adresse, Dienst-Adresse <dienst>--<projekt> aus
  * Etappe 4, andere Vorschau) → Branch-Teil gekürzt plus Hash-Suffix aus dem
  * vollen Branch-Namen. Gleicher Branch ergibt immer dieselbe Adresse.
  */
 export function previewLabel(branch: string, projectSlug: string, isTaken: (label: string) => boolean = () => false): string {
-  const tail = `${PREVIEW_SEP}${projectSlug}`
-  const room = LABEL_MAX - tail.length
-  if (room < 8) throw new Error(`Der Kurzname «${projectSlug}» ist für eine Vorschau-Adresse zu lang`)
-  const b = branchSlug(branch) || 'branch'
-  const hashed = (seed: string) => {
-    const h = shortHash(seed)
-    const cut = b.slice(0, room - h.length - 1).replace(/-+$/, '')
-    return `${cut || 'b'}-${h}`
-  }
-  const candidates = [b, hashed(branch)]
-  for (let i = 2; i < 50; i++) candidates.push(hashed(`${branch}#${i}`))
-  for (const c of candidates) {
-    const label = `${c}${tail}`
-    if (!isPreviewLabel(label) || RESERVED.has(label) || isTaken(label)) continue
-    return label
-  }
-  throw new Error(`Keine freie Vorschau-Adresse für den Branch «${branch}» gefunden`)
+  if (LABEL_MAX - LABEL_SEP.length - projectSlug.length < 8) throw new Error(`Der Kurzname «${projectSlug}» ist für eine Vorschau-Adresse zu lang`)
+  const label = compositeLabel(branch, projectSlug, { fallback: 'branch', part: branchSlug(branch), isTaken: (l) => RESERVED.has(l) || isTaken(l) })
+  if (!label) throw new Error(`Keine freie Vorschau-Adresse für den Branch «${branch}» gefunden`)
+  return label
 }
 
 /**
- * Umgekehrt (Etappe 4 «+ Dienst»): würde die Dienst-Adresse <dienst>--<projekt>
- * eine bestehende Vorschau-Adresse überdecken? Dann den Namen ablehnen.
+ * Umgekehrt (Etappe 4 «+ Dienst»): würde die Dienst-Adresse des neuen Dienstes
+ * (dieselbe Regel, internalServiceLabel) eine bestehende Vorschau-Adresse
+ * überdecken? Dann den Namen ablehnen.
  */
 export function serviceLabelClash(service: string, projectSlug: string, previewLabels: Iterable<string>): string | null {
-  const label = `${service.toLowerCase()}${PREVIEW_SEP}${projectSlug}`
+  const label = internalServiceLabel(service, projectSlug)
+  if (!label) return null
   for (const l of previewLabels) if (l === label) return label
   return null
 }

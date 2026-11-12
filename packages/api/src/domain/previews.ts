@@ -87,11 +87,12 @@ export async function labelTakenCheck(parent: Project): Promise<(label: string) 
   const hosts = new Set((await db.select({ h: schema.routes.hostname }).from(schema.routes)).map((r) => r.h))
   const labels = new Set((await db.select({ l: schema.previews.label }).from(schema.previews)).map((r) => r.l))
   const services = new Set<string>()
+  const addService = (l: string | null) => { if (l) services.add(l) }
   const active = await db.select({ slug: schema.projects.slug, artifact: schema.deployments.artifact })
     .from(schema.deployments).innerJoin(schema.projects, eq(schema.projects.id, schema.deployments.projectId))
     .where(eq(schema.deployments.isActive, true))
-  for (const a of active) for (const ir of a.artifact?.internalRoutes ?? []) services.add(internalServiceLabel(ir.service, a.slug))
-  for (const s of await composeServicesOf(parent)) services.add(internalServiceLabel(s, parent.slug))
+  for (const a of active) for (const ir of a.artifact?.internalRoutes ?? []) addService(internalServiceLabel(ir.service, a.slug))
+  for (const s of await composeServicesOf(parent)) addService(internalServiceLabel(s, parent.slug))
   return (label) => slugs.has(label) || labels.has(label) || services.has(label) || hosts.has(primaryHostIn(parent.environmentId, label))
 }
 

@@ -15,6 +15,8 @@
  * Rein (ohne config.ts), damit testbar.
  */
 
+import { compositeLabel } from './dns-label.js'
+
 export interface InternalRouteRow {
   projectId: string
   slug: string
@@ -35,10 +37,14 @@ export interface InternalServiceRoute {
   upstream: string
 }
 
-export const internalServiceLabel = (service: string, slug: string): string => `${service}--${slug}`
-
-/** Ein DNS-Label hat höchstens 63 Zeichen; längere Namen bekommen keine Adresse */
-const LABEL_MAX = 63
+/**
+ * Label der Dienst-Adresse <dienst>--<projekt>, nach derselben Regel wie
+ * Vorschauen (lib/dns-label.ts): nie «--» an Stelle 3 und 4 (IDN), höchstens
+ * 63 Zeichen, sonst gekürzt mit Hash-Suffix aus dem Dienstnamen – «db» wird
+ * so zu db-<hash>--<projekt>. null: Kurzname des Projekts zu lang.
+ */
+export const internalServiceLabel = (service: string, slug: string): string | null =>
+  compositeLabel(service, slug, { fallback: 'dienst' })
 
 export function internalServiceRoutes(rows: InternalRouteRow[], o: {
   hostFor: (projectId: string, label: string) => string
@@ -62,7 +68,7 @@ export function internalServiceRoutes(rows: InternalRouteRow[], o: {
     if (!e.ok || e.targets.size === 0) continue
     for (const ir of e.routes) {
       const label = internalServiceLabel(ir.service, e.slug)
-      if (label.length > LABEL_MAX || !/^[a-z0-9-]+$/.test(label)) continue
+      if (!label) continue
       const hostname = o.hostFor(projectId, label)
       if (o.taken.has(hostname)) continue
       out.push({

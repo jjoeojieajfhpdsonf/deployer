@@ -3,6 +3,7 @@ import { isMap, isScalar, isSeq, parseDocument, type Document, type YAMLMap } fr
 import { GARAGE_BUCKET, serviceTemplate, type AddServiceInput, type RemoveServiceInput, type ServiceTemplateId } from '@airlock/shared'
 import { badRequest } from './errors.js'
 import { X_ENV, X_INTERNAL, normalizeCompose } from './compose.js'
+import { internalServiceLabel } from './internal-routes.js'
 
 /**
  * Etappe 4 «Dienst hinzufügen/entfernen»: ändert die compose.yaml des
@@ -378,7 +379,10 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
   if (receivers.includes(ctx.webService) && conn.length) notes.push(`Der Web-Dienst «${ctx.webService}» bekommt alle Variablen des Projekts, also auch ${conn.map((c) => c.key).join(', ')}.`)
   if (b.service[X_INTERNAL]) {
     const what = i.template === 'garage' ? `Die Admin-API (Token in ${varPrefix(i.name)}_ADMIN_TOKEN)` : 'Die Oberfläche'
-    notes.push(`${what} bekommt eine eigene Adresse ${i.name}--${ctx.slug ?? '<projekt>'} – nur über die internen Wege des Projekts (LAN, Tailnet), nie öffentlich.`)
+    const label = ctx.slug ? internalServiceLabel(i.name, ctx.slug) : `${i.name}--<projekt>`
+    notes.push(label
+      ? `${what} bekommt eine eigene Adresse ${label} – nur über die internen Wege des Projekts (LAN, Tailnet), nie öffentlich.`
+      : `${what} bekommt keine eigene Adresse: der Kurzname des Projekts ist dafür zu lang.`)
   }
   if (i.template === 'garage') {
     notes.push(`Garage läuft als ein Knoten und legt beim ersten Start den Bucket «${GARAGE_BUCKET}» und den Schlüssel selbst an. Die Konfiguration schreibt der Einmal-Dienst «${garageInitName(i.name)}» ins Volume; er ist danach beendet, das ist normal.`)
