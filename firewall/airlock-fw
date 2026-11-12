@@ -1,0 +1,282 @@
+#!/bin/sh
+# airlock-fw – Firewall-Dienst von Airlock (Nacht 3, Etappe 4: Container-Ausgang).
+#
+# Läuft als eigener Dienst «firewall» (compose.yaml) mit network_mode: host
+# und nur NET_ADMIN. Kein Docker-Socket, kein Netz zu Airlock: Airlock legt
+# die gewünschten Regeln als Datei in das gemeinsame Volume (/firewall), dieser
+# Dienst prüft sie und setzt sie in EINER eigenen nftables-Tabelle
+# (inet airlock). Andere Tabellen – Docker, ufw, die Tailscale-Regel in mangle
+# POSTROUTING – fasst er nie an.
+#
+# Dateien in /firewall:
+#   rules.nft    von Airlock (egress/rules.ts), per rename geschrieben
+#   status.json  von hier: Lebenszeichen, angewendeter Stand, Fehler
+#   events.log   von hier: protokollierte Pakete (NFLOG), Airlock holt sie ab
+#   disabled     Notausgang aktiv: nichts anwenden, bis «airlock-fw enable»
+#
+# Befehle:
+#   airlock-fw run        Dienst (Standard): beim Start neu aufbauen, Änderungen übernehmen
+#   airlock-fw flush      NOTAUSGANG: Tabelle vollständig entfernen und abschalten
+#   airlock-fw enable     nach dem Notausgang wieder einschalten
+#   airlock-fw status     Zustand und die Tabelle anzeigen
+#   airlock-fw check F    Datei F nur prüfen (Grammatik + nft -c), nichts ändern
+#   airlock-fw apply F    Datei F prüfen und anwenden (Smoke-Test)
+#
+# Sicherheit: Airlock darf nur Regeln in der festen Form von egress/rules.ts
+# liefern. Jede Zeile wird gegen diese Grammatik geprüft (validate unten): die
+# Basisketten enthalten nur «iifname "br-<12 hex>" jump …», alle Sperren
+# liegen in Ketten, die nur für Verkehr aus Projekt-Bridges angesprungen
+# werden. So kann auch ein kaputter oder böswilliger Stand niemals SSH, das
+# LAN oder Tailscale aussperren.
+#
+# POSIX-sh (BusyBox), dazu nft, jq, tcpdump.
+set -u
+
+DIR=${AIRLOCK_FW_DIR:-/firewall}
+TABLE=${AIRLOCK_FW_TABLE:-airlock}
+OBSERVE_GROUP=${AIRLOCK_FW_OBSERVE_GROUP:-7801}
+BLOCK_GROUP=${AIRLOCK_FW_BLOCK_GROUP:-7802}
+# Sekunden zwischen zwei Blicken auf rules.nft
+POLL=${AIRLOCK_FW_POLL:-1}
+# So oft (Sekunden) prüfen, ob die Tabelle noch da ist (z. B. nach «nft flush ruleset»)
+RECHECK=${AIRLOCK_FW_RECHECK:-30}
+RULES=$DIR/rules.nft
+STATUS=$DIR/status.json
+EVENTS=$DIR/events.log
+DISABLED=$DIR/disabled
+# events.log nie grösser (tmpfs/Platte schonen, falls Airlock nicht abholt)
+MAX_EVENTS=2097152
+MAX_RULES=1048576
+
+# Gesperrte Ziele – genau wie EGRESS_BLOCKED_V4/V6 in packages/shared/src/egress.ts
+# (Test: packages/api/src/egress/rules.test.ts vergleicht beide)
+V4LIST='10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16'
+V6LIST='fc00::/7, fe80::/10'
+LIMIT='limit rate 20/minute burst 20 packets'
+
+say() { echo "airlock-fw: $*"; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+case "$TABLE" in
+  *[!a-z0-9_]* | '' | [!a-z]*) say "AIRLOCK_FW_TABLE «$TABLE» ungültig"; exit 2 ;;
+esac
+for g in "$OBSERVE_GROUP" "$BLOCK_GROUP"; do
+  case "$g" in *[!0-9]* | '') say "NFLOG-Gruppe «$g» ungültig"; exit 2 ;; esac
+done
+
+# --- Prüfen --------------------------------------------------------------------
+#
+# Grammatik genau der Ausgabe von renderEgressRules (packages/api/src/egress/rules.ts).
+# Gibt Fehlerzeilen aus; Exit 0 nur, wenn jede Zeile passt.
+validate() {
+  f=$1
+  [ -f "$f" ] || { echo "Datei fehlt: $f"; return 1; }
+  size=$(wc -c <"$f")
+  [ "$size" -le "$MAX_RULES" ] || { echo "Datei zu gross ($size Bytes)"; return 1; }
+  awk -v table="$TABLE" -v og="$OBSERVE_GROUP" -v bg="$BLOCK_GROUP" -v v4="$V4LIST" -v v6="$V6LIST" -v lim="$LIMIT" '
+    function fail(msg) { printf "Zeile %d: %s: %s\n", NR, msg, $0; bad = 1 }
+    BEGIN { st = "top"; bad = 0; nbase = 0; nhost = 0; ends = 0
+      rej = "reject with icmpx admin-prohibited"
+      logo = lim " log group " og; logb = lim " log group " bg }
+    {
+      l = $0
+      if (length(l) > 300) { fail("zu lang"); next }
+      if (l ~ /^ *$/) next
+      if (l ~ /^ *# [A-Za-z0-9 _.:\/,()-]*$/) next
+      if (st == "top") {
+        if (l == "table inet " table " {") { st = "table"; next }
+        fail("erwartet «table inet " table " {»"); next
+      }
+      if (st == "table") {
+        if (l == "  chain egress {") { st = "base"; hook = "forward"; pre = "p_"; typed = 0; nbase++; next }
+        if (l == "  chain egress_host {") { st = "base"; hook = "input"; pre = "h_"; typed = 0; nhost++; next }
+        if (l ~ /^  chain [ph]_[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f] \{$/) {
+          st = "net"; kind = substr(l, 9, 1); cid = substr(l, 11, 12); next
+        }
+        if (l == "}") { st = "end"; ends++; next }
+        fail("unerwartet in der Tabelle"); next
+      }
+      if (st == "base") {
+        if (!typed) {
+          if (l == "    type filter hook " hook " priority -1; policy accept;") { typed = 1; next }
+          fail("Basiskette ohne «type filter hook " hook " priority -1; policy accept;»"); next
+        }
+        if (l == "  }") { st = "table"; next }
+        if (l ~ /^    iifname "br-[0-9a-f]+" jump [ph]_[0-9a-f]+$/) {
+          b = l; sub(/^    iifname "br-/, "", b); sub(/".*$/, "", b)
+          t = l; sub(/^.* jump /, "", t)
+          if (length(b) != 12 || t != pre b) { fail("Sprung passt nicht zur Bridge"); next }
+          next
+        }
+        fail("in einer Basiskette nur Sprünge aus br-<id>"); next
+      }
+      if (st == "net") {
+        if (l == "  }") { st = "table"; next }
+        if (l == "    ct state established,related return") next
+        if (kind == "p" && l == "    oifname \"br-" cid "\" return") next
+        if (kind == "h" && l == "    meta l4proto ipv6-icmp return") next
+        if (l == "    meta l4proto { tcp, udp } th dport 53 return") next
+        if (l ~ /^    ip daddr [0-9.]+(\/[0-9]+)?( (tcp|udp) dport [0-9]+)? return$/) next
+        if (l ~ /^    ip6 daddr [0-9a-f:]+(\/[0-9]+)?( (tcp|udp) dport [0-9]+)? return$/) next
+        if (kind == "p" && (l == "    ip daddr { " v4 " } " logo || l == "    ip daddr { " v4 " } " logb || l == "    ip daddr { " v4 " } " rej)) next
+        if (kind == "p" && (l == "    ip6 daddr { " v6 " } " logo || l == "    ip6 daddr { " v6 " } " logb || l == "    ip6 daddr { " v6 " } " rej)) next
+        if (l == "    " logo || l == "    " logb || l == "    " rej) next
+        fail("unbekannte Regel"); next
+      }
+      fail("nach dem Ende der Tabelle")
+    }
+    END {
+      if (st != "end") { print "Tabelle nicht abgeschlossen"; bad = 1 }
+      if (nbase != 1 || nhost != 1) { print "Basisketten egress und egress_host je genau einmal"; bad = 1 }
+      exit bad
+    }' "$f"
+}
+
+# Austausch in einem Vorgang: Tabelle anlegen (falls nicht da), löschen, neu
+txn_for() {
+  printf 'table inet %s\ndelete table inet %s\n' "$TABLE" "$TABLE"
+  cat "$1"
+}
+
+# check <datei>: Grammatik, dann nft -c (ändert nichts)
+check() {
+  validate "$1" || return 1
+  txn_for "$1" >/tmp/airlock-fw.txn
+  nft -c -f /tmp/airlock-fw.txn
+}
+
+# apply <datei>: prüfen und anwenden; Ausgabe der Fehler auf stdout
+apply_file() {
+  check "$1" || return 1
+  nft -f /tmp/airlock-fw.txn
+}
+
+table_present() { nft list table inet "$TABLE" >/dev/null 2>&1; }
+
+flush() {
+  : >"$DISABLED" 2>/dev/null || say "Hinweis: Marke $DISABLED nicht geschrieben (Volume?) – der Dienst könnte die Tabelle neu anlegen"
+  if table_present; then
+    nft delete table inet "$TABLE" || { say "Tabelle inet $TABLE nicht entfernt"; return 1; }
+  fi
+  if table_present; then say "Tabelle inet $TABLE ist noch da"; return 1; fi
+  say "Tabelle inet $TABLE entfernt. Keine Ausgangsregeln mehr aktiv."
+  say "Abgeschaltet, bis «docker exec airlock-firewall airlock-fw enable»."
+  write_status disabled ""
+}
+
+enable() {
+  rm -f "$DISABLED"
+  say "Eingeschaltet. Der Dienst baut die Tabelle in wenigen Sekunden neu auf."
+}
+
+# --- Zustand --------------------------------------------------------------------
+
+APPLIED_SHA=""
+APPLIED_AT=""
+LAST_SHA=""
+NETS=0
+write_status() {
+  st=$1 err=$2
+  ver=$(nft -v 2>/dev/null | head -n1)
+  jq -n --arg state "$st" --arg error "$err" --arg heartbeat "$(now)" --arg sha "$APPLIED_SHA" --arg last "$LAST_SHA" \
+    --arg at "$APPLIED_AT" --arg table "$TABLE" --arg version "$ver" --argjson networks "$NETS" \
+    '{version:1, state:$state, heartbeat:$heartbeat, table:$table, nft:$version,
+      applied:{sha256:(if $sha == "" then null else $sha end), at:(if $at == "" then null else $at end), networks:$networks},
+      lastSha256:(if $last == "" then null else $last end),
+      error:(if $error == "" then null else $error end)}' >"$STATUS.tmp" 2>/dev/null &&
+    mv -f "$STATUS.tmp" "$STATUS"
+}
+
+status() {
+  if [ -f "$STATUS" ]; then cat "$STATUS"; else echo "(noch kein status.json)"; fi
+  [ -e "$DISABLED" ] && echo "Notausgang aktiv ($DISABLED) – «airlock-fw enable» schaltet wieder ein."
+  if table_present; then nft list table inet "$TABLE"; else echo "Tabelle inet $TABLE: nicht vorhanden"; fi
+}
+
+# --- Protokoll lesen (NFLOG) -----------------------------------------------------
+
+# reader <gruppe>: tcpdump auf nflog:<gruppe>, Zeilen nach events.log (begrenzt)
+reader() {
+  while :; do
+    # Ohne -Z: das Image hat keinen Benutzer «tcpdump», und ohne SETUID/SETGID gäbe es nichts zu wechseln
+    tcpdump -l -n -tt -q -i "nflog:$1" 2>/tmp/tcpdump-$1.err | while IFS= read -r line; do
+      size=0
+      [ -f "$EVENTS" ] && size=$(wc -c <"$EVENTS")
+      [ "$size" -lt "$MAX_EVENTS" ] && printf '%s %s\n' "$1" "$line" >>"$EVENTS"
+    done
+    sleep 5
+  done
+}
+
+READERS=""
+stop() {
+  # Regeln bleiben bewusst stehen (docs/INSTALL.md): ein Neustart oder Update
+  # des Dienstes öffnet keine Lücke. Notausgang: airlock-fw flush.
+  for p in $READERS; do kill "$p" 2>/dev/null; done
+  pkill -f "tcpdump .*nflog:" 2>/dev/null
+  say "beendet (Tabelle inet $TABLE bleibt stehen)"
+  exit 0
+}
+
+run() {
+  mkdir -p "$DIR"
+  say "startet: Tabelle inet $TABLE, NFLOG $OBSERVE_GROUP (beobachtet) und $BLOCK_GROUP (gesperrt), $(nft -v 2>/dev/null)"
+  if ! nft list tables >/dev/null 2>&1; then
+    say "nft geht nicht (fehlt NET_ADMIN oder nf_tables im Kernel?) – nichts angewendet"
+    write_status unsupported "nft list tables gescheitert: kein NET_ADMIN oder kein nf_tables"
+  fi
+  reader "$OBSERVE_GROUP" & READERS="$READERS $!"
+  reader "$BLOCK_GROUP" & READERS="$READERS $!"
+  trap stop TERM INT
+  last_check=0
+  last_status=0
+  state=idle err=""
+  while :; do
+    t=$(date +%s)
+    if [ -e "$DISABLED" ]; then
+      # Notausgang: nichts anwenden. Nach «enable» wird neu aufgebaut.
+      [ "$state" = disabled ] || say "Notausgang aktiv ($DISABLED): keine Regeln"
+      state=disabled err="" LAST_SHA="" APPLIED_SHA="" APPLIED_AT="" NETS=0
+    elif [ -f "$RULES" ]; then
+      sha=$(sha256sum "$RULES" | cut -d' ' -f1)
+      redo=""
+      [ "$sha" != "$LAST_SHA" ] && redo=1
+      if [ -z "$redo" ] && [ "$state" = ok ] && [ $((t - last_check)) -ge "$RECHECK" ]; then
+        last_check=$t
+        table_present || { say "Tabelle inet $TABLE fehlt (Neustart von nftables/Docker?) – baue neu auf"; redo=1; }
+      fi
+      if [ -n "$redo" ]; then
+        LAST_SHA=$sha
+        if out=$(apply_file "$RULES" 2>&1); then
+          APPLIED_SHA=$sha APPLIED_AT=$(now) NETS=$(grep -c '^    iifname "br-.*" jump p_' "$RULES")
+          state=ok err=""
+          say "Stand ${sha%"${sha#????????????}"} angewendet ($NETS Projekt-Netze)"
+        else
+          # Abgelehnt: der bisherige Stand bleibt im Kernel; erst ein neuer Stand wird wieder versucht
+          state=error err=$(printf '%s' "$out" | head -n 5)
+          say "Stand ${sha%"${sha#????????????}"} abgelehnt: $err"
+        fi
+        last_status=0
+      fi
+    else
+      state=idle err=""
+    fi
+    if [ $((t - last_status)) -ge 5 ]; then
+      write_status "$state" "$err"
+      last_status=$t
+    fi
+    sleep "$POLL" &
+    wait $!
+  done
+}
+
+cmd=${1:-run}
+case "$cmd" in
+  run) run ;;
+  flush) flush ;;
+  enable) enable ;;
+  status) status ;;
+  check) [ $# -eq 2 ] || { say "Aufruf: airlock-fw check <datei>"; exit 2; }; check "$2" && say "in Ordnung" ;;
+  apply) [ $# -eq 2 ] || { say "Aufruf: airlock-fw apply <datei>"; exit 2; }; apply_file "$2" && say "angewendet" ;;
+  *) say "Unbekannter Befehl «$cmd» (run, flush, enable, status, check <datei>, apply <datei>)"; exit 2 ;;
+esac

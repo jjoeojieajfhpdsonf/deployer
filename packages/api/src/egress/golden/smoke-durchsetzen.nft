@@ -1,0 +1,30 @@
+# Airlock: Ausgang der Projekt-Netze. Erzeugt von Airlock (egress/rules.ts), nicht von Hand aendern.
+table inet airlock_smoke {
+  chain egress {
+    type filter hook forward priority -1; policy accept;
+    iifname "br-5e0b0000c0de" jump p_5e0b0000c0de
+  }
+  chain egress_host {
+    type filter hook input priority -1; policy accept;
+    iifname "br-5e0b0000c0de" jump h_5e0b0000c0de
+  }
+  # air_smoke internet durchsetzen
+  chain p_5e0b0000c0de {
+    ct state established,related return
+    oifname "br-5e0b0000c0de" return
+    ip daddr 192.0.2.80 tcp dport 18080 return
+    meta l4proto { tcp, udp } th dport 53 return
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } limit rate 20/minute burst 20 packets log group 7812
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } reject with icmpx admin-prohibited
+    ip6 daddr { fc00::/7, fe80::/10 } limit rate 20/minute burst 20 packets log group 7812
+    ip6 daddr { fc00::/7, fe80::/10 } reject with icmpx admin-prohibited
+  }
+  chain h_5e0b0000c0de {
+    ct state established,related return
+    meta l4proto ipv6-icmp return
+    ip daddr 192.0.2.80 tcp dport 18080 return
+    meta l4proto { tcp, udp } th dport 53 return
+    limit rate 20/minute burst 20 packets log group 7812
+    reject with icmpx admin-prohibited
+  }
+}

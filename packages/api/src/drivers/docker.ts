@@ -217,10 +217,47 @@ export function runsAsRoot(user: string): boolean {
 
 /* --- Netzwerke ------------------------------------------------------------ */
 
+/**
+ * Nacht 3, Etappe 4: nach dem Anlegen eines Netzes – die Ausgangsregeln des
+ * Projekts setzen, bevor der erste Container (Build, Projekt) darin startet.
+ * Gesetzt von egress/service.ts; Fehler dort halten das Anlegen nicht auf.
+ */
+let networkCreatedHook: ((name: string) => Promise<void>) | null = null
+export function onNetworkCreated(fn: ((name: string) => Promise<void>) | null): void {
+  networkCreatedHook = fn
+}
+
 export async function ensureNetwork(name: string): Promise<void> {
   const existing = await docker.listNetworks({ filters: { name: [name] } })
   if (existing.some((n) => n.Name === name)) return
   await docker.createNetwork({ Name: name, Driver: 'bridge', CheckDuplicate: true })
+  if (networkCreatedHook) await networkCreatedHook(name).catch(() => {})
+}
+
+/** Nacht 3, Etappe 4: Bridge-Netz mit Linux-Bridge und Subnetzen (für die Ausgangsregeln) */
+export interface BridgeNetwork {
+  name: string
+  id: string
+  /** Name der Bridge auf dem Host: eigener (Option) oder br-<12 Zeichen der ID> */
+  bridge: string
+  subnets: string[]
+  gateways: string[]
+}
+
+/** Netze, deren Name mit einem der Präfixe beginnt (air_, dep_) */
+export async function listBridgeNetworks(prefixes: string[]): Promise<BridgeNetwork[]> {
+  const nets = (await docker.listNetworks({ filters: { driver: ['bridge'] } })) as {
+    Name: string; Id: string; Options?: Record<string, string>; IPAM?: { Config?: { Subnet?: string; Gateway?: string }[] }
+  }[]
+  return nets
+    .filter((n) => prefixes.some((p) => n.Name.startsWith(p)))
+    .map((n) => ({
+      name: n.Name,
+      id: n.Id,
+      bridge: n.Options?.['com.docker.network.bridge.name'] || `br-${n.Id.slice(0, 12)}`,
+      subnets: (n.IPAM?.Config ?? []).map((c) => c.Subnet).filter((s): s is string => !!s),
+      gateways: (n.IPAM?.Config ?? []).map((c) => c.Gateway).filter((g): g is string => !!g),
+    }))
 }
 
 export async function removeNetwork(name: string): Promise<void> {

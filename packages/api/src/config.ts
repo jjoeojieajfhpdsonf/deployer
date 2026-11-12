@@ -116,6 +116,12 @@ const envSchema = z.object({
   BACKUP_STAGING_VOLUME: z.string().default('airlock_backup_staging'),
   BACKUP_JOBS_DIR: z.string().default('/backup-jobs'),
 
+  // Nacht 3, Etappe 4: Ordner, den Airlock mit dem Firewall-Dienst teilt (Volume
+  // airlock_firewall): Airlock schreibt rules.nft, der Dienst status.json und
+  // events.log. Fehlt der Ordner (Entwicklung, Dienst nicht installiert), schreibt
+  // Airlock nichts und zeigt «Firewall-Dienst aus».
+  FIREWALL_DIR: z.string().default('/firewall'),
+
   // M8: GitHub (in Tests durch eine Attrappe ersetzbar)
   GITHUB_API: z.string().url().default('https://api.github.com'),
   GITHUB_WEB: z.string().url().default('https://github.com'),

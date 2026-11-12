@@ -3000,6 +3000,42 @@ button.vs-info-btn:focus-visible { outline: 2px solid var(--ink); outline-offset
 .meter-hint { margin-top: var(--sp-2); font-size: var(--fs-13); }
 .meter-hint strong { color: var(--warn); font-weight: 500; }
 
+/* Projekt › Einstellungen › Ausgehende Verbindungen (Nacht 3, Etappe 4): Bausteine der Einstellungskarten */
+.egress-pill { height: 24px; font-size: var(--fs-12); }
+.egress-pill svg { flex: none; }
+.egress-modes { display: grid; gap: var(--sp-1); }
+.egress-modes .choice { margin: 0; padding: 4px 0; }
+.egress-modes .choice small { max-width: 60ch; }
+.egress-free { display: flex; align-items: flex-start; gap: 6px; max-width: none; color: var(--warn); border-bottom: 1px solid var(--line); }
+.egress-free svg { flex: none; margin-top: 2px; }
+.egress-apply-note { max-width: none; border-bottom: 1px solid var(--line); }
+.egress-sub { margin: 0 0 var(--sp-3); font-size: var(--fs-14); font-weight: 600; }
+.egress-empty { margin: 0; }
+.egress-list { list-style: none; margin: 0 0 var(--sp-4); padding: 0; display: grid; }
+.egress-list li { display: grid; grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: var(--sp-2) 0; border-top: 1px solid var(--line); font-size: var(--fs-14); }
+.egress-list li:last-child { border-bottom: 1px solid var(--line); }
+.egress-list code, .egress-table code { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); overflow-wrap: anywhere; }
+.egress-detail { min-width: 0; font-size: var(--fs-13); overflow-wrap: anywhere; }
+.egress-unresolved { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); }
+.egress-form { display: grid; grid-template-columns: minmax(200px, 1.4fr) 110px 100px minmax(140px, 1fr) auto; gap: 0 var(--sp-3); align-items: start; margin-top: var(--sp-2); }
+.egress-form label { margin-top: 0; }
+.egress-form .hint, .egress-form .field-error { margin: var(--sp-1) 0 0; font-size: var(--fs-13); }
+.egress-form-actions { padding-top: 30px; }
+.egress-form-error { grid-column: 1 / -1; margin: var(--sp-3) 0 0; }
+/* In der Einstellungskarte keine Karte in der Karte: Tabelle direkt auf der Fläche */
+.egress-block .table-scroll { padding: 0; background: none; box-shadow: none; border-radius: 0; }
+.egress-table th, .egress-table td { padding-left: 0; }
+.egress-table th { padding-top: 0; }
+.egress-table tbody tr { border-top: 1px solid var(--line); }
+.egress-table .num-col { text-align: right; white-space: nowrap; }
+.egress-verdict { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; white-space: nowrap; }
+.egress-verdict svg { flex: none; }
+.egress-verdict-gesperrt { color: var(--bad); }
+.egress-verdict-beobachtet { color: var(--warn); }
+.egress-server { margin-left: var(--sp-2); height: 20px; padding: 0 6px; font-size: var(--fs-12); vertical-align: middle; }
+.egress-hint { margin: var(--sp-2) 0 0; font-size: var(--fs-13); }
+.topo-egress { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); }
+
 /* Server → Backup (Meilenstein Backup) */
 .backup > section + section { margin-top: var(--sp-8); }
 .backup-facts { grid-template-columns: 220px minmax(0, 1fr); }

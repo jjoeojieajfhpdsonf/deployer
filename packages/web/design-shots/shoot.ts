@@ -203,6 +203,8 @@ type Shot = {
   repoCheck?: fx.RepoCheckVariant
   /** Nacht 3, Etappe 3: Server › Speicher (Standard: 64 %, einiges freigebbar); belegt auch /system/status */
   storage?: fx.StorageVariant
+  /** Nacht 3, Etappe 4: Ausgang des Projekts und Firewall-Dienst (Standard: beobachten, mit Treffern) */
+  egress?: fx.EgressVariant
 }
 /**
  * Nacht 3, Etappe 2: Ausschnitt-Szenen (el) nach oben gerollt aufnehmen – das Werkzeug schneidet
@@ -943,6 +945,51 @@ const shots: Shot[] = [
     },
   },
   { group: 'speicher', name: 'projekte-platte-voll', path: '/projekte', storage: 'voll', full: false, el: 'section[aria-labelledby="server-h"]' },
+  // Nacht 3, Etappe 4: Ausgang der Container – Einstellungen (beobachten mit Treffern, durchsetzen mit Ausnahmen
+  // und gesperrten Versuchen, frei, Firewall-Dienst aus), «Frei» bestätigen, Server › Übersicht, alle durchsetzen
+  ...([
+    ['einstellungen-ausgang', undefined, '.egress-table'],
+    ['einstellungen-ausgang-durchsetzen', 'durchsetzen', '.egress-table'],
+    ['einstellungen-ausgang-frei', 'frei', '.egress-free'],
+    ['einstellungen-ausgang-dienst-aus', 'dienst-aus', '.egress-apply-note'],
+  ] as const).map(([name, egress, ready]): Shot => ({
+    group: 'ausgang', name, path: `/projekte/${P}?tab=einstellungen`, full: false, el: '#set-ausgang', egress,
+    prepare: async (pg) => {
+      await pg.locator(`#set-ausgang ${ready}`).waitFor()
+      await gitTop(pg)
+    },
+  })),
+  {
+    group: 'ausgang', name: 'ausgang-frei-bestaetigen', path: `/projekte/${P}?tab=einstellungen`, full: false,
+    prepare: async (pg) => {
+      await pg.locator('#set-ausgang .egress-table').waitFor()
+      await pg.locator('#set-ausgang').getByRole('radio', { name: /^Frei/ }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'ausgang', name: 'server-ausgang', path: '/server', full: false, el: '.server-egress',
+    prepare: async (pg) => {
+      await pg.locator('.server-egress .check-list').waitFor()
+      await gitTop(pg)
+    },
+  },
+  {
+    group: 'ausgang', name: 'server-ausgang-alle', path: '/server', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Alle auf Durchsetzen …' }).click()
+      await pg.getByRole('dialog').waitFor()
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'ausgang', name: 'aufbau-ausgang', path: `/projekte/${P}?tab=aufbau`, full: false, el: '.topo-side',
+    prepare: async (pg) => {
+      await pg.locator('.topo-side .topo-egress').waitFor()
+      await gitTop(pg)
+    },
+  },
   { group: 'github', name: 'projekt-auto-deploy', path: '/projekte/p-foto?tab=einstellungen' },
   { group: 'zustaende', name: 'nicht-gefunden', path: '/gibt-es-nicht' },
   {
@@ -1619,6 +1666,10 @@ shots.push(...shots.filter((s) => s.group === 'sicherheit' || (s.group === 'logi
 //   (Win95/Terminal zusätzlich mit --themes win95,terminal)
 shots.push(...shots.filter((s) => s.group === 'speicher').map((s) => ({ ...s, group: 'aufraeumen-ergebnis', name: `umgesetzt-${s.name}` })))
 
+// Nacht 3, Etappe 4: Ergebnisbilder (docs/design-cal/ausgang/umgesetzt-*.png): Einstellungen, Dialoge, Server, Aufbau
+//   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/ausgang --only ausgang-ergebnis
+shots.push(...shots.filter((s) => s.group === 'ausgang').map((s) => ({ ...s, group: 'ausgang-ergebnis', name: `umgesetzt-${s.name}` })))
+
 export { shots }
 export type { Shot }
 
@@ -1759,6 +1810,9 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             if (route.request().method() === 'POST' && path === '/api/v1/git/credentials') return json(route, { credential: fx.deployKey(true) }, 201)
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
+            // Nacht 3, Etappe 4: Ausgang des Projekts (Einstellungen) und Firewall-Dienst (Server › Übersicht)
+            if (/^\/api\/v1\/projects\/[^/]+\/egress$/.test(path) && route.request().method() === 'GET') return json(route, { egress: fx.egress(s.egress) })
+            if (url.pathname === '/api/v1/system/egress') return json(route, { egress: fx.egressServer(s.egress) })
             // Nacht 3, Etappe 3: Server › Speicher; bei voller Platte auch die Zahl im Systemstatus
             if (url.pathname === '/api/v1/system/storage') return json(route, { storage: fx.storage(s.storage ?? 'ok') })
             if (url.pathname === '/api/v1/system/storage/cleanup') return json(route, fx.storageCleanupResult())

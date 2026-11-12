@@ -15,6 +15,7 @@ import { ExpirySettings } from '../components/ExpirySettings.js'
 import { BackupSection } from '../components/Backup.js'
 import { TrafficSources } from '../components/TrafficSources.js'
 import { DiskBanner, StorageSection } from '../components/Storage.js'
+import { EgressOverview } from '../components/Egress.js'
 import { diskLevel } from '@airlock/shared'
 import { useEnvPath } from '../lib/env.js'
 import { GATEWAY_GUIDE_URL } from '@airlock/shared'
@@ -241,6 +242,12 @@ function Overview({ s, reach, copied, setCopied }: { s: SystemStatusDto; reach: 
 
       <h2>Netz des Servers</h2>
       <NetworkSection s={s} />
+
+      {/* Nacht 3, Etappe 4: Firewall-Dienst und Ausgang der Projekte */}
+      <h2 id="server-ausgang-h">Ausgang der Projekte</h2>
+      <div className="server-egress">
+        <EgressOverview />
+      </div>
 
       <h2>Erreichbarkeit</h2>
       <p className="hint">

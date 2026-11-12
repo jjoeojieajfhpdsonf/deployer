@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Reac
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import type { ProjectDto, ServiceChangeDto, TopologyAccessDto, TopologyDto, TopologyEdgeDto, TopologyHostDto, TopologyServiceDto, TopologyVolumeDto, TopologyWay } from '@airlock/shared'
-import { TOPOLOGY_WAY_LABEL, serviceTemplate } from '@airlock/shared'
+import { TOPOLOGY_WAY_LABEL, egressSummary, serviceTemplate } from '@airlock/shared'
 import { api } from '../api.js'
 import { LiveLayer, LiveLegend, edgePath, useLiveTraffic, type Box, type LiveHub } from './TopologyLive.js'
 import { AddServiceDialog, RemoveServiceDialog } from './ServiceDialog.js'
@@ -38,6 +38,8 @@ export interface TopologyProps {
   onManageHeaders: () => void
   /** Etappe 4: «Deployments ansehen» (neuer Dienst wird deployt bzw. scheiterte) */
   onDeployments?: () => void
+  /** Nacht 3, Etappe 4: «Ändern» beim Ausgang → Einstellungen › Ausgehende Verbindungen */
+  onEgress?: () => void
 }
 
 /* --- Zeichen (16 px, Strich 1.6 wie Icons.tsx) ------------------------------------- */
@@ -658,7 +660,21 @@ function LastLines({ projectId, service }: { projectId: string; service: string 
   )
 }
 
-function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSelect, onRemove }: SideProps & { s: TopologyServiceDto }) {
+/** Nacht 3, Etappe 4: kleiner Hinweis «Ausgang: Internet, Heimnetz gesperrt» mit Weg zu den Einstellungen */
+function EgressHint({ p, onEgress }: { p: ProjectDto; onEgress?: () => void }) {
+  if (!p.egress) return null
+  return (
+    <>
+      <h3 className="topo-side-label">Ausgang</h3>
+      <p className="topo-side-text topo-egress">
+        <span>{egressSummary(p.egress)}</span>
+        {onEgress && <button type="button" className="link-button" onClick={onEgress}>Ändern</button>}
+      </p>
+    </>
+  )
+}
+
+function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSelect, onRemove, onEgress }: SideProps & { s: TopologyServiceDto }) {
   const [confirming, setConfirming] = useState(false)
   const removal = openRemoval(t, s.name)
   const st = removal ? changeState(removal) : serviceState(s)
@@ -693,6 +709,8 @@ function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSel
           </ul>
         </>
       )}
+
+      {!isStatic && <EgressHint p={p} onEgress={onEgress} />}
 
       {!isStatic && (
         <>

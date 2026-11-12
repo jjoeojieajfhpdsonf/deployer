@@ -161,6 +161,62 @@ docker exec airlock-app node dist/cli.js cleanup --apply
 
 Prüfen, dass die Aufräum-Logik im Image nur Objekte mit Airlock-Label anfasst (baut das Image, eigener Socket-Proxy, Wegwerf-Datenbank, Test-Objekte mit eigenem Label, braucht nur `docker`): `scripts/smoke-aufraeumen.sh` – endet mit «OK: Aufräumen entfernt nur Airlock-Objekte über der Grenze …».
 
+## 7. Ausgang der Projekte (Firewall-Dienst)
+
+Projekt-Container erreichen das Internet, aber nicht das Heimnetz, das Tailnet, andere Docker-Netze oder den Server selbst (Projekt › Einstellungen › «Ausgehende Verbindungen»). Die Regeln setzt der Dienst `airlock-firewall` in einer eigenen nftables-Tabelle `inet airlock`; er gilt nur für Verkehr aus den Netzen `air_*`. Caddy, Airlock, Datenbank, Socket-Proxy, cloudflared, Backup und Statusseite sind nicht betroffen; Dockers Regeln und die Tailscale-Regel aus Abschnitt 1 (`ts-docker-nosnat`, mangle POSTROUTING) fasst er nicht an.
+
+**Vor dem Update** (prüft Dienst, Regeln und Notausgang am echten Kernel, mit eigener Tabelle `inet airlock_smoke` und eigenen Test-Netzen, räumt alles ab, braucht nur `bash` und `docker`):
+
+```sh
+scripts/smoke-ausgang.sh
+```
+
+Erwartet: rund 35 Zeilen `ok …` (je nach Server 35 oder 36; dazwischen höchstens `Hinweis: …`) und am Ende
+
+```
+OK: Ausgang – beobachten protokolliert, durchsetzen sperrt LAN/Server/andere Netze, abgeschottet sperrt Internet, Notausgang entfernt alles (36 Prüfungen)
+```
+
+Auf Docker Desktop (Mac) erscheint `Hinweis: DNS nach draussen ging trotz «abgeschottet»` (Docker fragt dort den Resolver vom Host aus); dann sind es 35.
+
+Ein `FEHLER: …` zeigt die letzten Zeilen des Test-Dienstes und dessen Protokoll; der Exit-Code ist dann 1, die laufende Installation bleibt unberührt. Ist `192.168.0.1` auf dem Server die Adresse eines Docker-Netzes, nimmt das Skript `10.255.255.1`; ein eigenes LAN-Ziel geht mit `SMOKE_LAN_TARGET=192.168.1.1 scripts/smoke-ausgang.sh`.
+
+**Update** wie gewohnt; Compose baut `airlock/firewall:local` und startet `airlock-firewall`:
+
+```sh
+docker compose up -d --build
+docker exec airlock-firewall airlock-fw status     # state "ok", darunter die Tabelle inet airlock
+sudo nft list table inet airlock                    # dieselbe Tabelle, vom Host aus gesehen
+```
+
+**Beobachten, dann durchsetzen:** Nach dem Update stehen alle bestehenden Projekte auf «Beobachten» – nichts wird gesperrt, Airlock zählt nur, was gesperrt *würde*. Neue Projekte setzen sofort durch. Nach ein paar Tagen je Projekt unter Einstellungen › Ausgehende Verbindungen die Liste «Hätte gesperrt» ansehen: Was das Projekt wirklich braucht (z. B. das NAS), als Ausnahme eintragen, dann «Sperren» einschalten. Server › Übersicht zeigt den Dienst, die Zahl der beobachtenden Projekte und «Alle auf Durchsetzen».
+
+### Notausgang: Ausgangsregeln sofort entfernen
+
+```sh
+docker exec airlock-firewall airlock-fw flush
+```
+
+Entfernt die Tabelle `inet airlock` vollständig (alle Ausgangsregeln weg, wie vor dem Update) und schaltet den Dienst ab, bis `docker exec airlock-firewall airlock-fw enable` – auch über Neustarts hinweg (Marke `disabled` im Volume `airlock_firewall`). Die Oberfläche zeigt dann «Notausgang aktiv».
+
+Läuft der Dienst nicht (Image kaputt, Container gelöscht), gleichwertig:
+
+```sh
+docker compose run --rm firewall airlock-fw flush            # im Ordner von Airlock
+# oder ohne Compose, mit dem schon gebauten Image:
+docker run --rm --net host --cap-add NET_ADMIN airlock/firewall:local nft delete table inet airlock
+# oder direkt auf dem Host:
+sudo nft delete table inet airlock
+```
+
+(Die letzten beiden entfernen die Tabelle, schalten aber nicht ab: Ein laufender Dienst baut sie aus `rules.nft` neu auf. Dann zusätzlich `docker compose stop firewall`.)
+
+**Was passiert wann:**
+
+- *Dienst gestoppt oder abgestürzt:* Die Regeln bleiben im Kernel stehen und wirken weiter (ein Update des Dienstes öffnet keine Lücke). Neue Projekt-Netze bekommen erst Regeln, wenn er wieder läuft; die Oberfläche zeigt «Firewall-Dienst aus». `restart: unless-stopped` startet ihn neu.
+- *Neustart des Servers oder von Docker/nftables:* Die Tabelle ist weg; der Dienst startet mit Docker und baut sie sofort aus `rules.nft` neu auf (auch bevor Airlock läuft). Fehlt sie im Betrieb (z. B. nach `nft flush ruleset`), baut er sie innerhalb von 30 s neu.
+- *Falscher Stand:* Jede Datei wird gegen eine feste Grammatik geprüft (nur Sprünge aus `br-<id>`-Bridges, nur Sperren in den Ketten der Projekt-Netze); ein abgelehnter Stand ändert nichts, `airlock-fw status` zeigt den Grund.
+
 ## Adressen und Wege
 
 | Weg | Adresse | Erreichbar |

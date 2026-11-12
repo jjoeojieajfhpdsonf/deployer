@@ -17,6 +17,10 @@ export const VISUAL_SCENES = [
   // Nacht 3, Etappe 3: Server › Speicher – Übersicht, alle Posten, voll (92 %), gesperrt (96 %), nichts zu tun,
   // «Jetzt aufräumen» bestätigen, verwaistes Volume löschen; Hinweis im Dashboard ab 80 %
   'speicher', 'speicher-posten', 'speicher-voll', 'speicher-gesperrt', 'speicher-leer', 'speicher-aufraeumen', 'speicher-volume-loeschen', 'projekte-platte-voll',
+  // Nacht 3, Etappe 4: Ausgang der Container – Einstellungen (beobachten, durchsetzen mit Ausnahmen, frei, Dienst aus),
+  // «Frei» bestätigen, Server › Übersicht, alle durchsetzen, Hinweis im Aufbau
+  'einstellungen-ausgang', 'einstellungen-ausgang-durchsetzen', 'einstellungen-ausgang-frei', 'einstellungen-ausgang-dienst-aus',
+  'ausgang-frei-bestaetigen', 'server-ausgang', 'server-ausgang-alle', 'aufbau-ausgang',
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
@@ -100,6 +104,9 @@ export const WIN95_SCENES: readonly string[] = [
   'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
   // Nacht 3, Etappe 3: Server › Speicher (mit Warnung)
   'speicher', 'speicher-voll',
+  // Nacht 3, Etappe 4: Server › Übersicht (die Karte in den Einstellungen ist höher als das Fenster –
+  // die Taskleiste läge darüber; der Rest der Karte steckt schon in «projekt-einstellungen»)
+  'server-ausgang',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
   'statusseite-einstellungen',
   // Etappe 6: Vorschauen (Liste, Einstellungen)
@@ -132,6 +139,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'neues-projekt-deploy-key', 'einstellungen-repo-zugang',
   // Nacht 3, Etappe 3
   'speicher', 'speicher-voll',
+  // Nacht 3, Etappe 4
+  'einstellungen-ausgang-durchsetzen',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

@@ -359,6 +359,11 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/system/storage')) {
         throw new AppError('forbidden', 'Speicher und Aufräumen gibt es nur mit einer Anmeldung, nicht mit einem API-Token (MCP: get_disk_usage)', 403)
       }
+      // Nacht 3, Etappe 4: Ausgang (Modus, Ausnahmen, alle durchsetzen) nur mit Anmeldung – ein
+      // gestohlenes Token könnte ein Projekt sonst ins Heimnetz öffnen. Lesen am Projekt geht.
+      if (route.startsWith('/api/v1/system/egress') || (route.startsWith('/api/v1/projects/:id/egress') && request.method !== 'GET')) {
+        throw new AppError('forbidden', 'Ausgehende Verbindungen lassen sich nur mit einer Anmeldung ändern, nicht mit einem API-Token', 403)
+      }
       // Etappe 3: Städte-Datenbank laden/entfernen (Download bei DB-IP) nur mit Anmeldung
       if (route.startsWith('/api/v1/system/traffic') && request.method !== 'GET') {
         throw new AppError('forbidden', 'Die Städte-Datenbank lässt sich nur mit einer Anmeldung laden oder entfernen', 403)

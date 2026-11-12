@@ -130,6 +130,8 @@ function projectRaw(p: P): Omit<ProjectDto, 'state'> {
     security: { scanId: `${p.id}-s`, status: 'done', score: 97, grade: 'A', finishedAt: ago(90 * MIN), open: { critical: 0, high: 0, medium: 0, low: 1 } },
     lastDeployment: active,
     legacyContainers: false,
+    // Nacht 3, Etappe 4: bestehende Projekte beobachten nach dem Update
+    egress: { mode: 'internet', enforce: false },
     ...p,
   }
 }
@@ -1133,6 +1135,62 @@ export const notifications: NotifySettingsDto = {
     gateway_warning: { push: false, email: false },
     disk_space: { push: true, email: true },
   },
+}
+
+/* --- Nacht 3, Etappe 4: Ausgang der Container ------------------------------------ */
+
+/**
+ * beobachten: nach dem Update, mit Treffern «hätte gesperrt» · durchsetzen: mit Ausnahmen
+ * (eine nicht auflösbar) und gesperrten Versuchen · frei · dienst-aus: Firewall-Dienst meldet sich nicht
+ */
+export type EgressVariant = 'beobachten' | 'durchsetzen' | 'frei' | 'dienst-aus'
+
+export function egress(v: EgressVariant = 'beobachten'): import('@airlock/shared').ProjectEgressDto {
+  const applied = { state: 'angewendet' as const, at: ago(2 * MIN), message: null }
+  const attempt = (verdict: 'beobachtet' | 'gesperrt', destination: string, port: number | null, count: number, last: number, o: Partial<import('@airlock/shared').EgressAttemptDto> = {}) =>
+    ({ verdict, protocol: 'tcp' as const, destination, port, toServer: false, count, firstSeen: ago(last + 3 * HOUR), lastSeen: ago(last), ...o })
+  if (v === 'frei') return { mode: 'frei', enforce: true, exceptions: [], attempts: [], apply: { state: 'frei', at: null, message: null }, inheritedFrom: null }
+  if (v === 'dienst-aus') {
+    return {
+      mode: 'internet', enforce: true, exceptions: [], attempts: [], inheritedFrom: null,
+      apply: { state: 'dienst-aus', at: ago(3 * HOUR), message: 'Der Firewall-Dienst meldet sich nicht mehr (gestoppt oder abgestürzt). Bestehende Regeln bleiben im Kernel stehen.' },
+    }
+  }
+  if (v === 'durchsetzen') {
+    return {
+      mode: 'internet', enforce: true, apply: applied, inheritedFrom: null,
+      exceptions: [
+        { id: 'ex1', target: '192.168.1.10', port: 445, protocol: 'tcp', note: 'NAS (Fotos)', resolved: [], createdAt: ago(2 * DAY) },
+        { id: 'ex2', target: 'drucker.fritz.box', port: 631, protocol: 'tcp', note: null, resolved: null, createdAt: ago(DAY) },
+        { id: 'ex3', target: '10.8.0.0/24', port: null, protocol: 'tcp', note: 'WireGuard', resolved: [], createdAt: ago(DAY) },
+      ],
+      attempts: [
+        attempt('gesperrt', '192.168.1.1', 80, 4, 20 * MIN),
+        attempt('gesperrt', '172.18.0.1', 22, 2, 3 * HOUR, { toServer: true }),
+        attempt('gesperrt', '192.168.1.1', 161, 1, 5 * HOUR, { protocol: 'udp' }),
+        attempt('beobachtet', '192.168.1.10', 445, 3, 2 * DAY),
+      ],
+    }
+  }
+  return {
+    mode: 'internet', enforce: false, exceptions: [], apply: applied, inheritedFrom: null,
+    attempts: [
+      attempt('beobachtet', '192.168.1.10', 445, 3, 2 * HOUR),
+      attempt('beobachtet', '192.168.1.1', 80, 1, DAY),
+      attempt('beobachtet', '172.18.0.1', 22, 2, 3 * DAY, { toServer: true }),
+    ],
+  }
+}
+
+export function egressServer(v: EgressVariant = 'beobachten'): import('@airlock/shared').EgressServerDto {
+  const off = v === 'dienst-aus'
+  return {
+    service: off
+      ? { state: 'aus', heartbeatAt: ago(3 * HOUR), appliedAt: ago(3 * HOUR), networks: 7, version: 'nftables v1.1.6', message: 'Der Firewall-Dienst meldet sich nicht mehr (gestoppt oder abgestürzt). Bestehende Regeln bleiben im Kernel stehen.' }
+      : { state: 'laeuft', heartbeatAt: ago(MIN / 12), appliedAt: ago(2 * MIN), networks: 7, version: 'nftables v1.1.6', message: null },
+    projects: { total: 9, observe: 6, enforce: 2, frei: 1, abgeschottet: 0 },
+    last24h: { beobachtet: 11, gesperrt: 4 },
+  }
 }
 
 /* --- Nacht 3, Etappe 3: Server › Speicher ------------------------------------ */

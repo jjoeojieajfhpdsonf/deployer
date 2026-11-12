@@ -1,0 +1,9 @@
+# Airlock: Ausgang der Projekt-Netze. Erzeugt von Airlock (egress/rules.ts), nicht von Hand aendern.
+table inet airlock {
+  chain egress {
+    type filter hook forward priority -1; policy accept;
+  }
+  chain egress_host {
+    type filter hook input priority -1; policy accept;
+  }
+}

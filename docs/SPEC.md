@@ -166,6 +166,27 @@ Umgesetzt in Nacht 3, Etappe 3. Unter **Server › Speicher**:
 - **Nur mit Anmeldung:** `/api/v1/system/storage*` ist für API-Tokens gesperrt (die Liste nennt Projekte aller Umgebungen). MCP `get_disk_usage` liest nur Summen.
 - **Kommandozeile:** `docker exec airlock-app node dist/cli.js cleanup` zeigt die Vorschau, `… cleanup --apply` räumt auf. Smoke-Test: `scripts/smoke-aufraeumen.sh`.
 
+### Container-Ausgang begrenzen
+
+Umgesetzt in Nacht 3, Etappe 4 (Migration 0026, `packages/api/src/egress/`, Dienst `firewall/`). Ziel: Ein gehacktes Projekt erreicht weder das Heimnetz noch den Server noch andere Projekte.
+
+- **Modus je Projekt** (Projekt › Einstellungen › «Ausgehende Verbindungen»):
+  - `internet` (Standard): Internet und DNS ja; gesperrt sind `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` (Tailnet), `169.254.0.0/16`, `fc00::/7`, `fe80::/10` – damit auch andere Docker-Netze (andere Projekte, Airlock, Datenbank) – und jede Verbindung an den Server selbst (LAN-, Tailscale-, Gateway-Adresse). Erlaubt bleiben das eigene Projekt-Netz (z. B. Caddy ↔ Projekt, Healthcheck von Airlock), Antworten (`ct state established,related`) und DNS (Port 53; Dockers eingebauter Resolver fragt den Resolver des Hosts aus dem Netz des Containers).
+  - `abgeschottet`: zusätzlich kein Internet und kein DNS nach draussen; Namen im eigenen Netz löst Docker selbst auf. Builds, die Pakete laden, und der Security-Scan (Trivy-Datenbank) brauchen dann eine Ausnahme oder scheitern. (Hinweis: Wo Docker den Resolver des Hosts aus dem Host-Netz fragt – z. B. Docker Desktop –, geht DNS trotzdem.)
+  - `frei`: keine Regel, wie vorher. Nur nach erneuter Bestätigung (sudo) und mit Warnung.
+  - **Ausnahmen:** Ziel (IP, CIDR bis /8 bzw. /16 bei IPv6, oder Hostname – beim Anwenden aufgelöst, alle 5 Minuten neu), optional Port und Protokoll, höchstens 20 je Projekt; gelten für Netz und Server.
+- **Beobachten oder durchsetzen:** Bestehende Projekte stehen nach dem Update auf «Beobachten» (nur protokollieren, nie sperren), neue auf «Durchsetzen». Umschalten je Projekt (Schalter «Sperren») oder unter Server › Übersicht «Alle auf Durchsetzen». Die Karte zeigt die Versuche der letzten 7 Tage gebündelt: «Hätte gesperrt: 192.168.1.10:445 (3×)» bzw. «Gesperrt …», mit Kennzeichen «Server».
+- **Vorschauen** folgen ihrem Projekt (Einstellungen und Zählung). Static-Projekte: gilt für Build und Scan (laufen im Netz `air_<slug>`). Das Netz `air_ext-scan` (Scans externer Ziele) ist kein Projekt und bekommt keine Regeln.
+- **Umsetzung:** Airlock erzeugt die Regeln als reine Funktion (`egress/rules.ts`, Golden-Files) und schreibt sie als `rules.nft` in das Volume `airlock_firewall` – jede Minute, nach jeder Änderung und beim Anlegen eines Projekt-Netzes (dann wartet Airlock bis 5 s, bis der Dienst bestätigt, bevor der erste Container im Netz startet). Der Dienst `airlock-firewall` (`network_mode: host`, nur `NET_ADMIN`, nur lesend, kein Socket, kein Netz zu Airlock) prüft jede Zeile gegen eine feste Grammatik und ersetzt in einem Zug die eigene nftables-Tabelle `inet airlock`: Kette `egress` (Hook forward) und `egress_host` (Hook input) springen nur für `iifname "br-<id>"` der Projekt-Netze in je eine Kette pro Netz. Dockers Regeln (`DOCKER-USER` usw.), ufw und die Tailscale-Regel (mangle POSTROUTING) bleiben unberührt; ein Drop in einer nftables-Tabelle gilt endgültig, ein «return» lässt Dockers Regeln weiterlaufen.
+  - Warum keine Kette in `DOCKER-USER` (SPEC liess beides zu): Ein iptables im Container schreibt Regeln, die ein älteres iptables auf dem Host nicht mehr lesen kann (gemessen: iptables 1.8.7 meldet bei NFLOG-Regeln «table filter is incompatible» für die ganze Tabelle); die eigene Tabelle braucht auch keine Erkennung nft/legacy und wirkt mit jedem Firewall-Backend von Docker.
+  - Protokoll: begrenzt (20 Pakete pro Minute je Regel und Netz) per NFLOG (Gruppe 7801 beobachtet, 7802 gesperrt); der Dienst liest mit `tcpdump -i nflog:…` und hängt Zeilen an `events.log` (höchstens 2 MB). Airlock holt sie alle 15 s ab, ordnet die Quelladresse über die Subnetze einem Projekt zu und zählt je Stunde in `egress_attempts` (30 Tage).
+  - Sperren mit `reject` (icmpx admin-prohibited): Programme im Container bekommen sofort einen Fehler statt zu warten.
+- **Absturz, Stopp, Neustart:** Gestoppt oder abgestürzt bleiben die Regeln im Kernel stehen (ein Update des Dienstes öffnet keine Lücke); neue Projekt-Netze bekommen dann keine Regeln, bis der Dienst wieder läuft (Oberfläche: «Firewall-Dienst aus»). Beim Start baut der Dienst die Tabelle aus `rules.nft` neu auf – auch nach einem Neustart des Servers, noch bevor Airlock läuft. Alle 30 s prüft er, ob die Tabelle noch da ist (z. B. nach `nft flush ruleset` oder einem Neustart von nftables) und baut sie sonst neu. Ein abgelehnter Stand ändert nichts; der vorherige gilt weiter.
+- **Notausgang:** `docker exec airlock-firewall airlock-fw flush` entfernt die Tabelle vollständig und schaltet ab (Marke `disabled` im Volume, gilt auch nach Neustarts); `airlock-fw enable` schaltet wieder ein. Ohne laufenden Dienst: `docker compose run --rm firewall airlock-fw flush` oder auf dem Host `sudo nft delete table inet airlock` (siehe INSTALL.md).
+- **Rechte:** Lesen am Projekt auch mit API-Token; ändern (Modus, Ausnahmen, «Alle auf Durchsetzen») nur mit Anmeldung, `/api/v1/system/egress*` nur mit Anmeldung. Audit: `project.egress.update`, `project.egress.exception.add|remove`, `egress.enforce_all`.
+- **Für die Einbruchserkennung (Etappe 5):** `listEgressAttempts({ since, verdict: 'gesperrt' })` und `onEgressAttempts(fn)` in `egress/service.ts` liefern die gebündelten Versuche (Projekt, Ziel, Port, Protokoll, Stunde, Anzahl, «Server»).
+- **Smoke-Test:** `scripts/smoke-ausgang.sh` (nur bash und docker).
+
 ## Security-Scanner
 
 Jedes Deployment wird automatisch in drei Stufen geprüft, und ein Projekt mit kritischen Befunden wird nicht öffentlich geschaltet. Alle Werkzeuge laufen als Container und werden nur bei Bedarf gestartet.
@@ -719,6 +740,9 @@ Alle Daten liegen in PostgreSQL, als eigener Container im Airlock-Stack; Web-UI,
 | HeaderRule | `id`, `project_id`, `header`, `value`, `mode` (`report-only`, `enforce`), `created_at` |
 | GitConnection | `id`, `provider` (`github`, `gitlab`), `app_id`, `installation_id`, `repos`, `private_key_encrypted`, `created_at` |
 | GitCredential | `id`, `project_id` (eindeutig, leer bis zum Anlegen), `kind` (`ssh_key`, `https_token`), `public_key`, `private_key_enc`, `username`, `token_enc`, `host`, `known_hosts`, `host_confirmed_at`, `last_used_at` |
+| Project (Ausgang) | `egress_mode` (`internet`, `abgeschottet`, `frei`), `egress_enforce` (bestehende `false` = beobachten, neue `true`) |
+| EgressException | `id`, `project_id`, `target` (IP, CIDR oder Hostname), `port`, `protocol` (`tcp`, `udp`), `note`, `created_at` |
+| EgressAttempt | `project_id`, `verdict` (`beobachtet`, `gesperrt`), `protocol`, `destination`, `port` (0 = ohne), `bucket` (Stunde), `count`, `to_server`, `first_seen`, `last_seen` |
 | FixRequest | `id`, `finding_id`, `way` (`mcp`, `api`), `status` (`proposed`, `applied`, `pr_open`, `merged`, `verified`, `rejected`), `branch`, `pr_url`, `diff`, `created_at` |
 | SecurityEvent | `id`, `project_id`, `source` (`crowdsec`, `cloudflare`, `drift`, `falco`), `severity`, `kind`, `ip`, `details`, `at`, `status` (`open`, `acknowledged`) |
 | ApiToken | `id`, `name`, `token_hash`, `last_used_at`, `revoked_at` |
@@ -742,7 +766,7 @@ Airlock selbst ist das wertvollste Ziel auf dem Server, weil es Container starte
 - **Docker-Socket abschirmen.** Airlock spricht nicht direkt mit `/var/run/docker.sock`, sondern über einen Socket-Proxy, der nur die nötigen API-Bereiche freigibt (Container, Images, Netzwerke, Volumes, Build; dazu `SYSTEM` nur für das lesende `GET /system/df` der Speicher-Übersicht). Test: `packages/api/src/storage/compose.test.ts`.
 - **Cloudflare-Token mit minimalen Rechten:** Zone lesen, Zone DNS bearbeiten (nur ausgewählte Zonen), Cloudflare Tunnel bearbeiten, optional Access-Apps bearbeiten. Kein globaler API-Key. Verschlüsselt in der Datenbank, nie in Umgebung, `docker inspect`, Logs oder Caddys Konfiguration.
 - **Secrets verschlüsselt.** Der Schlüssel liegt in einer separaten Datei (Rechte 600) und nicht in der Datenbank.
-- **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen.
+- **Container eingeschränkt.** Keine Host-Ports, kein `privileged`, eigenes Docker-Netzwerk pro Projekt. Caddy und der Scanner werden jeweils nur ins Netzwerk des Projekts gehängt, das sie gerade bedienen. Ausgehend erreichen Projekte weder Heimnetz noch Server noch andere Docker-Netze (Abschnitt «Container-Ausgang begrenzen»).
 - **Audit-Log** für jede Änderung, egal ob aus UI, API oder MCP.
 
 ### Anmeldung und zweiter Faktor

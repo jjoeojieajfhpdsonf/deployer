@@ -23,6 +23,7 @@ import type {
   LoginResultDto, LoginOptionsDto, SecurityDto, SudoStatusDto, TotpSetupDto, RecoveryCodesDto, PasskeyDto, SessionDto, SessionMethod,
   RepoCheckDto, GitCredentialDto, CreateGitCredentialInput, ProjectGitAccessDto,
   StorageDto, StorageSettingsDto, CleanupResultDto,
+  ProjectEgressDto, EgressSettingsInput, EgressExceptionInput, EgressServerDto,
 } from '@airlock/shared'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { requestSudo } from './lib/sudo.js'
@@ -438,6 +439,15 @@ export const api = {
   putStorageSettings: (input: StorageSettingsDto) => call<{ settings: StorageSettingsDto; storage: StorageDto }>('/system/storage/settings', { method: 'PUT', body: body(input) }),
   deleteOrphanVolume: (name: string, confirm: string) =>
     call<{ storage: StorageDto }>(`/system/storage/volumes/${encodeURIComponent(name)}`, { method: 'DELETE', body: body({ confirm }) }),
+  // Nacht 3, Etappe 4: Ausgang der Projekt-Container
+  egress: (id: string) => call<{ egress: ProjectEgressDto }>(`/projects/${id}/egress`),
+  setEgress: (id: string, input: EgressSettingsInput) => call<{ egress: ProjectEgressDto }>(`/projects/${id}/egress`, { method: 'PUT', body: body(input) }),
+  addEgressException: (id: string, input: EgressExceptionInput) =>
+    call<{ egress: ProjectEgressDto }>(`/projects/${id}/egress/exceptions`, { method: 'POST', body: body(input) }),
+  removeEgressException: (id: string, exceptionId: string) =>
+    call<{ egress: ProjectEgressDto }>(`/projects/${id}/egress/exceptions/${encodeURIComponent(exceptionId)}`, { method: 'DELETE' }),
+  egressServer: () => call<{ egress: EgressServerDto }>('/system/egress'),
+  enforceAllEgress: () => call<{ changed: number; egress: EgressServerDto }>('/system/egress/enforce-all', { method: 'POST', body: body({ confirm: true }) }),
   backup: () => call<BackupStatusDto>('/system/backup'),
   putBackupSettings: (input: unknown) => call<BackupSettingsDto>('/system/backup/settings', { method: 'PUT', body: body(input) }),
   testBackup: () => call<BackupTestResultDto>('/system/backup/test', { method: 'POST' }),
