@@ -7,6 +7,10 @@
 export const VISUAL_SCENES = [
   // Shell und Anmeldung
   'login', 'shell-profilmenue', 'win95-freigeschaltet',
+  // Nacht 3, Etappe 1: Passkey und 2FA – Anmeldung (Passkey, nip.io, zweiter Schritt, Wiederherstellungscode, gesperrt),
+  // Konto › Sicherheit (eingerichtet, leer, nip.io), Authenticator einrichten, Codes einmal zeigen, erneute Bestätigung
+  'login-passkey', 'login-nip', 'login-zweiter-schritt', 'login-wiederherstellungscode', 'login-gesperrt',
+  'konto-sicherheit', 'konto-sicherheit-leer', 'konto-sicherheit-nip', 'totp-einrichten', 'wiederherstellungscodes', 'sudo-bestaetigung',
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
@@ -67,6 +71,8 @@ export const VISUAL_SCENES = [
  */
 export const WIN95_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-einstellungen', 'audit', 'bestaetigung-stoppen', 'design-bausteine',
+  // Nacht 3, Etappe 1: Anmeldung mit Passkey, Konto › Sicherheit, Bestätigung
+  'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
   // Etappe 3: Besucher
   'besucher', 'projekt-uebersicht-besucher',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
@@ -91,6 +97,8 @@ export const WIN95_SCENES: readonly string[] = [
 export const TERMINAL_SCENES: readonly string[] = [
   'login', 'shell-profilmenue', 'projekte', 'projekt-uebersicht', 'projekt-deployments', 'projekt-security', 'projekt-einstellungen',
   'audit', 'konto', 'bestaetigung-stoppen', 'design-bausteine', 'palette', 'terminal-freigeschaltet', 'matrix-regen',
+  // Nacht 3, Etappe 1
+  'login-passkey', 'konto-sicherheit', 'sudo-bestaetigung',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

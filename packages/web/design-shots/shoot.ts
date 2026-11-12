@@ -39,6 +39,13 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, unlocks: unlocksFor(theme) } : { loggedIn: false, theme: null } }
   // Etappe 7: Achievements (alle schon gemeldet; Szene «achievement-neu» mit einem frischen)
   if (full === '/auth/achievements') return { body: fx.achievements() }
+  // Nacht 3, Etappe 1: Konto › Sicherheit (Standard: alles eingerichtet), Sitzungen, Bestätigung
+  if (full === '/auth/security') return { body: { security: fx.security('voll') } }
+  if (full === '/auth/sessions') return { body: { sessions: fx.authSessions } }
+  if (full === '/auth/sudo') return { body: { sudo: fx.sudoStatus } }
+  if (method === 'POST' && full === '/auth/totp/setup') return { body: { setup: fx.totpSetup() } }
+  if (method === 'POST' && full === '/auth/login') return { body: { ok: true } }
+  if (method === 'POST' && full === '/auth/recovery-codes') return { body: { recovery: fx.recoveryCodes, revoked: 0 } }
   let m: RegExpMatchArray | null
   // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
   if (full === '/environments') return { body: { environments: fx.environments } }
@@ -183,6 +190,10 @@ type Shot = {
   snake?: boolean
   /** Etappe 7: ein eben erreichtes, noch nicht gemeldetes Achievement */
   achievementNew?: boolean
+  /** Nacht 3: Anmeldeseite mit Passkey (hier möglich bzw. nur unter der Hauptadresse) */
+  login?: fx.LoginVariant
+  /** Nacht 3: Konto › Sicherheit in einem Zustand (Standard: alles eingerichtet) */
+  security?: fx.SecurityVariant
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -396,6 +407,44 @@ const shots: Shot[] = [
     },
   },
   { group: 'login', name: 'login', path: '/projekte', loggedIn: false },
+  // Nacht 3, Etappe 1: Passkey als erste Wahl; unter nip.io der Hinweis auf die Hauptadresse;
+  // zweiter Schritt (Code, Wiederherstellungscode); Sperre nach Fehlversuchen
+  { group: 'login', name: 'login-passkey', path: '/projekte', loggedIn: false, login: 'passkey' },
+  { group: 'login', name: 'login-nip', path: '/projekte', loggedIn: false, login: 'nip' },
+  {
+    group: 'login', name: 'login-zweiter-schritt', path: '/projekte', loggedIn: false, login: 'nip',
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/auth/login', (r) => json(r, { ok: false, secondFactor: { totp: true, recovery: true, passkey: false }, passkeyHost: fx.loginMe('nip').login!.passkeyHost }))
+      await pg.getByLabel('Passwort').fill('ein-langes-passwort')
+      await pg.getByRole('button', { name: 'Anmelden', exact: true }).click()
+      await pg.getByRole('heading', { name: 'Zweiter Schritt' }).waitFor()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'login', name: 'login-wiederherstellungscode', path: '/projekte', loggedIn: false, login: 'nip',
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/auth/login', (r) => json(r, { ok: false, secondFactor: { totp: true, recovery: true, passkey: false }, passkeyHost: fx.loginMe('nip').login!.passkeyHost }))
+      await pg.route('**/api/v1/auth/login/second-factor', (r) => json(r, { error: { code: 'invalid_code', message: 'Der Wiederherstellungscode stimmt nicht oder wurde schon verwendet.' } }, 401))
+      await pg.getByLabel('Passwort').fill('ein-langes-passwort')
+      await pg.getByRole('button', { name: 'Anmelden', exact: true }).click()
+      await pg.getByRole('button', { name: 'Wiederherstellungscode verwenden' }).click()
+      await pg.getByLabel('Wiederherstellungscode').fill('7kq2-m9xd-4hfb')
+      await pg.getByRole('button', { name: 'Bestätigen' }).click()
+      await pg.getByText('stimmt nicht oder wurde schon verwendet').waitFor()
+      await pg.waitForTimeout(150)
+    },
+  },
+  {
+    group: 'login', name: 'login-gesperrt', path: '/projekte', loggedIn: false, login: 'passkey',
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/auth/login', (r) => json(r, { error: { code: 'too_many_attempts', message: 'Zu viele Fehlversuche. Wieder möglich in 15 Min. – mit einem Passkey geht es sofort.', details: { retryAfterS: 900 } } }, 429))
+      await pg.getByLabel('Passwort').fill('falsch')
+      await pg.getByRole('button', { name: 'Mit Passwort anmelden' }).click()
+      await pg.getByRole('alert').getByText('Zu viele Fehlversuche').waitFor()
+      await pg.waitForTimeout(150)
+    },
+  },
   { group: 'projekte', name: 'projekte', path: '/projekte' },
   { group: 'projekte', name: 'projekt-uebersicht', path: `/projekte/${P}` },
   { group: 'uebergang', name: 'projekt-alte-container', path: `/projekte/${P}`, full: false, legacy: true },
@@ -577,6 +626,37 @@ const shots: Shot[] = [
   },
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
+  // Nacht 3, Etappe 1: Konto › Sicherheit – alles eingerichtet, noch nichts, unter nip.io; Dialoge
+  { group: 'sicherheit', name: 'konto-sicherheit', path: '/konto/sicherheit' },
+  { group: 'sicherheit', name: 'konto-sicherheit-leer', path: '/konto/sicherheit', security: 'leer' },
+  { group: 'sicherheit', name: 'konto-sicherheit-nip', path: '/konto/sicherheit', security: 'nip', full: false },
+  {
+    group: 'sicherheit', name: 'totp-einrichten', path: '/konto/sicherheit', security: 'leer', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Authenticator-App einrichten' }).click()
+      await pg.getByRole('dialog', { name: 'Authenticator-App einrichten' }).waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    group: 'sicherheit', name: 'wiederherstellungscodes', path: '/konto/sicherheit', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Neue Codes erzeugen …' }).click()
+      await pg.getByRole('button', { name: 'Ja, neue erzeugen' }).click()
+      await pg.getByRole('dialog', { name: 'Wiederherstellungscodes' }).waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
+  {
+    // Heikle Aktion ohne frische Bestätigung: der Server antwortet «sudo_required», der Dialog fragt
+    group: 'sicherheit', name: 'sudo-bestaetigung', path: '/konto/sicherheit', full: false,
+    prepare: async (pg) => {
+      await pg.route('**/api/v1/auth/totp/setup', (r) => json(r, { error: { code: 'sudo_required', message: 'Bitte bestätige zuerst, dass du es bist (gilt 10 Minuten)' } }, 403))
+      await pg.getByRole('button', { name: 'Neu einrichten (anderes Telefon)' }).click()
+      await pg.getByRole('dialog', { name: 'Bestätigen, dass du es bist' }).waitFor()
+      await pg.waitForTimeout(300)
+    },
+  },
   // Etappe 7: Spass-Paket
   ...spassShots('spass'),
   // UI-Qualität 8: Glocke, Sitzung abgelaufen, Rückfrage beim Verlassen, neues Token
@@ -1277,6 +1357,10 @@ shots.push(...['projekte', 'projekt-uebersicht', 'projekt-security', 'design-bau
   return { ...s, group: 'spass-ergebnis-terminal', name: `umgesetzt-${n}`, full: false }
 }))
 
+// Nacht 3, Etappe 1: Ergebnisbilder (docs/design-cal/auth-passkey/umgesetzt-*.png): Anmeldung, Konto › Sicherheit, Dialoge
+//   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/auth-passkey --only auth-passkey-ergebnis
+shots.push(...shots.filter((s) => s.group === 'sicherheit' || (s.group === 'login' && s.name !== 'login')).map((s) => ({ ...s, group: 'auth-passkey-ergebnis', name: `umgesetzt-${s.name}` })))
+
 export { shots }
 export type { Shot }
 
@@ -1354,6 +1438,8 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, { ...fx.me, theme: t, unlocks: unlocksFor(t), ...(s.disketti ? { disketti: true } : {}), ...(s.matrix ? { matrix: true } : {}), ...s.me })
             }
             if (s.achievementNew && url.pathname === '/api/v1/auth/achievements') return json(route, fx.achievements('neu'))
+            if (s.login && url.pathname === '/api/v1/auth/me') return json(route, { ...fx.loginMe(s.login), theme: null })
+            if (s.security && url.pathname === '/api/v1/auth/security') return json(route, { security: fx.security(s.security) })
             if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })

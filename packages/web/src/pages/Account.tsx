@@ -7,7 +7,17 @@ import { PageHead } from '../components/PageHead.js'
 import { relativeTime } from '../lib/format.js'
 import { fmtDateTime } from '../lib/dates.js'
 import { Sk } from '../components/States.js'
-import { passwordChangeFormSchema, PASSWORD_MIN } from '@airlock/shared'
+import { passwordChangeFormSchema, PASSWORD_MIN, sessionMethodLabel, type SecurityDto } from '@airlock/shared'
+
+/** «2 Passkeys, Authenticator-App · erforderlich» – nur was eingerichtet ist */
+function factorSummary(s: SecurityDto): string {
+  const parts = [
+    s.passkeys.length ? (s.passkeys.length === 1 ? '1 Passkey' : `${s.passkeys.length} Passkeys`) : null,
+    s.totp.enabled ? 'Authenticator-App' : null,
+  ].filter(Boolean)
+  if (!parts.length) return 'nicht eingerichtet'
+  return `${parts.join(', ')} · ${s.required ? 'erforderlich' : 'nicht erforderlich'}`
+}
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
 import { AchievementsSection } from '../components/Achievements.js'
@@ -21,6 +31,7 @@ export function Account() {
   const { env } = useEnv()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me })
   const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens })
+  const sec = useQuery({ queryKey: ['security'], queryFn: api.security })
   const location = useLocation()
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -44,7 +55,9 @@ export function Account() {
           <dt>Name</dt>
           <dd>{m?.name ?? <Sk w={80} h={12} className="sk-inline" />} <span className="muted">· Administrator</span></dd>
           <dt>Anmeldung</dt>
-          <dd>Passwort, Sitzung im Browser{m?.viaHttps ? ' über HTTPS' : ' über HTTP (ohne TLS)'}</dd>
+          <dd>{m?.loginMethod ? sessionMethodLabel(m.loginMethod) : 'Passwort'}, Sitzung im Browser{m?.viaHttps ? ' über HTTPS' : ' über HTTP (ohne TLS)'}</dd>
+          <dt>Zweiter Faktor</dt>
+          <dd>{sec.data ? factorSummary(sec.data.security) : sec.isError ? 'nicht abrufbar' : <Sk w={120} h={12} className="sk-inline" />} · <Link to="/konto/sicherheit">verwalten</Link></dd>
           <dt>Sitzung</dt>
           <dd>{m?.sessionSince ? <>angemeldet {relativeTime(m.sessionSince)} <span className="muted">({fmtDateTime(m.sessionSince)})</span>, gilt 7 Tage</> : '–'}</dd>
           <dt>Passwort</dt>

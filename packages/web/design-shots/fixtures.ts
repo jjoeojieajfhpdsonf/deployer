@@ -356,7 +356,7 @@ export const securityProjectId = 'p-kontoauszug'
 
 // Etappe 7: Disketti in den Fixtures aus – sie erschiene in allen Windows-95-Szenen eines Projekts
 // mit Befund nach knapp einer Sekunde (Bilder liefen je nach Tempo anders); eigene Szenen schalten sie ein
-export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN), fun: true, matrix: false, disketti: false }
+export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), loginMethod: 'passkey', viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN), fun: true, matrix: false, disketti: false }
 
 /**
  * Etappe 7: Achievements im Konto. Standard: vier erreicht (alle schon gemeldet –
@@ -1597,3 +1597,57 @@ export function previewEnv(id: string, variant?: PreviewVariant) {
     ],
   }
 }
+
+/* --- Nacht 3, Etappe 1: Passkeys, Authenticator, Wiederherstellungscodes, Sitzungen --- */
+
+const UI_HOST = 'deployer.int.example.ch'
+const hostHere: import('@airlock/shared').PasskeyHostDto = { available: true, rpId: UI_HOST, mainUrl: null, reason: null }
+const hostNip: import('@airlock/shared').PasskeyHostDto = { available: false, rpId: UI_HOST, mainUrl: `https://${UI_HOST}`, reason: 'other_host' }
+
+/** Anmeldeseite: Passkey hier möglich bzw. Seite unter nip.io offen (Passkey nur unter der Hauptadresse) */
+export type LoginVariant = 'passkey' | 'nip'
+export function loginMe(v: LoginVariant): MeDto {
+  return { loggedIn: false, login: { passkeyHost: v === 'nip' ? hostNip : hostHere, passkeys: true } }
+}
+
+/** Konto › Sicherheit: alles eingerichtet, noch nichts, oder unter nip.io geöffnet */
+export type SecurityVariant = 'voll' | 'leer' | 'nip'
+export function security(v: SecurityVariant): import('@airlock/shared').SecurityDto {
+  if (v === 'leer' || v === 'nip') {
+    return {
+      passkeys: [], totp: { enabled: false, enabledAt: null }, recovery: { total: 0, remaining: 0, createdAt: null },
+      required: false, requiredSetting: null, hasFactor: false, sudoUntil: null, passkeyHost: v === 'nip' ? hostNip : hostHere,
+    }
+  }
+  return {
+    passkeys: [
+      { id: 'pk1', name: 'MacBook Air', createdAt: ago(41 * DAY), lastUsedAt: ago(3 * HOUR), synced: true, rpId: UI_HOST },
+      { id: 'pk2', name: 'iPhone', createdAt: ago(40 * DAY), lastUsedAt: ago(6 * DAY), synced: true, rpId: UI_HOST },
+      { id: 'pk3', name: 'YubiKey 5C', createdAt: ago(12 * DAY), lastUsedAt: null, synced: false, rpId: UI_HOST },
+    ],
+    totp: { enabled: true, enabledAt: ago(41 * DAY) },
+    recovery: { total: 10, remaining: 8, createdAt: ago(41 * DAY) },
+    required: true, requiredSetting: null, hasFactor: true, sudoUntil: null, passkeyHost: hostHere,
+  }
+}
+
+export const authSessions: import('@airlock/shared').SessionDto[] = [
+  { id: 's1', current: true, createdAt: ago(3 * HOUR), lastSeenAt: ago(0), device: 'Safari auf macOS', ip: '192.168.1.24', access: 'lan', method: 'passkey' },
+  { id: 's2', current: false, createdAt: ago(2 * DAY), lastSeenAt: ago(25 * MIN), device: 'Safari auf iPhone', ip: '100.101.12.7', access: 'tailnet', method: 'passkey' },
+  { id: 's3', current: false, createdAt: ago(5 * DAY), lastSeenAt: ago(2 * DAY), device: 'Firefox auf Linux', ip: '192.168.1.31', access: 'lan', method: 'password_totp' },
+]
+
+/** Beispiel-Einrichtung (Geheimnis nur für Screenshots); QR-Code wie beim Papier-Schlüssel */
+export const totpSetup = (): import('@airlock/shared').TotpSetupDto => ({
+  secret: 'JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP', // allowlist-secret: Beispielwert für Screenshots
+  uri: 'otpauth://totp/Airlock%3AJo%C3%ABl?secret=JBSWY3DPEHPK3PXP', // allowlist-secret: Beispielwert für Screenshots
+  qr: backupKeyPaper.qr,
+})
+
+export const recoveryCodes: import('@airlock/shared').RecoveryCodesDto = {
+  codes: ['7kq2-m9xd-4hfa', 'p3vr-8w2n-c6ty', 'h5ze-2bk9-qm4s', 'x8ca-r7pw-3ndj', 'e4tn-6gy2-kv8b', 'w2mh-9fq5-zr3c', 'b6pd-4xk8-ta2e', 'n9js-3cv7-hw5g', 'q4yb-5ze2-mk9x', 'f7rt-2nd6-pc4w'], // allowlist-secret: Beispielwerte
+  createdAt: new Date().toISOString(),
+  text: '',
+}
+
+export const sudoStatus: import('@airlock/shared').SudoStatusDto = { until: null, needs: { password: true, passkey: true, totp: true, recovery: true } }

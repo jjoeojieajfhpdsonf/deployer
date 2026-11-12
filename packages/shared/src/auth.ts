@@ -123,6 +123,10 @@ export const recoveryCodeSchema = z
   .transform((v) => v.replace(/[\s-]/g, '').toLowerCase())
   .pipe(z.string().regex(/^[0-9a-z]{12}$/, 'Ein Wiederherstellungscode hat 12 Zeichen, z. B. abcd-efgh-2345'))
 
+/** Formulare der Oberfläche (je ein Feld) */
+export const totpCodeFormSchema = z.object({ code: totpCodeSchema })
+export const recoveryCodeFormSchema = z.object({ recoveryCode: recoveryCodeSchema })
+
 export const secondFactorSchema = z.union([
   z.object({ code: totpCodeSchema }).strict(),
   z.object({ recoveryCode: recoveryCodeSchema }).strict(),

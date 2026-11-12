@@ -18,7 +18,10 @@ import type {
   StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
   PreviewsDto,
   AchievementsDto, AchievementId,
+  LoginResultDto, LoginOptionsDto, SecurityDto, SudoStatusDto, TotpSetupDto, RecoveryCodesDto, PasskeyDto, SessionDto, SessionMethod,
 } from '@airlock/shared'
+import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
+import { requestSudo } from './lib/sudo.js'
 
 /** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
 export interface PreviewEnvDto {
@@ -75,8 +78,12 @@ export interface ExpirySettingDto { days: number; fromEnv: number; changed: bool
 
 export interface MeDto {
   loggedIn: boolean
+  /** Ohne Anmeldung: was die Anmeldeseite anbieten kann (Passkey hier?) */
+  login?: LoginOptionsDto
   name?: string
   sessionSince?: string | null
+  /** Womit diese Sitzung angemeldet wurde */
+  loginMethod?: SessionMethod
   viaHttps?: boolean
   passwordChangedAt?: string | null
   passwordSource?: 'env' | 'ui' | null
@@ -112,7 +119,14 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * 401 dieser Pfade heisst «falsch eingegeben», nicht «Sitzung abgelaufen»:
+ * Anmeldung (Passwort, Code, Passkey) und erneute Bestätigung zeigen den
+ * Fehler selbst; /auth/me sagt «nicht angemeldet» als Antwort.
+ */
+const OWN_401 = new Set(['/auth/login', '/auth/me', '/auth/login/second-factor', '/auth/passkey/login', '/auth/sudo', '/auth/sudo/passkey'])
+
+async function call<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   let res: Response
   try {
     res = await fetch(`/api/v1${path}`, {
@@ -141,8 +155,13 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     // UI-Qualität 8: Sitzung abgelaufen → Anmeldedialog über der Seite. Nicht bei der Anmeldung selbst
     // (falsches Passwort) und nicht bei /auth/me (das sagt «nicht angemeldet» als Antwort, nicht als 401);
     // Glocke, Darstellung, Passwort und Abmelden sollen den Dialog dagegen auslösen
-    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') markSessionExpired()
+    if (res.status === 401 && !OWN_401.has(path)) markSessionExpired()
     const e = (data as { error?: { code: string; message: string; details?: unknown } }).error
+    // Nacht 3: heikle Aktion ohne frische Bestätigung → Dialog, danach dieselbe Anfrage noch einmal
+    if (res.status === 403 && e?.code === 'sudo_required' && !retried) {
+      if (await requestSudo()) return call<T>(path, init, true)
+      throw new ApiError('sudo_cancelled', 'Nicht bestätigt – die Aktion wurde nicht ausgeführt.', 403)
+    }
     throw new ApiError(e?.code ?? 'unknown', e?.message ?? `HTTP ${res.status}`, res.status, e?.details)
   }
   return data as T
@@ -188,8 +207,29 @@ export const api = {
   /* Auth */
   me: () => call<MeDto>('/auth/me'),
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
-  login: (password: string) => call<{ ok: true }>('/auth/login', { method: 'POST', body: body({ password }) }),
+  login: (password: string) => call<LoginResultDto>('/auth/login', { method: 'POST', body: body({ password }) }),
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
+
+  /* Nacht 3, Etappe 1: zweiter Faktor, Passkeys, Sitzungen, erneute Bestätigung */
+  loginSecondFactor: (input: { code: string } | { recoveryCode: string }) => call<LoginResultDto>('/auth/login/second-factor', { method: 'POST', body: body(input) }),
+  passkeyLoginOptions: () => call<{ options: PublicKeyCredentialRequestOptionsJSON }>('/auth/passkey/login/options', { method: 'POST' }),
+  passkeyLogin: (response: unknown) => call<{ ok: true }>('/auth/passkey/login', { method: 'POST', body: body({ response }) }),
+  security: () => call<{ security: SecurityDto }>('/auth/security'),
+  sudoStatus: () => call<{ sudo: SudoStatusDto }>('/auth/sudo'),
+  sudo: (input: { password: string; code?: string; recoveryCode?: string }) => call<{ until: string }>('/auth/sudo', { method: 'POST', body: body(input) }),
+  sudoPasskeyOptions: () => call<{ options: PublicKeyCredentialRequestOptionsJSON }>('/auth/sudo/passkey/options', { method: 'POST' }),
+  sudoPasskey: (response: unknown) => call<{ until: string }>('/auth/sudo/passkey', { method: 'POST', body: body({ response }) }),
+  totpSetup: () => call<{ setup: TotpSetupDto }>('/auth/totp/setup', { method: 'POST' }),
+  totpEnable: (code: string) => call<{ recovery: RecoveryCodesDto | null; revoked: number }>('/auth/totp/enable', { method: 'POST', body: body({ code }) }),
+  totpDisable: () => call<{ revoked: number }>('/auth/totp', { method: 'DELETE' }),
+  regenerateRecovery: () => call<{ recovery: RecoveryCodesDto; revoked: number }>('/auth/recovery-codes', { method: 'POST' }),
+  setTwoFactorRequired: (required: boolean) => call<{ revoked: number }>('/auth/2fa-required', { method: 'PUT', body: body({ required }) }),
+  passkeyRegisterOptions: () => call<{ options: PublicKeyCredentialCreationOptionsJSON }>('/auth/passkeys/options', { method: 'POST' }),
+  addPasskey: (name: string, response: unknown) => call<{ passkey: PasskeyDto; recovery: RecoveryCodesDto | null; revoked: number }>('/auth/passkeys', { method: 'POST', body: body({ name, response }) }),
+  deletePasskey: (id: string) => call<{ revoked: number }>(`/auth/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sessions: () => call<{ sessions: SessionDto[] }>('/auth/sessions'),
+  revokeSession: (id: string) => call<{ ok: true; self: boolean }>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  revokeOtherSessions: () => call<{ revoked: number }>('/auth/sessions/revoke-others', { method: 'POST' }),
   /** Nur geänderte Teile (Darstellung, Einrichtung, Umgebung); der Server führt zusammen */
   setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
   /** Freischaltung (Easter Egg) hinzufügen; idempotent */

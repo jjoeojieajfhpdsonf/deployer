@@ -62,6 +62,8 @@ export function mutationCacheWithToasts(): MutationCache {
         return
       }
       if (meta.quiet) return
+      // Bestätigung abgebrochen: bewusst so gewollt, kein Fehler-Toast
+      if (err instanceof ApiError && err.code === 'sudo_cancelled') return
       const details = (err as { details?: unknown } | null)?.details
       if (Array.isArray(details) && details.length) return
       // «Erneut versuchen» nur, wo ein zweiter Versuch helfen kann (Server weg, 5xx) und nie bei
