@@ -16,7 +16,14 @@ import type {
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
   BackupRestoreDto, BackupRestorePreviewDto,
   StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
+  PreviewsDto,
 } from '@airlock/shared'
+
+/** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
+export interface PreviewEnvDto {
+  env: EnvEntryDto[]
+  inherited: { key: string; source: 'projekt' | 'vorschau' | 'ueberschrieben' }[]
+}
 
 export type {
   TopologyDto,
@@ -318,6 +325,12 @@ export const api = {
   githubDisconnect: () => call<void>('/github', { method: 'DELETE' }),
   autoDeploy: (id: string) => call<{ autoDeploy: boolean; checkedAt: string | null; available: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`),
   setAutoDeploy: (id: string, enabled: boolean) => call<{ autoDeploy: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`, { method: 'PUT', body: body({ enabled }) }),
+  /* Etappe 6: Vorschau-Deploys */
+  previews: (id: string) => call<{ previews: PreviewsDto }>(`/projects/${id}/previews`),
+  setPreviews: (id: string, enabled: boolean) => call<{ previews: PreviewsDto }>(`/projects/${id}/previews`, { method: 'PUT', body: body({ enabled }) }),
+  deletePreview: (id: string, previewId: string) => call<void>(`/projects/${id}/previews/${previewId}`, { method: 'DELETE' }),
+  previewEnv: (id: string) => call<PreviewEnvDto>(`/projects/${id}/preview-env`),
+  putPreviewEnv: (id: string, entries: EnvEntryInput[]) => call<PreviewEnvDto>(`/projects/${id}/preview-env`, { method: 'PUT', body: body({ entries }) }),
   rejectFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/reject`, { method: 'POST', body: body({}) }),
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),

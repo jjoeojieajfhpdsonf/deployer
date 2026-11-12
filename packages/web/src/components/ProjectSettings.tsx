@@ -18,6 +18,7 @@ import { Reachability } from './Reachability.js'
 import { useHeaderRules } from './HeaderFix.js'
 import { Switch } from './Switch.js'
 import { MoveProject } from './MoveProject.js'
+import { PreviewSettings } from './Previews.js'
 import { ConfirmDialog } from './Confirm.js'
 
 /**
@@ -72,6 +73,8 @@ export function ProjectSettings({
     ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
     { id: 'set-header', label: 'Security-Header' },
     ...(auto.data?.available ? [{ id: 'set-auto-deploy', label: 'Auto-Deploy' }] : []),
+    // Etappe 6: immer da – bei Projekten ohne Git-Repo und GitHub-App deaktiviert mit Begründung
+    { id: 'set-vorschauen', label: 'Vorschauen' },
     { id: 'set-ablauf', label: 'Ablauf' },
     { id: 'set-verschieben', label: 'Verschieben' },
     { id: 'set-gefahrenzone', label: 'Gefahrenzone', danger: true },
@@ -114,6 +117,7 @@ export function ProjectSettings({
         )}
         <HeaderSection projectId={p.id} onManage={onManageHeaders} />
         {auto.data?.available && <AutoDeploy projectId={p.id} on={auto.data.autoDeploy} checkedAt={auto.data.checkedAt} viaApp={auto.data.viaGithubApp} />}
+        <PreviewSettings projectId={p.id} />
         <Expiry p={p} />
         {/* M9: in eine andere Umgebung verschieben */}
         <section className="set-card" id="set-verschieben" aria-label="In andere Umgebung verschieben">

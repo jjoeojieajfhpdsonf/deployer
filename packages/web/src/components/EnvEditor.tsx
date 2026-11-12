@@ -26,12 +26,15 @@ export function EnvEditor({
   prefix = 'env',
   errors = {},
   field,
+  legend = 'Umgebungsvariablen',
 }: {
   rows: EnvRow[]
   onChange: (r: EnvRow[]) => void
   prefix?: string
   errors?: Errors
   field?: FieldProps
+  /** Etappe 6: «Variablen für Vorschauen» */
+  legend?: string
 }) {
   const update = (i: number, patch: Partial<EnvRow>) =>
     onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
@@ -40,7 +43,7 @@ export function EnvEditor({
 
   return (
     <fieldset className="field-group env-editor">
-      <legend>Umgebungsvariablen</legend>
+      <legend>{legend}</legend>
 
       {rows.length === 0 && <p className="hint">Keine – das ist für viele Images in Ordnung.</p>}
 

@@ -83,6 +83,9 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/auto-deploy$/))) return { body: fx.autoDeploy(m[1]!) }
+  // Etappe 6: Vorschauen (Standard: aus; Szenen mit s.previews: an/leer)
+  if ((m = p.match(/^\/projects\/([^/]+)\/previews$/))) return { body: fx.previews(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/preview-env$/))) return { body: fx.previewEnv(m[1]!) }
   if ((m = p.match(/^\/projects\/[^/]+\/findings\/([^/]+)\/fix-hint$/))) return { body: fx.fixHint(m[1]!) }
   if (p === '/audit') {
     const events = fx.audit(u.searchParams.get('targetId') ?? undefined)
@@ -165,6 +168,8 @@ type Shot = {
    * @airlock/shared, nicht die Oberfläche) unter /__statusseite/ mit diesen Daten
    */
   statusPage?: 'stoerung' | 'ruhig'
+  /** Etappe 6: Vorschauen am Projekt an (mit drei Vorschauen) oder an und noch leer */
+  previews?: fx.PreviewVariant
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -172,6 +177,45 @@ const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
 const H = 'p-hallo'
+
+/** Etappe 6: Vorschau-Deploys (Reiter Deployments und Einstellungen) */
+function previewShots(group: string): Shot[] {
+  const dep = `/u/example/projekte/${P}?tab=deployments`
+  const set = `/u/example/projekte/${P}?tab=einstellungen`
+  const toSection = async (pg: Page) => {
+    await pg.locator('section[aria-labelledby="pv-title"]').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await pg.evaluate(() => window.scrollBy(0, -24))
+    await pg.waitForTimeout(250)
+  }
+  const toSettings = async (pg: Page) => {
+    await pg.locator('#set-vorschauen').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await pg.waitForTimeout(300)
+  }
+  return [
+    { group, name: 'vorschauen', path: dep, previews: 'an', full: false, prepare: toSection },
+    {
+      group, name: 'vorschauen-loeschen', path: dep, previews: 'an', full: false,
+      prepare: async (pg) => {
+        await toSection(pg)
+        await pg.getByRole('button', { name: 'Vorschau galerie-raster löschen …' }).click()
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: 'vorschauen-leer', path: dep, previews: 'leer', full: false, prepare: toSection },
+    { group, name: 'vorschauen-aus', path: dep, full: false, prepare: toSection },
+    { group, name: 'vorschauen-einstellungen', path: set, previews: 'an', full: false, prepare: toSettings },
+    {
+      group, name: 'vorschauen-variablen', path: set, previews: 'an', full: false,
+      prepare: async (pg) => {
+        await toSettings(pg)
+        await pg.locator('#set-vorschauen').getByRole('button', { name: 'Bearbeiten' }).click()
+        await pg.locator('#set-vorschauen form').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: 'vorschauen-nicht-moeglich', path: `/u/example/projekte/${H}?tab=einstellungen`, full: false, prepare: toSettings },
+  ]
+}
 
 /** Etappe 4: Szenen des Aufbaus mit Live-Verkehr und «Dienst hinzufügen/entfernen» (Präfix für die Ergebnisbilder) */
 function aufbau2Shots(group: string, prefix = ''): Shot[] {
@@ -1142,6 +1186,10 @@ const shots: Shot[] = [
     },
   },
   { group: 'statusseite', name: 'statusseite-oeffentlich-ruhig', path: '/__statusseite/', statusPage: 'ruhig' },
+  /* Etappe 6: Vorschau-Deploys – Reiter Deployments (drei Vorschauen: bereit mit PR und Scan, wird deployt,
+     fehlgeschlagen), Löschen mit Bestätigung, an und leer, aus (Hinweis); Einstellungen mit Schalter und
+     Variablen-Ebene «Vorschau», Variablen bearbeiten, ohne Git-Repo (Schalter deaktiviert mit Begründung) */
+  ...previewShots('vorschauen'),
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -1153,6 +1201,8 @@ const shots: Shot[] = [
 
 // Etappe 5: Ergebnisbilder (docs/design-cal/statusseite/umgesetzt-*.png) aus denselben Szenen
 shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s, group: 'statusseite-ergebnis', name: s.name.replace(/^statusseite-/, 'umgesetzt-') })))
+// Etappe 6: Ergebnisbilder (docs/design-cal/previews/umgesetzt-*.png)
+shots.push(...shots.filter((s) => s.group === 'vorschauen').map((s) => ({ ...s, group: 'vorschauen-ergebnis', name: s.name === 'vorschauen' ? 'umgesetzt-liste' : s.name.replace(/^vorschauen-/, 'umgesetzt-') })))
 
 export { shots }
 export type { Shot }
@@ -1259,6 +1309,11 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             }
             if (route.request().method() === 'POST' && /^\/api\/v1\/projects\/[^/]+\/services\/plan$/.test(path)) {
               return json(route, { plan: fx.servicePlan(route.request().postDataJSON(), s.topo && fx.DEPLOY_VARIANTS.includes(s.topo) ? 'deploy' : 'pull_request') })
+            }
+            // Etappe 6: Vorschauen an bzw. an und leer
+            if (s.previews && route.request().method() === 'GET') {
+              const pm = path.match(/^\/api\/v1\/projects\/([^/]+)\/(previews|preview-env)$/)
+              if (pm) return json(route, pm[2] === 'previews' ? fx.previews(pm[1]!, s.previews) : fx.previewEnv(pm[1]!, s.previews))
             }
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))

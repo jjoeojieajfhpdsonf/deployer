@@ -10,6 +10,7 @@ import type {
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
   TrafficPointDto, TrafficRange, TrafficRowDto, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
+  PreviewDto, PreviewsDto,
 } from '@airlock/shared'
 import { TRAFFIC_RANGES, TRAFFIC_WAYS } from '@airlock/shared'
 import { addDays, availabilityOf, dayInZone, overallOf, statusDays } from '@airlock/shared'
@@ -1511,5 +1512,68 @@ export function statusPublic(variant: 'stoerung' | 'ruhig'): PublicStatusJson {
   return {
     version: 1, title: 'Status example.ch', generatedAt: now.toISOString(), timeZone: tz,
     overall: overallOf(projects, incidentsList), incidents: incidentsList, projects,
+  }
+}
+
+/* --- Etappe 6: Vorschau-Deploys ------------------------------------------------------- */
+
+/** an: drei Vorschauen (bereit mit PR und Scan, wird deployt, fehlgeschlagen); leer: an, noch keine; sonst: Standard aus */
+export type PreviewVariant = 'an' | 'leer'
+
+const PREVIEW_REASON: Record<string, string> = {
+  files: 'Vorschauen gibt es nur für Projekte aus einem Git-Repo; dieses Projekt kommt aus dem Chat.',
+  image: 'Vorschauen gibt es nur für Projekte aus einem Git-Repo; dieses Projekt läuft aus einem fertigen Image.',
+}
+
+export function previews(id: string, variant?: PreviewVariant): { previews: PreviewsDto } {
+  const p = allProjects.find((x) => x.id === id)
+  const repo = id === 'p-foto' ? 'example/fotoalbum' : id === 'p-rezepte' ? 'example/rezepte-api' : null
+  const slug = p?.slug ?? 'projekt'
+  const host = (label: string) => `${label}.int.example.ch`
+  const reason = repo ? null : PREVIEW_REASON[p?.sourceType ?? ''] ?? 'Vorschauen brauchen ein Git-Repo; die Quelle dieses Projekts ist hochgeladen.'
+  const on = Boolean(repo && variant)
+  const list: PreviewDto[] = on && variant === 'an' ? [
+    {
+      id: 'v-login', branch: 'feature/login-mit-passkey', label: `feature-login-mit-passkey--${slug}`,
+      url: `https://${host(`feature-login-mit-passkey--${slug}`)}`, host: host(`feature-login-mit-passkey--${slug}`),
+      prNumber: 42, prUrl: `https://github.com/${repo}/pull/42`, headSha: '3f9c2a17b0d84e6f5a1c9e0b7d2f4a6c8e1b3d5f',
+      lastPushAt: ago(2 * HOUR), createdAt: ago(2 * DAY), expiresAt: new Date(Date.now() - 2 * HOUR + 7 * DAY).toISOString(),
+      state: 'ready', deploymentId: 'd-v-login', failure: null,
+      scan: { status: 'done', grade: 'B', score: 82, open: { critical: 0, high: 1, medium: 2, low: 0 } },
+    },
+    {
+      id: 'v-galerie', branch: 'galerie-raster', label: `galerie-raster--${slug}`,
+      url: `https://${host(`galerie-raster--${slug}`)}`, host: host(`galerie-raster--${slug}`),
+      prNumber: null, prUrl: null, headSha: 'a71e04c9d3b25f8e6c0a9b1d7e3f5c2a4b6d8e0f',
+      lastPushAt: ago(4 * MIN), createdAt: ago(4 * MIN), expiresAt: new Date(Date.now() - 4 * MIN + 7 * DAY).toISOString(),
+      state: 'deploying', deploymentId: 'd-v-galerie', failure: null, scan: null,
+    },
+    {
+      id: 'v-deps', branch: 'dependabot/npm_and_yarn/sharp-0.33.5', label: `dependabot-npm-and-yarn-sharp-0-33-5--${slug}`,
+      url: `https://${host(`dependabot-npm-and-yarn-sharp-0-33-5--${slug}`)}`, host: host(`dependabot-npm-and-yarn-sharp-0-33-5--${slug}`),
+      prNumber: 39, prUrl: `https://github.com/${repo}/pull/39`, headSha: 'c2d8f1a0e9b47365d1c0e8f2a9b3d4c5e6f7a8b9',
+      lastPushAt: ago(5 * DAY + 3 * HOUR), createdAt: ago(5 * DAY + 3 * HOUR), expiresAt: new Date(Date.now() - (5 * DAY + 3 * HOUR) + 7 * DAY).toISOString(),
+      state: 'failed', deploymentId: 'd-v-deps', failure: 'Healthcheck nicht bestanden: Dienst «web» antwortet nicht auf Port 3000', scan: null,
+    },
+  ] : []
+  return {
+    previews: {
+      enabled: on, available: Boolean(repo), reason, repo, checkedAt: on ? ago(3 * MIN) : null,
+      pattern: `<branch>--${slug}.int.example.ch`, max: 3, idleDays: 7, previews: list,
+    },
+  }
+}
+
+export function previewEnv(id: string, variant?: PreviewVariant) {
+  if (id !== detailProjectId || !variant) return { env: [], inherited: env(id).map((e) => ({ key: e.key, source: 'projekt' as const })) }
+  return {
+    env: [
+      { key: 'THUMBNAIL_SIZE', isSecret: false, value: '240' },
+      { key: 'MAIL_DRY_RUN', isSecret: false, value: '1' },
+    ],
+    inherited: [
+      { key: 'DATABASE_URL', source: 'projekt' as const }, { key: 'MAIL_DRY_RUN', source: 'vorschau' as const },
+      { key: 'THUMBNAIL_SIZE', source: 'ueberschrieben' as const }, { key: 'TZ', source: 'projekt' as const },
+    ],
   }
 }

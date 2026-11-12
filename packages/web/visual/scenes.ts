@@ -49,6 +49,8 @@ export const VISUAL_SCENES = [
   // Etappe 5: Statusseite – Einstellungen (an, Störung melden, aus), Projekteinstellungen; die öffentliche Seite selbst
   'statusseite-einstellungen', 'statusseite-melden', 'statusseite-aus', 'statusseite-projekt',
   'statusseite-oeffentlich', 'statusseite-oeffentlich-tooltip', 'statusseite-oeffentlich-ruhig',
+  // Etappe 6: Vorschau-Deploys – Liste, Löschen bestätigen, an und leer, aus; Einstellungen, Variablen, ohne Git-Repo
+  'vorschauen', 'vorschauen-loeschen', 'vorschauen-leer', 'vorschauen-aus', 'vorschauen-einstellungen', 'vorschauen-variablen', 'vorschauen-nicht-moeglich',
 ] as const
 
 /**
@@ -66,6 +68,8 @@ export const WIN95_SCENES: readonly string[] = [
   'besucher', 'projekt-uebersicht-besucher',
   // Etappe 5: Einstellungen › Statusseite (die öffentliche Seite selbst hat kein Theme)
   'statusseite-einstellungen',
+  // Etappe 6: Vorschauen (Liste, Einstellungen)
+  'vorschauen', 'vorschauen-einstellungen',
   // Nur in Windows 95: Fenster minimiert (Taskleiste), maximiert, Hauptfenster maximiert, Startmenü, «Airlock beenden»
   'win95-minimiert', 'win95-maximiert', 'win95-hauptfenster-maximiert', 'win95-startmenue', 'win95-beenden',
   // Ganze App über den Taskleisten-Knopf minimiert und wieder geholt (die Taskleiste muss stehen bleiben)

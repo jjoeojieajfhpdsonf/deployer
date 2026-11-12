@@ -17,6 +17,7 @@ import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
+import { PreviewsSection } from '../components/Previews.js'
 import { SiteAccess } from '../components/SiteAccess.js'
 import { TrafficTab } from '../components/Traffic.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
@@ -101,6 +102,20 @@ export function ProjectDetail() {
         const el = document.getElementById('header-caddy')
         if (el) el.scrollIntoView({ block: 'start' })
         else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+      }
+      go(20)
+    })
+  }
+  // Etappe 6: «In den Einstellungen einschalten» (Deployments › Vorschauen) → Einstellungen › Vorschauen
+  const goToPreviewSettings = () => {
+    void setTab('einstellungen').then((ok) => {
+      if (!ok) return
+      const go = (tries: number) => {
+        const el = document.getElementById('set-vorschauen')
+        if (!el) { if (tries > 0) setTimeout(() => go(tries - 1), 100); return }
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+        el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
       }
       go(20)
     })
@@ -307,6 +322,7 @@ export function ProjectDetail() {
             setWatching(depId)
             showOverviewIfFree()
           }}
+          onPreviewSettings={goToPreviewSettings}
         />
       )}
       {tab === 'aufbau' && (
@@ -399,7 +415,7 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 /* --- Deployments ----------------------------------------------------------- */
 
-function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
+function Deployments({ projectId, onRollback, onPreviewSettings }: { projectId: string; onRollback: (deploymentId: string) => void; onPreviewSettings: () => void }) {
   const list = useDeployments(projectId)
   if (!list.data && list.isError) return <ErrorState plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
   if (!list.data) return <Loading label="Deployments werden geladen"><SkRows n={6} /></Loading>
@@ -425,6 +441,8 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
+      {/* Etappe 6: Vorschau-Deploys je Branch/PR (nur intern) */}
+      <PreviewsSection projectId={projectId} onSettings={onPreviewSettings} />
     </div>
   )
 }

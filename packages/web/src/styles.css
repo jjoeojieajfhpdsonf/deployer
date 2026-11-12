@@ -2020,6 +2020,22 @@ form.failure-fix .form-actions { margin: 0; }
 .dl-log { margin: var(--sp-3) 0 0; max-height: 320px; font-size: var(--fs-12); }
 .dl-hint { margin-top: var(--sp-4); }
 
+/* Etappe 6: Vorschauen (Reiter Deployments, Einstellungen) – Zeilen wie die Deployments-Liste */
+.pv-section { margin-top: var(--sp-6); }
+.pv-intro { margin: calc(-1 * var(--sp-3)) 0 var(--sp-4); }
+.pv-pattern { font-family: var(--mono); font-weight: 400; font-size: var(--fs-13); white-space: nowrap; }
+.pv-ready .dl-mark { background: var(--ok-bg); color: var(--ok); }
+.pv-failed .dl-mark { background: var(--bad-bg); color: var(--bad); }
+.pv-deploying .dl-mark { background: var(--info-bg); color: var(--info); }
+.pv-branch { font-family: var(--mono); font-size: var(--fs-14); }
+.pv-pr { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-13); }
+.dl-meta > .pv-addr { font-family: var(--mono); font-size: var(--fs-12); color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
+.pv-off, .pv-empty { padding: var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink-dim); font-size: var(--fs-14); }
+.pv-off { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.pv-off p, .pv-empty { margin: 0; }
+.pv-note { margin: var(--sp-3) 0 0; }
+.pv-env-sum { display: grid; gap: 2px; }
+
 /* Sammelzeile gleicher Stände: klappt mit grid-template-rows auf (Emil: 200 ms, ease-out) */
 .dl-group { padding: 0 var(--sp-4); }
 .dl-group-toggle {

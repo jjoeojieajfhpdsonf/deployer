@@ -146,7 +146,7 @@ export function DeployList({
   )
 }
 
-function DeployLog({ id }: { id: string }) {
+export function DeployLog({ id }: { id: string }) {
   const d = useQuery({ queryKey: ['deployment', id], queryFn: () => api.getDeployment(id) })
   if (!d.data && d.isError) return <ErrorState compact what="Das Deployment-Log" error={d.error} retrying={d.isFetching} onRetry={() => void d.refetch()} />
   if (!d.data) return <Loading label="Log wird geladen"><SkLog n={6} /></Loading>
