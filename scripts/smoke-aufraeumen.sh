@@ -82,7 +82,9 @@ has_image "$BASE" || fail "$BASE fehlt (kommt mit compose.yaml; sonst: docker pu
 echo "Lauf ${RAND}: nur Objekte mit Label ${LBL}"
 echo "1. Airlock-Image bauen (dauert ein paar Minuten)"
 if [ -n "${SMOKE_IMAGE:-}" ] && has_image "$IMAGE"; then echo "   (vorhandenes $IMAGE)"; else docker build -q -t "$IMAGE" "$ROOT" >/dev/null; fi
-docker run --rm "$IMAGE" node dist/cli.js help | grep -q 'cleanup --apply' || fail "Hilfe nennt cleanup nicht"
+# Erst ganz lesen, dann suchen: «grep -q» im Rohr bricht früh ab (SIGPIPE, mit pipefail ein Fehler)
+help_text="$(docker run --rm "$IMAGE" node dist/cli.js help)"
+grep -q 'cleanup --apply' <<<"$help_text" || fail "Hilfe nennt cleanup nicht"
 
 echo "2. Netz, Wegwerf-Datenbank, Socket-Proxy wie compose.yaml"
 docker network create --label "$LBL" "$NET" >/dev/null
