@@ -130,9 +130,15 @@
 
   /* Masse */
   --rail-w: 256px;
-  --gutter: 40px;
   --measure: 70ch;
-  --content: 1200px;
+  /* Nacht 3, Etappe 6 (Bildschirmbreite): Inhalt beginnt links an der Seitenleiste, Abstand links
+     und rechts wächst mit dem Fenster. Breite je Seitentyp: Übersichten (.page) flüssig bis
+     --page-max-wide, Formular-/Textseiten (.page-narrow, .page-medium) bis --page-max-read –
+     beide an derselben linken Kante. Nur der Seitentitel wächst mit dem Fenster (--fs-title). */
+  --gutter: clamp(24px, 3vw, 56px);
+  --page-max-wide: 1760px;
+  --page-max-read: 880px;
+  --fs-title: clamp(32px, 2.4vw, 44px);
 
   /* Bewegung (Emil) */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -347,6 +353,7 @@
   --fs-30: 16px;
   --fs-40: 18px;
   --fs-44: 18px;
+  --fs-title: 18px;
   --track-display: 0;
 
   --r-xs: 0;
@@ -458,6 +465,7 @@
   --fs-30: 22px;
   --fs-40: 28px;
   --fs-44: 30px;
+  --fs-title: 28px;
   --track-display: 0;
 
   --r-xs: 2px;
@@ -662,18 +670,29 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 .rail-foot strong { color: var(--ink-dim); font-weight: 500; overflow-wrap: anywhere; }
 .rail-foot .link-button { justify-self: start; font-size: var(--fs-13); }
 
-.main { min-width: 0; padding: calc(var(--sp-6) + env(safe-area-inset-top, 0px)) var(--gutter) 96px var(--sp-4); }
-.page { max-width: var(--content); margin: 0 auto; }
-/* Projektseite: auf grossen Bildschirmen bis 1440 px (Aufbau, Logs, Tabellen brauchen den Platz).
-   Die Kopfzeile wächst mit, damit ihre Kanten bündig mit der Seite bleiben; ab 1200 px Fensterinhalt unverändert. */
-.main:has(.page-project) { --content: 1440px; }
-.page-narrow > * { max-width: 760px; }
-.page-medium > * { max-width: 1040px; }
-.page-narrow > .state { max-width: 760px; }
-.page-medium > .state { max-width: 1040px; }
+.main { min-width: 0; padding: calc(var(--sp-6) + env(safe-area-inset-top, 0px)) var(--gutter) 96px; }
+/* Seitentypen (Etappe 6): jede Seite steht links an der Seitenleiste, nie mittig.
+   Übersicht = .page (Projekte, Projektseite, Security, Audit, Server …), bis 1760 px;
+   Formular-/Textseite = .page.page-narrow oder .page.page-medium (Einstellungen, Konto,
+   Neues Projekt …), bis 880 px. Neue Seiten wählen eine der beiden Klassen. */
+.page { max-width: var(--page-max-wide); margin: 0; }
+.page-narrow, .page-medium { max-width: var(--page-max-read); }
+/* Grosse Bildschirme: Seitenleiste etwas schmaler, der Platz gehört dem Inhalt */
+@media (min-width: 1600px) {
+  :root { --rail-w: 248px; }
+}
+/* Lange Listen und Tabellen nutzen die volle Breite; ihre Textspalten bleiben lesbar (höchstens 72 Zeichen).
+   Chrome ignoriert max-width an Tabellenzellen – deshalb am Textblock in der Zelle. */
+.table :is(.cell-main, .cell-sub, .cell-detail), .act-list .act-title, .activity .what { max-width: 72ch; }
+/* Schmale Fenster (Test: keine waagrechte Scrollleiste ab 360 px): Listen-Raster ohne Mindestbreite
+   aus dem Inhalt, Bedienleisten in Kopfzeilen dürfen schrumpfen (ihre Segmente scrollen selbst) */
+.dl-list { grid-template-columns: minmax(0, 1fr); }
+.dl-group-toggle { max-width: calc(100% - 50px); white-space: normal; }
+span.sc-delta { max-width: 100%; height: auto; min-height: 24px; white-space: normal; }
 
-/* Kopfzeile: Brotkrumen links, Darstellung und Profil rechts */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); max-width: var(--content); margin: 0 auto var(--sp-7); min-height: 52px; }
+/* Kopfzeile: Brotkrumen links, Darstellung und Profil rechts. Immer so breit wie eine Übersicht,
+   damit Profil und Glocke beim Wechsel zwischen den Seitentypen an derselben Stelle bleiben. */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); max-width: var(--page-max-wide); margin: 0 0 var(--sp-7); min-height: 52px; }
 .topbar .crumbs { margin: 0; min-width: 0; }
 /* Links: Umschalter der Umgebung, dahinter – mit feinem Trennstrich – die Brotkrumen */
 .topbar-start { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
@@ -776,7 +795,7 @@ button.brand-mark:hover:not(:disabled) { background: var(--primary-hover); }
 /* Kopf jeder Seite: Titel, Aktionen, viel Luft */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-6); flex-wrap: wrap; margin-bottom: var(--sp-10); }
 .page-head > div:first-child { min-width: 0; flex: 1 1 280px; }
-.page-head h1 { overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; }
+.page-head h1 { font-size: var(--fs-title); overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; }
 .page-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 @media (min-width: 900px) { .page-actions { flex-wrap: nowrap; } }
 .title-line { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
@@ -942,7 +961,8 @@ label { display: block; font-size: var(--fs-14); font-weight: 500; color: var(--
 .panel-head a { font-size: var(--fs-14); }
 
 /* Kennzahlen als Bento-Karten */
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-4); }
+/* Kennzahlen wachsen mit: so viele Spalten, wie 220 px breit Platz haben (Etappe 6) */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4); }
 .stat { padding: var(--sp-6) 26px 26px; display: grid; align-content: start; gap: var(--sp-1); }
 .stat .label { font-size: var(--fs-14); }
 .stat-value { margin-top: 18px; font-family: var(--display); font-weight: 400; font-size: var(--fs-44); line-height: 1; letter-spacing: var(--track-display); font-variant-numeric: normal; overflow-wrap: anywhere; }
@@ -1265,7 +1285,9 @@ button.acc-chip:hover:not(:disabled) { background: var(--line-strong); border: 0
 
 /* --- Tabellen: keine Linie zwischen den Zeilen ------------------------------------- */
 
-.table-scroll { overflow-x: auto; padding: var(--sp-1) var(--sp-1) var(--sp-2); }
+/* position: relative hält auch versteckte Beschriftungen (position: absolute) im Scroll-Bereich –
+   sonst ragten sie in schmalen Fenstern über die Seite hinaus (Etappe 6) */
+.table-scroll { position: relative; overflow-x: auto; padding: var(--sp-1) var(--sp-1) var(--sp-2); }
 .table { width: 100%; border-collapse: collapse; font-size: var(--fs-14); }
 .table th { text-align: left; padding: var(--sp-4) var(--sp-5) 10px; font-size: var(--fs-13); font-weight: 500; color: var(--muted); white-space: nowrap; }
 .table td { padding: var(--sp-3) var(--sp-5); vertical-align: middle; }
@@ -1440,7 +1462,18 @@ button.acc-chip:hover:not(:disabled) { background: var(--line-strong); border: 0
 
 /* --- Unterer Bereich der Übersicht --------------------------------------------------- */
 
-.split { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-14); align-items: start; }
+/* Aktivität und Server: unter 1100 px gestapelt, darüber 2 : 1; ab 1700 px eine dritte Karte,
+   aber nur, wenn es dafür echte Daten gibt (Aufrufe heute) – sonst bleibt es bei zwei */
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-14); align-items: start; }
+.split > * { min-width: 0; container-type: inline-size; }
+.split > .split-wide { display: none; }
+@media (min-width: 1100px) {
+  .split { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+@media (min-width: 1700px) {
+  .split:has(> .split-wide) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .split > .split-wide { display: block; }
+}
 
 .activity { list-style: none; margin: 0; padding: 0; }
 .activity li { display: grid; grid-template-columns: 56px 10px minmax(0, 1fr) auto; align-items: baseline; gap: var(--sp-3); padding: 10px 0; }
@@ -1461,6 +1494,14 @@ button.acc-chip:hover:not(:disabled) { background: var(--line-strong); border: 0
 .meter-fill.tone-warn { background: var(--warn); }
 .meter-fill.tone-bad { background: var(--bad); }
 .meter-note { padding-top: var(--sp-1); font-size: var(--fs-13); color: var(--muted); }
+/* Etappe 6: «Aufrufe heute» (dritte Karte der Übersicht) – Zeilen wie die Server-Balken */
+.views-today { list-style: none; margin: 0; padding: 0; }
+.views-today .meter-head a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Container Query: liegt die Server-Karte über die ganze Breite (gestapelt), stehen die Balken nebeneinander */
+@container (min-width: 640px) {
+  .meters:not(.views-today) { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--sp-8); }
+  .meters:not(.views-today) > :is(.meter-hint, .meter-note) { grid-column: 1 / -1; }
+}
 
 /* --- Leer- und Ladezustände --------------------------------------------------------- */
 
@@ -2004,8 +2045,8 @@ details > summary:hover { color: var(--ink); }
 .diff .diff-del { color: var(--bad); }
 .diff .diff-hunk, .diff .diff-file { color: var(--muted); }
 /* M8: GitHub App in drei Schritten */
-/* Nur auf der GitHub-Seite: Banner so breit wie die Schritt-Karten */
-.page-medium:has(.gh-steps) > .banner { max-width: 1040px; }
+/* Server › GitHub ist ein Formular in einer breiten Seite: Schritt-Karten und Banner bleiben bei 1040 px */
+.page:has(.gh-steps) > .banner, .gh-steps { max-width: 1040px; }
 .gh-step h2:focus { outline: none; }
 .gh-step h2:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .gh-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
@@ -2371,7 +2412,7 @@ button.sec-also > span:nth-child(2) { flex: 1 1 12ch; min-width: 0; }
 
 /* --- Projekt-Karten (Raster) --------------------------------------------------------- */
 
-.pcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--sp-4); }
+.pcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: var(--sp-4); }
 .pcard { position: relative; display: grid; grid-template-rows: auto auto 1fr auto; gap: 18px; padding: var(--sp-6); transition: box-shadow 200ms ease; }
 /* Hover: nur Schatten, keine Bewegung (Emil: dutzendfach am Tag angefahren) */
 @media (hover: hover) and (pointer: fine) {
@@ -2401,14 +2442,13 @@ button.sec-also > span:nth-child(2) { flex: 1 1 12ch; min-width: 0; }
 .pcard-facts .grade-cell { justify-content: flex-end; }
 .pcard-facts .grade { min-width: 24px; height: 24px; font-size: var(--fs-13); }
 
-/* Neues Projekt: gestrichelte Karte in den freien Spalten der letzten Reihe */
+/* Neues Projekt: gestrichelte Kachel am Ende des Rasters, Quellen 2 × 2 (Etappe 6) */
 .pnew { display: grid; grid-template-rows: auto auto 1fr; gap: var(--sp-2); padding: var(--sp-6) var(--sp-7) var(--sp-7); border: 1px dashed color-mix(in srgb, var(--field-line) 55%, transparent); border-radius: var(--r-lg); min-width: 0; }
 .pnew-head { display: flex; align-items: center; gap: var(--sp-3); }
 .pnew-head h3 { font-family: var(--display); font-weight: 400; font-size: var(--fs-24); line-height: 1.2; letter-spacing: var(--track-display); }
 .pnew-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: var(--r); background: var(--surface-2); color: var(--ink); }
 .pnew-lede { margin: 0; font-size: var(--fs-14); color: var(--muted); }
-.pnew-compact { grid-template-rows: none; align-content: center; justify-items: center; gap: var(--sp-4); text-align: center; }
-.pnew-sources { list-style: none; margin: 0; padding: var(--sp-5) 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3); align-self: end; }
+.pnew-sources { list-style: none; margin: 0; padding: var(--sp-5) 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); align-self: end; }
 .pnew-source {
   display: grid; justify-items: start; align-content: start; gap: 2px;
   width: 100%; height: 100%; min-height: 0; padding: var(--sp-4); border: none; border-radius: var(--r-md);
@@ -2458,7 +2498,8 @@ button.pnew-source:hover:not(:disabled), a.pnew-source:hover { background: var(-
 /* --- Projekt-Übersicht: Zustand statt Konfiguration ---------------------------------- */
 
 .overview, .overview-main, .overview-side { display: grid; gap: var(--sp-4); min-width: 0; }
-.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: var(--sp-4); align-items: start; }
+/* Hauptspalte flüssig, Seitenspalte 360–420 px: 360 bei 1280 px Fenster, 420 ab 1920 px (Etappe 6) */
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(360px, 9.375vw + 240px, 420px); gap: var(--sp-4); align-items: start; }
 .ov-section { padding: var(--sp-7); }
 .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-5); }
 /* Kartentitel der Projektseite in Cal Sans (ab 24 px) */
@@ -3539,8 +3580,7 @@ button.topo-node.topo-node-pending.topo-node-selected, button.topo-node.topo-nod
 /* --- Schmalere Fenster (Desktop-Werkzeug; nur sinnvolle Umbrüche) -------------------- */
 
 @media (max-width: 1100px) {
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .split, .overview-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-grid { grid-template-columns: minmax(0, 1fr); }
   .overview-side { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stages { grid-template-columns: minmax(0, 1fr); }

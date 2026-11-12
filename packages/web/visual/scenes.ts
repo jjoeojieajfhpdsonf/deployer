@@ -27,7 +27,7 @@ export const VISUAL_SCENES = [
   // Projekte
   'projekte', 'projekt-uebersicht',
   // Reiter «Aufbau»: Compose, Einzelcontainer, statisch, nicht öffentlich, Host gewählt, schmal (< 1100 px), sehr schmal (< 700 px),
-  // grosser Bildschirm (Seite bis 1440 px), vergrössert (Dialog übers ganze Fenster)
+  // grosser Bildschirm (1920 px, Seite bis 1760 px), vergrössert (Dialog übers ganze Fenster)
   'aufbau', 'aufbau-einzelcontainer', 'aufbau-statisch', 'aufbau-nicht-oeffentlich', 'aufbau-host', 'aufbau-schmal', 'aufbau-sehr-schmal', 'aufbau-breit', 'aufbau-vergroessert',
   // Etappe 4: Live-Verkehr (fester Zustand, nur Zähler), auch vergrössert; «+ Dienst» (Vorlage, Diff), neuer Dienst
   // «wird erstellt», Pull Request offen, gescheitert, ohne GitHub-App, Adminer mit interner Adresse, Entfernen
@@ -82,6 +82,14 @@ export const VISUAL_SCENES = [
   // Etappe 7: Spass-Paket – «sudo» in ⌘K, Matrix-Regen (festes Bild, Schalter an), Achievements im Konto und als
   // Meldung, Snake-Seite für unbekannte interne Namen (eigenes HTML, hell/dunkel nach dem Gerät)
   'terminal-freigeschaltet', 'matrix-regen', 'konto-achievements', 'achievement-neu', 'snake-404',
+  // Nacht 3, Etappe 6: Bildschirmbreite – die Hauptseiten zusätzlich bei 1280, 1920 und 2560 px
+  // (Seite links an der Seitenleiste, Übersichten bis 1760 px, Einstellungen bis 880 px; ab 1700 px «Aufrufe heute»)
+  'breite-projekte-1280', 'breite-projektdetail-1280', 'breite-aufbau-1280', 'breite-besucher-1280',
+  'breite-einstellungen-1280', 'breite-audit-1280', 'breite-vorfaelle-1280', 'breite-speicher-1280',
+  'breite-projekte-1920', 'breite-projektdetail-1920', 'breite-aufbau-1920', 'breite-besucher-1920',
+  'breite-einstellungen-1920', 'breite-audit-1920', 'breite-vorfaelle-1920', 'breite-speicher-1920',
+  'breite-projekte-2560', 'breite-projektdetail-2560', 'breite-aufbau-2560', 'breite-besucher-2560',
+  'breite-einstellungen-2560', 'breite-audit-2560', 'breite-vorfaelle-2560', 'breite-speicher-2560',
 ] as const
 
 /**
@@ -124,6 +132,8 @@ export const WIN95_SCENES: readonly string[] = [
   'win95-papierkorb',
   // Etappe 7: Disketti (nur in Windows 95) – offener Befund, gescheiterter Deploy, «Ja» öffnet den Ablauf
   'disketti', 'disketti-fehler', 'disketti-ja',
+  // Nacht 3, Etappe 6: Bildschirmbreite (Übersicht und Formularseite bei 1920 px)
+  'breite-projekte-1920', 'breite-einstellungen-1920',
 ]
 
 /**
@@ -148,6 +158,8 @@ export const TERMINAL_SCENES: readonly string[] = [
   'einstellungen-ausgang-durchsetzen',
   // Nacht 3, Etappe 5
   'vorfaelle', 'projekt-einbruch',
+  // Nacht 3, Etappe 6: Bildschirmbreite
+  'breite-projekte-1920', 'breite-audit-2560',
 ]
 
 export const A11Y_SCENES = VISUAL_SCENES.filter((n) => !['laden-projekte', 'zustand-laden-projektseite', 'zustand-laden-audit', 'aktion-knopf-laedt'].includes(n))

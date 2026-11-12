@@ -162,6 +162,8 @@ type Shot = {
   /** M9: Standard-Umgebung «example» patchen (z. B. sehr langer Name für den Umschalter) */
   envPatch?: Partial<import('@airlock/shared').EnvironmentDto>
   prepare?: (page: Page) => Promise<void>
+  /** Nacht 3, Etappe 6: Fensterbreite dieser Szene (Standard 1440 px), vor dem Laden gesetzt */
+  width?: number
   /** Nur dieses Element aufnehmen (CSS-Selektor; mit 24 px Rand) */
   el?: string
   /** Erlaubte Pixelabweichung (visuelle Tests), wenn nur Kantenglättung schwankt – mit Begründung an der Szene */
@@ -513,7 +515,7 @@ const shots: Shot[] = [
     group: 'aufbau', name: 'aufbau-sehr-schmal', path: `/projekte/${P}?tab=aufbau`,
     prepare: async (pg) => { await pg.setViewportSize({ width: 680, height: 900 }); await pg.waitForTimeout(300) },
   },
-  // Grosser Bildschirm: Projektseite bis 1440 px breit, Kopfzeile bündig mit
+  // Grosser Bildschirm (1920 px): Projektseite links an der Seitenleiste, bis 1760 px breit (Etappe 6)
   {
     group: 'aufbau', name: 'aufbau-breit', path: `/projekte/${P}?tab=aufbau`, full: false,
     prepare: async (pg) => { await pg.setViewportSize({ width: 1920, height: 1080 }); await pg.waitForTimeout(300) },
@@ -1708,6 +1710,27 @@ shots.push(...shots.filter((s) => s.group === 'ausgang').map((s) => ({ ...s, gro
 //   SHOOT_PORT=5352 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/einbruch --only einbruch-ergebnis
 shots.push(...shots.filter((s) => s.group === 'einbruch').map((s) => ({ ...s, group: 'einbruch-ergebnis', name: `umgesetzt-${s.name}` })))
 
+/**
+ * Nacht 3, Etappe 6: Bildschirmbreite – die Hauptseiten zusätzlich bei 1280, 1920 und 2560 px
+ * (Szenen «breite-<seite>-<breite>», abgeleitet von den bestehenden Szenen). Projekte mit Besucherzahlen,
+ * damit ab 1700 px die dritte Karte «Aufrufe heute» erscheint.
+ * Ergebnisbilder (docs/design-cal/breite/umgesetzt-*.png):
+ *   SHOOT_PORT=5401 pnpm --filter @airlock/web exec tsx design-shots/shoot.ts --out docs/design-cal/breite --only breite-ergebnis
+ */
+export const WIDTH_PAGES: readonly (readonly [string, string])[] = [
+  ['projekte', 'projekte-besucher'], ['projektdetail', 'projekt-uebersicht'], ['aufbau', 'aufbau'], ['besucher', 'besucher'],
+  ['einstellungen', 'm9-einstellungen-standards'], ['audit', 'audit'], ['vorfaelle', 'vorfaelle'], ['speicher', 'speicher'],
+]
+export const WIDTHS = [1280, 1920, 2560] as const
+for (const w of WIDTHS) {
+  for (const [label, base] of WIDTH_PAGES) {
+    const s = shots.find((x) => x.name === base)
+    if (!s) throw new Error(`Szene ${base} fehlt`)
+    shots.push({ ...s, group: 'breite', name: `breite-${label}-${w}`, width: w })
+  }
+}
+shots.push(...shots.filter((s) => s.group === 'breite' && !s.name.endsWith('-1280')).map((s) => ({ ...s, group: 'breite-ergebnis', name: s.name.replace(/^breite-/, 'umgesetzt-') })))
+
 export { shots }
 export type { Shot }
 
@@ -1896,6 +1919,7 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
 
 /** Seite öffnen, auf Daten und Schriften warten, Szene vorbereiten. */
 export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> {
+      if (s.width) await page.setViewportSize({ width: s.width, height: 900 })
       await page.goto(`http://localhost:${port}${s.path}`, { waitUntil: s.hang ? 'load' : 'networkidle' })
       if (s.hang) await page.waitForTimeout(800)
       // Fehlerzustand erscheint erst nach dem einen Wiederholversuch (retry: 1)
