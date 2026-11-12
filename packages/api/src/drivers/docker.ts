@@ -901,3 +901,125 @@ export async function followLogs(id: string, since?: number, o: { tail?: number;
     ...(since ? { since } : {}),
   })) as unknown as Readable
 }
+
+/* --- Nacht 3, Etappe 5: Einbruchserkennung --------------------------------------------
+ * Nur lesende Aufrufe unter /containers (Socket-Proxy: CONTAINERS, schon an):
+ * GET …/top (Prozesse wie «docker top»), GET …/changes («docker diff»),
+ * HEAD …/archive (Rechte einer Datei, ohne sie zu lesen), GET …/json. Dazu
+ * zum Isolieren POST …/update (nur die Restart-Policy). Kein exec. */
+
+/** Wegwerf-Container von Airlock (Build, Scan, Backup, Kopie) – keine Projekt-Laufzeit */
+export function isRuntimeContainer(labels: Record<string, string>): boolean {
+  if (!labels[LABEL_PROJECT]) return false
+  if (labels[LABEL.role] || labels[LABEL.scan] !== undefined || labels['airlock.check'] !== undefined || labels[LABEL.system] !== undefined) return false
+  return true
+}
+
+export interface RuntimeContainer { id: string; name: string; slug: string; deploymentId: string | null; service: string | null; labels: Record<string, string> }
+
+/** Laufende Projekt-Container (auch aus der deployer-Zeit); only = nur mit diesem Label (Smoke-Test) */
+export async function listRuntimeContainers(only?: { key: string; value: string } | null): Promise<RuntimeContainer[]> {
+  const all = await listManagedContainers()
+  return all
+    .filter((c) => c.running && isRuntimeContainer(c.labels) && (!only || c.labels[only.key] === only.value))
+    .map((c) => ({
+      id: c.id,
+      name: c.names[0] ?? c.id.slice(0, 12),
+      slug: c.labels[LABEL_PROJECT]!,
+      deploymentId: c.labels[LABEL_DEPLOYMENT] ?? null,
+      service: c.labels[LABEL.composeService] ?? null,
+      labels: c.labels,
+    }))
+}
+
+/** Prozesse wie «docker top» (ps -ef auf dem Host, nur dieser Container) */
+export async function containerTop(id: string): Promise<{ Titles?: string[]; Processes?: string[][] } | null> {
+  try {
+    const r = (await docker.getContainer(id).top()) as unknown
+    // Wie bei changes(): eine Antwort, die dockerode nicht als JSON erkennt, kommt als Buffer
+    const v = Buffer.isBuffer(r) || typeof r === 'string' ? JSON.parse(r.toString() || 'null') : r
+    return v && typeof v === 'object' ? (v as { Titles?: string[]; Processes?: string[][] }) : null
+  } catch (err) {
+    const code = (err as { statusCode?: number }).statusCode
+    if (code === 404 || code === 409) return null
+    throw err
+  }
+}
+
+/** «docker diff»: Änderungen gegenüber dem Image (0 geändert, 1 neu, 2 gelöscht) */
+export async function containerChanges(id: string): Promise<{ path: string; kind: 0 | 1 | 2 }[] | null> {
+  try {
+    let r = (await docker.getContainer(id).changes()) as unknown
+    // Ohne Änderungen antwortet Docker «null» – dockerode gibt das als Buffer zurück
+    if (Buffer.isBuffer(r) || typeof r === 'string') r = JSON.parse(r.toString() || 'null')
+    if (!Array.isArray(r)) return []
+    return (r as { Path?: unknown; Kind?: unknown }[])
+      .filter((c): c is { Path: string; Kind: number } => typeof c?.Path === 'string')
+      .map((c) => ({ path: c.Path, kind: (c.Kind === 1 ? 1 : c.Kind === 2 ? 2 : 0) as 0 | 1 | 2 }))
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return null
+    throw err
+  }
+}
+
+/**
+ * Ist eine Datei im Container ausführbar? HEAD …/archive liefert nur den
+ * Kopf X-Docker-Container-Path-Stat (Name, Grösse, Modus) – der Inhalt wird
+ * nicht übertragen. null = unbekannt (weg, kein Zugriff).
+ */
+export async function isExecutableInContainer(id: string, path: string): Promise<boolean | null> {
+  try {
+    const res = (await docker.getContainer(id).infoArchive({ path })) as { headers?: Record<string, string>; resume?: () => void; destroy?: () => void }
+    res.resume?.()
+    const raw = res.headers?.['x-docker-container-path-stat']
+    if (!raw) return null
+    const stat = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) as { mode?: number }
+    if (typeof stat.mode !== 'number') return null
+    // Go os.FileMode: Typ in den oberen Bits (ModeType: Ordner 1<<31, Verweis 1<<27, Gerät, Pipe,
+    // Socket, …); nur normale Dateien zählen. Setuid/Setgid (1<<23, 1<<22) gehören nicht zum Typ.
+    const mode = stat.mode
+    const regular = [19, 21, 24, 25, 26, 27, 31].every((b) => Math.floor(mode / 2 ** b) % 2 === 0)
+    return regular && (mode & 0o111) !== 0
+  } catch {
+    return null
+  }
+}
+
+export interface IntrusionInspect {
+  restartCount: number
+  startedAt: string | null
+  finishedAt: string | null
+  running: boolean
+  oomKilled: boolean
+  healthcheck: string[] | null
+  restartPolicy: string | null
+}
+
+export async function inspectForIntrusion(id: string): Promise<IntrusionInspect | null> {
+  try {
+    const i = (await docker.getContainer(id).inspect()) as {
+      RestartCount?: number
+      State?: { Running?: boolean; StartedAt?: string; FinishedAt?: string; OOMKilled?: boolean }
+      Config?: { Healthcheck?: { Test?: string[] } }
+      HostConfig?: { RestartPolicy?: { Name?: string } }
+    }
+    const t = (s: string | undefined) => (s && !s.startsWith('0001-') ? s : null)
+    return {
+      restartCount: i.RestartCount ?? 0,
+      startedAt: t(i.State?.StartedAt),
+      finishedAt: t(i.State?.FinishedAt),
+      running: i.State?.Running === true,
+      oomKilled: i.State?.OOMKilled === true,
+      healthcheck: i.Config?.Healthcheck?.Test ?? null,
+      restartPolicy: i.HostConfig?.RestartPolicy?.Name ?? null,
+    }
+  } catch (err) {
+    if ((err as { statusCode?: number }).statusCode === 404) return null
+    throw err
+  }
+}
+
+/** Restart-Policy eines Containers ändern (Isolieren: «no», Freigabe: wie vorher) */
+export async function setRestartPolicy(id: string, name: string): Promise<void> {
+  await docker.getContainer(id).update({ RestartPolicy: { Name: name, ...(name === 'on-failure' ? { MaximumRetryCount: 0 } : {}) } })
+}

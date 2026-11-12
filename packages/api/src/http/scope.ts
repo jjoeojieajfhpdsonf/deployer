@@ -117,6 +117,9 @@ export const GUARDED_PREFIXES = [
   // Nacht 3, Etappe 1: Passkeys und Sitzungen gehören zum Konto, nicht zu einer Umgebung;
   // nur mit Anmeldung (der Auth-Wächter weist Tokens unter /auth/ ab)
   '/api/v1/auth/passkeys/:id', '/api/v1/auth/sessions/:id',
+  // Nacht 3, Etappe 5: Vorfälle nur mit Anmeldung (Tokens weist der Auth-Wächter ab);
+  // findIncident prüft die Umgebung zusätzlich selbst
+  '/api/v1/intrusion/incidents/:id',
 ] as const
 
 export function registerScopeGuard(app: FastifyInstance): void {

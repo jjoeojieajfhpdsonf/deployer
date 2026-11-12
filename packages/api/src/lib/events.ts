@@ -23,6 +23,8 @@ export type ServerEvent =
   | { type: 'public'; projectId: string }
   /** Etappe 3: neue Besucher-Zähler gespeichert (nach dem Flush, höchstens einmal pro Minute) */
   | { type: 'traffic'; projectIds: string[] }
+  /** Nacht 3, Etappe 5: Vorfall erkannt oder geändert (projectId null = Server, z. B. Anmeldung) */
+  | { type: 'incident'; projectId: string | null }
   /**
    * Abgemeldet: session = nur Ströme dieser Sitzung schliessen; except = alle
    * ausser dieser (andere Sitzungen beendet); beides leer = alle.

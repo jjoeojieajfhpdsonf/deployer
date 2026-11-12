@@ -32,6 +32,8 @@ export interface ProcessorDeps {
   /** Projekte mit HTML-Seiten (statische Dateien zählen dort nicht als Aufruf) */
   hasPages: Set<string>
   emit: (projectId: string, e: TrafficLiveEventDto) => void
+  /** Nacht 3, Etappe 5: jede fremde Anfrage (ohne eigene Prüfungen) für «Scan von aussen» */
+  observe?: (projectId: string, a: { at: number; path: string; status: number; source: string }) => void
 }
 
 export type HandleResult = 'unknown' | 'ignore' | 'live' | 'bot' | 'page'
@@ -47,6 +49,7 @@ export class TrafficProcessor {
     const projectId = host.projectId
     const verdict = verdictOf(a, { healthPath: host.healthPath, hasPages: this.d.hasPages.has(projectId) })
     if (verdict === 'ignore') return 'ignore'
+    this.d.observe?.(projectId, { at: a.at, path: a.path, status: a.status, source: a.ip })
     const way = wayOf(a.ip, host.public)
     const bot = verdict === 'bot'
     // Live: jede Anfrage ausser eigenen Prüfungen, ohne IP, Pfad und User-Agent

@@ -8,6 +8,7 @@ import { startDeploy } from '../deploy/pipeline.js'
 import type { Scope } from '../lib/scope.js'
 import { log } from '../lib/log.js'
 import { badRequest } from '../lib/errors.js'
+import { assertNotIsolated } from '../intrusion/guard.js'
 import type { DeploymentDto } from '@airlock/shared'
 
 /**
@@ -22,6 +23,8 @@ export async function startProject(
   actor: string,
 ): Promise<{ started: boolean; deployment?: DeploymentDto }> {
   const project = await findProject(scope, idOrSlug)
+  // Nacht 3, Etappe 5: isoliert → kein Start bis zur Freigabe
+  await assertNotIsolated(project)
   forgetContainer(project.id)
   await setDesiredState(project.id, 'running')
   // Ein Start von Hand ist Aktivität: sonst stoppte der Ablauf-Job ein
@@ -89,6 +92,8 @@ export async function restartProject(scope: Scope, idOrSlug: string, actor: stri
   if (effectiveKind(project.sourceType, active?.artifact) === 'static') {
     throw badRequest('Statische Seiten laufen ohne Container – es gibt nichts neu zu starten')
   }
+  // Vor dem Stopp prüfen: sonst wäre ein isoliertes Projekt danach gestoppt und nicht mehr startbar
+  await assertNotIsolated(project)
   await stopProject(scope, project.id, actor)
   const r = await startProject(scope, project.id, actor)
   await audit({ actor, action: 'project.restart', targetType: 'project', targetId: project.id, result: 'ok' })

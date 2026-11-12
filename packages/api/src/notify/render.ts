@@ -21,6 +21,8 @@ export const notifyEvents = [
   'gateway_warning',
   // Nacht 3, Etappe 3: Platte ab 90 % belegt (höchstens einmal pro Tag)
   'disk_space',
+  // Nacht 3, Etappe 5: Einbruchsindiz (Vorfall hoch oder kritisch), gedrosselt (intrusion/bundle.ts)
+  'incident',
 ] as const
 export type NotifyEvent = (typeof notifyEvents)[number]
 
@@ -43,6 +45,8 @@ export const DEFAULT_MATRIX: Matrix = {
   gateway_warning: { push: false, email: true },
   // Volle Platte stoppt Deploys und kann Datenbanken beschädigen: beide Kanäle
   disk_space: { push: true, email: true },
+  // SPEC: «Einbruchsindiz (Drift, unerwarteter Prozess)» – Push und E-Mail
+  incident: { push: true, email: true },
 }
 
 export const EVENT_LABEL: Record<NotifyEvent, string> = {
@@ -58,6 +62,7 @@ export const EVENT_LABEL: Record<NotifyEvent, string> = {
   backup_stale: 'Seit über 48 Stunden kein erfolgreiches Backup',
   gateway_warning: 'Anfragen kommen über das Docker-Gateway',
   disk_space: 'Platte zu 90 % oder mehr belegt',
+  incident: 'Einbruchsindiz (Vorfall hoch oder kritisch)',
 }
 
 export interface Message {
@@ -103,6 +108,7 @@ const PRIORITY: Record<NotifyEvent, number> = {
   backup_stale: 4,
   gateway_warning: 3,
   disk_space: 4,
+  incident: 4,
 }
 
 export function renderMessage(event: NotifyEvent, data: Record<string, unknown>): Message {
@@ -155,5 +161,14 @@ export function renderMessage(event: NotifyEvent, data: Record<string, unknown>)
         body: `Auf dem Server sind ${s('used')} von ${s('total')} belegt.${data.blocked ? ' Airlock nimmt keine Deploys mehr an (ab 95 %); Rollbacks gehen weiter.' : ' Ab 95 % nimmt Airlock keine Deploys mehr an.'}${data.reclaimable ? ` Das Aufräumen würde etwa ${s('reclaimable')} freigeben.` : ''}\nAufräumen unter Server › Speicher.`,
         priority: data.blocked ? 5 : PRIORITY[event],
       }
+    case 'incident': {
+      const samples = (data.samples as string[] | undefined) ?? []
+      const critical = data.severity === 'kritisch'
+      return {
+        title: `${critical ? 'Kritisch' : 'Hoch'}: ${s('title')}${data.project ? ` – ${s('project')}` : ''}`,
+        body: `${data.escalated ? 'Schweregrad gestiegen. ' : ''}${Number(data.count) > 1 ? `${s('count')}× gesehen seit ${s('since')}.` : `Gesehen ${s('since')}.`}${samples.length ? `\n${samples.slice(0, 5).map((x) => `• ${x}`).join('\n')}` : ''}${data.reaction ? `\n${s('reaction')}` : ''}\nAnsehen unter Security › Vorfälle.`,
+        priority: critical ? 5 : PRIORITY[event],
+      }
+    }
   }
 }

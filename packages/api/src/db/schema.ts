@@ -53,7 +53,19 @@ export const projects = pgTable('projects', {
   // Nacht 3, Etappe 4: Ausgang der Container (migrations/0026_egress.sql); Vorschauen folgen preview_of
   egressMode: text('egress_mode').$type<import('@airlock/shared').EgressMode>().notNull().default('internet'),
   egressEnforce: boolean('egress_enforce').notNull().default(true),
+  // Nacht 3, Etappe 5: Reaktion auf Vorfälle (migrations/0027_incidents.sql)
+  incidentAutoStop: boolean('incident_auto_stop').notNull().default(false),
+  isolatedAt: timestamp('isolated_at', { withTimezone: true }),
+  isolatedBy: text('isolated_by'),
+  isolation: jsonb('isolation').$type<IsolationRecord>(),
 })
+
+/** Nacht 3, Etappe 5: was beim Isolieren galt (zum Zurückstellen bei der Freigabe) */
+export interface IsolationRecord {
+  egress: { mode: string; enforce: boolean }
+  /** Container-ID → Restart-Policy vorher */
+  restartPolicies: Record<string, string>
+}
 
 /** Etappe 6: was Airlock vom Repo schon kennt (Branch → Kopf, Nummern offener PRs) */
 export interface PreviewSeen {
@@ -683,3 +695,75 @@ export const egressAttempts = pgTable('egress_attempts', {
   primaryKey({ columns: [t.projectId, t.verdict, t.protocol, t.destination, t.port, t.bucket] }),
   index('egress_attempts_last_seen_idx').on(t.lastSeen),
 ])
+
+/* --- Nacht 3, Etappe 5: Einbruchserkennung (migrations/0027_incidents.sql) ------------ */
+
+export const incidents = pgTable('incidents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  fingerprint: text('fingerprint').notNull(),
+  source: text('source').$type<import('@airlock/shared').IncidentSource>().notNull(),
+  kind: text('kind').$type<import('@airlock/shared').IncidentKind>().notNull(),
+  severity: text('severity').$type<import('@airlock/shared').IncidentSeverity>().notNull(),
+  status: text('status').$type<import('@airlock/shared').IncidentStatus>().notNull().default('offen'),
+  title: text('title').notNull(),
+  subject: text('subject'),
+  service: text('service'),
+  samples: jsonb('samples').$type<string[]>().notNull().default([]),
+  count: integer('count').notNull().default(1),
+  firstSeen: timestamp('first_seen', { withTimezone: true }).notNull(),
+  lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
+  note: text('note'),
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+  notifiedSeverity: text('notified_severity').$type<import('@airlock/shared').IncidentSeverity>(),
+  reactedAt: timestamp('reacted_at', { withTimezone: true }),
+  repeatLoggedAt: timestamp('repeat_logged_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('incidents_project_idx').on(t.projectId, t.lastSeen), index('incidents_last_seen_idx').on(t.lastSeen)])
+
+export const incidentEvents = pgTable('incident_events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  incidentId: uuid('incident_id').notNull().references(() => incidents.id, { onDelete: 'cascade' }),
+  at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  kind: text('kind').$type<import('@airlock/shared').IncidentEventKind>().notNull(),
+  text: text('text').notNull(),
+  actor: text('actor'),
+}, (t) => [index('incident_events_incident_idx').on(t.incidentId, t.at)])
+
+export const intrusionContainers = pgTable('intrusion_containers', {
+  containerId: text('container_id').primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  deploymentId: text('deployment_id'),
+  service: text('service'),
+  firstSeen: timestamp('first_seen', { withTimezone: true }).notNull(),
+  learnUntil: timestamp('learn_until', { withTimezone: true }).notNull(),
+  processes: text('processes').array().notNull().default([]),
+  files: text('files').array().notNull().default([]),
+  reportedPids: text('reported_pids').array().notNull().default([]),
+  reportedFiles: text('reported_files').array().notNull().default([]),
+  restartCount: integer('restart_count'),
+  startedAt: text('started_at'),
+  oomFor: text('oom_for'),
+  lastCheckAt: timestamp('last_check_at', { withTimezone: true }),
+  lastFilesAt: timestamp('last_files_at', { withTimezone: true }),
+  lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
+}, (t) => [index('intrusion_containers_project_idx').on(t.projectId)])
+
+export const intrusionAllow = pgTable('intrusion_allow', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'prozess' | 'datei' | 'netz'>().notNull(),
+  service: text('service').notNull().default(''),
+  value: text('value').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text('created_by'),
+}, (t) => [primaryKey({ columns: [t.projectId, t.kind, t.service, t.value] })])
+
+export const intrusionSites = pgTable('intrusion_sites', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  version: text('version').notNull(),
+  files: jsonb('files').$type<Record<string, string>>().notNull(),
+  reported: text('reported').array().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  checkedAt: timestamp('checked_at', { withTimezone: true }),
+}, (t) => [primaryKey({ columns: [t.projectId, t.version] })])

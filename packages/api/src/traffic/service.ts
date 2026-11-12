@@ -18,6 +18,7 @@ import { pgTrafficStore, type TrafficStore } from './store.js'
 import { rangeStart, startOfToday, summarize } from './summary.js'
 import { LogTail, type TailPosition } from './tail.js'
 import { VisitorCounter } from './visitor.js'
+import { webScans } from '../intrusion/web.js'
 
 /**
  * Besucher-Ingest im Betrieb: liest Caddys Zugriffs-Log (Datei im Volume
@@ -55,6 +56,8 @@ const processor = new TrafficProcessor({
   city: (ip) => cityDb.lookup(ip),
   hasPages,
   emit: (projectId, e) => bus.emit(projectId, e),
+  // Nacht 3, Etappe 5: Scanner-Pfade und 4xx je Projekt zählen (nur im Arbeitsspeicher, keine IP gespeichert)
+  observe: (projectId, a) => webScans.add(projectId, a),
 })
 
 /** Namen → Projekt, Dienst, Healthcheck (aus Routen, Projekt und aktivem Deployment) */
