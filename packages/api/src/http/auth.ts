@@ -227,6 +227,10 @@ export function registerAuthGuard(app: FastifyInstance): void {
       if (route.startsWith('/api/v1/system/backup')) {
         throw new AppError('forbidden', 'Das Backup lässt sich nur mit einer Anmeldung einrichten und auslösen, nicht mit einem API-Token', 403)
       }
+      // Etappe 3: Städte-Datenbank laden/entfernen (Download bei DB-IP) nur mit Anmeldung
+      if (route.startsWith('/api/v1/system/traffic') && request.method !== 'GET') {
+        throw new AppError('forbidden', 'Die Städte-Datenbank lässt sich nur mit einer Anmeldung laden oder entfernen', 403)
+      }
       // Cloudflare verbinden: Token, Tunnel, Zertifikat – auch lesen nur mit Anmeldung.
       if (route.startsWith('/api/v1/system/cloudflare')) {
         throw new AppError('forbidden', 'Cloudflare lässt sich nur mit einer Anmeldung einrichten, nicht mit einem API-Token', 403)

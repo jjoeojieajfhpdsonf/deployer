@@ -181,7 +181,7 @@ function HtmlPane({ value, onChange, error, id, full, onFull, aside }: {
 
 /** Vorschau im Browser-Rahmen (iframe srcdoc, sandbox ohne Rechte): genau die ausgelieferte Seite. */
 export function PausePreview({ page, backAt, hostname }: { page: PausePage; backAt?: string | null; hostname?: string | null }) {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'))
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (['dark', 'terminal'].includes(document.documentElement.dataset.theme ?? '') ? 'dark' : 'light'))
   // Formular: Farben fest einsetzen. Code: Media-Queries für die Vorschau
   // umschreiben (forcePreviewScheme) – ausgeliefert wird das HTML unverändert.
   const html = useMemo(() => {

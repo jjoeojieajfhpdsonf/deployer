@@ -21,6 +21,8 @@ export type ServerEvent =
   | { type: 'cert' }
   /** Öffentlich: Schritt eines Übergangs (veröffentlichen, pausieren …) */
   | { type: 'public'; projectId: string }
+  /** Etappe 3: neue Besucher-Zähler gespeichert (nach dem Flush, höchstens einmal pro Minute) */
+  | { type: 'traffic'; projectIds: string[] }
   /** Abgemeldet: nur Ströme derselben Sitzung (issued = Anmeldezeit) schliessen */
   | { type: 'session_ended'; issued?: number | null }
   /** Erste Zeile nach dem Verbinden */

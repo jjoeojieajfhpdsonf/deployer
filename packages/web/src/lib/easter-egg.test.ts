@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { KONAMI, containsKonami, konamiDone, konamiStep, versionClick, VERSION_CLICKS } from './easter-egg.js'
+import { KONAMI, containsKonami, isSudo, konamiDone, konamiStep, versionClick, VERSION_CLICKS } from './easter-egg.js'
 
 const U = 'ArrowUp', D = 'ArrowDown', L = 'ArrowLeft', R = 'ArrowRight'
 
@@ -50,5 +50,15 @@ describe('7 Klicks auf die Version', () => {
 
   test('eine Pause über 1.5 s beginnt von vorn', () => {
     assert.equal(run([0, 300, 600, 3000, 3300]), 2)
+  })
+})
+
+describe('«sudo» in der Befehlspalette (Theme «Terminal»)', () => {
+  test('das Wort allein oder als Anfang eines Befehls', () => {
+    for (const q of ['sudo', 'SUDO', '  sudo ', 'Sudo deploy', 'sudo rm -rf /']) assert.equal(isSudo(q), true, q)
+  })
+
+  test('nicht als Teil eines Worts und nicht mitten im Satz', () => {
+    for (const q of ['', 'sud', 'sudoku', 'pseudo', 'kein sudo', 'sudo-deploy']) assert.equal(isSudo(q), false, q)
   })
 })

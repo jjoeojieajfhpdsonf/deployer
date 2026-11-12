@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import type { UnlockId } from '@airlock/shared'
 import { api, type MeDto } from '../api.js'
 import { notifyOk } from '../lib/feedback.js'
 import { currentTheme, subscribeTheme } from '../lib/theme.js'
@@ -10,29 +11,40 @@ import { konamiDone, konamiStep, versionClick, VERSION_CLICKS } from '../lib/eas
  *
  * Freischalten: 7× auf die Versionsnummer unten links oder irgendwo den
  * Konami-Code tippen. Die Freischaltung liegt auf dem Server (Präferenzen,
- * gilt auf jedem Gerät); danach steht «Windows 95» im Profilmenü unter
+ * Liste `unlocks`, gilt auf jedem Gerät); danach steht «Windows 95» im Profilmenü unter
  * «Darstellung». Kein Ton, nur die Meldung.
  *
  * Aussehen: fast alles über Tokens und einen Zusatz-Block in styles.css.
  * Fenster, Taskleiste und Startmenü: Win95Desktop.tsx.
  */
 
-/** Freischalten (einmal): Server speichern, Profil im Cache nachführen, Meldung zeigen. */
-export function useWin95Unlock(): () => void {
+/**
+ * Freischalten (einmal): Kennung auf dem Server zur Liste `unlocks` hinzufügen,
+ * Profil im Cache nachführen, Meldung zeigen. Allgemein für jede Freischaltung.
+ */
+export function useUnlock(id: UnlockId, notice: { title: string; description: string }): () => void {
   const qc = useQueryClient()
   const busy = useRef(false)
+  const { title, description } = notice
   return useCallback(() => {
     const me = qc.getQueryData<MeDto>(['me'])
-    if (!me?.loggedIn || me.win95Unlocked || busy.current) return
+    if (!me?.loggedIn || me.unlocks?.includes(id) || busy.current) return
     busy.current = true
+    const patch = (fn: (list: UnlockId[]) => UnlockId[]) =>
+      qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, unlocks: fn(old.unlocks ?? []) } : old))
     // Sofort im Menü zeigen; der Server bestätigt
-    qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, win95Unlocked: true } : old))
-    notifyOk('Windows 95 freigeschaltet', { id: 'win95', description: 'Neu im Profilmenü unter «Darstellung».' })
-    api.setPreferences({ win95Unlocked: true })
-      .catch(() => qc.setQueryData<MeDto>(['me'], (old) => (old ? { ...old, win95Unlocked: false } : old)))
+    patch((list) => (list.includes(id) ? list : [...list, id]))
+    notifyOk(title, { id, description })
+    api.unlock(id)
+      // Etappe 7: «Geheimnisse gefunden» könnte jetzt erreicht sein
+      .then(() => qc.invalidateQueries({ queryKey: ['achievements'] }))
+      .catch(() => patch((list) => list.filter((x) => x !== id)))
       .finally(() => { busy.current = false })
-  }, [qc])
+  }, [qc, id, title, description])
 }
+
+export const useWin95Unlock = () =>
+  useUnlock('win95', { title: 'Windows 95 freigeschaltet', description: 'Neu im Profilmenü unter «Darstellung».' })
 
 /** Tippt man gerade Text? Dann zählt keine Taste zum Code. */
 const TEXT_INPUTS = new Set(['text', 'search', 'email', 'password', 'url', 'tel', 'number', 'date', 'datetime-local', 'time', 'month', 'week'])

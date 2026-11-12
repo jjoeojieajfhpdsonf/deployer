@@ -53,4 +53,8 @@ describe('UI-Qualität 3: Ereignisse → was neu geladen wird', () => {
     assert.ok(has(affected({ type: 'public', projectId: 'p1' }), ['public-progress', 'p1']))
     assert.ok(has(affected({ type: 'project', projectId: 'p1' }), ['project', 'p1']))
   })
+
+  test('Etappe 3: neue Besucher-Zähler laden Auswertung und «Aufrufe heute» der betroffenen Projekte', () => {
+    assert.deepEqual(affected({ type: 'traffic', projectIds: ['p1', 'p2'] }), [['traffic-today'], ['traffic', 'p1'], ['traffic', 'p2']])
+  })
 })

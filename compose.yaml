@@ -101,6 +101,10 @@ services:
       # Cloudflare-Token als Datei, geschrieben von Airlock. Die Konfiguration
       # (und autosave.json) enthält nur den Pfad: {file./run/caddy-secrets/...}
       - caddy_secrets:/run/caddy-secrets:ro
+      # Etappe 3 «Besucher»: Zugriffs-Log der Projekte als JSON-Datei mit
+      # Rotation (20 MB, 2 alte Dateien, höchstens 2 Tage). Enthält IPs; Airlock
+      # liest nur mit und speichert Zähler. Nicht im Backup.
+      - caddy_access:/var/log/airlock-access
     networks:
       edge:
         # Caddy wird zur Laufzeit in Projekt-Netze (air_*) gehaengt. Bei
@@ -113,6 +117,8 @@ services:
       # Nur cloudflared und Caddy: was durch den Tunnel kommt, erreicht nur
       # Caddy – nie Airlock, nie ein Projekt-Netz.
       tunnel: {}
+      # Etappe 5: nur Caddy und airlock-status (status.<hauptzone> → Dateien)
+      status: {}
 
   airlock:
     build:
@@ -148,6 +154,9 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-}
       DEFAULT_CPU_LIMIT: ${DEFAULT_CPU_LIMIT:-1}
       DEFAULT_MEMORY_LIMIT_MB: ${DEFAULT_MEMORY_LIMIT_MB:-512}
+      # Etappe 5: Ablage der Statusseite (Volume status_site) und ihr Container
+      STATUS_DIR: /srv/status
+      STATUS_UPSTREAM: airlock-status:8080
     volumes:
       - caddy_admin:/run/caddy
       - caddy_secrets:/run/caddy-secrets
@@ -158,6 +167,10 @@ services:
       - caddy_data:/caddy-data
       # Auftraege an den Backup-Container (BACKUP_JOBS_DIR, tmpfs)
       - backup_jobs:/backup-jobs
+      # Etappe 3: Zugriffs-Log von Caddy, nur lesen (ACCESS_LOG_DIR)
+      - caddy_access:/caddy-access:ro
+      # Etappe 5: Statusseite – nur Airlock schreibt (STATUS_DIR), airlock-status liest
+      - status_site:/srv/status
     networks:
       internal: {}
       edge:
@@ -170,6 +183,39 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  status:
+    # Etappe 5 «Statusseite»: liefert nur die Dateien aus, die Airlock jede
+    # Minute in status_site schreibt (je Umgebung ein Ordner). Öffentlich über
+    # den Tunnel: cloudflared → Caddy (status.<hauptzone>, Security-Header,
+    # Pfad /<umgebung>/…) → dieser Container.
+    # Bewusst abgeschottet (Test: packages/api/src/status/compose.test.ts):
+    # - nur im Netz «status» (internal, darin nur Caddy) – kein Weg zu Airlock,
+    #   zur Datenbank, zum Socket-Proxy oder nach draussen
+    # - kein Docker-Socket, keine Secrets, keine Umgebungsvariablen mit Werten
+    # - Volume nur lesend, Dateisystem nur lesend, als «nobody», ohne Capabilities
+    # Dasselbe Caddy-Image wie die Basis von caddy/Dockerfile (schon auf dem
+    # Server), aber nur «caddy file-server»: keine Admin-API, kein TLS.
+    image: caddy:2.10.0-alpine
+    restart: unless-stopped
+    logging: *logging
+    container_name: airlock-status
+    command: ["caddy", "file-server", "--root", "/srv/status", "--listen", ":8080"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Caddy legt beim Start seine Ordner an; im Speicher, nicht im Image
+    tmpfs:
+      - /data
+      - /config
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    volumes:
+      - status_site:/srv/status:ro
+    networks: [status]
 
   backup:
     # Backup (docs/MILESTONE-BACKUP.md): restic (gepinnt in backup/Dockerfile)
@@ -234,6 +280,10 @@ networks:
   # braucht die ausgehende Verbindung zu Cloudflare.
   tunnel:
     name: airlock_tunnel
+  # Etappe 5: nur Caddy und airlock-status. internal: kein Weg nach draussen.
+  status:
+    name: airlock_status
+    internal: true
 
 # Docker-Namen: airlock_<schlüssel> (airlock_pgdata, airlock_data, …).
 # Früher deployer_<schlüssel>; das Daten-Volume hiess deployer_deployer_data.
@@ -243,6 +293,10 @@ volumes:
   caddy_config:
   caddy_admin:
   caddy_secrets:
+  # Etappe 3: Zugriffs-Log der Projekte (Caddy schreibt, Airlock liest)
+  caddy_access:
+  # Etappe 5: Statusseite (Airlock schreibt, airlock-status liest)
+  status_site:
   sites:
   data:
   # Backup: Staging (Name fest, Airlock haengt es in Wegwerf-Container fuer

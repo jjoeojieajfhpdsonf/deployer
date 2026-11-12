@@ -5,7 +5,8 @@
 
 import { coveredByWildcard } from '../lib/hostnames.js'
 import { headerHandlers, type HeaderRuleSpec } from '../security/header-rules.js'
-import { DEFAULT_PAUSE_PAGE, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, type PausePage } from '@airlock/shared'
+import { createHash } from 'node:crypto'
+import { DEFAULT_PAUSE_PAGE, NOT_FOUND_TEXT, PAUSE_STATE_HEADER, PAUSE_STATE_VALUE, pauseHeaders, renderPausePage, renderSnakePage, snakeCsp, type PausePage } from '@airlock/shared'
 
 export const adminAddress = (socketPath: string) => `unix/${socketPath}`
 
@@ -13,7 +14,13 @@ export interface RouteSpec {
   /** Kanonischer Hostname zuerst, danach Aliase (nip.io). */
   hosts: string[]
   /** maintenance: öffentlich pausiert – Pause-Seite mit 503. redirect (M9): 308 auf redirectTo (alte Adresse nach dem Verschieben) */
-  kind: 'proxy' | 'files' | 'maintenance' | 'redirect'
+  kind: 'proxy' | 'files' | 'maintenance' | 'redirect' | 'status'
+  /**
+   * Etappe 5, kind=status: Ordner der Umgebung im Container airlock-status
+   * (upstream). Caddy schreibt den Pfad auf /<ordner>/… um und gibt die
+   * Anfrage an den Container – der nur Dateien ausliefert.
+   */
+  statusDir?: string
   /** Bei kind=redirect: Ziel ohne Pfad, z. B. «https://foto.int.example.ch»; der Pfad der Anfrage wird angehängt */
   redirectTo?: string
   /** Bei kind=maintenance: Seite (Vorlage oder Projekt), «Voraussichtlich zurück», Zeitzone der Anzeige */
@@ -48,6 +55,12 @@ export interface RouteSpec {
    * leitet nur diesen Pfad (POST, höchstens 64 KB, Ratenlimit) an Airlock.
    */
   cspReportKey?: string | null
+  /**
+   * Etappe 3: Aufrufe dieser Route ins Besucher-Log (Logger «visits», Datei
+   * im Volume caddy_access). Nur Projekt-Routen – nie die Oberfläche von
+   * Airlock oder Weiterleitungen.
+   */
+  visits?: boolean
 }
 
 /** Pfad am Host des Projekts, an den Browser CSP-Verstösse melden. */
@@ -95,7 +108,52 @@ export interface CaddyBuildOptions {
    * Fehlt es, setzt Caddy keine report-uri.
    */
   cspReportUpstream?: string | null
+  /**
+   * Etappe 3: Ordner im Caddy-Container für das Besucher-Log (JSON, eine
+   * Datei mit Rotation). Fehlt er, schreibt Caddy kein Besucher-Log.
+   */
+  visitsLogDir?: string | null
+  /**
+   * Etappe 7: Snake auf der Seite «Kein Projekt unter diesem Namen» – nur für
+   * unbekannte interne Namen (hosts: Muster wie *.int.<basis> oder
+   * *.<lan-ip>.nip.io) von Absendern aus LAN/Tailnet (cidrs, unabhängig vom
+   * IP-Filter). Nie über den Tunnel: Absender aus trustedProxies (cloudflared)
+   * und Anfragen mit Cloudflare-Kopfzeilen bekommen die schlichte Seite, ebenso
+   * der Probe-Server. null/fehlend = aus (Spass-Funktionen aus).
+   */
+  notFoundGame?: { hosts: string[]; cidrs: string[] } | null
 }
+
+/**
+ * Etappe 7: Muster der internen Namen aus Beispiel-Adressen einer Umgebung
+ * («x.int.example.ch» → «*.int.example.ch»). Platzhalter-Adressen
+ * (*.int.invalid) und Doppelte fallen weg.
+ */
+export function gameHostPatterns(sampleHosts: readonly string[]): string[] {
+  const out = sampleHosts
+    .map((h) => h.toLowerCase().split('.').slice(1).join('.'))
+    .filter((rest) => rest.includes('.') && !rest.endsWith('.invalid'))
+    .map((rest) => `*.${rest}`)
+  return [...new Set(out)].sort()
+}
+
+/** Base64 des SHA-256 (CSP-Hash von Skript und Stil der Snake-Seite) */
+const sha256b64 = (text: string) => createHash('sha256').update(text, 'utf8').digest('base64')
+
+/** Kopfzeilen der Snake-Seite: 404, nie im Cache, nie im Index, CSP nur mit Hashes */
+export function notFoundGameHeaders(): Record<string, string[]> {
+  return {
+    'Content-Type': ['text/html; charset=utf-8'],
+    'Cache-Control': ['no-store'],
+    'X-Robots-Tag': ['noindex'],
+    'Content-Security-Policy': [snakeCsp(sha256b64)],
+    'X-Content-Type-Options': ['nosniff'],
+    'Referrer-Policy': ['no-referrer'],
+  }
+}
+
+/** Kopfzeilen, an denen eine Anfrage über den Cloudflare-Tunnel zu erkennen ist */
+export const TUNNEL_HEADERS = ['Cf-Connecting-Ip', 'Cf-Ray']
 
 /** Name des Probe-Servers in Caddys Konfiguration */
 export const PROBE_SERVER = 'probe'
@@ -106,6 +164,18 @@ export const ACCESS_LOGGER = 'airlock'
 export const CSP_VIEW_LOGGER = 'csp'
 /** Logger für Aufrufe statischer Seiten (http.log.access.site), Reiter «Zugriffe» */
 export const SITE_LOGGER = 'site'
+/**
+ * Etappe 3: Logger für die Besucher-Auswertung (http.log.access.visits).
+ * Schreibt nicht ins Container-Log, sondern in eine eigene Datei mit kurzer
+ * Rotation: sie enthält IP-Adressen, die Airlock nur liest, um Zugang, Stadt
+ * und den Besucher-Hash zu berechnen – gespeichert werden nur Zähler.
+ */
+export const VISITS_LOGGER = 'visits'
+export const VISITS_LOG_FILE = 'visits.log'
+/** Rotation: 20 MB je Datei, höchstens 2 alte Dateien, höchstens 2 Tage alt */
+export const VISITS_LOG_ROLL = { roll_size_mb: 20, roll_keep: 2, roll_keep_days: 2 }
+/** Antwort-Header der Sperrseite des IP-Filters: das Besucher-Log erkennt daran «geblockt» */
+export const BLOCK_HEADER = 'X-Airlock-Block'
 
 export interface TlsOptions {
   baseDomain: string
@@ -214,6 +284,20 @@ function maintenanceHandlers(pause: RouteSpec['pause'], now: number): Handler[] 
   }]
 }
 
+/**
+ * Etappe 5: Statusseite. Nur GET/HEAD-taugliche Dateien aus dem Ordner der
+ * Umgebung; kurze Cache-Zeit (die Seite ändert sich jede Minute), kein
+ * Besucher-Log. Die Security-Header setzt handlersFor davor wie bei Projekten.
+ */
+function statusHandlers(r: RouteSpec, proxy: Handler): Handler[] {
+  const dir = (r.statusDir ?? '').replace(/[^a-z0-9-]/g, '')
+  return [
+    { handler: 'headers', response: { set: { 'Cache-Control': ['public, max-age=30'] } } },
+    { handler: 'rewrite', uri: `/${dir}{http.request.uri.path}` },
+    proxy,
+  ]
+}
+
 /** Dateiname der Pause-Seite im Code-Modus (unter <sites>/_pause/<slug>/). */
 export const PAUSE_FILE = 'index.html'
 type HttpRoute = {
@@ -223,7 +307,11 @@ type HttpRoute = {
   terminal: boolean
 }
 
-export type HostMatch = { host: string[]; remote_ip?: { ranges: string[] }; path?: string[]; method?: string[] }
+export type HostMatch = {
+  host: string[]; remote_ip?: { ranges: string[] }; path?: string[]; method?: string[]
+  /** Etappe 7: Ausnahmen (eine trifft → die Route nicht), z. B. Absender aus dem Tunnel */
+  not?: Record<string, unknown>[]
+}
 
 /**
  * Routen -> vollstaendige Caddy-JSON-Konfiguration.
@@ -261,7 +349,9 @@ export function buildCaddyConfig(
       return [{ handler: 'static_response', status_code: 308, headers: { Location: [`${r.redirectTo}{http.request.uri}`] } }]
     }
     const handle: Handler[] =
-      r.kind === 'maintenance'
+      r.kind === 'status'
+        ? statusHandlers(r, proxy)
+        : r.kind === 'maintenance'
         ? maintenanceHandlers(r.pause, opts.now ?? Date.now())
         : r.kind === 'proxy'
         ? [proxy]
@@ -356,6 +446,8 @@ export function buildCaddyConfig(
           handle: [{
             handler: 'static_response',
             status_code: 403,
+            // Etappe 3: Kennung «am Eingang gesperrt» für Besucher-Log und Live-Strom
+            headers: { [BLOCK_HEADER]: ['ip-filter'] },
             body: 'Kein Zugriff von {http.request.remote.host} auf {http.request.host}: dieser Name ist nur aus den freigegebenen Netzen erreichbar (LAN, Tailnet oder Cloudflare).',
           }],
           terminal: true,
@@ -372,11 +464,29 @@ export function buildCaddyConfig(
       {
         handler: 'static_response',
         status_code: 404,
-        body: 'Kein Projekt unter diesem Namen.',
+        body: NOT_FOUND_TEXT,
       },
     ],
     terminal: true,
   }
+
+  // Etappe 7: Snake für unbekannte interne Namen aus LAN/Tailnet – vor der Auffangroute.
+  // Der Probe-Server bekommt sie nie (er prüft, wie Besucher von aussen die Seite sehen).
+  const game = opts.notFoundGame
+  const gameRoutes: HttpRoute[] = game && game.hosts.length && game.cidrs.length
+    ? [{
+        match: [{
+          host: game.hosts,
+          remote_ip: { ranges: game.cidrs },
+          not: [
+            ...(opts.trustedProxies?.length ? [{ remote_ip: { ranges: opts.trustedProxies } }] : []),
+            ...TUNNEL_HEADERS.map((h) => ({ header: { [h]: ['*'] } })),
+          ],
+        }],
+        handle: [{ handler: 'static_response', status_code: 404, headers: notFoundGameHeaders(), body: renderSnakePage() }],
+        terminal: true,
+      }]
+    : []
 
   // Zugriffs-Log nur für Airlock selbst: daraus liest die Systemseite, welche
   // Absenderadressen Caddy sieht (Warnung bei Docker-Gateway statt Gerät).
@@ -387,9 +497,12 @@ export function buildCaddyConfig(
   for (const r of routes) {
     // Projektseite: statische Seiten zeigen ihr Zugriffs-Log im Reiter «Zugriffe»
     if (r.kind === 'files') for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), SITE_LOGGER]
+    // Etappe 3: Besucher-Log für alle Projekt-Routen (eigene Datei, siehe logging unten)
+    if (r.visits && opts.visitsLogDir) for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), VISITS_LOGGER]
     if (!r.headers?.some((h) => h.header === 'content-security-policy' && h.mode === 'report-only')) continue
     for (const h of r.hosts) loggerNames[h] = [...(loggerNames[h] ?? []), CSP_VIEW_LOGGER]
   }
+  const visitsInUse = Object.values(loggerNames).some((l) => l.includes(VISITS_LOGGER))
   const accessLog = Object.keys(loggerNames).length
     ? { logs: { logger_names: loggerNames, skip_unmapped_hosts: true } }
     : {}
@@ -397,7 +510,7 @@ export function buildCaddyConfig(
   const servers: Record<string, unknown> = {
     srv0: {
       listen: [':80'],
-      routes: [...plainRoutes, ...forbidden(plainHosts), catchAll],
+      routes: [...plainRoutes, ...forbidden(plainHosts), ...gameRoutes, catchAll],
       ...accessLog,
       // Kein automatisches HTTPS auf :80; Zertifikate kommen (ab M4) nur
       // über die ausdrückliche Wildcard-Policy unten.
@@ -419,7 +532,7 @@ export function buildCaddyConfig(
   if (tlsList.length) {
     servers.srv1 = {
       listen: [':443'],
-      routes: [...tlsRoutes, ...forbidden(tlsHosts), catchAll],
+      routes: [...tlsRoutes, ...forbidden(tlsHosts), ...gameRoutes, catchAll],
       ...accessLog,
       // Leere Policy = TLS an, Zertifikat nach SNI aus Caddys Cache.
       tls_connection_policies: [{}],
@@ -463,7 +576,19 @@ export function buildCaddyConfig(
 
   return {
     admin: { listen: adminAddress(opts.adminSocket) },
-    logging: { logs: { default: { level: 'INFO' } } },
+    logging: {
+      logs: visitsInUse && opts.visitsLogDir
+        ? {
+            // Besucher-Zeilen nur in ihre Datei, nicht zusätzlich ins Container-Log
+            default: { level: 'INFO', exclude: [`http.log.access.${VISITS_LOGGER}`] },
+            [VISITS_LOGGER]: {
+              writer: { output: 'file', filename: `${opts.visitsLogDir.replace(/\/+$/, '')}/${VISITS_LOG_FILE}`, mode: '0640', ...VISITS_LOG_ROLL },
+              encoder: { format: 'json' },
+              include: [`http.log.access.${VISITS_LOGGER}`],
+            },
+          }
+        : { default: { level: 'INFO' } },
+    },
     apps,
   }
 }

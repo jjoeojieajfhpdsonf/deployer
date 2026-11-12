@@ -31,7 +31,8 @@ export const RESERVED_SLUGS = ['deployer', 'airlock', 'ext-scan', 'name-preview'
  * Öffentliche Adressen: Namen, die in keiner Zone vergeben werden – die
  * Kurznamen oben, dazu «int» (interne Basis) und «acme-probe» (Zertifikatsprobe).
  */
-export const RESERVED_PUBLIC_LABELS = [...RESERVED_SLUGS, 'int', 'acme-probe'] as const
+// Etappe 5: «status» ist die Statusseite der Umgebung (status.<hauptzone>)
+export const RESERVED_PUBLIC_LABELS = [...RESERVED_SLUGS, 'int', 'acme-probe', 'status'] as const
 
 /**
  * Rein: Eingabe für den Namen einer öffentlichen Adresse beim Tippen
@@ -428,6 +429,8 @@ export const updateProjectSchema = z.object({
   cpuLimit: cpuLimitSchema.optional(),
   memoryLimitMb: memoryLimitSchema.optional(),
   keep: z.boolean().optional(),
+  /** Etappe 5: «Auf Statusseite zeigen»; null = Standard (öffentlich an, intern aus) */
+  showOnStatus: z.boolean().nullable().optional(),
   source: sourceSchema.optional(),
 }).superRefine((v, ctx) => {
   if (!v.source) return
@@ -708,6 +711,12 @@ export interface ProjectDto {
   updatedAt: string
   routes: RouteDto[]
   activeDeployment: DeploymentDto | null
+  /**
+   * Etappe 5: «Auf Statusseite zeigen» – ausdrücklich gesetzt (true/false) oder
+   * null = Standard (öffentlich an, intern aus; showsOnStatusPage). Fehlt bei
+   * älteren Antworten.
+   */
+  showOnStatus?: boolean | null
   /** Läuft der Container als root? Nur Hinweis, kein Fehler (siehe Plan). */
   runsAsRoot: boolean | null
   /** M3: wie das Projekt zur Laufzeit behandelt wird (bei files: die erkannte Art). */
@@ -1244,10 +1253,30 @@ export const addExternalTargetSchema = z.object({ hostname: externalHostnameSche
 
 /**
  * system: folgt prefers-color-scheme des Geräts. win95: verstecktes Spass-Theme,
- * erst nach der Freischaltung wählbar (win95Unlocked; 7× auf die Version oder Konami-Code).
+ * erst nach der Freischaltung wählbar (unlocks enthält 'win95'; 7× auf die Version oder Konami-Code).
+ * terminal (Etappe 7): grün auf schwarz, freigeschaltet durch «sudo» in der Befehlspalette.
  */
-export const themePrefs = ['light', 'dark', 'system', 'win95'] as const
+export const themePrefs = ['light', 'dark', 'system', 'win95', 'terminal'] as const
 export type ThemePref = (typeof themePrefs)[number]
+
+/**
+ * Freischaltungen (Easter Eggs) pro Benutzer: eine Liste bekannter Kennungen in
+ * den Präferenzen. Neue Freischaltung = neue Kennung hier (und, falls sie ein
+ * Theme öffnet, ein Eintrag in THEME_UNLOCK). Einmal freigeschaltet, bleibt sie.
+ */
+export const unlockIds = ['win95', 'terminal'] as const
+export type UnlockId = (typeof unlockIds)[number]
+export const unlockIdSchema = z.enum(unlockIds, { message: 'Unbekannte Freischaltung' })
+/** POST /auth/unlocks: eine Kennung hinzufügen (idempotent) */
+export const unlockRequestSchema = z.object({ id: unlockIdSchema })
+export type UnlockRequest = z.infer<typeof unlockRequestSchema>
+/** Themes, die erst nach einer Freischaltung wählbar sind */
+export const THEME_UNLOCK: Partial<Record<ThemePref, UnlockId>> = { win95: 'win95', terminal: 'terminal' }
+/** Ist das Theme mit diesen Freischaltungen wählbar? */
+export function themeUnlocked(theme: ThemePref, unlocks: readonly string[] | null | undefined): boolean {
+  const need = THEME_UNLOCK[theme]
+  return !need || (unlocks ?? []).includes(need)
+}
 /** Schritte des Einrichtungs-Assistenten (erster Start), in dieser Reihenfolge */
 export const setupSteps = ['passwort', 'cloudflare', 'adressen', 'zertifikat', 'projekt'] as const
 export type SetupStep = (typeof setupSteps)[number]
@@ -1259,18 +1288,30 @@ export const setupPrefsSchema = z.object({
 })
 export type SetupPrefs = z.infer<typeof setupPrefsSchema>
 export const uiPrefsSchema = z.object({
-  theme: z.enum(themePrefs, { message: 'Hell, Dunkel, Wie das Gerät oder Windows 95' }),
-  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet (bleibt freigeschaltet) */
-  win95Unlocked: z.boolean().optional(),
+  theme: z.enum(themePrefs, { message: 'Hell, Dunkel, Wie das Gerät, Windows 95 oder Terminal' }),
+  /** Freischaltungen (Easter Eggs), z. B. 'win95'; bleiben freigeschaltet. Nur über POST /auth/unlocks */
+  unlocks: z.array(unlockIdSchema).max(unlockIds.length).optional(),
   setup: setupPrefsSchema.optional(),
   /** UI-Qualität 8: Glocke – bis wann die Ereignisse gelesen sind (ISO) */
   bellSeenAt: z.string().datetime().optional(),
   /** M9: zuletzt gewählte Umgebung (Slug); alte Adressen ohne /u/… führen dorthin */
   lastEnvironment: z.string().max(64).optional(),
+  /**
+   * Etappe 7: Spass-Funktionen (Matrix-Regen, Disketti, Konfetti, Achievements, Snake auf der
+   * 404-Seite der internen Adressen). Fehlt = an. Die Themes selbst bleiben wählbar.
+   */
+  fun: z.boolean().optional(),
+  /** Etappe 7: Matrix-Regen während eines Deploys auch ausserhalb des Terminal-Themes. Fehlt = aus */
+  matrix: z.boolean().optional(),
+  /** Etappe 7: Helferfigur Disketti (nur im Windows-95-Theme). «Nie wieder» setzt false. Fehlt = an */
+  disketti: z.boolean().optional(),
 })
 export type UiPrefs = z.infer<typeof uiPrefsSchema>
-/** PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen */
-export const uiPrefsPatchSchema = uiPrefsSchema.partial()
+/**
+ * PUT /auth/preferences: nur geänderte Teile; der Server fügt sie mit dem Bestand zusammen.
+ * Freischaltungen gehen nicht über diesen Weg (POST /auth/unlocks fügt nur hinzu).
+ */
+export const uiPrefsPatchSchema = uiPrefsSchema.omit({ unlocks: true }).partial()
 export type UiPrefsPatch = z.infer<typeof uiPrefsPatchSchema>
 
 export const PASSWORD_MIN = 12
@@ -1404,3 +1445,13 @@ export * from './logs.js'
 export * from './backup.js'
 /* Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten eines Projekts */
 export * from './topology.js'
+/* Etappe 3: Besucher und Herkunft aus Caddys Zugriffs-Log */
+export * from './traffic.js'
+/* Etappe 4: Dienst hinzufügen und entfernen (Aufbau) */
+export * from './services.js'
+/* Etappe 5: öffentliche Statusseite (Daten, Renderer für Seite und RSS) */
+export * from './status.js'
+/* Etappe 6: Vorschau-Deploys je Branch bzw. Pull Request (nur intern) */
+export * from './previews.js'
+// Etappe 7: Spass-Paket (Achievements, Snake-Seite für unbekannte interne Namen)
+export * from './fun.js'

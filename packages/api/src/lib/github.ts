@@ -97,6 +97,14 @@ export function fixBranchName(title: string, id: string): string {
   return `${FIX_BRANCH_PREFIX}fix-${slug || 'befund'}-${id.replace(/-/g, '').slice(0, 8)}`
 }
 
+export const isServiceBranch = (branch: string): boolean => branch.startsWith(`${FIX_BRANCH_PREFIX}dienst-`)
+
+/** Etappe 4: airlock/dienst-<neu|weg>-<dienst>-<kurz-id> */
+export function serviceBranchName(kind: 'add' | 'remove', service: string, id: string): string {
+  const s = service.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'dienst'
+  return `${FIX_BRANCH_PREFIX}dienst-${kind === 'add' ? 'neu' : 'weg'}-${s}-${id.replace(/-/g, '').slice(0, 8)}`
+}
+
 export class GithubError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
@@ -175,10 +183,11 @@ export class GitHub {
    * Installations-Token für einen Vorgang: läuft nach einer Stunde ab, auf
    * die genannten Repos und die beiden Rechte beschränkt.
    */
-  async installationToken(jwt: string, installationId: string, repos?: string[]): Promise<{ token: string; expiresAt: string }> {
+  async installationToken(jwt: string, installationId: string, repos?: string[], extra?: Record<string, string>): Promise<{ token: string; expiresAt: string }> {
     const r = await this.request<{ token: string; expires_at: string }>('POST', `/app/installations/${encodeURIComponent(installationId)}/access_tokens`, { bearer: jwt }, {
       ...(repos?.length ? { repositories: repos } : {}),
-      permissions: { ...GITHUB_PERMISSIONS },
+      // Etappe 6: «Checks: write» nur, wenn die Installation es erteilt hat (sonst lehnt GitHub ab)
+      permissions: { ...GITHUB_PERMISSIONS, ...extra },
     })
     return { token: r.token, expiresAt: r.expires_at }
   }
@@ -226,6 +235,20 @@ export class GitHub {
    */
   async createFixPullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
     if (i.branch === i.base || !isFixBranch(i.branch)) throw new GithubError(400, 'Fixes nur auf einem eigenen Branch airlock/fix-…')
+    return this.branchPullRequest(token, i)
+  }
+
+  /**
+   * Etappe 4: Änderung an der compose.yaml (Dienst hinzufügen/entfernen) als
+   * eigener Branch airlock/dienst-… mit Pull Request – nie direkt in den
+   * Hauptbranch.
+   */
+  async createServicePullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
+    if (i.branch === i.base || !isServiceBranch(i.branch)) throw new GithubError(400, 'Änderungen an Diensten nur auf einem eigenen Branch airlock/dienst-…')
+    return this.branchPullRequest(token, i)
+  }
+
+  private async branchPullRequest(token: string, i: FixPrInput): Promise<{ number: number; url: string; branch: string; commit: string; baseSha: string }> {
     const repo = `/repos/${i.owner}/${i.repo}`
     const baseSha = await this.branchHead(token, i.owner, i.repo, i.base)
     const baseCommit = await this.request<{ tree: { sha: string } }>('GET', `${repo}/git/commits/${baseSha}`, { token })
@@ -252,4 +275,77 @@ export class GitHub {
   comment(token: string, owner: string, repo: string, n: number, body: string): Promise<unknown> {
     return this.request('POST', `/repos/${owner}/${repo}/issues/${n}/comments`, { token }, { body })
   }
+
+  /* --- Etappe 6: Vorschau-Deploys (Abfrage statt Webhook) --------------------------- */
+
+  /** Alle Branches mit Kopf (höchstens 1000) */
+  async branches(token: string, owner: string, repo: string): Promise<{ name: string; sha: string }[]> {
+    const out: { name: string; sha: string }[] = []
+    for (let page = 1; page <= 10; page++) {
+      const r = await this.request<{ name: string; commit: { sha: string } }[]>('GET', `/repos/${owner}/${repo}/branches?per_page=100&page=${page}`, { token })
+      out.push(...r.map((b) => ({ name: b.name, sha: b.commit.sha })))
+      if (r.length < 100) break
+    }
+    return out
+  }
+
+  /** Offene Pull Requests; fromFork: der Kopf liegt in einem anderen Repo */
+  async openPulls(token: string, owner: string, repo: string): Promise<{ number: number; url: string; branch: string; sha: string; fromFork: boolean }[]> {
+    const out: { number: number; url: string; branch: string; sha: string; fromFork: boolean }[] = []
+    const self = `${owner}/${repo}`.toLowerCase()
+    for (let page = 1; page <= 5; page++) {
+      const r = await this.request<{ number: number; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null } }[]>(
+        'GET', `/repos/${owner}/${repo}/pulls?state=open&per_page=100&page=${page}`, { token })
+      out.push(...r.map((p) => ({
+        number: p.number, url: p.html_url, branch: p.head.ref, sha: p.head.sha,
+        // Gelöschtes Fork-Repo: head.repo ist null – ebenfalls fremd
+        fromFork: (p.head.repo?.full_name ?? '').toLowerCase() !== self,
+      })))
+      if (r.length < 100) break
+    }
+    return out
+  }
+
+  /** Kommentar anlegen und seine ID zurückgeben (zum späteren Ersetzen) */
+  async createComment(token: string, owner: string, repo: string, n: number, body: string): Promise<{ id: number }> {
+    const r = await this.request<{ id: number }>('POST', `/repos/${owner}/${repo}/issues/${n}/comments`, { token }, { body })
+    return { id: r.id }
+  }
+
+  updateComment(token: string, owner: string, repo: string, commentId: number, body: string): Promise<unknown> {
+    return this.request('PATCH', `/repos/${owner}/${repo}/issues/comments/${commentId}`, { token }, { body })
+  }
+
+  /** Check-Run am Commit (braucht «Checks: write» an der App) */
+  async createCheckRun(token: string, owner: string, repo: string, c: CheckRunInput & { headSha: string }): Promise<{ id: number }> {
+    const r = await this.request<{ id: number }>('POST', `/repos/${owner}/${repo}/check-runs`, { token }, { head_sha: c.headSha, ...checkRunBody(c) })
+    return { id: r.id }
+  }
+
+  updateCheckRun(token: string, owner: string, repo: string, id: number, c: CheckRunInput): Promise<unknown> {
+    return this.request('PATCH', `/repos/${owner}/${repo}/check-runs/${id}`, { token }, checkRunBody(c))
+  }
+
+  /** Rechte der Installation (z. B. ob «Checks: write» erteilt ist) */
+  async installationPermissions(jwt: string, installationId: string): Promise<Record<string, string>> {
+    const r = await this.request<{ permissions?: Record<string, string> }>('GET', `/app/installations/${encodeURIComponent(installationId)}`, { bearer: jwt })
+    return r.permissions ?? {}
+  }
 }
+
+export interface CheckRunInput {
+  name: string
+  status: 'in_progress' | 'completed'
+  conclusion?: 'success' | 'failure' | 'neutral'
+  title: string
+  summary: string
+  detailsUrl?: string
+}
+
+const checkRunBody = (c: CheckRunInput) => ({
+  name: c.name,
+  status: c.status,
+  ...(c.status === 'completed' ? { conclusion: c.conclusion ?? 'neutral', completed_at: new Date().toISOString() } : {}),
+  ...(c.detailsUrl ? { details_url: c.detailsUrl } : {}),
+  output: { title: c.title.slice(0, 200), summary: c.summary.slice(0, 60_000) },
+})

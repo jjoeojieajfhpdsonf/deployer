@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { contextOptions, installRoutes, openShot, shots } from '../design-shots/shoot.js'
 import { VISUAL_PORT } from './playwright.config.js'
-import { A11Y_SCENES, WIN95_SCENES } from './scenes.js'
+import { A11Y_SCENES, TERMINAL_SCENES, WIN95_SCENES } from './scenes.js'
 
 /**
  * Barrierefreiheit mit axe-core: alle Hauptseiten und Zustände in Hell und
@@ -19,6 +19,8 @@ const RUNS = [
   { theme: 'dunkel', t: 'dark', scenes: A11Y_SCENES },
   // Verstecktes Theme «Windows 95»: dieselben Regeln
   { theme: 'win95', t: 'win95', scenes: WIN95_SCENES },
+  // Etappe 7: verstecktes Theme «Terminal»
+  { theme: 'terminal', t: 'terminal', scenes: TERMINAL_SCENES },
 ] as const
 for (const { theme, t, scenes } of RUNS) {
   for (const name of scenes) {

@@ -1,5 +1,6 @@
 // WCAG-Kontrast der Design-Tokens, gelesen direkt aus packages/web/src/styles.css
-// (:root = Hell, :root[data-theme='dark'] = Dunkel, :root[data-theme='win95'] = Windows 95).
+// (:root = Hell, :root[data-theme='dark'] = Dunkel, :root[data-theme='win95'] = Windows 95,
+// :root[data-theme='terminal'] = Terminal), dazu Statusseite und Snake-Seite (eigene Tokens).
 // Läuft mit: node docs/design-cal/contrast.mjs
 //
 // Ziele:  Text ≥ 4.5:1 (AA) · Lesetext (ink, ink-dim) ≥ 7:1
@@ -21,6 +22,8 @@ const light = tokens(block(':root, .theme-light {'))
 const dark = { ...light, ...tokens(block(":root[data-theme='dark'], .theme-dark {")) }
 // Verstecktes Theme «Windows 95»: eigene Tokens über Hell (Code-Editor bleibt hell)
 const win95 = { ...light, ...tokens(block(":root[data-theme='win95'], .theme-win95 {")) }
+// Etappe 7: verstecktes Theme «Terminal» (schwarz, #33ff66), eigene Tokens über Hell
+const terminal = { ...light, ...tokens(block(":root[data-theme='terminal'], .theme-terminal {")) }
 
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
@@ -61,10 +64,26 @@ win95.white = '#ffffff'
 win95['title-from'] = '#000080'
 win95['title-mid'] = w95extra['w95-title-mid']
 
+// Etappe 7: Matrix-Regen während eines Deploys. --matrix ist das hellste Zeichen samt Deckkraft;
+// Text, der auf freiem Grund über dem Regen steht, muss darauf lesbar bleiben (nie lesbarkeitsmindernd).
+// Windows 95: der Regen liegt nur auf dem Desktop (Teal), auf dem kein Text steht – nicht geprüft.
+const matrixChecks = [
+  ['ink', ['matrix'], 7, 'Lesetext über dem Matrix-Regen'],
+  ['ink-dim', ['matrix'], 7, 'Lesetext über dem Matrix-Regen'],
+  ['muted', ['matrix'], 4.5, 'Text über dem Matrix-Regen'],
+]
+// Terminal: der Seitentitel-Cursor ist ein Block in Textfarbe (wie Text auf dem Grund geprüft);
+// Knopf-Klammern sind Text in der Knopffarbe; Primärknopf schwarz auf Grün
+const terminalChecks = [
+  ['primary-ink', ['primary', 'primary-hover'], 4.5, 'Text auf Primär-Button (auch Hover)'],
+  ['ink', ['line-strong'], 3, 'Kartenrand gegen Text (Unterscheidbarkeit)'],
+]
+
 let fails = 0
-for (const [name, t] of [['Hell', light], ['Dunkel', dark], ['Windows 95', win95]]) {
+for (const [name, t] of [['Hell', light], ['Dunkel', dark], ['Windows 95', win95], ['Terminal', terminal]]) {
   console.log(`\n== ${name}`)
-  for (const [fg, bgs, min, kind] of t === win95 ? [...checks, ...win95Checks] : checks) {
+  const extra = t === win95 ? win95Checks : t === terminal ? [...matrixChecks, ...terminalChecks] : matrixChecks
+  for (const [fg, bgs, min, kind] of [...checks, ...extra]) {
     const vals = bgs.map((b) => {
       if (!t[fg] || !t[b]) throw new Error(`Token fehlt: --${!t[fg] ? fg : b}`)
       const v = cr(t[fg], t[b])
@@ -75,5 +94,72 @@ for (const [name, t] of [['Hell', light], ['Dunkel', dark], ['Windows 95', win95
     console.log(`${worst >= min ? 'ok  ' : 'FAIL'} ${fg.padEnd(12)} ≥${min} ${kind}: ${vals.join(' · ')}`)
   }
 }
+// Etappe 5: öffentliche Statusseite – eigene Tokens in packages/shared/src/status.ts (STATUS_CSS),
+// :root = Hell, @media (prefers-color-scheme: dark) = Dunkel. Balken und Rahmen tragen den Zustand
+// zusammen mit der Höhe und dem Text im Tooltip; geprüft wie Statusflächen (≥ 3:1).
+const statusSrc = readFileSync(fileURLToPath(new URL('../../packages/shared/src/status.ts', import.meta.url)), 'utf8')
+const statusCss = statusSrc.slice(statusSrc.indexOf('export const STATUS_CSS'))
+const sBlock = (from) => statusCss.slice(statusCss.indexOf(from), statusCss.indexOf('}', statusCss.indexOf(from)))
+const sLight = tokens(sBlock(':root {'))
+const sDark = { ...sLight, ...tokens(sBlock('@media (prefers-color-scheme: dark) {\n  :root {')) }
+const statusChecks = [
+  ['ink', ['bg', 'surface'], 7, 'Lesetext'],
+  ['muted', ['bg', 'surface'], 4.5, 'Text'],
+  ['ok', ['bg', 'surface'], 4.5, 'Statustext (Läuft, Behoben)'],
+  ['bad', ['bg', 'surface'], 4.5, 'Statustext (Störung)'],
+  ['surface', ['ok', 'bad', 'muted'], 4.5, 'Zeichen im Kreis (Gesamtzustand)'],
+  ['bg', ['ink'], 4.5, 'Tooltip'],
+  ['ok', ['surface'], 3, 'Balken verfügbar'],
+  ['warn', ['surface'], 3, 'Balken kurze Störung'],
+  ['bad', ['surface'], 3, 'Balken Störung'],
+  ['empty', ['surface'], 3, 'Balken keine Daten / Wartung'],
+  ['focus', ['bg', 'surface'], 3, 'Fokusrahmen'],
+  ['line', ['surface'], 1.15, 'Trennlinie (nur Gestaltung)'],
+]
+for (const [name, t] of [['Statusseite Hell', sLight], ['Statusseite Dunkel', sDark]]) {
+  console.log(`\n== ${name}`)
+  for (const [fg, bgs, min, kind] of statusChecks) {
+    const vals = bgs.map((b) => {
+      if (!t[fg] || !t[b]) throw new Error(`Token fehlt in STATUS_CSS: --${!t[fg] ? fg : b}`)
+      const v = cr(t[fg], t[b])
+      if (v < min) fails++
+      return `${b} ${v.toFixed(2)}${v < min ? ' FAIL' : ''}`
+    })
+    const worst = Math.min(...bgs.map((b) => cr(t[fg], t[b])))
+    console.log(`${worst >= min ? 'ok  ' : 'FAIL'} ${fg.padEnd(12)} ≥${min} ${kind}: ${vals.join(' · ')}`)
+  }
+}
+
+// Etappe 7: Snake-Seite für unbekannte interne Namen – eigene Tokens in packages/shared/src/fun.ts
+// (SNAKE_CSS), :root = Hell, @media (prefers-color-scheme: dark) = Dunkel. Schlange und Futter
+// unterscheiden sich zusätzlich in der Form (Quadrate, Kreis).
+const funSrc = readFileSync(fileURLToPath(new URL('../../packages/shared/src/fun.ts', import.meta.url)), 'utf8')
+const snakeCss = funSrc.slice(funSrc.indexOf('export const SNAKE_CSS'))
+const nBlock = (from) => snakeCss.slice(snakeCss.indexOf(from), snakeCss.indexOf('}', snakeCss.indexOf(from)))
+const nLight = tokens(nBlock(':root {'))
+const nDark = { ...nLight, ...tokens(nBlock('@media (prefers-color-scheme: dark) {\n  :root {')) }
+const snakeChecks = [
+  ['ink', ['bg', 'surface'], 7, 'Lesetext'],
+  ['muted', ['bg', 'surface'], 4.5, 'Text'],
+  ['bg', ['ink'], 4.5, 'Text auf dem Knopf'],
+  ['snake', ['surface'], 3, 'Schlange auf dem Spielfeld'],
+  ['food', ['surface'], 3, 'Futter auf dem Spielfeld'],
+  ['line', ['bg'], 1.15, 'Rand des Spielfelds (nur Gestaltung)'],
+  ['focus', ['bg', 'surface'], 3, 'Fokusrahmen'],
+]
+for (const [name, t] of [['Snake-Seite Hell', nLight], ['Snake-Seite Dunkel', nDark]]) {
+  console.log(`\n== ${name}`)
+  for (const [fg, bgs, min, kind] of snakeChecks) {
+    const vals = bgs.map((b) => {
+      if (!t[fg] || !t[b]) throw new Error(`Token fehlt in SNAKE_CSS: --${!t[fg] ? fg : b}`)
+      const v = cr(t[fg], t[b])
+      if (v < min) fails++
+      return `${b} ${v.toFixed(2)}${v < min ? ' FAIL' : ''}`
+    })
+    const worst = Math.min(...bgs.map((b) => cr(t[fg], t[b])))
+    console.log(`${worst >= min ? 'ok  ' : 'FAIL'} ${fg.padEnd(12)} ≥${min} ${kind}: ${vals.join(' · ')}`)
+  }
+}
+
 console.log(`\n${fails === 0 ? 'Alle Kontraste erfüllt' : `${fails} unter dem Ziel`}`)
 process.exit(fails ? 1 : 0)

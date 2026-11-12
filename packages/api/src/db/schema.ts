@@ -1,6 +1,7 @@
 import {
   pgTable, pgEnum, uuid, text, integer, boolean, timestamp, jsonb,
-  numeric, bigserial, bigint, uniqueIndex, index, customType,
+  numeric, bigserial, bigint, uniqueIndex, index, customType, smallint, primaryKey, date,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import type { ScanStageDto, PausePage, DeployReason, FailureExplanation, CfTlsPhase, CfTokenCheckDto } from '@airlock/shared'
 
@@ -41,7 +42,55 @@ export const projects = pgTable('projects', {
   autoDeployCheckedAt: timestamp('auto_deploy_checked_at', { withTimezone: true }),
   // M9: Umgebung
   environmentId: uuid('environment_id').notNull().references(() => environments.id),
+  // Etappe 5: «Auf Statusseite zeigen»; null = Standard (öffentlich an, intern aus)
+  showOnStatus: boolean('show_on_status'),
+  // Etappe 6: Vorschau-Projekt → Projekt, aus dem es stammt (migrations/0022_previews.sql)
+  previewOf: uuid('preview_of').references((): AnyPgColumn => projects.id, { onDelete: 'cascade' }),
+  // Etappe 6: am eigentlichen Projekt – Schalter, letzte Prüfung, bekannte Branch-Köpfe und PRs
+  previewsEnabled: boolean('previews_enabled').notNull().default(false),
+  previewsCheckedAt: timestamp('previews_checked_at', { withTimezone: true }),
+  previewSeen: jsonb('preview_seen').$type<PreviewSeen>(),
 })
+
+/** Etappe 6: was Airlock vom Repo schon kennt (Branch → Kopf, Nummern offener PRs) */
+export interface PreviewSeen {
+  heads: Record<string, string>
+  prs: number[]
+}
+
+/* --- Etappe 6: Vorschau-Deploys (migrations/0022_previews.sql) ------------------ */
+
+export const previews = pgTable('previews', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  parentId: uuid('parent_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  branch: text('branch').notNull(),
+  label: text('label').notNull().unique(),
+  prNumber: integer('pr_number'),
+  prUrl: text('pr_url'),
+  headSha: text('head_sha'),
+  lastPushAt: timestamp('last_push_at', { withTimezone: true }).notNull().defaultNow(),
+  commentId: bigint('comment_id', { mode: 'number' }),
+  commentHash: text('comment_hash'),
+  checkRunId: bigint('check_run_id', { mode: 'number' }),
+  checkSha: text('check_sha'),
+  checkHash: text('check_hash'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('previews_parent_id_branch_key').on(t.parentId, t.branch), index('previews_parent_idx').on(t.parentId)])
+
+/** Variablen-Ebene «Vorschau» eines Projekts (erbt vom Projekt, überschreibt gleichnamige) */
+export const projectPreviewEnv = pgTable(
+  'project_preview_env',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    isSecret: boolean('is_secret').notNull().default(false),
+    value: text('value'),
+    valueEncrypted: bytea('value_encrypted'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('project_preview_env_project_id_key_key').on(t.projectId, t.key)],
+)
 
 export const apiTokens = pgTable('api_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -95,6 +144,8 @@ export interface DeploymentArtifact {
   builtImages?: string[]
   /** files (M3): als was das Chat-Projekt in dieser Fassung erkannt wurde */
   filesKind?: FilesKind
+  /** compose (Etappe 4): Dienste mit eigener interner Adresse (x-airlock-internal) */
+  internalRoutes?: { service: string; port: number }[]
 }
 
 /** Erkannte Art eines Chat-Projekts (Quelle "files"). */
@@ -185,6 +236,26 @@ export const appSettings = pgTable('app_settings', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- Etappe 3: Besucher (Stundenzähler, migrations/0019_traffic.sql) ----------- */
+
+export const trafficHourly = pgTable('traffic_hourly', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  hour: timestamp('hour', { withTimezone: true }).notNull(),
+  way: text('way').$type<import('@airlock/shared').TrafficWay>().notNull(),
+  path: text('path').notNull().default(''),
+  country: text('country').notNull().default(''),
+  city: text('city').notNull().default(''),
+  referrer: text('referrer').notNull().default(''),
+  device: text('device').notNull().default(''),
+  status: smallint('status').notNull(),
+  bot: boolean('bot').notNull().default(false),
+  views: integer('views').notNull().default(0),
+  visitors: integer('visitors').notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.projectId, t.hour, t.way, t.path, t.country, t.city, t.referrer, t.device, t.status, t.bot] }),
+  index('traffic_hourly_hour_idx').on(t.hour),
+])
 
 /* --- Meilenstein Backup ------------------------------------------------------ */
 
@@ -436,3 +507,75 @@ export const routeRedirects = pgTable('route_redirects', {
   until: timestamp('until', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/* --- Etappe 4: Dienst hinzufügen/entfernen (migrations/0020_service_changes.sql) --- */
+
+export const serviceChanges = pgTable('service_changes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'add' | 'remove'>().notNull(),
+  service: text('service').notNull(),
+  template: text('template').$type<import('@airlock/shared').ServiceTemplateId>(),
+  status: text('status').$type<import('@airlock/shared').ServiceChangeStatus>().notNull(),
+  way: text('way').$type<import('@airlock/shared').ServiceEditWay>().notNull(),
+  deploymentId: uuid('deployment_id'),
+  prUrl: text('pr_url'),
+  prNumber: integer('pr_number'),
+  branch: text('branch'),
+  dropVolumes: jsonb('drop_volumes').$type<string[]>().notNull().default([]),
+  diff: text('diff').notNull().default(''),
+  note: text('note'),
+  actor: text('actor').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+}, (t) => [index('service_changes_project_idx').on(t.projectId, t.createdAt)])
+
+/* --- Etappe 5: Statusseite (migrations/0021_status_page.sql) -------------------- */
+
+export const statusPages = pgTable('status_pages', {
+  environmentId: uuid('environment_id').primaryKey().references(() => environments.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  title: text('title').notNull().default('Status'),
+  hostname: text('hostname'),
+  cfDnsRecordId: text('cf_dns_record_id'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const statusDaily = pgTable('status_daily', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  day: date('day', { mode: 'string' }).notNull(),
+  upMinutes: integer('up_minutes').notNull().default(0),
+  downMinutes: integer('down_minutes').notNull().default(0),
+  pausedMinutes: integer('paused_minutes').notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.projectId, t.day] }), index('status_daily_day_idx').on(t.day)])
+
+export const statusIncidents = pgTable('status_incidents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  environmentId: uuid('environment_id').notNull().references(() => environments.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  state: text('state').$type<import('@airlock/shared').IncidentState>().notNull(),
+  auto: boolean('auto').notNull().default(false),
+  projectIds: uuid('project_ids').array().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+}, (t) => [index('status_incidents_env_idx').on(t.environmentId, t.createdAt)])
+
+/* --- Etappe 7: Achievements (migrations/0023_achievements.sql) ---------------- */
+
+export const achievements = pgTable('achievements', {
+  id: text('id').primaryKey(),
+  achievedAt: timestamp('achieved_at', { withTimezone: true }).notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const statusIncidentUpdates = pgTable('status_incident_updates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  incidentId: uuid('incident_id').notNull().references(() => statusIncidents.id, { onDelete: 'cascade' }),
+  state: text('state').$type<import('@airlock/shared').IncidentState>().notNull(),
+  body: text('body').notNull(),
+  actor: text('actor').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('status_incident_updates_idx').on(t.incidentId, t.createdAt)])

@@ -58,6 +58,10 @@ Die Systemseite zeigt die cloudflared-Version (aus dem festen Image-Tag) und fra
 
 Läuft noch ein `cloudflared` aus `compose.public.yaml`, lehnt die Oberfläche den Tunnel ab (gleicher Name). Zuerst den Stack ohne diese Datei starten.
 
+### Statusseite (Etappe 5)
+
+Einstellungen › Statusseite › «Öffentlich unter status.<hauptzone>» legt wie beim Veröffentlichen eines Projekts einen proxied CNAME `status.<hauptzone>` auf den Tunnel an (Kommentar von Airlock) und nimmt den Namen in die Ingress-Regeln auf (`http://caddy:80`). Caddy gibt ihn an den Container `airlock-status` weiter (nur Dateien, siehe SPEC «Statusseite»). Dafür braucht es nach dem Update einmal `docker compose up -d` (neuer Dienst, neues Netz `airlock_status`, Caddy hängt sich hinein). Ausschalten entfernt CNAME und Regel wieder. Ein fremder Eintrag `status.<hauptzone>` verhindert das Einschalten (Meldung, nichts wird überschrieben).
+
 ## Zertifikat
 
 - Phase **Staging:** TLS-Server und Wildcard-Policy mit der Staging-CA, aber **ohne** Weiterleitung von http auf https und mit `http://`-Adressen – wer intern unterwegs ist, merkt nichts.

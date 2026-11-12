@@ -9,6 +9,7 @@ import { logSources, readLogLines } from '../../domain/logs.js'
 import { trackStream } from '../../lib/events.js'
 import { checkSourceEarly } from '../../domain/source-checks.js'
 import { createFilesProject, listProjectFiles } from '../../domain/files.js'
+import { writeEnvironment as writeStatusEnvironment } from '../../status/service.js'
 import {
   listProjects, findProject, toDto, createProject, updateProject, deleteProject,
   assertSourceSupported, previewName,
@@ -172,6 +173,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       actor: actorFor(request), action: 'project.update', targetType: 'project',
       targetId: project.id, params: patch, result: 'ok',
     })
+    // Etappe 5: «Auf Statusseite zeigen» geändert – die Seite der Umgebung gleich neu schreiben
+    if (patch.showOnStatus !== undefined) void writeStatusEnvironment(project.environmentId).catch(() => {})
     return { project: await toDto(updated) }
   })
 

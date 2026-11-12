@@ -376,7 +376,7 @@ function Finding({ f, onAccepted, action }: { f: FindingDto; onAccepted?: () => 
     onError: (err) => void v.setServerErrors(err),
   })
   return (
-    <li className={`finding finding-${f.severity} finding-${f.status}`}>
+    <li className={`finding finding-${f.severity} finding-${f.status}`} id={`befund-${f.id}`}>
       <div className="finding-head">
         <span className={`sev sev-${f.severity}`}>{SEVERITY_LABEL[f.severity]}</span>
         <strong>{f.title}</strong>

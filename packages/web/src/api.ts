@@ -1,7 +1,7 @@
 import { markSessionExpired } from './lib/session.js'
 import type {
   ProjectDto, DeploymentDto, EnvEntryDto, EnvEntryInput, AuditEventDto,
-  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs,
+  SystemStatusDto, Source, RouteTarget, AddressCheckDto, ScanReportDto, FindingDto, ProjectHealthDto, CfStatusDto, CfTokenCheckDto, ThemePref, UiPrefs, UiPrefsPatch, SetupPrefs, UnlockId,
   PublicStatusDto, PublicProgressDto, OutsideCheckDto, PausePage, PauseOptions,
   HeaderKey, HeaderMode, HeaderRuleDto, HeaderRulesDto, HeaderRecheckDto, FixHintDto, FixRequestDto, GithubStatusDto,
   SiteAccessEntryDto,
@@ -10,10 +10,22 @@ import type {
   NamePreviewDto,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   TopologyDto,
+  ServiceChangeDto, ServiceChangeInput, ServicePlanDto,
+  TrafficSummaryDto, TrafficTodayDto, TrafficLiveEventDto, TrafficRange, TrafficWay,
   BackupStatusDto, BackupSettingsDto, BackupTestResultDto, BackupRunDto, BackupSnapshotDto,
   BackupKeyFileDto, BackupKeyPaperDto, BackupKeyMethod, BackupKeyStatusDto, BackupKeyVerifyDto,
   BackupRestoreDto, BackupRestorePreviewDto,
+  StatusPageDto, StatusSettingsInput, IncidentDto, IncidentCreateInput, IncidentUpdateInput,
+  PreviewsDto,
+  AchievementsDto, AchievementId,
 } from '@airlock/shared'
+
+/** Etappe 6: Ebene «Vorschau» der Variablen und was vom Projekt geerbt wird */
+export interface PreviewEnvDto {
+  env: EnvEntryDto[]
+  /** nicht_vererbt: geheim im Projekt, ohne Wert für Vorschauen (Vorschau-Deploy scheitert) */
+  inherited: { key: string; source: 'projekt' | 'vorschau' | 'ueberschrieben' | 'nicht_vererbt' }[]
+}
 
 export type {
   TopologyDto,
@@ -70,14 +82,18 @@ export interface MeDto {
   passwordSource?: 'env' | 'ui' | null
   /** Darstellung, auf dem Server gespeichert (Profilmenü) */
   theme?: ThemePref | null
-  /** Easter Egg: «Windows 95» in der Darstellung freigeschaltet */
-  win95Unlocked?: boolean
+  /** Freischaltungen (Easter Eggs), z. B. 'win95' für «Windows 95» in der Darstellung */
+  unlocks?: UnlockId[]
   /** Einrichtungs-Assistent: ausgeblendet? übersprungene Schritte (null: noch nie angefasst) */
   setup?: SetupPrefs | null
   /** Glocke: bis wann gelesen (UI-Qualität 8) */
   bellSeenAt?: string | null
   /** M9: zuletzt gewählte Umgebung (Slug) */
   lastEnvironment?: string | null
+  /** Etappe 7: Spass-Funktionen an (Standard), Matrix-Regen auch ausserhalb des Terminals, Disketti an */
+  fun?: boolean
+  matrix?: boolean
+  disketti?: boolean
 }
 
 export interface DomainDto { id: string; name: string; zoneId: string; isDefault: boolean }
@@ -161,6 +177,14 @@ export const api = {
   moveProject: (id: string, to: string) => call<{ moved: MovePreviewDto }>(`/projects/${id}/move`, { method: 'POST', body: body({ to, confirm: true }) }),
   setTemplateOff: (id: string, header: string, off: boolean) => call<void>(`/projects/${id}/header-templates/${header}/off`, { method: off ? 'PUT' : 'DELETE' }),
 
+  /* Etappe 5: Statusseite der Umgebung und Störungen */
+  statusPage: () => call<{ statusPage: StatusPageDto }>(e('/status-page')),
+  setStatusPage: (input: StatusSettingsInput) => call<{ statusPage: StatusPageDto }>(e('/status-page'), { method: 'PUT', body: body(input) }),
+  incidents: () => call<{ incidents: IncidentDto[] }>(e('/incidents')),
+  createIncident: (input: Partial<IncidentCreateInput>) => call<{ incidents: IncidentDto[] }>(e('/incidents'), { method: 'POST', body: body(input) }),
+  addIncidentUpdate: (id: string, input: IncidentUpdateInput) => call<{ incidents: IncidentDto[] }>(e(`/incidents/${encodeURIComponent(id)}/updates`), { method: 'POST', body: body(input) }),
+  deleteIncident: (id: string) => call<{ incidents: IncidentDto[] }>(e(`/incidents/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+
   /* Auth */
   me: () => call<MeDto>('/auth/me'),
   changePassword: (current: string, next: string) => call<{ ok: true }>('/auth/password', { method: 'POST', body: body({ current, next }) }),
@@ -168,6 +192,12 @@ export const api = {
   logout: () => call<{ ok: true }>('/auth/logout', { method: 'POST' }),
   /** Nur geänderte Teile (Darstellung, Einrichtung, Umgebung); der Server führt zusammen */
   setPreferences: (prefs: UiPrefsPatch) => call<UiPrefs>('/auth/preferences', { method: 'PUT', body: body(prefs) }),
+  /** Freischaltung (Easter Egg) hinzufügen; idempotent */
+  unlock: (id: UnlockId) => call<UiPrefs>('/auth/unlocks', { method: 'POST', body: body({ id }) }),
+  /** Etappe 7: Achievements (der Server prüft die Regeln und trägt Neues ein) */
+  achievements: () => call<AchievementsDto>('/auth/achievements'),
+  /** Etappe 7: gemeldet (Konfetti gezeigt) – nicht noch einmal */
+  achievementsSeen: (ids: AchievementId[]) => call<{ ok: true }>('/auth/achievements/seen', { method: 'POST', body: body({ ids }) }),
 
   /* Projekte */
   listProjects: () => call<{ projects: ProjectDto[] }>(e('/projects')),
@@ -235,6 +265,16 @@ export const api = {
   health: (id: string, fresh = false) => call<ProjectHealthDto>(`/projects/${id}/health${fresh ? '?fresh=1' : ''}`),
   /** Reiter «Aufbau»: Zugang, Eingang, Dienste, Daten und die Linien dazwischen */
   topology: (id: string) => call<{ topology: TopologyDto }>(`/projects/${id}/topology`),
+  /** Etappe 4: Dienst hinzufügen/entfernen – Vorschau (ändert nichts), Übernehmen, gescheiterte ausblenden */
+  servicePlan: (id: string, change: ServiceChangeInput) => call<{ plan: ServicePlanDto }>(`/projects/${id}/services/plan`, { method: 'POST', body: body(change) }),
+  serviceApply: (id: string, change: ServiceChangeInput, base: string) => call<{ change: ServiceChangeDto }>(`/projects/${id}/services`, { method: 'POST', body: body({ change, base }) }),
+  dismissServiceChange: (id: string, changeId: string) => call<void>(`/projects/${id}/service-changes/${changeId}`, { method: 'DELETE' }),
+  /** Etappe 3: Besucher aus Caddys Zugriffs-Log (Zähler, ohne IP) */
+  traffic: (id: string, range: TrafficRange, way: TrafficWay | 'all' = 'all') => call<TrafficSummaryDto>(`/projects/${id}/traffic?range=${range}&way=${way}`),
+  /** Aufrufe heute je Projekt der Umgebung (Projektliste) */
+  trafficToday: () => call<TrafficTodayDto>(e('/traffic/today')),
+  /** Städte-Datenbank (DB-IP «IP to City Lite», CC BY 4.0) auf den Server laden; danach monatlich aktuell */
+  loadCityDb: () => call<{ month: string | null; downloadedAt: string | null }>('/system/traffic/city-db', { method: 'POST' }),
   /** Adresse vom Server aus prüfen (http-Adressen auf einer https-Seite) */
   addressCheck: (id: string, url: string) => call<AddressCheckDto>(`/projects/${id}/address-check?url=${encodeURIComponent(url)}`),
   getLogs: (id: string, lines = 200) => call<{ logs: string; hint?: string }>(`/projects/${id}/logs?lines=${lines}`),
@@ -295,6 +335,12 @@ export const api = {
   githubDisconnect: () => call<void>('/github', { method: 'DELETE' }),
   autoDeploy: (id: string) => call<{ autoDeploy: boolean; checkedAt: string | null; available: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`),
   setAutoDeploy: (id: string, enabled: boolean) => call<{ autoDeploy: boolean; viaGithubApp: boolean }>(`/projects/${id}/auto-deploy`, { method: 'PUT', body: body({ enabled }) }),
+  /* Etappe 6: Vorschau-Deploys */
+  previews: (id: string) => call<{ previews: PreviewsDto }>(`/projects/${id}/previews`),
+  setPreviews: (id: string, enabled: boolean) => call<{ previews: PreviewsDto }>(`/projects/${id}/previews`, { method: 'PUT', body: body({ enabled }) }),
+  deletePreview: (id: string, previewId: string) => call<void>(`/projects/${id}/previews/${previewId}`, { method: 'DELETE' }),
+  previewEnv: (id: string) => call<PreviewEnvDto>(`/projects/${id}/preview-env`),
+  putPreviewEnv: (id: string, entries: EnvEntryInput[]) => call<PreviewEnvDto>(`/projects/${id}/preview-env`, { method: 'PUT', body: body({ entries }) }),
   rejectFix: (id: string, fixId: string) => call<{ fix: FixRequestDto }>(`/projects/${id}/fix-requests/${fixId}/reject`, { method: 'POST', body: body({}) }),
   notifications: () => call<NotifySettingsDto>('/notifications'),
   putNotifications: (s: unknown) => call<NotifySettingsDto>('/notifications', { method: 'PUT', body: body(s) }),
@@ -381,6 +427,11 @@ export function subscribeLogs(projectId: string, o: { service: string | null; si
 }
 
 /** UI-Qualität 4: neue Zugriffe einer statischen Seite live */
+/** Etappe 3: jede Anfrage an ein Projekt live (Zeit, Zugang, Host, Dienst, Status, geblockt, Bot) */
+export function subscribeTraffic(projectId: string, onEvent: (e: TrafficLiveEventDto) => void, onState?: (open: boolean) => void): () => void {
+  return subscribeJson<TrafficLiveEventDto>(`/api/v1/projects/${projectId}/traffic/live`, onEvent, onState)
+}
+
 export function subscribeAccess(projectId: string, since: string | null, onEntry: (e: SiteAccessEntryDto) => void, onState?: (open: boolean) => void): () => void {
   return subscribeJson<SiteAccessEntryDto>(`/api/v1/projects/${projectId}/access/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`, onEntry, onState)
 }

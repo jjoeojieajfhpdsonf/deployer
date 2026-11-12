@@ -9,7 +9,12 @@ import type {
   HeaderRulesDto, FixHintDto, FixRequestDto, GithubStatusDto, PausePage,
   EnvironmentDto, HeaderTemplateDto, LanDnsCheckDto, MovePreviewDto, PublicNameCheckDto,
   BackupRunDto, BackupSettingsDto, BackupSnapshotDto, BackupStatusDto, BackupKeyPaperDto, BackupRestorePreviewDto,
+  TrafficPointDto, TrafficRange, TrafficRowDto, TrafficSummaryDto, TrafficTodayDto, TrafficWay,
+  PreviewDto, PreviewsDto,
 } from '@airlock/shared'
+import { TRAFFIC_RANGES, TRAFFIC_WAYS } from '@airlock/shared'
+import { addDays, availabilityOf, dayInZone, overallOf, statusDays } from '@airlock/shared'
+import type { IncidentDto, PublicStatusIncident, PublicStatusJson, PublicStatusProject, StatusDayCount, StatusPageDto } from '@airlock/shared'
 import { countOpenFindings, explainFailure, fixPrompt, projectState, RESERVED_SLUGS, RESERVED_PUBLIC_LABELS, normalizePublicLabel, slugify } from '@airlock/shared'
 import type { ApiTokenDto, DomainDto, ExternalTargetDto, MeDto, NotifySettingsDto, PublicFlowResult } from '../src/api.js'
 
@@ -349,7 +354,27 @@ export function pauseResult(id: string): PublicFlowResult {
 export const detailProjectId = 'p-foto'
 export const securityProjectId = 'p-kontoauszug'
 
-export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN) }
+// Etappe 7: Disketti in den Fixtures aus – sie erschiene in allen Windows-95-Szenen eines Projekts
+// mit Befund nach knapp einer Sekunde (Bilder liefen je nach Tempo anders); eigene Szenen schalten sie ein
+export const me: MeDto = { loggedIn: true, name: 'Joël', sessionSince: ago(3 * HOUR), viaHttps: true, passwordChangedAt: ago(20 * DAY), passwordSource: 'ui', theme: 'system', setup: { dismissed: true, skipped: [] }, bellSeenAt: ago(40 * MIN), fun: true, matrix: false, disketti: false }
+
+/**
+ * Etappe 7: Achievements im Konto. Standard: vier erreicht (alle schon gemeldet –
+ * sonst gäbe es in jeder Szene eine Meldung), drei offen. «neu»: «Nachtschicht»
+ * eben erreicht und noch nicht gemeldet (Meldung; Konfetti nur ohne reduzierte Bewegung).
+ */
+export function achievements(variant: 'standard' | 'neu' = 'standard'): import('@airlock/shared').AchievementsDto {
+  const list = [
+    { id: 'first_deploy', title: 'Erster Deploy', description: 'Ein Projekt ist zum ersten Mal erfolgreich gelaufen.', achievedAt: ago(212 * DAY), seen: true },
+    { id: 'first_public', title: 'Erstes öffentliches Projekt', description: 'Ein Projekt war zum ersten Mal aus dem Internet erreichbar.', achievedAt: ago(180 * DAY), seen: true },
+    { id: 'grade_a', title: 'Note A', description: 'Ein Security-Scan hat die Note A ergeben.', achievedAt: ago(41 * DAY), seen: true },
+    { id: 'uptime_100', title: '100 Tage ohne Ausfall', description: 'Ein Projekt war 100 gemessene Tage am Stück ohne Störung.', achievedAt: null, seen: false },
+    { id: 'all_fixed', title: 'Alle Befunde behoben', description: 'Kein gescanntes Projekt hat mehr einen offenen Befund.', achievedAt: null, seen: false },
+    { id: 'night_shift', title: 'Nachtschicht', description: 'Ein Deploy zwischen 0 und 4 Uhr (Zürcher Zeit) von Hand gestartet.', achievedAt: variant === 'neu' ? ago(2 * MIN) : ago(9 * DAY), seen: variant !== 'neu' },
+    { id: 'secrets', title: 'Geheimnisse gefunden', description: 'Alle versteckten Freischaltungen entdeckt.', achievedAt: null, seen: false },
+  ] as import('@airlock/shared').AchievementDto[]
+  return { achievements: list, enabled: true }
+}
 
 /**
  * Deployments mit Grund und Auslöser (Projektseite). Fotoalbum zeigt alle
@@ -466,6 +491,8 @@ export function topology(id: string): Topo {
     ]
     return {
       kind: 'compose', access, hosts, services, main: 'svc:web', limits,
+      // Etappe 4: Git-Repo mit verbundener GitHub-App → Dienste über Pull Request
+      edit: { way: 'pull_request', reason: null, changes: [], webService: 'web' },
       volumes: [
         { id: 'vol:fotos', name: 'fotos', mountPath: '/srv/fotos', sizeBytes: null, usedBy: ['svc:web', 'svc:worker'], paths: { 'svc:web': '/srv/fotos', 'svc:worker': '/data' } },
         { id: 'vol:pgdata', name: 'pgdata', mountPath: '/var/lib/postgresql/data', sizeBytes: null, usedBy: ['svc:db'], paths: { 'svc:db': '/var/lib/postgresql/data' } },
@@ -528,6 +555,97 @@ export function topology(id: string): Topo {
     })],
     volumes: withData ? [{ id: 'vol:haushalt-daten', name: 'haushalt-daten', mountPath: '/data', sizeBytes: null, usedBy: [s], paths: { [s]: '/data' } }] : [],
     edges: [...routeEdges(access, hosts, !failed && !stopped), ...(withData ? [{ from: s, to: 'vol:haushalt-daten', on: true, via: 'mount' as const }] : [])],
+  }
+}
+
+/* --- Etappe 4: Aufbau mit Live-Verkehr und «Dienst hinzufügen/entfernen» --------------- */
+
+export type TopoVariant = 'chat' | 'ohne-github' | 'wird-erstellt' | 'pr-offen' | 'gescheitert' | 'adminer'
+
+/** Varianten, in denen Fotoalbum als Chat-Projekt deployt (statt Pull Request) */
+export const DEPLOY_VARIANTS: TopoVariant[] = ['chat', 'wird-erstellt', 'gescheitert']
+
+type Change = import('@airlock/shared').ServiceChangeDto
+const change = (o: Partial<Change>): Change => ({
+  id: 'c-1', kind: 'add', service: 'cache', template: 'redis', status: 'deploying', deploymentId: 'p-foto-d9', prUrl: null, prNumber: null, note: null, createdAt: ago(40_000), ...o,
+})
+
+/** Aufbau von Fotoalbum in einem Zustand der Etappe 4 (sonst wie topology()) */
+export function topologyVariant(id: string, v: TopoVariant): Topo {
+  const t = topology(id)
+  const edit = t.edit ?? { way: 'pull_request' as const, reason: null, changes: [], webService: 'web' }
+  switch (v) {
+    case 'chat':
+      return { ...t, edit: { ...edit, way: 'deploy' } }
+    case 'ohne-github':
+      return { ...t, edit: { ...edit, way: null, reason: 'Bei Git-Projekten ändert Airlock die compose.yaml nur über einen Pull Request der GitHub-App – für dieses Repo ist sie nicht verbunden (Server › GitHub).' } }
+    case 'wird-erstellt':
+      // Chat-Projekt mit compose.yaml: «Übernehmen & deployen», Deploy läuft
+      return { ...t, edit: { ...edit, way: 'deploy', changes: [change({})] } }
+    case 'pr-offen':
+      return { ...t, edit: { ...edit, changes: [change({ id: 'c-2', service: 'adminer', template: 'adminer', status: 'pr_open', deploymentId: null, prNumber: 12, prUrl: 'https://github.com/example/fotoalbum/pull/12', note: 'Pull Request #12 auf main' })] } }
+    case 'gescheitert':
+      return { ...t, edit: { ...edit, way: 'deploy', changes: [change({ status: 'failed', note: 'Der Deploy ist gescheitert; die vorherige Fassung läuft weiter. Details unter Deployments.' })] } }
+    case 'adminer': {
+      // Nach dem Merge: Adminer mit eigener interner Adresse (nur Tailnet und LAN)
+      const h = host('adminer--fotoalbum.int.example.ch', { headers: 5, service: 'svc:adminer', internal: true })
+      return {
+        ...t,
+        hosts: [...t.hosts, h],
+        services: [...t.services.slice(0, 2), svc('adminer', { image: 'adminer:latest', port: 8080, version: 'latest', usage: { cpu: 0.01, memMb: 24 } }), ...t.services.slice(2)],
+        edges: [
+          ...t.edges,
+          { from: 'way:tailnet', to: h.id, on: true, via: 'route' },
+          { from: 'way:lan', to: h.id, on: true, via: 'route' },
+          { from: h.id, to: 'svc:adminer', on: true, via: 'route' },
+        ],
+      }
+    }
+  }
+}
+
+/** Live-Strom von Fotoalbum: feste Anfragen der letzten Minute (Bilder ohne Animation, reduced-motion) */
+export function trafficLive(): import('@airlock/shared').TrafficLiveEventDto[] {
+  const at = new Date().toISOString()
+  const e = (access: 'tailnet' | 'lan', host: string, status: number, n: number) =>
+    Array.from({ length: n }, () => ({ at, access, host, service: 'web', status, blocked: false, bot: false }))
+  return [
+    ...e('tailnet', 'fotoalbum.int.example.ch', 200, 22),
+    ...e('tailnet', 'fotoalbum.int.example.ch', 404, 2),
+    ...e('lan', 'fotoalbum.int.example.ch', 200, 9),
+    ...e('lan', 'fotoalbum.int.example.ch', 502, 1),
+    ...e('lan', `fotoalbum.${LAN_IP}.nip.io`, 200, 3),
+  ]
+}
+
+const FOTO_COMPOSE_DIFF = {
+  addRedis: '--- a/compose.yaml\n+++ b/compose.yaml\n@@ -2,20 +2,37 @@\n   web:\n     build: .\n     expose: ["8080"]\n-    depends_on: [worker, db]\n+    depends_on: [worker, db, cache]\n     volumes:\n       - fotos:/srv/fotos\n   worker:\n     image: ghcr.io/example/fotoalbum-worker:1.4\n-    depends_on: [db]\n+    depends_on: [db, cache]\n     volumes:\n       - fotos:/data\n+    x-airlock-env:\n+      REDIS_URL: REDIS_URL\n   db:\n     image: postgres:16-alpine\n     environment:\n       POSTGRES_DB: fotoalbum\n     volumes:\n       - pgdata:/var/lib/postgresql/data\n+  cache:\n+    image: redis:7.4\n+    command:\n+      - sh\n+      - -c\n+      - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"\n+    x-airlock-env:\n+      REDIS_PASSWORD: CACHE_PASSWORD\n+    healthcheck:\n+      test:\n+        - CMD-SHELL\n+        - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG\n+      interval: 10s\n+      timeout: 5s\n+      retries: 5\n volumes:\n   fotos: {}\n   pgdata: {}',
+  removeDb: '--- a/compose.yaml\n+++ b/compose.yaml\n@@ -2,20 +2,13 @@\n   web:\n     build: .\n     expose: ["8080"]\n-    depends_on: [worker, db]\n+    depends_on: [worker]\n     volumes:\n       - fotos:/srv/fotos\n   worker:\n     image: ghcr.io/example/fotoalbum-worker:1.4\n-    depends_on: [db]\n     volumes:\n       - fotos:/data\n-  db:\n-    image: postgres:16-alpine\n-    environment:\n-      POSTGRES_DB: fotoalbum\n-    volumes:\n-      - pgdata:/var/lib/postgresql/data\n volumes:\n   fotos: {}\n   pgdata: {}',
+}
+
+/** Vorschau (POST /projects/:id/services/plan) – Diffs wie die API sie für die compose.yaml von Fotoalbum erzeugt */
+export function servicePlan(change: import('@airlock/shared').ServiceChangeInput, way: 'deploy' | 'pull_request' = 'pull_request'): import('@airlock/shared').ServicePlanDto {
+  const base = { way, composePath: 'compose.yaml', base: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', branch: way === 'pull_request' ? 'main' : null }
+  if (change.action === 'remove') {
+    return {
+      ...base, diff: FOTO_COMPOSE_DIFF.removeDb, variables: [], volumes: ['pgdata'],
+      notes: [
+        'depends_on von web, worker verweist nicht mehr auf «db».',
+        'Volume «pgdata» bleibt mit allen Daten erhalten (im Aufbau als «nicht eingehängt»).',
+        'Umgebungsvariablen des Dienstes (Passwörter, Verbindung) bleiben im Projekt; löschen unter Einstellungen › Umgebungsvariablen.',
+      ],
+    }
+  }
+  return {
+    ...base, diff: FOTO_COMPOSE_DIFF.addRedis, volumes: [],
+    variables: [
+      { key: 'CACHE_PASSWORD', secret: true, state: 'new', purpose: 'Passwort von cache' },
+      { key: 'REDIS_URL', secret: true, state: 'new', purpose: 'Verbindung für web, worker' },
+    ],
+    notes: [
+      'Passwörter stehen nicht in der Datei: Airlock erzeugt sie und speichert sie als geheime Variablen des Projekts.',
+      'Der Web-Dienst «web» bekommt alle Variablen des Projekts, also auch REDIS_URL.',
+    ],
   }
 }
 
@@ -1243,3 +1361,239 @@ export const backupSnapshots: BackupSnapshotDto[] = [9, 33, 57, 70, 30 * 24].map
   paths: ['/staging/db', '/staging/volumes', '/source/caddy_data', '/source/sites', '/source/data'],
   bytesTotal: i === 4 ? 2_150_000_000 : 2_310_000_000 - i * 9_000_000,
 }))
+
+/* --- Etappe 3: Besucher ----------------------------------------------------------------
+ * Erfundene, aber plausible Zahlen einer kleinen öffentlichen Seite (hallo-welt) und eines
+ * internen Projekts (Fotoalbum: nur Tailnet und Heimnetz, also ohne Länder). Deterministisch
+ * (keine Zufallszahlen), damit die Referenzbilder stabil bleiben.
+ */
+
+export type TrafficVariant = 'ok' | 'staedte' | 'leer' | 'wartet' | 'aus'
+
+/** Tagesverlauf (Ortszeit-Stunde → Gewicht): nachts wenig, abends am meisten */
+const HOUR_SHAPE = [2, 1, 1, 1, 1, 2, 4, 7, 9, 10, 10, 11, 12, 11, 10, 10, 11, 13, 15, 16, 14, 11, 7, 4]
+/** Wochentag-Schwankung, fest */
+const DAY_SHAPE = [0.92, 1.04, 1.1, 0.97, 1.21, 0.78, 0.71]
+
+export function traffic(id: string, range: TrafficRange, way: TrafficWay | 'all', v: TrafficVariant = 'ok'): TrafficSummaryDto {
+  const r = TRAFFIC_RANGES.find((x) => x.key === range)!
+  const internal = id !== 'p-hallo' && id !== 'p-haushalt'
+  // Anteile je Zugang (intern: kein Internet)
+  const share: Record<TrafficWay, number> = internal ? { public: 0, tailnet: 0.7, lan: 0.3 } : { public: 0.93, tailnet: 0.05, lan: 0.02 }
+  const perDay = v === 'leer' ? 0 : internal ? 46 : 280
+  const f = way === 'all' ? 1 : share[way]
+  const now = Date.now()
+  const series: TrafficPointDto[] = []
+  if (r.bucket === 'hour') {
+    const h0 = Math.floor(now / HOUR) * HOUR
+    for (let i = 23; i >= 0; i--) {
+      const at = h0 - i * HOUR
+      const local = new Date(at).getHours()
+      const views = Math.round((perDay * f * HOUR_SHAPE[local]!) / 206 * (1 + ((i * 7) % 5) / 10))
+      series.push({ at: new Date(at).toISOString(), views, visitors: Math.round(views * 0.42) })
+    }
+  } else {
+    const days = r.hours / 24
+    const today = new Date(now)
+    today.setHours(0, 0, 0, 0)
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const growth = 0.75 + (0.25 * (days - i)) / days
+      const views = Math.round(perDay * f * DAY_SHAPE[d.getDay()]! * growth * (i === 0 ? 0.6 : 1))
+      series.push({ at: d.toISOString(), views, visitors: Math.round(views * 0.38) })
+    }
+  }
+  const views = series.reduce((a, p) => a + p.views, 0)
+  const visitors = series.reduce((a, p) => a + p.visitors, 0)
+  const rows = (list: [string, number][]): TrafficRowDto[] => list.map(([key, p]) => ({ key, views: Math.round(views * p), visitors: Math.round(visitors * p) })).filter((x) => x.views > 0)
+  const pages = internal
+    ? rows([['/', 0.38], ['/alben/sommer-2026', 0.21], ['/alben/hochzeit', 0.14], ['/suche', 0.11], ['/alben/neu', 0.08], ['/einstellungen', 0.05], ['/alt/galerie', 0.03]])
+    : rows([['/', 0.41], ['/blog/homeserver-mit-airlock', 0.22], ['/blog/caddy-und-tailscale', 0.12], ['/projekte', 0.09], ['/kontakt', 0.06], ['/impressum', 0.04], ['/feed.xml', 0.03], ['/wp-login.php', 0.02]])
+  const referrers = internal
+    ? rows([['', 0.97], ['nas.int.example.ch', 0.03]])
+    : rows([['', 0.46], ['google.com', 0.24], ['news.ycombinator.com', 0.11], ['duckduckgo.com', 0.07], ['github.com', 0.05], ['newsletter', 0.04], ['linkedin.com', 0.03]])
+  const showCountries = !internal && (way === 'all' || way === 'public')
+  const pub = Math.round(views * (way === 'all' ? share.public : 1))
+  const cRows = (list: [string, number][]): TrafficRowDto[] => list.map(([key, p]) => ({ key, views: Math.round(pub * p), visitors: Math.round(pub * p * 0.4) })).filter((x) => x.views > 0)
+  const countries = showCountries
+    ? cRows([['CH', 0.48], ['DE', 0.19], ['US', 0.09], ['AT', 0.06], ['FR', 0.04], ['NL', 0.03], ['GB', 0.03], ['IT', 0.02], ['SE', 0.015], ['CA', 0.012], ['JP', 0.01], ['BR', 0.008], ['IN', 0.006], ['AU', 0.005], ['', 0.004]])
+    : []
+  const cities = showCountries && v === 'staedte'
+    ? cRows([['Zürich', 0.17], ['Bern', 0.08], ['Berlin', 0.07], ['Basel', 0.06], ['Wien', 0.05], ['Luzern', 0.04], ['München', 0.04], ['St. Gallen', 0.03], ['Winterthur', 0.03], ['Hamburg', 0.02]])
+      .map((c) => ({ ...c, country: ({ Berlin: 'DE', München: 'DE', Hamburg: 'DE', Wien: 'AT' } as Record<string, string>)[c.key] ?? 'CH' }))
+    : []
+  const ways = TRAFFIC_WAYS.map((w) => {
+    const total = views / f
+    return { way: w, views: Math.round(total * share[w]), visitors: Math.round(total * share[w] * 0.38) }
+  })
+  // Gesamt: Summe der Wege gleich der angezeigten Summe (Rundung dem grössten Weg zuschlagen)
+  if (way === 'all') ways[internal ? 1 : 0]!.views += views - ways.reduce((a, w) => a + w.views, 0)
+  return {
+    range, way,
+    from: series[0]?.at ?? new Date(now).toISOString(),
+    to: new Date(now).toISOString(),
+    bucket: r.bucket,
+    totals: { views, visitors, bots: v === 'leer' ? 0 : Math.round(views * (internal ? 0.1 : 0.62)) },
+    ways: v === 'leer' ? ways.map((w) => ({ ...w, views: 0, visitors: 0 })) : ways,
+    series,
+    pages, referrers, countries, cities,
+    devices: rows([['desktop', internal ? 0.44 : 0.58], ['mobile', internal ? 0.49 : 0.37], ['tablet', internal ? 0.07 : 0.05]]),
+    statuses: views ? [
+      { status: 200, views: Math.round(views * 0.86) },
+      { status: 304, views: Math.round(views * 0.09) },
+      { status: 404, views: Math.round(views * (internal ? 0.04 : 0.045)) },
+      ...(internal ? [] : [{ status: 500, views: Math.max(1, Math.round(views * 0.005)) }]),
+    ] : [],
+    source: {
+      ingest: v === 'wartet' ? 'waiting' : v === 'aus' ? 'off' : 'ok',
+      since: ago(41 * DAY),
+      cityDb: v === 'staedte' ? '2026-11' : null,
+    },
+  }
+}
+
+/** Projektliste: Aufrufe heute (nur mit Besucher-Auswertung) */
+export const trafficToday: TrafficTodayDto = { views: { 'p-foto': 31, 'p-haushalt': 214, 'p-wetter': 4, 'p-kontoauszug': 12, 'p-verein': 57, 'p-hallo': 168 }, ingest: 'ok' }
+
+/* --- Etappe 5: Statusseite --------------------------------------------------------- */
+
+/** Einstellungen › Statusseite: «an» (example), «aus» ohne Hauptzone (labor) */
+export function statusPage(env: string): StatusPageDto {
+  const projects: StatusPageDto['projects'] = [
+    // Wie die Projektliste: öffentlich sind Haushaltsbuch und Vereinsseite
+    { id: 'p-foto', name: 'Fotoalbum', shown: true, explicit: true, public: false },
+    { id: 'p-haushalt', name: 'Haushaltsbuch', shown: false, explicit: true, public: true },
+    { id: 'p-kontoauszug', name: 'Kontoauszug-Reader', shown: false, explicit: false, public: false },
+    { id: 'p-notizen', name: 'Notizen', shown: false, explicit: false, public: false },
+    { id: 'p-rezepte', name: 'Rezepte-API', shown: false, explicit: false, public: false },
+    { id: 'p-verein', name: 'Vereinsseite', shown: true, explicit: false, public: true },
+    { id: 'p-wetter', name: 'Wetterstation', shown: true, explicit: true, public: false },
+  ]
+  if (env === 'labor') {
+    return { enabled: false, title: 'Status', hostname: null, publicReady: false, problem: 'Noch keine Hauptzone gewählt (Einstellungen › Cloudflare & HTTPS).', writtenAt: null, storage: true, projects: [] }
+  }
+  return { enabled: true, title: 'Status example.ch', hostname: 'status.example.ch', publicReady: true, problem: null, writtenAt: ago(40_000), storage: true, projects }
+}
+
+export function incidents(env: string): IncidentDto[] {
+  if (env === 'labor') return []
+  return [
+    {
+      id: 'i-wetter', title: 'Wetterstation nicht erreichbar', state: 'erkannt', auto: true,
+      projects: [{ id: 'p-wetter', name: 'Wetterstation', shown: true }], createdAt: ago(26 * MIN), resolvedAt: null,
+      updates: [
+        { id: 'u2', state: 'erkannt', body: 'Der Sensor-Dienst liefert keine Daten mehr. Ein neues Deployment ist unterwegs.', at: ago(9 * MIN), actor: 'ui:joel' },
+        { id: 'u1', state: 'untersucht', body: 'Wetterstation ist seit mehr als 5 Minuten nicht erreichbar (automatisch erkannt).', at: ago(21 * MIN), actor: 'system' },
+      ],
+    },
+    {
+      id: 'i-wartung', title: 'Kurze Unterbrechung beim Fotoalbum', state: 'behoben', auto: false,
+      projects: [{ id: 'p-foto', name: 'Fotoalbum', shown: true }], createdAt: ago(3 * DAY + 2 * HOUR), resolvedAt: ago(3 * DAY + HOUR),
+      updates: [
+        { id: 'u4', state: 'behoben', body: 'Läuft wieder. Ursache war ein voller Datenträger.', at: ago(3 * DAY + HOUR), actor: 'ui:joel' },
+        { id: 'u3', state: 'untersucht', body: 'Bilder laden nicht. Wir schauen nach.', at: ago(3 * DAY + 2 * HOUR), actor: 'ui:joel' },
+      ],
+    },
+  ]
+}
+
+/**
+ * Öffentliche Seite (eigene Szene): Messung seit 41 Tagen, davor «keine Daten»
+ * – wie nach dem Einführen der Tageswerte. Variante «ruhig»: alles läuft,
+ * keine Störungen, erst 6 Tage gemessen.
+ */
+export function statusPublic(variant: 'stoerung' | 'ruhig'): PublicStatusJson {
+  const tz = 'Europe/Zurich'
+  const now = new Date()
+  const today = dayInZone(now, tz)
+  const measured = variant === 'ruhig' ? 6 : 41
+  const counts = (pattern: (d: number) => { up: number; down: number; paused?: number }): StatusDayCount[] =>
+    Array.from({ length: measured }, (_, i) => {
+      const c = pattern(i)
+      return { date: addDays(today, -i), upMinutes: c.up, downMinutes: c.down, pausedMinutes: c.paused ?? 0 }
+    })
+  const full = (d: number) => (d === 0 ? 840 : 1440)
+  const list: { name: string; state: PublicStatusProject['state']; counts: StatusDayCount[] }[] = variant === 'ruhig'
+    ? [
+        { name: 'Fotoalbum', state: 'ok', counts: counts((d) => ({ up: full(d), down: 0 })) },
+        { name: 'Vereinsseite', state: 'ok', counts: counts((d) => ({ up: full(d), down: 0 })) },
+      ]
+    : [
+        { name: 'Fotoalbum', state: 'ok', counts: counts((d) => ({ up: full(d) - (d === 3 ? 62 : d % 13 === 7 ? 9 : 0), down: d === 3 ? 62 : d % 13 === 7 ? 9 : 0 })) },
+        { name: 'Vereinsseite', state: 'pausiert', counts: counts((d) => (d < 1 ? { up: 0, down: 0, paused: full(d) } : { up: full(d), down: 0 })) },
+        { name: 'Wetterstation', state: 'stoerung', counts: counts((d) => ({ up: full(d) - (d === 0 ? 26 : d === 18 ? 4 : 0), down: d === 0 ? 26 : d === 18 ? 4 : 0 })) },
+      ]
+  const projects: PublicStatusProject[] = list.map((p) => ({ name: p.name, state: p.state, availability: availabilityOf(p.counts), days: statusDays(p.counts, today) }))
+  const incidentsList: PublicStatusIncident[] = variant === 'ruhig' ? [] : incidents('example').map((i, n) => ({
+    key: n === 0 ? '3f9a1c0b7e24' : '8d21e6a4c95f', title: i.title, state: i.state, startedAt: i.createdAt, resolvedAt: i.resolvedAt,
+    projects: i.projects.map((p) => p.name), updates: i.updates.map((u) => ({ at: u.at, state: u.state, text: u.body })),
+  }))
+  return {
+    version: 1, title: 'Status example.ch', generatedAt: now.toISOString(), timeZone: tz,
+    overall: overallOf(projects, incidentsList), incidents: incidentsList, projects,
+  }
+}
+
+/* --- Etappe 6: Vorschau-Deploys ------------------------------------------------------- */
+
+/** an: drei Vorschauen (bereit mit PR und Scan, wird deployt, fehlgeschlagen); leer: an, noch keine; sonst: Standard aus */
+export type PreviewVariant = 'an' | 'leer'
+
+const PREVIEW_REASON: Record<string, string> = {
+  files: 'Vorschauen gibt es nur für Projekte aus einem Git-Repo; dieses Projekt kommt aus dem Chat.',
+  image: 'Vorschauen gibt es nur für Projekte aus einem Git-Repo; dieses Projekt läuft aus einem fertigen Image.',
+}
+
+export function previews(id: string, variant?: PreviewVariant): { previews: PreviewsDto } {
+  const p = allProjects.find((x) => x.id === id)
+  const repo = id === 'p-foto' ? 'example/fotoalbum' : id === 'p-rezepte' ? 'example/rezepte-api' : null
+  const slug = p?.slug ?? 'projekt'
+  const host = (label: string) => `${label}.int.example.ch`
+  const reason = repo ? null : PREVIEW_REASON[p?.sourceType ?? ''] ?? 'Vorschauen brauchen ein Git-Repo; die Quelle dieses Projekts ist hochgeladen.'
+  const on = Boolean(repo && variant)
+  const list: PreviewDto[] = on && variant === 'an' ? [
+    {
+      id: 'v-login', branch: 'feature/login-mit-passkey', label: `feature-login-mit-passkey--${slug}`,
+      url: `https://${host(`feature-login-mit-passkey--${slug}`)}`, host: host(`feature-login-mit-passkey--${slug}`),
+      prNumber: 42, prUrl: `https://github.com/${repo}/pull/42`, headSha: '3f9c2a17b0d84e6f5a1c9e0b7d2f4a6c8e1b3d5f',
+      lastPushAt: ago(2 * HOUR), createdAt: ago(2 * DAY), expiresAt: new Date(Date.now() - 2 * HOUR + 7 * DAY).toISOString(),
+      state: 'ready', deploymentId: 'd-v-login', failure: null, failureSecrets: false,
+      scan: { status: 'done', grade: 'B', score: 82, open: { critical: 0, high: 1, medium: 2, low: 0 } },
+    },
+    {
+      id: 'v-galerie', branch: 'galerie-raster', label: `galerie-raster--${slug}`,
+      url: `https://${host(`galerie-raster--${slug}`)}`, host: host(`galerie-raster--${slug}`),
+      prNumber: null, prUrl: null, headSha: 'a71e04c9d3b25f8e6c0a9b1d7e3f5c2a4b6d8e0f',
+      lastPushAt: ago(4 * MIN), createdAt: ago(4 * MIN), expiresAt: new Date(Date.now() - 4 * MIN + 7 * DAY).toISOString(),
+      state: 'deploying', deploymentId: 'd-v-galerie', failure: null, failureSecrets: false, scan: null,
+    },
+    {
+      id: 'v-deps', branch: 'dependabot/npm_and_yarn/sharp-0.33.5', label: `dependabot-npm-and-yarn-sharp-0-33-5--${slug}`,
+      url: `https://${host(`dependabot-npm-and-yarn-sharp-0-33-5--${slug}`)}`, host: host(`dependabot-npm-and-yarn-sharp-0-33-5--${slug}`),
+      prNumber: 39, prUrl: `https://github.com/${repo}/pull/39`, headSha: 'c2d8f1a0e9b47365d1c0e8f2a9b3d4c5e6f7a8b9',
+      lastPushAt: ago(5 * DAY + 3 * HOUR), createdAt: ago(5 * DAY + 3 * HOUR), expiresAt: new Date(Date.now() - (5 * DAY + 3 * HOUR) + 7 * DAY).toISOString(),
+      state: 'failed', deploymentId: 'd-v-deps', failure: 'Geheime Variable DATABASE_URL fehlt – in Einstellungen › Vorschauen › Variablen setzen', failureSecrets: true, scan: null,
+    },
+  ] : []
+  return {
+    previews: {
+      enabled: on, available: Boolean(repo), reason, repo, checkedAt: on ? ago(3 * MIN) : null,
+      pattern: `<branch>--${slug}.int.example.ch`, max: 3, idleDays: 7, previews: list,
+    },
+  }
+}
+
+export function previewEnv(id: string, variant?: PreviewVariant) {
+  if (id !== detailProjectId || !variant) return { env: [], inherited: env(id).map((e) => ({ key: e.key, source: e.isSecret ? 'nicht_vererbt' as const : 'projekt' as const })) }
+  return {
+    env: [
+      { key: 'THUMBNAIL_SIZE', isSecret: false, value: '240' },
+      { key: 'MAIL_DRY_RUN', isSecret: false, value: '1' },
+    ],
+    inherited: [
+      { key: 'DATABASE_URL', source: 'nicht_vererbt' as const }, { key: 'MAIL_DRY_RUN', source: 'vorschau' as const },
+      { key: 'THUMBNAIL_SIZE', source: 'ueberschrieben' as const }, { key: 'TZ', source: 'projekt' as const },
+    ],
+  }
+}

@@ -10,6 +10,7 @@ import { Sk } from '../components/States.js'
 import { passwordChangeFormSchema, PASSWORD_MIN } from '@airlock/shared'
 import { useFormErrors } from '../lib/form.js'
 import { Field } from '../components/Field.js'
+import { AchievementsSection } from '../components/Achievements.js'
 
 /**
  * Konto: Airlock kennt genau eine Person (SPEC). Hier stehen Name,
@@ -61,6 +62,9 @@ export function Account() {
       </div>
 
       <PasswordForm formRef={formRef} />
+
+      {/* Etappe 7: Achievements (nur mit Spass-Funktionen) */}
+      <AchievementsSection />
     </section>
   )
 }

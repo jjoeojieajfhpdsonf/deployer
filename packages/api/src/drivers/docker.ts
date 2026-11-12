@@ -604,6 +604,27 @@ export async function listComposeVolumes(composeProject: string): Promise<{ name
   return (res.Volumes ?? []).map((v) => ({ name: v.Name, volume: v.Labels?.['com.docker.compose.volume'] ?? null }))
 }
 
+/**
+ * Etappe 4: einzelne Volumes eines Compose-Projekts löschen (Dienst entfernt,
+ * «Volume löschen» ausdrücklich gewählt). Nur Volumes mit dem Label genau
+ * dieses Projekts und dem Compose-Namen – nie ein fremdes. Gibt die
+ * gelöschten Docker-Namen zurück; ein noch eingehängtes (409) bleibt.
+ */
+export async function removeComposeVolumes(composeProject: string, volumes: string[]): Promise<{ removed: string[]; failed: string[] }> {
+  const all = await listComposeVolumes(composeProject)
+  const removed: string[] = []
+  const failed: string[] = []
+  for (const v of all.filter((x) => x.volume && volumes.includes(x.volume))) {
+    try {
+      await docker.getVolume(v.name).remove()
+      removed.push(v.name)
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode !== 404) failed.push(v.name)
+    }
+  }
+  return { removed, failed }
+}
+
 export async function volumeExists(name: string): Promise<boolean> {
   try {
     await docker.getVolume(name).inspect()

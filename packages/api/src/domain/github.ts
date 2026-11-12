@@ -151,8 +151,23 @@ export async function repoToken(repo: string): Promise<string> {
   return (await github().installationToken(jwtFor(c), c.installationId, [repo])).token
 }
 
+/**
+ * Etappe 6: Token für Vorschauen – mit «Checks: write», wenn die Installation
+ * dieses Recht hat (von Hand an der App erteilt), sonst ohne. checks sagt,
+ * ob Check-Runs möglich sind; ohne bleibt es beim Kommentar am Pull Request.
+ */
+export async function previewToken(repo: string): Promise<{ token: string; checks: boolean }> {
+  const c = await connection()
+  if (!c?.installationId) throw badRequest('Die GitHub App ist nicht installiert')
+  const gh = github()
+  const perms = await gh.installationPermissions(jwtFor(c), c.installationId).catch(() => ({} as Record<string, string>))
+  const checks = perms.checks === 'write'
+  const { token } = await gh.installationToken(jwtFor(c), c.installationId, [repo], checks ? { checks: 'write' } : undefined)
+  return { token, checks }
+}
+
 /** Deploy-Branch: der im Projekt eingetragene, sonst der Standard-Branch des Repos. */
-async function baseBranch(token: string, r: { owner: string; repo: string; ref: string | null }): Promise<string> {
+export async function baseBranch(token: string, r: { owner: string; repo: string; ref: string | null }): Promise<string> {
   if (r.ref && !/^[0-9a-f]{40}$/.test(r.ref)) return r.ref
   return github().defaultBranch(token, r.owner, r.repo)
 }

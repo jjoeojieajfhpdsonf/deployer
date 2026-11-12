@@ -1,8 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import type { ProjectDto, TopologyAccessDto, TopologyDto, TopologyEdgeDto, TopologyHostDto, TopologyServiceDto, TopologyVolumeDto, TopologyWay } from '@airlock/shared'
-import { TOPOLOGY_WAY_LABEL } from '@airlock/shared'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import type { ProjectDto, ServiceChangeDto, TopologyAccessDto, TopologyDto, TopologyEdgeDto, TopologyHostDto, TopologyServiceDto, TopologyVolumeDto, TopologyWay } from '@airlock/shared'
+import { TOPOLOGY_WAY_LABEL, serviceTemplate } from '@airlock/shared'
 import { api } from '../api.js'
+import { LiveLayer, LiveLegend, edgePath, useLiveTraffic, type Box, type LiveHub } from './TopologyLive.js'
+import { AddServiceDialog, RemoveServiceDialog } from './ServiceDialog.js'
 import { FALLBACK_MS } from '../lib/live.js'
 import { gb, shortVersion } from '../lib/format.js'
 import { isPublic } from '../lib/projects.js'
@@ -33,6 +36,8 @@ export interface TopologyProps {
   restartBusy: boolean
   /** «Header verwalten»: Security › Header über Caddy */
   onManageHeaders: () => void
+  /** Etappe 4: «Deployments ansehen» (neuer Dienst wird deployt bzw. scheiterte) */
+  onDeployments?: () => void
 }
 
 /* --- Zeichen (16 px, Strich 1.6 wie Icons.tsx) ------------------------------------- */
@@ -102,6 +107,8 @@ interface NodeDesc {
   off?: boolean
   /** Eigene Aktion statt Auswahl (Internet aus: «Veröffentlichen →») */
   action?: ReactNode
+  /** Etappe 4: neuer Dienst, noch nicht da – gestrichelt («wird erstellt») */
+  pending?: boolean
 }
 
 type Picked =
@@ -109,12 +116,43 @@ type Picked =
   | { kind: 'host'; h: TopologyHostDto }
   | { kind: 'service'; s: TopologyServiceDto }
   | { kind: 'volume'; v: TopologyVolumeDto }
+  | { kind: 'pending'; c: ServiceChangeDto }
+
+const pickedId = (x: Picked): string =>
+  x.kind === 'access' ? x.a.id : x.kind === 'host' ? x.h.id : x.kind === 'service' ? x.s.id : x.kind === 'volume' ? x.v.id : `pending:${x.c.id}`
+
+/** Etappe 4: Zustand einer Dienst-Änderung, als Wort (nie nur Farbe) */
+function changeState(c: ServiceChangeDto): { word: string; tone: Tone } {
+  const pr = c.prNumber ? `PR #${c.prNumber}` : 'Pull Request'
+  if (c.kind === 'remove') {
+    switch (c.status) {
+      case 'deploying': return { word: 'wird entfernt', tone: 'warn' }
+      case 'pr_open': return { word: `Entfernen: ${pr} offen`, tone: 'neutral' }
+      case 'merged': return { word: 'entfernt beim nächsten Deploy', tone: 'info' }
+      case 'failed': return { word: 'Entfernen gescheitert', tone: 'bad' }
+      default: return { word: `${pr} geschlossen`, tone: 'neutral' }
+    }
+  }
+  switch (c.status) {
+    case 'deploying': return { word: 'wird erstellt', tone: 'info' }
+    case 'pr_open': return { word: `wartet auf ${pr}`, tone: 'neutral' }
+    case 'merged': return { word: 'gemergt, wartet auf Deploy', tone: 'info' }
+    case 'failed': return { word: 'nicht erstellt', tone: 'bad' }
+    default: return { word: `${pr} geschlossen`, tone: 'neutral' }
+  }
+}
+
+/** Offene Entfernung eines Dienstes (ändert nur die Zustandszeile des Knotens) */
+const openRemoval = (t: TopologyDto, name: string) =>
+  t.edit?.changes.find((c) => c.kind === 'remove' && c.service === name && (c.status === 'deploying' || c.status === 'pr_open' || c.status === 'merged')) ?? null
 
 /** Wege kurz für die Knoten («Tailnet · LAN», «LAN-Ausweich»); die Seitenkarte nennt sie ausgeschrieben */
 const WAY_SHORT: Record<TopologyWay, string> = { public: 'Internet', tailnet: 'Tailnet', lan: 'LAN' }
 
 function hostWays(h: TopologyHostDto): string {
   if (h.fallback) return `${WAY_SHORT[h.ways[0] ?? 'lan']}-Ausweich`
+  // Etappe 4: eigene Adresse eines Dienstes (Adminer usw.), nur intern
+  if (h.internal) return `${h.ways.map((w) => WAY_SHORT[w]).join(' · ')} · nur intern`
   if (h.ways.includes('public')) return h.accessProtected ? 'Internet · Access' : 'Internet'
   return h.ways.map((w) => WAY_SHORT[w]).join(' · ')
 }
@@ -128,8 +166,8 @@ function hostTls(h: TopologyHostDto): { word: string; tone: Tone } {
 }
 
 /** Spalten: Zugang · Eingang · Dienste · Daten (Datenbank, darunter ihre Volumes, dann die übrigen) */
-function columns(t: TopologyDto): { access: TopologyAccessDto[]; hosts: TopologyHostDto[]; apps: TopologyServiceDto[]; data: Picked[] } {
-  const apps = t.services.filter((s) => !s.database)
+function columns(t: TopologyDto): { access: TopologyAccessDto[]; hosts: TopologyHostDto[]; apps: Picked[]; data: Picked[] } {
+  const apps: Picked[] = t.services.filter((s) => !s.database).map((s) => ({ kind: 'service', s }))
   const dbs = t.services.filter((s) => s.database)
   const data: Picked[] = []
   const placed = new Set<string>()
@@ -137,8 +175,13 @@ function columns(t: TopologyDto): { access: TopologyAccessDto[]; hosts: Topology
     data.push({ kind: 'service', s: d })
     for (const v of t.volumes) if (v.usedBy.includes(d.id) && !placed.has(v.id)) { placed.add(v.id); data.push({ kind: 'volume', v }) }
   }
-  for (const a of apps) for (const v of t.volumes) if (v.usedBy.includes(a.id) && !placed.has(v.id)) { placed.add(v.id); data.push({ kind: 'volume', v }) }
+  for (const a of t.services.filter((s) => !s.database)) for (const v of t.volumes) if (v.usedBy.includes(a.id) && !placed.has(v.id)) { placed.add(v.id); data.push({ kind: 'volume', v }) }
   for (const v of t.volumes) if (!placed.has(v.id)) data.push({ kind: 'volume', v })
+  // Etappe 4: neue Dienste, die es noch nicht gibt – ans Ende ihrer Spalte
+  for (const c of t.edit?.changes ?? []) {
+    if (c.kind !== 'add' || t.services.some((s) => s.name === c.service)) continue
+    ;(c.template && serviceTemplate(c.template).database ? data : apps).push({ kind: 'pending', c })
+  }
   return { access: t.access, hosts: t.hosts, apps, data }
 }
 
@@ -164,9 +207,18 @@ function describe(x: Picked, t: TopologyDto, onPublish: () => void): NodeDesc {
       meta: h.fallback ? undefined : { left: plural(h.headers, 'Header', 'Header'), right: <State {...tls} /> },
     }
   }
+  if (x.kind === 'pending') {
+    const c = x.c
+    const tpl = c.template ? serviceTemplate(c.template) : null
+    return {
+      id: pickedId(x), col: tpl?.database ? 3 : 2, icon: tpl?.database ? <IconDb /> : <IconCog />, title: c.service,
+      sub: tpl?.label ?? null, meta: { left: <State {...changeState(c)} /> }, pending: true,
+    }
+  }
   if (x.kind === 'service') {
     const s = x.s
-    const st = serviceState(s)
+    const removal = openRemoval(t, s.name)
+    const st = removal ? changeState(removal) : serviceState(s)
     const col: Col = s.database ? 3 : 2
     if (t.kind === 'static') return { id: s.id, col, icon: <IconFiles />, title: s.name, sub: 'Statische Seite', meta: { left: <State {...st} /> } }
     if (s.database) {
@@ -203,7 +255,7 @@ function NodeView({ d, selected, onSelect, nodeRef }: { d: NodeDesc; selected: b
       )}
     </>
   )
-  const cls = `topo-node${d.off ? ' topo-node-off' : ''}${selected ? ' topo-node-selected' : ''}`
+  const cls = `topo-node${d.off ? ' topo-node-off' : ''}${d.pending ? ' topo-node-pending' : ''}${selected ? ' topo-node-selected' : ''}`
   // Mit eigener Aktion kein Knopf um den Knopf: ein Feld, der Link darin ist das Ziel
   if (d.action) {
     return <div ref={nodeRef} className={cls} data-node={d.id}>{body}<span className="topo-node-action">{d.action}</span></div>
@@ -224,22 +276,10 @@ const COLS: { title: string; sub: (t: TopologyDto) => string; empty: string }[] 
   { title: 'Daten', sub: () => 'Datenbank · Volumes', empty: 'Keine Datenbank, keine Volumes' },
 ]
 
-interface Box { x: number; y: number; w: number; h: number; col: Col }
-
-function edgePath(a: Box, b: Box): string {
-  if (a.col === b.col) {
-    // Gleiche Spalte (Datenbank → ihr Volume): Bogen rechts aussen, nie durch einen Knoten
-    const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x + b.w, y2 = b.y + b.h / 2
-    return `M${x1} ${y1} C${x1 + 18} ${y1}, ${x2 + 18} ${y2}, ${x2} ${y2}`
-  }
-  const [l, r] = a.col < b.col ? [a, b] : [b, a]
-  const x1 = l.x + l.w, y1 = l.y + l.h / 2, x2 = r.x, y2 = r.y + r.h / 2
-  const mx = (x1 + x2) / 2
-  return `M${x1} ${y1} C${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
-}
-
-function Canvas({ t, cols, nodes, selected, onSelect }: {
+function Canvas({ t, cols, nodes, selected, onSelect, hub, reduced }: {
   t: TopologyDto; cols: NodeDesc[][]; nodes: Map<string, NodeDesc>; selected: string | null; onSelect: (id: string) => void
+  /** Etappe 4: Live-Verkehr (Punkte, Bündel, Zähler) */
+  hub: LiveHub; reduced: boolean
 }) {
   const body = useRef<HTMLDivElement>(null)
   const els = useRef(new Map<string, HTMLElement>())
@@ -292,6 +332,7 @@ function Canvas({ t, cols, nodes, selected, onSelect }: {
         <svg className="topo-edges" width={boxes.w} height={boxes.h} viewBox={`0 0 ${boxes.w || 1} ${boxes.h || 1}`} aria-hidden="true">
           {ordered.map((e) => <EdgeView key={`${e.from}>${e.to}`} e={e} a={boxes.at.get(e.from)!} b={boxes.at.get(e.to)!} />)}
         </svg>
+        {boxes.at.size > 0 && <LiveLayer hub={hub} boxes={boxes.at} reduced={reduced} />}
         {cols.map((list, i) => (
           <div key={i} className="topo-col" aria-label={COLS[i]!.title} role="group">
             {list.length === 0 && <p className="topo-col-empty">{COLS[i]!.empty}</p>}
@@ -354,26 +395,43 @@ export function Topology(props: TopologyProps) {
   const q = useQuery({
     queryKey: ['topology', p.id],
     queryFn: () => api.topology(p.id),
-    // CPU/RAM sind Momentaufnahmen: einmal pro Minute; Zustandswechsel kommen über den Ereignisstrom
-    refetchInterval: FALLBACK_MS,
+    // CPU/RAM sind Momentaufnahmen: einmal pro Minute; Zustandswechsel kommen über den Ereignisstrom.
+    // Etappe 4: solange ein neuer Dienst deployt wird, alle 3 s (gestrichelt → normal)
+    refetchInterval: (query) => (query.state.data?.topology.edit?.changes.some((c) => c.status === 'deploying') ? 3_000 : FALLBACK_MS),
   })
   const narrow = useMedia('(max-width: 700px)')
+  const reduced = useMedia('(prefers-reduced-motion: reduce)')
   const [picked, setPicked] = useState<string | null>(null)
   const [full, setFull] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const titleId = useId()
   const fullTitleId = useId()
+  const noteId = useId()
   const t = q.data?.topology
+  // Etappe 4: Live-Verkehr (ein Strom für Fläche und vergrösserten Dialog)
+  const hub = useLiveTraffic(p.id, narrow ? [] : t?.edges)
 
   const layout = useMemo(() => {
     if (!t) return null
     const c = columns(t)
-    const items: Picked[][] = [c.access.map((a) => ({ kind: 'access' as const, a })), c.hosts.map((h) => ({ kind: 'host' as const, h })), c.apps.map((s) => ({ kind: 'service' as const, s })), c.data]
+    const items: Picked[][] = [c.access.map((a) => ({ kind: 'access' as const, a })), c.hosts.map((h) => ({ kind: 'host' as const, h })), c.apps, c.data]
     const cols = items.map((list) => list.map((x) => describe(x, t, onPublish)))
     const byId = new Map<string, Picked>()
-    for (const list of items) for (const x of list) byId.set(x.kind === 'access' ? x.a.id : x.kind === 'host' ? x.h.id : x.kind === 'service' ? x.s.id : x.v.id, x)
+    for (const list of items) for (const x of list) byId.set(pickedId(x), x)
     const nodes = new Map(cols.flat().map((d) => [d.id, d]))
     return { cols, byId, nodes }
   }, [t]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeDone = (c: ServiceChangeDto) => {
+    setAdding(false)
+    setRemoving(null)
+    setPicked(c.kind === 'add' ? `pending:${c.id}` : `svc:${c.service}`)
+    setNotice(c.prNumber
+      ? `Pull Request #${c.prNumber} angelegt – ${c.kind === 'add' ? 'der Dienst erscheint' : 'der Dienst verschwindet'} nach dem Merge und Deploy.`
+      : c.kind === 'add' ? `Dienst ${c.service} wird erstellt – Deploy läuft.` : `Dienst ${c.service} wird entfernt – Deploy läuft.`)
+  }
 
   if (!t && q.isError) return <div className="tab-panel"><ErrorState what="Der Aufbau" error={q.error} retrying={q.isFetching} onRetry={() => void q.refetch()} /></div>
   if (!t || !layout) {
@@ -393,9 +451,25 @@ export function Topology(props: TopologyProps) {
     <div className="topo-legend">
       {!narrow && <span><i className="topo-legend-line" aria-hidden="true" />verbunden</span>}
       {!narrow && <span><i className="topo-legend-line topo-legend-off" aria-hidden="true" />aus</span>}
-      <span>Knoten wählen zeigt Details</span>
+      {!narrow && <LiveLegend hub={hub} reduced={reduced} />}
+      {narrow && <span>Knoten wählen zeigt Details</span>}
     </div>
   )
+
+  // Etappe 4: «+ Dienst» nur bei Compose; ohne Weg (Git ohne GitHub-App) erklärend gesperrt
+  const edit = t.kind === 'compose' ? t.edit : undefined
+  const addButton = edit && (
+    <button
+      type="button"
+      className="button-small"
+      aria-disabled={edit.way ? undefined : true}
+      aria-describedby={edit.way ? undefined : noteId}
+      onClick={() => { if (edit.way) setAdding(true) }}
+    >
+      <span aria-hidden="true">+</span> Dienst
+    </button>
+  )
+  const sideProps = { onSelect: setPicked, onRemove: setRemoving, onDismissed: () => setNotice(null) }
 
   return (
     <div className="tab-panel topo">
@@ -404,6 +478,7 @@ export function Topology(props: TopologyProps) {
           <h2 id={titleId}>Aufbau</h2>
           <span className="topo-head-end">
             <span className="muted num">{counts}</span>
+            {addButton}
             {!narrow && (
               <button type="button" className="button-small" onClick={() => setFull(true)}>
                 <IconExpand size={14} />Vergrössern
@@ -411,12 +486,20 @@ export function Topology(props: TopologyProps) {
             )}
           </span>
         </div>
+        {edit && !edit.way && edit.reason && (
+          <p className="topo-head-note" id={noteId}>
+            {edit.reason}{edit.reason.includes('GitHub') && <> <Link to="/server/github">GitHub verbinden</Link></>}
+          </p>
+        )}
+        {notice && <p className="topo-head-note topo-head-ok" role="status">{notice}</p>}
         {narrow
           ? <List t={t} cols={layout.cols} selected={selected} onSelect={setPicked} />
-          : <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} />}
+          : <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} hub={hub} reduced={reduced} />}
         {legend}
       </section>
-      {current && <Side {...props} t={t} x={current} onSelect={setPicked} />}
+      {current && <Side {...props} {...sideProps} t={t} x={current} />}
+      {edit?.way && <AddServiceDialog p={p} t={t} open={adding} onClose={() => setAdding(false)} onDone={changeDone} />}
+      {edit?.way && removing && <RemoveServiceDialog p={p} service={removing} way={edit.way} open onClose={() => setRemoving(null)} onDone={changeDone} />}
       {/* Ganzes Fenster: dieselbe Fläche und Seitenkarte, gewählter Knoten bleibt gewählt; Esc schliesst */}
       {!narrow && (
         <Modal open={full} onClose={() => setFull(false)} labelledBy={fullTitleId} initialFocus=".topo-full-close" full>
@@ -429,10 +512,10 @@ export function Topology(props: TopologyProps) {
           </div>
           <div className="topo topo-full">
             <section className="topo-card topo-main" aria-labelledby={fullTitleId}>
-              <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} />
+              <Canvas t={t} cols={layout.cols} nodes={layout.nodes} selected={selected} onSelect={setPicked} hub={hub} reduced={reduced} />
               {legend}
             </section>
-            {current && <Side {...props} t={t} x={current} onSelect={setPicked} />}
+            {current && <Side {...props} {...sideProps} t={t} x={current} />}
           </div>
         </Modal>
       )}
@@ -442,7 +525,15 @@ export function Topology(props: TopologyProps) {
 
 /* --- Seitenkarte -------------------------------------------------------------------- */
 
-function Side(props: TopologyProps & { t: TopologyDto; x: Picked; onSelect: (id: string) => void }) {
+type SideProps = TopologyProps & {
+  t: TopologyDto
+  onSelect: (id: string) => void
+  /** Etappe 4: «Entfernen …» (Dialog mit Eintippen des Namens) */
+  onRemove: (service: string) => void
+  onDismissed: () => void
+}
+
+function Side(props: SideProps & { x: Picked }) {
   const { x } = props
   return (
     <aside className="topo-card topo-side" aria-label="Details zum gewählten Knoten">
@@ -450,7 +541,36 @@ function Side(props: TopologyProps & { t: TopologyDto; x: Picked; onSelect: (id:
       {x.kind === 'host' && <HostSide {...props} h={x.h} />}
       {x.kind === 'access' && <AccessSide {...props} a={x.a} />}
       {x.kind === 'volume' && <VolumeSide {...props} v={x.v} />}
+      {x.kind === 'pending' && <ChangeSide {...props} c={x.c} />}
     </aside>
+  )
+}
+
+/** Etappe 4: neuer Dienst, der noch nicht läuft (bzw. dessen Änderung scheiterte) */
+function ChangeSide({ p, c, onDeployments, onDismissed }: SideProps & { c: ServiceChangeDto }) {
+  const qc = useQueryClient()
+  const st = changeState(c)
+  const tpl = c.template ? serviceTemplate(c.template) : null
+  const dismiss = useMutation({
+    mutationFn: () => api.dismissServiceChange(p.id, c.id),
+    onSuccess: () => { onDismissed(); void qc.invalidateQueries({ queryKey: ['topology', p.id] }) },
+  })
+  const text = c.note ?? (c.status === 'deploying'
+    ? 'Die neue compose.yaml wird deployt. Sobald der Dienst läuft, erscheint er hier normal.'
+    : c.status === 'pr_open' ? 'Der Dienst erscheint, sobald der Pull Request gemergt und deployt ist.' : null)
+  return (
+    <>
+      <SideHead title={c.service} badge={<Pill {...st} />} sub={tpl ? `${tpl.label} · neuer Dienst` : 'Neuer Dienst'} />
+      {text && <p className="topo-side-text topo-side-gap">{text}</p>}
+      <div className="topo-side-actions">
+        {c.prUrl && <a className="button button-small" href={c.prUrl} target="_blank" rel="noreferrer">Pull Request #{c.prNumber} <IconExternal /></a>}
+        {c.deploymentId && onDeployments && <button type="button" className="button-small" onClick={onDeployments}>Deployments ansehen</button>}
+        {(c.status === 'failed' || c.status === 'closed') && (
+          <button type="button" className="button-small" disabled={dismiss.isPending} aria-busy={dismiss.isPending || undefined} onClick={() => dismiss.mutate()}>Ausblenden</button>
+        )}
+      </div>
+      {dismiss.isError && <p className="error" role="alert">{(dismiss.error as Error).message}</p>}
+    </>
   )
 }
 
@@ -538,9 +658,12 @@ function LastLines({ projectId, service }: { projectId: string; service: string 
   )
 }
 
-function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSelect }: TopologyProps & { t: TopologyDto; s: TopologyServiceDto; onSelect: (id: string) => void }) {
+function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSelect, onRemove }: SideProps & { s: TopologyServiceDto }) {
   const [confirming, setConfirming] = useState(false)
-  const st = serviceState(s)
+  const removal = openRemoval(t, s.name)
+  const st = removal ? changeState(removal) : serviceState(s)
+  // Etappe 4: Entfernen nur bei Compose, nie der Web-Dienst, nicht während einer offenen Änderung
+  const removable = t.kind === 'compose' && Boolean(t.edit?.way) && !s.web && !removal
   const isStatic = t.kind === 'static'
   const restartable = !isStatic && p.desiredState === 'running' && Boolean(p.activeDeployment)
   const sub = isStatic
@@ -592,6 +715,7 @@ function ServiceSide({ p, t, s, onLogs, onPublish, onRestart, restartBusy, onSel
       <div className="topo-side-actions">
         {!confirming && <button type="button" className="button-small" onClick={() => onLogs(t.kind === 'compose' ? s.name : null)}>{isStatic ? 'Alle Zugriffe' : 'Alle Logs'}</button>}
         {restartable && !confirming && <button type="button" className="button-small" disabled={restartBusy} onClick={() => setConfirming(true)}>Neu starten</button>}
+        {removable && !confirming && <button type="button" className="button-small" onClick={() => onRemove(s.name)}>Entfernen …</button>}
         {confirming && (
           <InlineConfirm
             label="Neu starten bestätigen"
@@ -620,7 +744,11 @@ function HostSide({ t, h, onManageHeaders, onSelect }: TopologyProps & { t: Topo
     : h.fallback ? 'ohne Zertifikat (nip.io)' : 'ohne Zertifikat (http)'
   return (
     <>
-      <SideHead title={h.hostname} badge={<Pill {...tls} />} sub={h.fallback ? `nip.io-Ausweich · ${hostWays(h)}` : 'Route in Caddy'} />
+      <SideHead
+        title={h.hostname}
+        badge={<Pill {...tls} />}
+        sub={h.fallback ? `nip.io-Ausweich · ${hostWays(h)}` : h.internal ? `Eigene Adresse von ${target?.name ?? 'Dienst'} · nur intern, nie öffentlich` : 'Route in Caddy'}
+      />
       <dl className="topo-side-dl">
         <dt>Wege</dt><dd>{h.ways.map((w) => WAY_LONG[w]).join(', ')}</dd>
         <dt>TLS</dt><dd>{tlsText}</dd>

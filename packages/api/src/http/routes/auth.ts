@@ -7,7 +7,8 @@ import { isoOrNull } from '../../lib/dates.js'
 import { audit } from '../../domain/audit.js'
 import { AppError } from '../../lib/errors.js'
 import { publish } from '../../lib/events.js'
-import { getUiPrefs, setUiPrefs } from '../../domain/ui-prefs.js'
+import { getUiPrefs, setUiPrefs, unlockUi } from '../../domain/ui-prefs.js'
+import { markAchievementsSeen, syncAchievements } from '../../domain/achievements.js'
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/auth/login', async (request, reply) => {
@@ -43,15 +44,27 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       passwordChangedAt: pw.changedAt,
       passwordSource: pw.source,
       theme: prefs.theme,
-      win95Unlocked: prefs.win95Unlocked ?? false,
+      unlocks: prefs.unlocks ?? [],
       setup: prefs.setup ?? null,
       bellSeenAt: prefs.bellSeenAt ?? null,
       lastEnvironment: prefs.lastEnvironment ?? null,
+      // Etappe 7: Spass-Funktionen (Standard an), Matrix-Regen (Standard aus), Disketti (Standard an)
+      fun: prefs.fun !== false,
+      matrix: prefs.matrix === true,
+      disketti: prefs.disketti !== false,
     }
   })
 
+  // Etappe 7: Achievements (prüft die Regeln über die echten Daten, trägt Neues ein)
+  app.get('/auth/achievements', async () => syncAchievements())
+  // Gemeldet (Konfetti gezeigt): nicht noch einmal
+  app.post('/auth/achievements/seen', async (request) => markAchievementsSeen(request.body))
+
   // Darstellung (Hell/Dunkel/System) – nur mit Anmeldung (Wächter: /auth/* nie mit Token)
   app.put('/auth/preferences', async (request) => setUiPrefs(request.body, request.actor))
+
+  // Freischaltung (Easter Egg, z. B. «Windows 95»): { id } hinzufügen, idempotent; nur mit Anmeldung
+  app.post('/auth/unlocks', async (request) => unlockUi(request.body, request.actor))
 
   // Nur mit Anmeldung (Wächter), nie mit API-Token.
   app.post('/auth/password', async (request, reply) => {

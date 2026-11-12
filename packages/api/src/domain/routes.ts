@@ -4,7 +4,8 @@ import { config, net, primaryHost, aliasHosts } from '../config.js'
 import { caddyTlsOptionsAll, tlsPhases, cloudflareFor } from './cloudflare-settings.js'
 import { allEnvironments, defaultEnvironmentId, primaryHostIn, aliasHostsIn, urlForHostIn } from './environments.js'
 import * as caddy from '../drivers/caddy.js'
-import { needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
+import { gameHostPatterns, needsCacheEvict, withoutCertificates } from '../drivers/caddy-config.js'
+import { funEnabled, getUiPrefs } from './ui-prefs.js'
 import * as docker from '../drivers/docker.js'
 import { log } from '../lib/log.js'
 import { conflict } from '../lib/errors.js'
@@ -14,6 +15,11 @@ import { effectivePausePage, renderPausePage, UI_HOST_LABEL, type RouteTarget, t
 import { isProjectScoped } from '../lib/names.js'
 import { pausePageTemplate, displayTimeZone, writePauseFile } from './pause-page.js'
 import type { HeaderRuleSpec } from '../security/header-rules.js'
+import { internalServiceRoutes, type InternalServiceRoute } from '../lib/internal-routes.js'
+import { composeWebContainer } from '../lib/compose.js'
+import { statusRouteSpec } from '../status/route.js'
+import { assertPreviewTargets, withoutPublicPreviewRoutes } from '../lib/previews.js'
+import { isPreviewProject, previewPublicError } from './preview-guard.js'
 
 /**
  * Hostnamen und Caddy-Abgleich.
@@ -112,6 +118,14 @@ export async function setRoutes(
   targets: RouteTarget[],
   subdomain?: string,
 ): Promise<void> {
+  // Etappe 6: eine Vorschau bekommt nie ein öffentliches Ziel
+  if (await isPreviewProject(projectId)) {
+    try {
+      assertPreviewTargets(targets)
+    } catch {
+      throw previewPublicError()
+    }
+  }
   // M9: interne Adresse unter der Basis der Umgebung des Projekts
   const host = primaryHostIn(await envOfProject(projectId), subdomain ?? slug)
 
@@ -149,6 +163,8 @@ interface RouteRow {
   deploymentId: string | null
   /** compose: Name des Web-Containers aus dem Artefakt */
   webContainer: string | null
+  /** compose (Etappe 4): Dienste mit eigener interner Adresse */
+  internalRoutes: { service: string; port: number }[]
   /** Öffentlich pausiert: Wartungsseite statt Projekt */
   paused: boolean
   /** Pausiert: eigene Seite des Projekts (null = Vorlage) und «Voraussichtlich zurück» */
@@ -173,6 +189,7 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       pausedAt: schema.routes.pausedAt,
       pausePage: schema.routes.pausePage,
       pauseBackAt: schema.routes.pauseBackAt,
+      previewOf: schema.projects.previewOf,
     })
     .from(schema.routes)
     .innerJoin(schema.projects, eq(schema.routes.projectId, schema.projects.id))
@@ -180,13 +197,16 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       schema.deployments,
       and(eq(schema.deployments.projectId, schema.projects.id), eq(schema.deployments.isActive, true)),
     )
+  // Etappe 6, zweite Sicherung: nie eine öffentliche Route für eine Vorschau
+  const previewIds = new Set(rows.filter((r) => r.previewOf).map((r) => r.projectId))
+  const allowed = withoutPublicPreviewRoutes(rows, (id) => previewIds.has(id))
 
   // Nur Projekte mit aktivem Deployment bekommen eine Route. Ein gestopptes
   // Projekt verschwindet damit aus Caddy, statt in einen toten Upstream zu
   // zeigen. Ausnahme: ein pausierter öffentlicher Name zeigt die
   // Wartungsseite, ob das Projekt läuft oder nicht.
   const paused = (r: (typeof rows)[number]) => r.target === 'public' && r.pausedAt !== null
-  return rows
+  return allowed
     .filter((r) => paused(r) || (r.deploymentId !== null && r.desiredState === 'running'))
     .map((r) => ({
       paused: paused(r),
@@ -202,7 +222,22 @@ async function currentRouteRows(): Promise<RouteRow[]> {
       port: r.port,
       deploymentId: r.deploymentId,
       webContainer: r.artifact?.webContainer ?? null,
+      internalRoutes: r.artifact?.internalRoutes ?? [],
     }))
+}
+
+/**
+ * Etappe 4: interne Adressen der Dienste (Adminer usw.) aus den aktuellen
+ * Routen – nur intern, siehe lib/internal-routes.ts.
+ */
+export async function currentInternalServiceRoutes(taken: Set<string> = new Set()): Promise<InternalServiceRoute[]> {
+  const rows = await currentRouteRows()
+  const env = new Map(rows.map((r) => [r.projectId, r.environmentId]))
+  return internalServiceRoutes(rows, {
+    hostFor: (projectId, label) => primaryHostIn(env.get(projectId) ?? defaultEnvironmentId(), label),
+    containerFor: (slug, service) => composeWebContainer(docker.projectNetworkName(slug), service),
+    taken,
+  })
 }
 
 /** Container, an den Caddy den Verkehr eines Projekts gibt. */
@@ -327,9 +362,9 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
             return undefined
           })
         : undefined
-      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root } })
+      specs.push({ hosts, kind: 'maintenance', cidrs, pause: { ...pause, root }, visits: true })
     } else if (r.sourceType === 'static') {
-      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra })
+      specs.push({ hosts, kind: 'files', root: siteRootFor(r.slug), cidrs, ...extra, visits: true })
     } else if (r.port && r.deploymentId) {
       specs.push({
         hosts,
@@ -337,7 +372,38 @@ export async function buildRouteSpecs(edgeCidrs: string[] = []): Promise<caddy.R
         upstream: `${upstreamHost({ ...r, deploymentId: r.deploymentId }, legacy)}:${r.port}`,
         cidrs,
         ...extra,
+        // Etappe 3: Besucher-Log (nur Projekte, nie die Oberfläche)
+        visits: true,
       })
+    }
+  }
+
+  // Etappe 4: eigene interne Adressen von Diensten (x-airlock-internal) – nur LAN/Tailnet, nie öffentlich
+  for (const ir of await currentInternalServiceRoutes(seen)) {
+    const envId = rows.find((r) => r.projectId === ir.projectId)?.environmentId
+    const h = headers.get(ir.projectId)
+    seen.add(ir.hostname)
+    specs.push({
+      hosts: [ir.hostname, ...aliasesForHost(ir.hostname, envId)],
+      kind: 'proxy',
+      upstream: ir.upstream,
+      cidrs: cidrsForTargets(ir.targets, net.lanCidr(), config.tailnetCidr),
+      ...(h ? { headers: h.rules } : {}),
+    })
+  }
+
+  // Etappe 5: Statusseiten (status.<hauptzone>), nur über den Tunnel, Inhalt aus dem Container airlock-status
+  if (edgeCidrs.length) {
+    const pages = await db.select().from(schema.statusPages).where(eq(schema.statusPages.enabled, true))
+    const templates = pages.length ? await db.select().from(schema.headerRuleTemplates) : []
+    for (const sp of pages) {
+      const env = allEnvironments().find((e) => e.id === sp.environmentId)
+      if (!env || !sp.hostname || seen.has(sp.hostname)) continue
+      const spec = statusRouteSpec({
+        hostname: sp.hostname, dir: env.slug, upstream: config.STATUS_UPSTREAM, edgeCidrs,
+        templates: templates.filter((t) => t.environmentId === env.id),
+      })
+      if (spec) { seen.add(sp.hostname); specs.push(spec) }
     }
   }
 
@@ -451,12 +517,19 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
   lastCloudflaredCidrs = edge.join(',')
   const specs = await buildRouteSpecs(edge)
   const tlsList = caddyTlsOptionsAll().map(({ envId: _envId, ...t }) => t)
+  // Etappe 7: Snake auf der 404-Seite – nur interne Namen aller Umgebungen, nur aus LAN/Tailnet,
+  // nie über den Tunnel (caddy-config.ts); aus, wenn die Spass-Funktionen aus sind
+  const internalCidrs = [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128']
+  const notFoundGame = funEnabled(await getUiPrefs())
+    ? { hosts: gameHostPatterns(allEnvironments().flatMap((e) => [primaryHostIn(e.id, 'x'), ...aliasHostsIn(e.id, 'x')])), cidrs: internalCidrs.filter(Boolean) }
+    : null
   // Nur neu laden, wenn sich etwas ändert: jedes Neuladen schliesst ruhende
   // Keep-Alive-Verbindungen, und ein Client (etwa ein MCP-Client) kann genau
   // dann eine Anfrage verlieren.
   const buildWith = (cspForward: boolean) => caddy.buildCaddyConfig(specs, {
       ipFilter: config.CADDY_IP_FILTER,
-      cidrs: [net.lanCidr(), config.tailnetCidr, '127.0.0.0/8', '::1/128'],
+      cidrs: internalCidrs,
+      notFoundGame,
       adminSocket: config.CADDY_ADMIN_SOCKET,
       // M9: eine interne Basis je Umgebung (Datenbank); Standard-Umgebung auch alte Einrichtung über .env
       tls: tlsList,
@@ -468,6 +541,8 @@ async function reconcileCaddyNow(force: boolean): Promise<void> {
       probeSocket: config.CADDY_PROBE_SOCKET || null,
       // M8: CSP-Meldungen vom Host des Projekts an Airlock (Body-Limit, Ratenlimit in Caddy)
       cspReportUpstream: cspForward ? config.AIRLOCK_UPSTREAM : null,
+      // Etappe 3: Besucher-Log als Datei im Volume caddy_access (aus, wenn Airlock es nicht lesen soll)
+      visitsLogDir: config.ACCESS_LOG_DIR ? config.CADDY_ACCESS_LOG_DIR || null : null,
     })
   let build = buildWith(!cspForwardUnsupported)
   // Laut werden, wenn :443 aus der Konfiguration fällt – nur «off» darf das

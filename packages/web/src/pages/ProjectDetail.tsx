@@ -17,7 +17,9 @@ import { PageHead } from '../components/PageHead.js'
 import { IconWarn } from '../components/Icons.js'
 import { RowMenu } from '../components/RowMenu.js'
 import { DeployList, useDeployments } from '../components/DeployList.js'
+import { PreviewsSection } from '../components/Previews.js'
 import { SiteAccess } from '../components/SiteAccess.js'
+import { TrafficTab } from '../components/Traffic.js'
 import { OfflineMenuItems, StopStartMenuItems, type MenuConfirm } from '../components/ProjectMenuItems.js'
 import { KIND_LABEL, shortVersion } from '../lib/format.js'
 import { poll } from '../lib/live.js'
@@ -32,7 +34,7 @@ const IconGear = () => (
   </svg>
 )
 
-type Tab = 'uebersicht' | 'aufbau' | 'deployments' | 'logs' | 'security' | 'einstellungen'
+type Tab = 'uebersicht' | 'aufbau' | 'deployments' | 'logs' | 'besucher' | 'security' | 'einstellungen'
 
 export function ProjectDetail() {
   const { id = '' } = useParams()
@@ -40,8 +42,9 @@ export function ProjectDetail() {
   const navigate = useNavigate()
   const ep = useEnvPath()
   const [params, setParams] = useSearchParams()
-  // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt
-  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'security', 'einstellungen']
+  // Reihenfolge laut Auftrag «Aufbau»; Einstellungen rechts abgesetzt.
+  // Etappe 3: «Besucher» (Auswertung) gleich nach «Logs»/«Zugriffe» (einzelne Einträge)
+  const TABS: Tab[] = ['uebersicht', 'aufbau', 'deployments', 'logs', 'besucher', 'security', 'einstellungen']
   const fromUrl = params.get('tab') as Tab | null
   const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'uebersicht'
   // Der Reiter steht in der Adresse: Links aus der Übersicht («Log ansehen»)
@@ -99,6 +102,20 @@ export function ProjectDetail() {
         const el = document.getElementById('header-caddy')
         if (el) el.scrollIntoView({ block: 'start' })
         else if (tries > 0) setTimeout(() => go(tries - 1), 100)
+      }
+      go(20)
+    })
+  }
+  // Etappe 6: «In den Einstellungen einschalten» (Deployments › Vorschauen) → Einstellungen › Vorschauen
+  const goToPreviewSettings = () => {
+    void setTab('einstellungen').then((ok) => {
+      if (!ok) return
+      const go = (tries: number) => {
+        const el = document.getElementById('set-vorschauen')
+        if (!el) { if (tries > 0) setTimeout(() => go(tries - 1), 100); return }
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+        el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
       }
       go(20)
     })
@@ -188,6 +205,7 @@ export function ProjectDetail() {
     deployments: { label: 'Deployments', count: deployCount, countLabel: `${deployCount} ${deployCount === 1 ? 'Deployment' : 'Deployments'}` },
     // Statische Seiten haben keinen Container: dort das Zugriffs-Log von Caddy
     logs: { label: isStatic ? 'Zugriffe' : 'Logs', live: !isStatic && Boolean(health.data?.container?.running) },
+    besucher: { label: 'Besucher' },
     einstellungen: { label: 'Einstellungen' },
   }
 
@@ -304,6 +322,7 @@ export function ProjectDetail() {
             setWatching(depId)
             showOverviewIfFree()
           }}
+          onPreviewSettings={goToPreviewSettings}
         />
       )}
       {tab === 'aufbau' && (
@@ -314,6 +333,7 @@ export function ProjectDetail() {
           onRestart={() => act.mutate('restart')}
           restartBusy={act.isPending}
           onManageHeaders={() => manageHeaders()}
+          onDeployments={() => void setTab('deployments')}
         />
       )}
       {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : (
@@ -325,6 +345,7 @@ export function ProjectDetail() {
           onService={(s) => setParams(s ? { tab: 'logs', dienst: s } : { tab: 'logs' }, { replace: true })}
         />
       ))}
+      {tab === 'besucher' && <TrafficTab p={p} onAccessLog={isStatic ? () => void setTab('logs') : undefined} />}
       {tab === 'security' && <ProjectSecurity projectId={p.id} sourceType={p.sourceType} />}
       {tab === 'einstellungen' && (
         <ProjectSettings
@@ -394,7 +415,7 @@ function ProjectHeadMenu({ p, busy, onAct, onDelete }: { p: ProjectDto; busy: bo
 
 /* --- Deployments ----------------------------------------------------------- */
 
-function Deployments({ projectId, onRollback }: { projectId: string; onRollback: (deploymentId: string) => void }) {
+function Deployments({ projectId, onRollback, onPreviewSettings }: { projectId: string; onRollback: (deploymentId: string) => void; onPreviewSettings: () => void }) {
   const list = useDeployments(projectId)
   if (!list.data && list.isError) return <ErrorState plural what="Die Deployments" error={list.error} retrying={list.isFetching} onRetry={() => void list.refetch()} />
   if (!list.data) return <Loading label="Deployments werden geladen"><SkRows n={6} /></Loading>
@@ -420,6 +441,8 @@ function Deployments({ projectId, onRollback }: { projectId: string; onRollback:
         Ein Rollback startet die frühere Fassung mit den heutigen Umgebungsvariablen.
         Aufbewahrt werden die letzten fünf erfolgreichen Fassungen.
       </p>
+      {/* Etappe 6: Vorschau-Deploys je Branch/PR (nur intern) */}
+      <PreviewsSection projectId={projectId} onSettings={onPreviewSettings} />
     </div>
   )
 }

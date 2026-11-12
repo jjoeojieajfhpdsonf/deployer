@@ -122,6 +122,20 @@ const envSchema = z.object({
   // Alle so viele Sekunden: Auto-Deploy nach Merge und Status offener Pull Requests (SPEC: 5 Minuten)
   AUTO_DEPLOY_INTERVAL_S: z.coerce.number().int().min(30).default(300),
 
+  // Etappe 3 «Besucher»: Caddy schreibt das Zugriffs-Log der Projekt-Namen als
+  // JSON-Datei (mit Rotation) in das Volume caddy_access. CADDY_ACCESS_LOG_DIR
+  // ist der Ordner im Caddy-Container, ACCESS_LOG_DIR derselbe Ordner in
+  // Airlock (nur lesend eingehängt). Leer = aus (keine Besucher-Auswertung).
+  CADDY_ACCESS_LOG_DIR: z.string().default('/var/log/airlock-access'),
+  ACCESS_LOG_DIR: z.string().default('/caddy-access'),
+
+  // Etappe 5 «Statusseite»: Airlock schreibt die Seite je Umgebung nach
+  // STATUS_DIR/<umgebung>/ (Volume status_site); der Container airlock-status
+  // liefert sie nur lesend aus, Caddy leitet status.<hauptzone> dorthin.
+  // Leer = keine Ablage (Entwicklung ohne Compose): Airlock misst trotzdem.
+  STATUS_DIR: z.string().default(''),
+  STATUS_UPSTREAM: z.string().default('airlock-status:8080'),
+
   // Anzeigename des Servers in der Oberfläche (Brotkrumen), z.B. "thinkpad".
   SERVER_NAME: z.string().trim().max(40).default(''),
 })

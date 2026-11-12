@@ -7,6 +7,7 @@ import { api, type EnvironmentDto, type HeaderTemplateDto } from '../api.js'
 import { PageHead } from '../components/PageHead.js'
 import { CloudflareSetup } from '../components/CloudflareSetup.js'
 import { PausePageSettings } from '../components/PausePageSettings.js'
+import { StatusPageSettings } from '../components/StatusPageSettings.js'
 import { Field } from '../components/Field.js'
 import { ConfirmDialog, InlineConfirm } from '../components/Confirm.js'
 import { useEnv, useEnvPath } from '../lib/env.js'
@@ -15,7 +16,7 @@ import { Domains } from './Domains.js'
 import { ScrollToHash } from './System.js'
 import { Tokens } from './Tokens.js'
 
-export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards' | 'tokens'
+export type EnvSettingsSection = 'allgemein' | 'cloudflare' | 'standards' | 'statusseite' | 'tokens'
 
 /**
  * M9: Einstellungen der Umgebung (SPEC «Umgebungen»). Allgemein (Name,
@@ -31,6 +32,8 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
     { key: 'allgemein', to: ep('/einstellungen'), label: 'Allgemein' },
     { key: 'cloudflare', to: ep('/einstellungen/cloudflare'), label: 'Cloudflare & HTTPS' },
     { key: 'standards', to: ep('/einstellungen/standards'), label: 'Standards' },
+    // Etappe 5: öffentliche Statusseite der Umgebung (status.<hauptzone>) und Störungen
+    { key: 'statusseite', to: ep('/einstellungen/statusseite'), label: 'Statusseite' },
     // Antwort 9: Tokens gehören zur Umgebung (seit M9)
     { key: 'tokens', to: ep('/einstellungen/tokens'), label: 'Tokens' },
   ]
@@ -74,6 +77,7 @@ export function EnvironmentSettings({ section }: { section: EnvSettingsSection }
           <PausePageSettings />
         </>
       )}
+      {section === 'statusseite' && <StatusPageSettings />}
       {section === 'tokens' && <Tokens />}
     </section>
   )

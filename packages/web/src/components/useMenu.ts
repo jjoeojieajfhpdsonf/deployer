@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Einträge, durch die die Pfeiltasten wandern (gesperrte überspringen). */
-const ITEMS = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled])'
+const ITEMS = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled]), [role="menuitemcheckbox"]:not([disabled])'
 
 /**
  * Gemeinsames Verhalten der Menüs (Profil, «…» der Projektkarten).
@@ -88,7 +88,7 @@ export function useMenu({ onOpen, onClose }: { onOpen?: () => void; onClose?: ()
     const list = listRef.current
     // Einträge nur über die Pfeiltasten erreichbar (Menü-Muster), nicht über Tab
     const prepare = () => {
-      list?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]').forEach((el) => { el.tabIndex = -1 })
+      list?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]').forEach((el) => { el.tabIndex = -1 })
       list?.querySelectorAll<HTMLElement>('.menu-sep').forEach((el) => el.setAttribute('role', 'separator'))
     }
     prepare()

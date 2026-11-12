@@ -19,6 +19,7 @@ before(async () => {
   app.post('/api/v1/projects', async () => ({ angelegt: true }))
   app.get('/api/v1/tokens', async () => ({ tokens: [] }))
   app.post('/api/v1/auth/login', async () => ({ ok: true }))
+  app.post('/api/v1/auth/unlocks', async () => ({ theme: 'system', unlocks: ['win95'] }))
   app.get('/health', async () => ({ ok: true }))
   await app.ready()
 })
@@ -40,6 +41,10 @@ describe('Auth-Wächter (REVIEW M3: Prozentkodierung)', () => {
   test('auch POST nicht', async () => {
     const r = await app.inject({ method: 'POST', url: '/%61pi/v1/projects', payload: {} })
     assert.ok(r.statusCode === 401 || r.statusCode === 404, String(r.statusCode))
+  })
+
+  test('Freischalten (POST /auth/unlocks) nur mit Anmeldung', async () => {
+    assert.equal((await app.inject({ method: 'POST', url: '/api/v1/auth/unlocks', payload: { id: 'win95' } })).statusCode, 401)
   })
 
   test('offene Pfade bleiben offen', async () => {

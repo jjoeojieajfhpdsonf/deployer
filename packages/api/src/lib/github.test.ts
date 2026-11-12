@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
-import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, isFixBranch, GITHUB_PERMISSIONS } from './github.js'
+import { GitHub, GithubError, appJwt, githubManifest, githubRepoOf, manifestFormAction, fixBranchName, isFixBranch, isServiceBranch, serviceBranchName, GITHUB_PERMISSIONS } from './github.js'
 
 /**
  * GitHub-Attrappe: ein fetch, der Aufrufe mitschreibt und je Pfad antwortet.
@@ -106,6 +106,80 @@ describe('GitHub-Attrappe: Abläufe', () => {
     assert.ok(!g.calls.some((c) => c.method === 'PATCH' || c.path.includes('/git/refs/heads/main')), 'Standard-Branch wird nie geändert')
     assert.ok(g.calls.every((c) => c.auth === 'token ghs_x'))
     await assert.rejects(() => gh.createFixPullRequest('t', { owner: 'o', repo: 'r', base: 'main', branch: 'main', title: '', body: '', message: '', files: [], delete: [] }), /eigenen Branch/)
+  })
+
+  test('Etappe 4: Dienst als Pull Request auf airlock/dienst-… – nie Fix- oder Hauptbranch', async () => {
+    const g = fake({
+      'GET /repos/joel/shop/git/ref/heads/main': () => [200, { object: { sha: 'base000' } }],
+      'GET /repos/joel/shop/git/commits/base000': () => [200, { tree: { sha: 'tree000' } }],
+      'POST /repos/joel/shop/git/trees': () => [201, { sha: 'tree111' }],
+      'POST /repos/joel/shop/git/commits': () => [201, { sha: 'commit111' }],
+      'POST /repos/joel/shop/git/refs': () => [201, {}],
+      'POST /repos/joel/shop/pulls': () => [201, { number: 12, html_url: 'https://github.com/joel/shop/pull/12' }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    const branch = serviceBranchName('add', 'db', '9f3a1c22-7d40-4e8b-9b1a-0c2d6e8f4a17')
+    assert.equal(branch, 'airlock/dienst-neu-db-9f3a1c22')
+    assert.equal(serviceBranchName('remove', 'Cache_2', 'abcdef12'), 'airlock/dienst-weg-cache-2-abcdef12')
+    const pr = await gh.createServicePullRequest('ghs_x', {
+      owner: 'joel', repo: 'shop', base: 'main', branch, title: 'Dienst db', body: 'b', message: 'm', files: [{ path: 'compose.yaml', content: 'services: {}\n' }], delete: [],
+    })
+    assert.equal(pr.number, 12)
+    assert.equal((g.calls.find((c) => c.path.endsWith('/pulls'))!.body as { head: string }).head, branch)
+    assert.ok(!g.calls.some((c) => c.path.includes('/git/refs/heads/main') && c.method !== 'GET'))
+    const bad = { owner: 'o', repo: 'r', base: 'main', title: '', body: '', message: '', files: [], delete: [] }
+    await assert.rejects(() => gh.createServicePullRequest('t', { ...bad, branch: 'main' }), /eigenen Branch/)
+    await assert.rejects(() => gh.createServicePullRequest('t', { ...bad, branch: 'airlock/fix-x-12345678' }), /eigenen Branch/)
+    assert.ok(isServiceBranch(branch) && !isFixBranch(branch))
+  })
+
+  test('Etappe 6: Branches (mehrere Seiten) und offene PRs, Forks erkannt', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ name: `b${i}`, commit: { sha: `${i}`.padStart(40, '0') } }))
+    const g = fake({
+      'GET /repos/joel/shop/branches': () => [200, g.calls.filter((c) => c.path.startsWith('/repos/joel/shop/branches')).length === 1 ? page1 : [{ name: 'main', commit: { sha: 'f'.repeat(40) } }]],
+      'GET /repos/joel/shop/pulls': () => [200, [
+        { number: 7, html_url: 'https://github.com/joel/shop/pull/7', head: { ref: 'feature/login', sha: 'a'.repeat(40), repo: { full_name: 'Joel/Shop' } } },
+        { number: 8, html_url: 'https://github.com/joel/shop/pull/8', head: { ref: 'main', sha: 'b'.repeat(40), repo: { full_name: 'fremd/shop' } } },
+        { number: 9, html_url: 'https://github.com/joel/shop/pull/9', head: { ref: 'x', sha: 'c'.repeat(40), repo: null } },
+      ]],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    const branches = await gh.branches('ghs_x', 'joel', 'shop')
+    assert.equal(branches.length, 101)
+    assert.deepEqual(branches.at(-1), { name: 'main', sha: 'f'.repeat(40) })
+    const pulls = await gh.openPulls('ghs_x', 'joel', 'shop')
+    assert.deepEqual(pulls.map((p) => [p.number, p.branch, p.fromFork]), [[7, 'feature/login', false], [8, 'main', true], [9, 'x', true]])
+    assert.match(g.calls.find((c) => c.path.startsWith('/repos/joel/shop/pulls'))!.path, /state=open/)
+  })
+
+  test('Etappe 6: Kommentar anlegen und ersetzen, Check-Run anlegen und abschliessen', async () => {
+    const g = fake({
+      'POST /repos/joel/shop/issues/7/comments': () => [201, { id: 555 }],
+      'PATCH /repos/joel/shop/issues/comments/555': () => [200, { id: 555 }],
+      'POST /repos/joel/shop/check-runs': () => [201, { id: 77 }],
+      'PATCH /repos/joel/shop/check-runs/77': () => [200, { id: 77 }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    assert.deepEqual(await gh.createComment('ghs_x', 'joel', 'shop', 7, 'erst'), { id: 555 })
+    await gh.updateComment('ghs_x', 'joel', 'shop', 555, 'dann')
+    assert.deepEqual(g.calls.map((c) => [c.method, c.path, (c.body as { body: string }).body]), [['POST', '/repos/joel/shop/issues/7/comments', 'erst'], ['PATCH', '/repos/joel/shop/issues/comments/555', 'dann']])
+    const run = await gh.createCheckRun('ghs_x', 'joel', 'shop', { name: 'Airlock-Vorschau', status: 'in_progress', title: 'läuft', summary: 's', headSha: 'a'.repeat(40) })
+    assert.equal(run.id, 77)
+    assert.equal((g.calls[2]!.body as { head_sha: string; conclusion?: string }).head_sha, 'a'.repeat(40))
+    assert.equal((g.calls[2]!.body as { conclusion?: string }).conclusion, undefined)
+    await gh.updateCheckRun('ghs_x', 'joel', 'shop', 77, { name: 'Airlock-Vorschau', status: 'completed', conclusion: 'success', title: 'Note A', summary: 's' })
+    assert.equal((g.calls[3]!.body as { conclusion: string }).conclusion, 'success')
+  })
+
+  test('Etappe 6: Token mit «Checks: write» nur auf Wunsch, Rechte der Installation lesbar', async () => {
+    const g = fake({
+      'POST /app/installations/:id/access_tokens': () => [201, { token: 'ghs_y', expires_at: '2026-11-10T20:00:00Z' }],
+      'GET /app/installations/:id': () => [200, { id: 42, permissions: { contents: 'write', pull_requests: 'write', checks: 'write', metadata: 'read' } }],
+    })
+    const gh = new GitHub({ api: 'https://api.test', fetch: g.fetch })
+    assert.equal((await gh.installationPermissions('jwt', '42')).checks, 'write')
+    await gh.installationToken('jwt', '42', ['shop'], { checks: 'write' })
+    assert.deepEqual((g.calls[1]!.body as { permissions: unknown }).permissions, { ...GITHUB_PERMISSIONS, checks: 'write' })
   })
 
   test('Fehler von GitHub kommen mit Status und Meldung', async () => {

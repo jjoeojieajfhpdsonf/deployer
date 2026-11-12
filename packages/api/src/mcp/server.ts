@@ -39,6 +39,8 @@ import { environmentById } from '../domain/environments.js'
 import type { DeploymentDto, ProjectDto } from '@airlock/shared'
 import { backupStatus } from '../backup/run.js'
 import { mcpBackupStatus } from '../backup/summary.js'
+import { mcpTraffic } from '../traffic/summary.js'
+import { trafficSummary } from '../traffic/service.js'
 
 /**
  * MCP-Server von Airlock. Pro Sitzung eine Instanz mit der Identität des
@@ -248,6 +250,15 @@ export function createMcpServer(identity: TokenIdentity): McpServer {
   // gehen nur in der Oberfläche mit Anmeldung (kein Restore per MCP).
   tool('get_backup_status', 'Stand der Sicherung des Servers (nur lesen): letzter Lauf, Alter des letzten erfolgreichen Backups, Art des Ziels (ohne Zugangsdaten), nächster Termin', {}, async () => {
     return ok(mcpBackupStatus(await backupStatus()))
+  })
+
+  // Etappe 3: nur lesen – Zähler aus Caddys Zugriffs-Log, keine IPs, keine einzelnen Anfragen
+  tool('get_traffic', 'Besucher eines Projekts (nur lesen): Aufrufe und eindeutige Besucher je Tag, Verlauf, Top-Seiten, Referrer, Länder, Geräte, Statuscodes, getrennt nach Internet, Tailnet und Heimnetz. Ohne Cookies und ohne gespeicherte IP; Bots, Healthchecks und eigene Prüfungen sind nicht mitgezählt.', {
+    project,
+    range: z.enum(['24h', '7d', '30d']).default('7d').describe('Zeitraum: letzte 24 Stunden (stündlich), 7 oder 30 Tage (täglich)'),
+  }, async (a) => {
+    const p = await findProject(scope, a.project)
+    return ok(mcpTraffic(p.slug, await trafficSummary(p.id, a.range, 'all')))
   })
 
   /* --- Anlegen und Dateien --------------------------------------------------- */

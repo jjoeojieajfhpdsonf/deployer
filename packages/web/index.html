@@ -16,10 +16,14 @@
       (function () {
         var p = 'system'
         try { p = localStorage.getItem('airlock.theme') || localStorage.getItem('deployer.theme') || 'system' } catch (e) {}
-        // «Windows 95» (verstecktes Theme): eigenes Token-Set, helles Schema
-        var win95 = p === 'win95'
-        var dark = !win95 && (p === 'dark' || (p !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches))
-        document.documentElement.dataset.theme = win95 ? 'win95' : dark ? 'dark' : 'light'
+        // Versteckte Themes: «Windows 95» (helles Schema) und «Terminal» (dunkles Schema), je eigenes Token-Set
+        if (p === 'win95' || p === 'terminal') {
+          document.documentElement.dataset.theme = p
+          document.documentElement.style.colorScheme = p === 'terminal' ? 'dark' : 'light'
+          return
+        }
+        var dark = p === 'dark' || (p !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
       })()
     </script>

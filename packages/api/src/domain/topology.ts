@@ -9,7 +9,9 @@ import { certProblemNow, currentCert } from '../jobs/cert.js'
 import { activeDeployment, effectiveKind } from './deployments.js'
 import { defaultEnvironmentId } from './environments.js'
 import { publicEnabled } from './public.js'
-import { routeDtosFor } from './routes.js'
+import { currentInternalServiceRoutes, routeDtosFor } from './routes.js'
+import { urlForHostIn } from './environments.js'
+import { changesForTopology, serviceAbility } from './services-real.js'
 import { buildTopology, parseComposeSpec, type ComposeSpec, type ContainerInfo } from './topology-build.js'
 
 type Project = typeof schema.projects.$inferSelect
@@ -47,7 +49,13 @@ export async function projectTopology(project: Project): Promise<TopologyDto> {
 
   const tailnetIp = net.tailscaleIp()
   const lanIp = net.lanIp()
-  return buildTopology({
+  // Etappe 4: interne Adressen von Diensten (wie Caddy sie bekommt) und Dienst-Änderungen
+  const [internal, ability, changes] = await Promise.all([
+    kind === 'compose' ? currentInternalServiceRoutes().catch(() => []) : Promise.resolve([]),
+    serviceAbility(project).catch(() => ({ way: null, reason: null })),
+    kind === 'compose' ? changesForTopology(project).catch(() => []) : Promise.resolve([]),
+  ])
+  const topology = buildTopology({
     kind,
     slug: project.slug,
     port: project.port,
@@ -69,7 +77,11 @@ export async function projectTopology(project: Project): Promise<TopologyDto> {
     tlsProblem,
     usage,
     limits: { cpu: Number(project.cpuLimit), memoryMb: project.memoryLimitMb },
+    internalHosts: internal.filter((r) => r.projectId === project.id).map((r) => ({
+      service: r.service, hostname: r.hostname, url: urlForHostIn(project.environmentId, r.hostname), ways: r.targets,
+    })),
   })
+  return { ...topology, edit: { way: ability.way, reason: ability.reason, changes, webService: kind === 'compose' ? webService : null } }
 }
 
 async function readCompose(file: string): Promise<ComposeSpec | null> {

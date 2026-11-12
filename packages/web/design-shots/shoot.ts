@@ -15,7 +15,8 @@ import { parseArgs } from 'node:util'
 import { createServer } from 'vite'
 import { chromium, type BrowserContext, type Page, type Route } from 'playwright'
 import * as fx from './fixtures.js'
-import { DEFAULT_PAUSE_PAGE } from '@airlock/shared'
+import { createHash } from 'node:crypto'
+import { DEFAULT_PAUSE_PAGE, renderSnakePage, renderStatusFeed, renderStatusPage, snakeCsp, STATUS_CSS, STATUS_FILES, STATUS_JS } from '@airlock/shared'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const webRoot = resolve(here, '..')
@@ -28,12 +29,16 @@ const json = (route: Route, body: unknown, status = 200) =>
 
 /** Antwort der API aus den Fixtures; unbekannte Pfade: leeres Objekt. */
 /** Darstellung einer Aufnahme; «win95» ist das versteckte Theme (dann auch freigeschaltet) */
-export type ShotTheme = 'light' | 'dark' | 'win95'
+export type ShotTheme = 'light' | 'dark' | 'win95' | 'terminal'
+/** Versteckte Themes sind in ihrer Aufnahme freigeschaltet (nur das eigene) */
+const unlocksFor = (t: ShotTheme): import('@airlock/shared').UnlockId[] => (t === 'win95' || t === 'terminal' ? [t] : [])
 
 function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, count?: number): { status?: number; body: unknown } {
   const u = new URL(path, 'http://x')
   const full = u.pathname.replace(/^\/api\/v1/, '')
-  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, win95Unlocked: theme === 'win95' } : { loggedIn: false, theme: null } }
+  if (full === '/auth/me') return { body: loggedIn ? { ...fx.me, theme, unlocks: unlocksFor(theme) } : { loggedIn: false, theme: null } }
+  // Etappe 7: Achievements (alle schon gemeldet; Szene «achievement-neu» mit einem frischen)
+  if (full === '/auth/achievements') return { body: fx.achievements() }
   let m: RegExpMatchArray | null
   // M9: Umgebungen; Pfade unter /environments/<slug>/… wie die bisherigen beantworten
   if (full === '/environments') return { body: { environments: fx.environments } }
@@ -43,6 +48,9 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if (envSlug && p === '/cloudflare') return { body: envSlug === 'labor' ? fx.cloudflareLabor : fx.cloudflare }
   if (envSlug && p === '/header-templates') return { body: { templates: fx.headerTemplates } }
   if (envSlug && p === '/lan-dns') return { body: fx.lanDns }
+  // Etappe 5: Statusseite der Umgebung und Störungen
+  if (envSlug && p === '/status-page' && method === 'GET') return { body: { statusPage: fx.statusPage(envSlug) } }
+  if (envSlug && p === '/incidents' && method === 'GET') return { body: { incidents: fx.incidents(envSlug) } }
   if (envSlug === 'labor' && p === '/projects') return { body: { projects: [] } }
   if ((m = p.match(/^\/projects\/([^/]+)\/move$/)) && method === 'GET') return { body: { preview: fx.movePreview(m[1]!, u.searchParams.get('to') ?? 'verein') } }
   if (method === 'POST' && (m = p.match(/^\/projects\/([^/]+)\/public\/pause$/))) return { body: fx.pauseResult(m[1]!) }
@@ -80,6 +88,9 @@ function api(path: string, method: string, loggedIn: boolean, theme: ShotTheme, 
   if ((m = p.match(/^\/projects\/([^/]+)\/header-rules$/))) return { body: fx.headerRules(m[1]!) }
   if ((m = p.match(/^\/projects\/([^/]+)\/fix-requests$/))) return { body: { fixes: fx.fixRequests(m[1]!) } }
   if ((m = p.match(/^\/projects\/([^/]+)\/auto-deploy$/))) return { body: fx.autoDeploy(m[1]!) }
+  // Etappe 6: Vorschauen (Standard: aus; Szenen mit s.previews: an/leer)
+  if ((m = p.match(/^\/projects\/([^/]+)\/previews$/))) return { body: fx.previews(m[1]!) }
+  if ((m = p.match(/^\/projects\/([^/]+)\/preview-env$/))) return { body: fx.previewEnv(m[1]!) }
   if ((m = p.match(/^\/projects\/[^/]+\/findings\/([^/]+)\/fix-hint$/))) return { body: fx.fixHint(m[1]!) }
   if (p === '/audit') {
     const events = fx.audit(u.searchParams.get('targetId') ?? undefined)
@@ -147,6 +158,31 @@ type Shot = {
   el?: string
   /** Erlaubte Pixelabweichung (visuelle Tests), wenn nur Kantenglättung schwankt – mit Begründung an der Szene */
   maxDiff?: number
+  /**
+   * Etappe 3: Besucher-Auswertung (GET /projects/:id/traffic, /traffic/today). Ohne Angabe
+   * antworten diese Pfade leer – die Oberfläche verhält sich dann wie «nicht eingerichtet»
+   * (keine Karte, keine Zahl in der Liste), die übrigen Szenen bleiben unverändert.
+   */
+  traffic?: fx.TrafficVariant
+  /** Etappe 4: Aufbau von Fotoalbum in einem Zustand (Dienst wird erstellt, PR offen …) */
+  topo?: fx.TopoVariant
+  /** Etappe 4: Live-Strom liefert feste Anfragen (fx.trafficLive), sobald der Aufbau steht */
+  live?: boolean
+  /**
+   * Etappe 5: die öffentliche Statusseite selbst (eigenes HTML/CSS/JS aus
+   * @airlock/shared, nicht die Oberfläche) unter /__statusseite/ mit diesen Daten
+   */
+  statusPage?: 'stoerung' | 'ruhig'
+  /** Etappe 6: Vorschauen am Projekt an (mit drei Vorschauen) oder an und noch leer */
+  previews?: fx.PreviewVariant
+  /** Etappe 7: Disketti eingeschaltet (in den Fixtures sonst aus) */
+  disketti?: boolean
+  /** Etappe 7: Matrix-Regen eingeschaltet und als festes Bild gezeichnet (auch bei reduzierter Bewegung) */
+  matrix?: boolean
+  /** Etappe 7: die Snake-Seite für unbekannte interne Namen unter /__snake/ (mit ihrer CSP, fester Zufall) */
+  snake?: boolean
+  /** Etappe 7: ein eben erreichtes, noch nicht gemeldetes Achievement */
+  achievementNew?: boolean
 }
 const P = fx.detailProjectId
 const S = fx.securityProjectId
@@ -154,6 +190,137 @@ const W = 'p-wetter'
 const L = fx.liveProjectId
 const Z = fx.pausedProjectId
 const H = 'p-hallo'
+
+/** Etappe 6: Vorschau-Deploys (Reiter Deployments und Einstellungen) */
+function previewShots(group: string): Shot[] {
+  const dep = `/u/example/projekte/${P}?tab=deployments`
+  const set = `/u/example/projekte/${P}?tab=einstellungen`
+  const toSection = async (pg: Page) => {
+    await pg.locator('section[aria-labelledby="pv-title"]').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await pg.evaluate(() => window.scrollBy(0, -24))
+    await pg.waitForTimeout(250)
+  }
+  const toSettings = async (pg: Page) => {
+    await pg.locator('#set-vorschauen').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await pg.waitForTimeout(300)
+  }
+  // Nur der Abschnitt (el): beim Scrollen ans Seitenende lag die feste Seitenleiste sonst je nach Lauf
+  // um Bruchteile eines Pixels anders (flackernder Vergleich)
+  const section = 'section[aria-labelledby="pv-title"]'
+  return [
+    { group, name: 'vorschauen', path: dep, previews: 'an', el: section, prepare: toSection },
+    {
+      group, name: 'vorschauen-loeschen', path: dep, previews: 'an', el: section,
+      prepare: async (pg) => {
+        await toSection(pg)
+        await pg.getByRole('button', { name: 'Vorschau galerie-raster löschen …' }).click()
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: 'vorschauen-leer', path: dep, previews: 'leer', el: section, prepare: toSection },
+    { group, name: 'vorschauen-aus', path: dep, el: section, prepare: toSection },
+    { group, name: 'vorschauen-einstellungen', path: set, previews: 'an', el: '#set-vorschauen', prepare: toSettings },
+    {
+      group, name: 'vorschauen-variablen', path: set, previews: 'an', el: '#set-vorschauen',
+      prepare: async (pg) => {
+        await toSettings(pg)
+        await pg.locator('#set-vorschauen').getByRole('button', { name: 'Bearbeiten' }).click()
+        await pg.locator('#set-vorschauen form').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: 'vorschauen-nicht-moeglich', path: `/u/example/projekte/${H}?tab=einstellungen`, el: '#set-vorschauen', prepare: toSettings },
+  ]
+}
+
+/**
+ * Etappe 7: Spass-Paket – Terminal freischalten («sudo» in ⌘K), Matrix-Regen (festes Bild),
+ * Achievements im Konto und als Meldung, Snake-Seite, Disketti (nur Windows 95: Befund,
+ * gescheiterter Deploy, «Ja» öffnet den Ablauf).
+ */
+function spassShots(group: string): Shot[] {
+  const bubble = async (pg: Page) => { await pg.locator('.disketti-bubble').waitFor(); await pg.waitForTimeout(250) }
+  return [
+    {
+      group, name: 'terminal-freigeschaltet', path: '/projekte', full: false, me: { unlocks: [] },
+      prepare: async (pg) => {
+        await pg.keyboard.press('ControlOrMeta+k')
+        await pg.keyboard.type('sudo')
+        await pg.getByRole('option', { name: /Terminal/ }).waitFor()
+        await pg.waitForTimeout(300)
+      },
+    },
+    { group, name: 'matrix-regen', path: '/projekte', full: false, matrix: true, prepare: async (pg) => { await pg.locator('canvas.matrix-rain').waitFor(); await pg.waitForTimeout(250) } },
+    { group, name: 'konto-achievements', path: '/konto', el: 'section[aria-labelledby="ach-title"]' },
+    { group, name: 'achievement-neu', path: '/projekte', full: false, achievementNew: true, prepare: async (pg) => { await pg.getByText('Achievement: Nachtschicht').waitFor(); await pg.waitForTimeout(400) } },
+    { group, name: 'snake-404', path: '/__snake/', snake: true, loggedIn: false, full: false, prepare: async (pg) => { await pg.locator('#game:not([hidden])').waitFor(); await pg.waitForTimeout(200) } },
+    { group, name: 'disketti', path: `/projekte/${S}`, full: false, disketti: true, prepare: bubble },
+    { group, name: 'disketti-fehler', path: '/projekte/p-fehler-build', full: false, disketti: true, prepare: bubble },
+    {
+      group, name: 'disketti-ja', path: `/projekte/${S}`, full: false, disketti: true,
+      prepare: async (pg) => {
+        await bubble(pg)
+        await pg.locator('.disketti-bubble').getByRole('button', { name: 'Ja', exact: true }).click()
+        await pg.locator('.finding .claude-fix').first().waitFor()
+        await pg.waitForTimeout(500)
+      },
+    },
+  ]
+}
+
+/** Etappe 4: Szenen des Aufbaus mit Live-Verkehr und «Dienst hinzufügen/entfernen» (Präfix für die Ergebnisbilder) */
+function aufbau2Shots(group: string, prefix = ''): Shot[] {
+  const path = `/projekte/${P}?tab=aufbau`
+  const n = (name: string) => (prefix ? `${prefix}${name.replace(/^aufbau-/, '')}` : name)
+  const openAdd = async (pg: Page) => {
+    await pg.locator('.topo-head .button-small', { hasText: 'Dienst' }).click()
+    await pg.locator('.dialog .svc-templates').waitFor()
+    await pg.locator('.svc-template', { hasText: 'Redis' }).click()
+    await pg.getByRole('checkbox', { name: 'worker' }).check()
+    await pg.waitForTimeout(250)
+  }
+  const pick = (id: string) => async (pg: Page) => { await pg.locator(`.topo-node[data-node="${id}"]`).first().click(); await pg.waitForTimeout(200) }
+  const shots: Shot[] = [
+    { group, name: n('aufbau-live'), path, live: true, full: false, prepare: async (pg) => { await pg.locator('.topo-rate').first().waitFor(); await pg.waitForTimeout(300) } },
+    {
+      group, name: n('aufbau-live-vergroessert'), path, live: true, full: false,
+      prepare: async (pg) => {
+        await pg.locator('.topo-rate').first().waitFor()
+        await pg.getByRole('button', { name: 'Vergrössern' }).click()
+        await pg.locator('.dialog-full .topo-rate').first().waitFor()
+        await pg.waitForTimeout(300)
+      },
+    },
+    { group, name: n('aufbau-dienst-dialog'), path, full: false, prepare: openAdd },
+    {
+      group, name: n('aufbau-dienst-diff'), path, full: false,
+      prepare: async (pg) => {
+        await openAdd(pg)
+        await pg.getByRole('button', { name: 'Weiter: Änderung ansehen' }).click()
+        await pg.locator('.dialog .diff').waitFor()
+        await pg.waitForTimeout(250)
+      },
+    },
+    { group, name: n('aufbau-dienst-wird-erstellt'), path, full: false, topo: 'wird-erstellt', patch: { sourceType: 'files', source: { type: 'files' } as never }, prepare: pick('pending:c-1') },
+    { group, name: n('aufbau-dienst-pr-offen'), path, full: false, topo: 'pr-offen', prepare: pick('pending:c-2') },
+    { group, name: n('aufbau-dienst-gescheitert'), path, full: false, topo: 'gescheitert', patch: { sourceType: 'files', source: { type: 'files' } as never }, prepare: pick('pending:c-1') },
+    { group, name: n('aufbau-ohne-github'), path, full: false, topo: 'ohne-github' },
+    { group, name: n('aufbau-adminer'), path, full: false, topo: 'adminer', prepare: pick('host:adminer--fotoalbum.int.example.ch') },
+    {
+      // Chat-Projekt: Volume löschen wählbar, standardmässig aus (bei Git-Projekten bleibt es immer)
+      group, name: n('aufbau-dienst-entfernen'), path, full: false, topo: 'chat', patch: { sourceType: 'files', source: { type: 'files' } as never },
+      prepare: async (pg) => {
+        await pick('svc:db')(pg)
+        await pg.getByRole('button', { name: 'Entfernen …' }).click()
+        await pg.locator('.confirm-dialog .choice').waitFor()
+        await pg.waitForTimeout(250)
+      },
+    },
+  ]
+  // Ergebnisbilder: nur die Hauptzustände
+  return prefix ? shots.filter((s) => /live$|dienst-dialog|dienst-diff|wird-erstellt|entfernen|adminer/.test(s.name)) : shots
+}
+
 const shots: Shot[] = [
   { group: 'shell', name: 'shell-profilmenue', path: '/projekte', full: false, prepare: async (pg) => { await pg.locator('.profile-trigger').click(); await pg.waitForTimeout(250) } },
   // Windows 95 als Desktop (nur mit --themes win95 sinnvoll): Fenster-Knöpfe, Taskleiste, Startmenü, Beenden
@@ -208,7 +375,7 @@ const shots: Shot[] = [
   },
   {
     // Easter Egg: Konami-Code getippt → Meldung «Windows 95 freigeschaltet», vierte Option im Profilmenü
-    group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { win95Unlocked: false },
+    group: 'win95', name: 'win95-freigeschaltet', path: '/projekte', full: false, me: { unlocks: [] },
     prepare: async (pg) => {
       // Tasten als keydown-Ereignisse: derselbe Lauscher, aber ohne das (sanfte, ungleich weite)
       // Scrollen der echten Pfeiltasten – sonst verrutscht das Bild von Lauf zu Lauf
@@ -286,6 +453,12 @@ const shots: Shot[] = [
   },
   // Ergebnisbilder neben der Vorlage (docs/design-cal/aufbau/umgesetzt-*.png): erster Bildschirm wie die Vorlage
   { group: 'aufbau-umgesetzt', name: 'umgesetzt', path: `/projekte/${P}?tab=aufbau`, full: false },
+  // Etappe 4: Live-Verkehr (fester Zustand: reduced-motion → nur Zähler «12/min» und Summe in der Legende),
+  // auch im vergrösserten Dialog; «+ Dienst» (Vorlage, Diff mit Variablen), neuer Dienst gestrichelt
+  // «wird erstellt», Pull Request offen, gescheitert, ohne GitHub-App gesperrt, Adminer mit interner Adresse,
+  // Entfernen mit Eintippen des Namens (Volume standardmässig behalten)
+  ...aufbau2Shots('aufbau-2'),
+  ...aufbau2Shots('aufbau-2-umgesetzt', 'umgesetzt-'),
   { group: 'projekte', name: 'projekt-deployments', path: `/projekte/${P}?tab=deployments` },
   { group: 'projekte', name: 'projekt-logs', path: `/projekte/${P}?tab=logs` },
   // UI-Qualität 4: Suche mit Hervorhebung, Zeilennummern, nur Warnungen und Fehler; leerer Zustand
@@ -404,6 +577,8 @@ const shots: Shot[] = [
   },
   { group: 'formulare', name: 'neues-projekt-chat', path: '/projekte/neu?quelle=chat', full: false },
   { group: 'formulare', name: 'konto', path: '/konto' },
+  // Etappe 7: Spass-Paket
+  ...spassShots('spass'),
   // UI-Qualität 8: Glocke, Sitzung abgelaufen, Rückfrage beim Verlassen, neues Token
   {
     group: 'sitzung', name: 'glocke', path: '/projekte', full: false,
@@ -840,6 +1015,31 @@ const shots: Shot[] = [
     group: 'p5', name: '5-zugriffe-4xx', path: `/projekte/${H}?tab=logs`, full: false,
     prepare: async (pg) => { await pg.getByRole('button', { name: /^4xx/ }).click(); await pg.waitForTimeout(150) },
   },
+  // Etappe 3: Besucher – Reiter (öffentliche Seite mit Karte), mit Städten (DB-IP), nach Zugang getrennt,
+  // internes Projekt (ohne Länder), leer, wartet auf das Log, nicht eingerichtet; Wert per Tastatur;
+  // Karte in der Übersicht und «Aufrufe heute» in der Projektliste
+  { group: 'besucher', name: 'besucher', path: `/projekte/${H}?tab=besucher`, traffic: 'ok' },
+  { group: 'besucher', name: 'besucher-staedte', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  {
+    group: 'besucher', name: 'besucher-tailnet', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false,
+    prepare: async (pg) => { await pg.getByRole('group', { name: 'Nach Zugang trennen' }).getByRole('button', { name: /^Tailnet/ }).click(); await pg.waitForTimeout(250) },
+  },
+  { group: 'besucher', name: 'besucher-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
+  { group: 'besucher', name: 'besucher-leer', path: `/projekte/${H}?tab=besucher`, traffic: 'leer', full: false },
+  { group: 'besucher', name: 'besucher-wartet', path: `/projekte/${H}?tab=besucher`, traffic: 'wartet', full: false },
+  { group: 'besucher', name: 'besucher-aus', path: `/projekte/${H}?tab=besucher`, traffic: 'aus', full: false },
+  {
+    group: 'besucher', name: 'besucher-wert', path: `/projekte/${H}?tab=besucher`, traffic: 'ok', full: false, el: '.tr-page > .panel',
+    prepare: async (pg) => { await pg.locator('.tr-chart svg').first().focus(); await pg.keyboard.press('End'); await pg.keyboard.press('ArrowLeft'); await pg.waitForTimeout(150) },
+  },
+  { group: 'besucher', name: 'projekt-uebersicht-besucher', path: `/projekte/${H}`, traffic: 'ok' },
+  { group: 'besucher', name: 'projekte-besucher', path: '/projekte', traffic: 'ok' },
+  // Ergebnisbilder der Etappe (docs/design-cal/analytics/umgesetzt-*.png)
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher', path: `/projekte/${H}?tab=besucher`, traffic: 'ok' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher-staedte', path: `/projekte/${H}?tab=besucher`, traffic: 'staedte' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-besucher-intern', path: `/projekte/${P}?tab=besucher`, traffic: 'ok' },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-uebersicht', path: `/projekte/${H}`, traffic: 'ok', full: false },
+  { group: 'analytics-umgesetzt', name: 'umgesetzt-projekte', path: '/projekte', traffic: 'ok', full: false },
   { group: 'p6', name: '6-einstellungen-statisch', path: `/projekte/${H}?tab=einstellungen` },
   { group: 'p6', name: '6-einstellungen-container', path: `/projekte/${P}?tab=einstellungen` },
   {
@@ -1012,6 +1212,50 @@ const shots: Shot[] = [
   { group: 'm9', name: 'm9-audit', path: '/u/example/audit', full: false },
   { group: 'm9', name: 'm9-server', path: '/server' },
   { group: 'm9', name: 'm9-tokens', path: '/u/example/tokens', full: false },
+  /* Etappe 5: Statusseite – Einstellungen der Umgebung (an, offene und behobene Störung), Störung melden,
+     aus (Umgebung ohne Hauptzone), Abschnitt in den Projekteinstellungen */
+  { group: 'statusseite', name: 'statusseite-einstellungen', path: '/u/example/einstellungen/statusseite' },
+  {
+    group: 'statusseite', name: 'statusseite-melden', path: '/u/example/einstellungen/statusseite', full: false,
+    prepare: async (pg) => {
+      await pg.getByRole('button', { name: 'Störung melden' }).click()
+      await pg.locator('#sp-new-title').fill('Mail-Versand verzögert')
+      await pg.locator('#sp-new-body').fill('Nachrichten kommen mit bis zu 10 Minuten Verspätung an.')
+      await pg.locator('.sp-form').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(250)
+    },
+  },
+  {
+    group: 'statusseite', name: 'statusseite-aus', path: '/u/labor/einstellungen/statusseite', full: false,
+    // Unter Last war die Seite nach networkidle noch leer (axe: kein main, kein h1) – auf die Überschrift warten
+    prepare: async (pg) => { await pg.locator('main h1').first().waitFor({ timeout: 8000 }) },
+  },
+  {
+    group: 'statusseite', name: 'statusseite-projekt', path: `/u/example/projekte/${P}?tab=einstellungen`, full: false, patch: { showOnStatus: true },
+    prepare: async (pg) => {
+      await pg.locator('#set-statusseite').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(300)
+    },
+  },
+  /* Etappe 5: die öffentliche Seite selbst (eigenes HTML/CSS/JS, hell/dunkel nach Gerät), Tooltip per Tastatur, ruhiger Zustand */
+  { group: 'statusseite', name: 'statusseite-oeffentlich', path: '/__statusseite/', statusPage: 'stoerung' },
+  {
+    group: 'statusseite', name: 'statusseite-oeffentlich-tooltip', path: '/__statusseite/', statusPage: 'stoerung', full: false,
+    prepare: async (pg) => {
+      // Per Tastatur: ein Tag zurück und wieder auf heute (Wetterstation, kurze Störung)
+      const days = pg.locator('.project', { hasText: 'Wetterstation' }).locator('.days')
+      await days.locator('.day[tabindex="0"]').focus()
+      await pg.keyboard.press('ArrowLeft')
+      await pg.keyboard.press('ArrowRight')
+      await days.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pg.waitForTimeout(250)
+    },
+  },
+  { group: 'statusseite', name: 'statusseite-oeffentlich-ruhig', path: '/__statusseite/', statusPage: 'ruhig' },
+  /* Etappe 6: Vorschau-Deploys – Reiter Deployments (drei Vorschauen: bereit mit PR und Scan, wird deployt,
+     fehlgeschlagen), Löschen mit Bestätigung, an und leer, aus (Hinweis); Einstellungen mit Schalter und
+     Variablen-Ebene «Vorschau», Variablen bearbeiten, ohne Git-Repo (Schalter deaktiviert mit Begründung) */
+  ...previewShots('vorschauen'),
   { group: 'zustaende', name: 'leer-projekte', path: '/projekte', empty: true },
   { group: 'zustaende', name: 'laden-projekte', path: '/projekte', full: false, hang: ['/api/v1/projects'] },
   { group: 'zustaende', name: 'api-offline', path: '/projekte', full: false, offline: true },
@@ -1021,12 +1265,24 @@ const shots: Shot[] = [
   },
 ]
 
+// Etappe 5: Ergebnisbilder (docs/design-cal/statusseite/umgesetzt-*.png) aus denselben Szenen
+shots.push(...shots.filter((s) => s.group === 'statusseite').map((s) => ({ ...s, group: 'statusseite-ergebnis', name: s.name.replace(/^statusseite-/, 'umgesetzt-') })))
+// Etappe 6: Ergebnisbilder (docs/design-cal/previews/umgesetzt-*.png)
+shots.push(...shots.filter((s) => s.group === 'vorschauen').map((s) => ({ ...s, group: 'vorschauen-ergebnis', name: s.name === 'vorschauen' ? 'umgesetzt-liste' : s.name.replace(/^vorschauen-/, 'umgesetzt-') })))
+
+// Etappe 7: Ergebnisbilder (docs/design-cal/spass/umgesetzt-*.png): Spass-Szenen und Hauptseiten im Theme «Terminal»
+shots.push(...shots.filter((s) => s.group === 'spass').map((s) => ({ ...s, group: 'spass-ergebnis', name: `umgesetzt-${s.name}` })))
+shots.push(...['projekte', 'projekt-uebersicht', 'projekt-security', 'design-bausteine', 'shell-profilmenue', 'konto'].map((n) => {
+  const s = shots.find((x) => x.name === n)!
+  return { ...s, group: 'spass-ergebnis-terminal', name: `umgesetzt-${n}`, full: false }
+}))
+
 export { shots }
 export type { Shot }
 
 /** Optionen des Browser-Kontexts für eine Aufnahme (Desktop, 1440 px) */
 export const contextOptions = (t: ShotTheme) => ({
-  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t === 'dark' ? 'dark' as const : 'light' as const,
+  viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' as const, locale: 'de-CH', timezoneId: 'Europe/Zurich', colorScheme: t === 'dark' || t === 'terminal' ? 'dark' as const : 'light' as const,
 })
 
 /**
@@ -1035,17 +1291,32 @@ export const contextOptions = (t: ShotTheme) => ({
  */
 export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, port = PORT): Promise<void> {
       await ctx.addInitScript({ content: `try { localStorage.setItem('airlock.theme', '${t}') } catch {}` })
+      // Etappe 7: Matrix-Regen als festes Bild; Snake mit festem Zufall (Futter immer am selben Ort)
+      if (s.matrix) await ctx.addInitScript({ content: 'window.__AIRLOCK_MATRIX_STILL__ = true' })
+      if (s.snake) await ctx.addInitScript({ content: `(() => { let x = 42; Math.random = () => { x = (x * 1664525 + 1013904223) % 4294967296; return x / 4294967296 } })()` })
       // Feste Adresse der Oberfläche (MCP-Adresse in Tokens, «Per Chat»): Bilder hängen nicht vom Port ab
       await ctx.addInitScript({ content: `window.__AIRLOCK_ORIGIN__ = 'https://airlock.int.example.ch'` })
       // UI-Qualität 4: Live-Ströme der Reiter «Logs» und «Zugriffe» stehen offen (ohne neue Zeilen) –
       // ohne Server würden sie sofort abbrechen und «Live-Verbindung unterbrochen» zeigen
+      // Etappe 4: ebenso der Live-Verkehr des Aufbaus; mit s.live liefert er feste Anfragen, sobald Knoten da sind
+      if (s.live) await ctx.addInitScript({ content: `window.__AIRLOCK_LIVE__ = ${JSON.stringify(fx.trafficLive())}` })
       await ctx.addInitScript({ content: `(() => {
         const Real = window.EventSource
         window.EventSource = function (url, init) {
-          if (!/\\/(logs|access)\\/stream/.test(String(url))) return new Real(url, init)
+          if (!/\\/(logs|access)\\/stream|\\/traffic\\/live/.test(String(url))) return new Real(url, init)
           const es = { url: String(url), readyState: 0, onopen: null, onmessage: null, onerror: null,
             addEventListener() {}, removeEventListener() {}, close() { es.readyState = 2 } }
-          setTimeout(() => { es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          // Schon wieder geschlossen (StrictMode baut Effekte zweimal auf): wie ein echter Strom stumm bleiben
+          setTimeout(() => { if (es.readyState === 2) return; es.readyState = 1; es.onopen && es.onopen({}) }, 0)
+          const live = /\\/traffic\\/live/.test(String(url)) && window.__AIRLOCK_LIVE__
+          if (live) {
+            const wait = setInterval(() => {
+              if (es.readyState === 2) return clearInterval(wait)
+              if (!document.querySelector('.topo-body .topo-node')) return
+              clearInterval(wait)
+              for (const e of live) es.onmessage && es.onmessage({ data: JSON.stringify(e) })
+            }, 50)
+          }
           return es
         }
         window.EventSource.CLOSED = 2; window.EventSource.OPEN = 1; window.EventSource.CONNECTING = 0
@@ -1053,6 +1324,25 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
       await ctx.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if ((url.port === String(port) && url.hostname === 'localhost') || url.hostname === '127.0.0.1') {
+          // Etappe 7: Snake-Seite – dieselbe Seite und CSP, die Caddy an unbekannte interne Namen gibt
+          if (s.snake && url.pathname.startsWith('/__snake/')) {
+            const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('base64')
+            return route.fulfill({ status: 404, contentType: 'text/html; charset=utf-8', headers: { 'content-security-policy': snakeCsp(sha) }, body: renderSnakePage() })
+          }
+          // Etappe 5: öffentliche Statusseite – dieselben Dateien, die Airlock in das Volume schreibt
+          if (s.statusPage && url.pathname.startsWith('/__statusseite/')) {
+            const data = fx.statusPublic(s.statusPage)
+            const file = url.pathname.slice('/__statusseite/'.length) || STATUS_FILES.page
+            const files: Record<string, [string, string]> = {
+              [STATUS_FILES.page]: [renderStatusPage(data), 'text/html; charset=utf-8'],
+              [STATUS_FILES.css]: [STATUS_CSS, 'text/css; charset=utf-8'],
+              [STATUS_FILES.js]: [STATUS_JS, 'text/javascript; charset=utf-8'],
+              [STATUS_FILES.json]: [JSON.stringify(data), 'application/json'],
+              [STATUS_FILES.feed]: [renderStatusFeed(data, data.incidents, 'https://status.example.ch'), 'application/rss+xml'],
+            }
+            const hit = files[file]
+            return hit ? route.fulfill({ status: 200, contentType: hit[1], body: hit[0] }) : route.fulfill({ status: 404, body: '' })
+          }
           if (url.pathname.startsWith('/api/')) {
             // M9: Listen einer Umgebung (/environments/<slug>/projects …) zählen für die Sonderfälle der
             // Szenen wie die alten Pfade ohne Umgebung (/api/v1/projects)
@@ -1060,7 +1350,10 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
             // nie beantwortet: Ladezustand («POST /pfad» nur für diese Methode)
             if (s.hang?.some((h) => path === h || `${route.request().method()} ${path}` === h)) return
             if (s.offline && url.pathname === '/api/v1/auth/me') return json(route, { error: { code: 'bad_gateway', message: 'nicht erreichbar' } }, 502)
-            if (s.me && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') return json(route, { ...fx.me, theme: t, win95Unlocked: t === 'win95', ...s.me })
+            if ((s.me || s.disketti || s.matrix) && s.loggedIn !== false && url.pathname === '/api/v1/auth/me' && route.request().method() === 'GET') {
+              return json(route, { ...fx.me, theme: t, unlocks: unlocksFor(t), ...(s.disketti ? { disketti: true } : {}), ...(s.matrix ? { matrix: true } : {}), ...s.me })
+            }
+            if (s.achievementNew && url.pathname === '/api/v1/auth/achievements') return json(route, fx.achievements('neu'))
             if (s.scanRunning && path === '/api/v1/projects' && route.request().method() === 'GET') {
               const list = (api(url.pathname, 'GET', true, t, s.count).body as { projects: import('@airlock/shared').ProjectDto[] }).projects
               return json(route, { projects: list.map((x) => (x.id === fx.runningScanProjectId && x.security ? { ...x, security: { ...x.security, status: 'running' as const } } : x)) })
@@ -1084,6 +1377,28 @@ export async function installRoutes(ctx: BrowserContext, s: Shot, t: ShotTheme, 
               return json(route, url.pathname.endsWith('/example') ? { environment: list.find((e) => e.slug === 'example') } : { environments: list })
             }
             if (s.empty && path === '/api/v1/audit') return json(route, { events: [] })
+            // Etappe 3: Besucher
+            if (s.traffic) {
+              const tm = path.match(/^\/api\/v1\/projects\/([^/]+)\/traffic$/)
+              if (tm) {
+                const range = (url.searchParams.get('range') ?? '24h') as import('@airlock/shared').TrafficRange
+                const way = (url.searchParams.get('way') ?? 'all') as import('@airlock/shared').TrafficWay | 'all'
+                return json(route, fx.traffic(tm[1]!, range, way, s.traffic))
+              }
+              if (path === '/api/v1/traffic/today') return json(route, s.traffic === 'aus' ? { views: {}, ingest: 'off' } : fx.trafficToday)
+            }
+            // Etappe 4: Aufbau-Zustände und Vorschau «Dienst hinzufügen/entfernen»
+            if (s.topo && /^\/api\/v1\/projects\/[^/]+\/topology$/.test(path)) {
+              return json(route, { topology: fx.topologyVariant(path.split('/')[4]!, s.topo) })
+            }
+            if (route.request().method() === 'POST' && /^\/api\/v1\/projects\/[^/]+\/services\/plan$/.test(path)) {
+              return json(route, { plan: fx.servicePlan(route.request().postDataJSON(), s.topo && fx.DEPLOY_VARIANTS.includes(s.topo) ? 'deploy' : 'pull_request') })
+            }
+            // Etappe 6: Vorschauen an bzw. an und leer
+            if (s.previews && route.request().method() === 'GET') {
+              const pm = path.match(/^\/api\/v1\/projects\/([^/]+)\/(previews|preview-env)$/)
+              if (pm) return json(route, pm[2] === 'previews' ? fx.previews(pm[1]!, s.previews) : fx.previewEnv(pm[1]!, s.previews))
+            }
             // M8: GitHub-Seite in zwei Zuständen (noch nichts / installiert)
             if (url.pathname === '/api/v1/github') return json(route, fx.github(Boolean(s.githubConnected)))
             // Meilenstein Backup: Server › Backup
@@ -1137,7 +1452,7 @@ export async function openShot(page: Page, s: Shot, port = PORT): Promise<void> 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 // --themes hell,dunkel,win95 (Standard: hell,dunkel); --viewport: nur das Fenster (1440×900), nie die ganze Seite
 const { values: args } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' }, themes: { type: 'string' }, viewport: { type: 'boolean' } } })
-const THEME_OF = { hell: 'light', dunkel: 'dark', win95: 'win95' } as const
+const THEME_OF = { hell: 'light', dunkel: 'dark', win95: 'win95', terminal: 'terminal' } as const
 const themes = (args.themes ?? 'hell,dunkel').split(',').map((s) => s.trim()).filter((s): s is keyof typeof THEME_OF => s in THEME_OF)
 const outDir = resolve(repo, args.out ?? 'docs/design-cal/aktuell')
 mkdirSync(outDir, { recursive: true })

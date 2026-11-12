@@ -14,6 +14,10 @@ import { ActivityIndicator } from './components/ActivityIndicator.js'
 import { Shortcuts } from './components/Shortcuts.js'
 import { KonamiUnlock, useVersionClicks } from './components/Win95.js'
 import { Taskbar } from './components/Win95Desktop.js'
+import { MatrixRain } from './components/MatrixRain.js'
+import { Disketti } from './components/Disketti.js'
+import { AchievementWatcher } from './components/Achievements.js'
+import { useFunPrefs } from './lib/fun.js'
 import { api, type MeDto } from './api.js'
 import { Login } from './pages/Login.js'
 import { Projects } from './pages/Projects.js'
@@ -99,6 +103,8 @@ export function App() {
     <EnvProvider lastEnvironment={(me.data?.loggedIn ? me.data : lastMe.current!).lastEnvironment}>
     <EnvReady fallback={shellSkeleton}>
     <CrumbsProvider>
+    {/* Etappe 7: Matrix-Regen hinter der Shell, nur während ein Deploy läuft */}
+    <ErrorBoundary scope="part"><MatrixRain /></ErrorBoundary>
     <div className="shell">
       <Rail />
       <main className="main">
@@ -126,6 +132,8 @@ export function App() {
         <ErrorBoundary scope="part"><Shortcuts /></ErrorBoundary>
         {/* Verstecktes Theme «Windows 95»: Konami-Code schaltet frei; Taskleiste und Fenster-Knöpfe nur in diesem Theme */}
         <ErrorBoundary scope="part"><KonamiUnlock /><Taskbar /></ErrorBoundary>
+        {/* Etappe 7: Disketti (nur Windows 95, nur mit echtem Fehler oder Befund), Achievements mit Konfetti */}
+        <ErrorBoundary scope="part"><Disketti /><AchievementWatcher /><FunAttribute /></ErrorBoundary>
         {/* Pro Seite: ein Fehler legt nur diese Seite still; Seitenwechsel versucht es neu */}
         <ErrorBoundary scope="page" resetKey={location.pathname}>
         <Routes>
@@ -195,6 +203,7 @@ function EnvRoutes() {
       <Route path="einstellungen" element={<EnvironmentSettings section="allgemein" />} />
       <Route path="einstellungen/cloudflare" element={<EnvironmentSettings section="cloudflare" />} />
       <Route path="einstellungen/standards" element={<EnvironmentSettings section="standards" />} />
+      <Route path="einstellungen/statusseite" element={<EnvironmentSettings section="statusseite" />} />
       <Route path="einrichtung" element={<EnvironmentSetup />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
@@ -227,6 +236,15 @@ function UnknownEnvironment({ slug }: { slug: string }) {
       </div>
     </div>
   )
+}
+
+/** Etappe 7: html[data-fun='off'] – CSS lässt dann z. B. den Cursor im Terminal-Theme stehen */
+function FunAttribute() {
+  const { fun } = useFunPrefs()
+  useEffect(() => {
+    document.documentElement.dataset.fun = fun ? 'on' : 'off'
+  }, [fun])
+  return null
 }
 
 const RAIL_KEY = 'airlock.rail.collapsed'

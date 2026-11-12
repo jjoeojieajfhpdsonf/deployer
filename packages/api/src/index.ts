@@ -12,6 +12,7 @@ import { startSecurityJobs } from './jobs/security.js'
 import { startCertJob } from './jobs/cert.js'
 import { startGatewayJob } from './jobs/gateway.js'
 import { startMonitorJob } from './jobs/monitor.js'
+import { startStatusJob } from './status/service.js'
 import { loadCloudflareSettings, ensureManagedTunnelOnBoot } from './domain/cloudflare-settings.js'
 import { loadExpirySetting } from './domain/expiry-settings.js'
 import { importLegacySettings } from './domain/environments.js'
@@ -25,8 +26,10 @@ import { abandonUnfinishedScans } from './security/scan.js'
 import { log } from './lib/log.js'
 import { registerGithub } from './domain/github.js'
 import { startAutoDeployJob } from './jobs/auto-deploy.js'
+import { startPreviewJobs } from './jobs/previews.js'
 import { startBackupJob } from './jobs/backup.js'
 import { abandonUnfinishedBackups } from './backup/run.js'
+import { startTrafficIngest, stopTrafficIngest } from './traffic/service.js'
 
 async function main(): Promise<void> {
   log.info('Airlock startet', { version: config.version, env: config.NODE_ENV })
@@ -97,14 +100,20 @@ async function main(): Promise<void> {
   await abandonUnfinishedScans()
   startSecurityJobs()
   startMonitorJob()
+  // Etappe 5: Statusseite – jede Minute messen, Störungen nach 5 Minuten, Dateien schreiben
+  startStatusJob()
   // M8: GitHub App im Fix-Assistenten, Auto-Deploy nach Merge (Polling)
   registerGithub()
   startAutoDeployJob()
+  // Etappe 6: Vorschau-Deploys je Branch/PR (Abfrage wie Auto-Deploy, kein Webhook)
+  startPreviewJobs()
   // Meilenstein Backup: abgebrochene Läufe abschliessen, nächtlicher Lauf und «48 h ohne Erfolg»
   await abandonUnfinishedBackups()
     .then((n) => n && log.warn('Abgebrochene Backup-Läufe als gescheitert markiert', { läufe: n }))
     .catch((err) => log.warn('Backup-Läufe nicht bereinigt', { err: String(err) }))
   startBackupJob()
+  // Etappe 3: Besucher aus Caddys Zugriffs-Log (Live-Strom, Stundenzähler, Löschfrist 13 Monate)
+  await startTrafficIngest().catch((err) => log.warn('Besucher-Auswertung nicht gestartet', { err: String(err) }))
 
   const app = await buildApp()
   await app.listen({ host: '0.0.0.0', port: config.PORT })
@@ -113,6 +122,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     log.info('fahre herunter', { signal })
     await app.close()
+    await stopTrafficIngest()
     await pool.end()
     process.exit(0)
   }
