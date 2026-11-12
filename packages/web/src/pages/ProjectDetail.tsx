@@ -106,12 +106,14 @@ export function ProjectDetail() {
       go(20)
     })
   }
-  // Etappe 6: «In den Einstellungen einschalten» (Deployments › Vorschauen) → Einstellungen › Vorschauen
-  const goToPreviewSettings = () => {
+  // Etappe 6: «In den Einstellungen einschalten» (Deployments › Vorschauen) → Einstellungen › Vorschauen;
+  // Nacht 3, Etappe 4: Aufbau «Ändern» beim Ausgang → Einstellungen › Ausgehende Verbindungen
+  const goToPreviewSettings = () => goToSettingsSection('set-vorschauen')
+  const goToSettingsSection = (id: string) => {
     void setTab('einstellungen').then((ok) => {
       if (!ok) return
       const go = (tries: number) => {
-        const el = document.getElementById('set-vorschauen')
+        const el = document.getElementById(id)
         if (!el) { if (tries > 0) setTimeout(() => go(tries - 1), 100); return }
         const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
         el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
@@ -334,6 +336,7 @@ export function ProjectDetail() {
           restartBusy={act.isPending}
           onManageHeaders={() => manageHeaders()}
           onDeployments={() => void setTab('deployments')}
+          onEgress={() => goToSettingsSection('set-ausgang')}
         />
       )}
       {tab === 'logs' && (isStatic ? <SiteAccess projectId={id} slug={p.slug} /> : (

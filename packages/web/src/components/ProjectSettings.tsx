@@ -21,6 +21,7 @@ import { MoveProject } from './MoveProject.js'
 import { PreviewSettings } from './Previews.js'
 import { ConfirmDialog } from './Confirm.js'
 import { RepoAccessSettings } from './RepoAccess.js'
+import { EgressSettings } from './Egress.js'
 
 /**
  * Projekt → Einstellungen: Abschnitte als Karten mit kompakten Zeilen
@@ -71,6 +72,8 @@ export function ProjectSettings({
   const sections: Section[] = [
     { id: 'set-veroeffentlichung', label: 'Veröffentlichung' },
     { id: 'set-erreichbarkeit', label: 'Erreichbarkeit' },
+    // Nacht 3, Etappe 4: ausgehende Verbindungen der Container (auch statisch: Build und Scan)
+    { id: 'set-ausgang', label: 'Ausgang' },
     { id: 'set-statusseite', label: 'Statusseite' },
     { id: 'set-umgebung', label: 'Umgebungsvariablen' },
     ...(hasContainer ? [{ id: 'set-container', label: 'Container' }] : []),
@@ -114,6 +117,7 @@ export function ProjectSettings({
       <div className="set-sections">
         <Publication p={p} request={publishRequested} onShown={onPublishShown} />
         <Reachability p={p} />
+        <EgressSettings p={p} />
         <StatusPageSection p={p} />
         <Environment p={p} env={env} request={envRequest ?? null} onShown={onEnvShown} />
         {hasContainer && (
