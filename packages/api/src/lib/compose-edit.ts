@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { isMap, isScalar, isSeq, parseDocument, type Document, type YAMLMap } from 'yaml'
-import { serviceTemplate, type AddServiceInput, type RemoveServiceInput, type ServiceTemplateId } from '@airlock/shared'
+import { GARAGE_BUCKET, serviceTemplate, type AddServiceInput, type RemoveServiceInput, type ServiceTemplateId } from '@airlock/shared'
 import { badRequest } from './errors.js'
 import { X_ENV, X_INTERNAL, normalizeCompose } from './compose.js'
 
@@ -134,13 +134,38 @@ function addEnvMap(doc: Document, service: string, entries: Record<string, strin
 
 interface Built {
   service: Record<string, unknown>
+  /** Hilfs-Dienste (Name → Inhalt), hängen dasselbe Volume ein und gehen mit dem Dienst (Garage: <name>-init) */
+  helpers?: Record<string, Record<string, unknown>>
   /** Pfad des Volumes im Container (null: keins) */
   mountPath: string | null
-  /** Projekt-Variablen mit Passwort: Name → Zweck */
-  passwords: { key: string; purpose: string }[]
+  /** Projekt-Variablen mit Passwort: Name → Zweck; gen für ein festes Format (sonst newPassword) */
+  passwords: { key: string; purpose: string; gen?: () => string }[]
   /** Verbindung, sobald die Passwörter feststehen */
   connection: (pw: Record<string, string>) => { key: string; secret: boolean; value: string }[]
 }
+
+/* --- Garage: Konfiguration ohne Geheimnisse, ein Knoten ------------------------------- */
+
+const GARAGE_DIR = '/var/lib/garage'
+const GARAGE_INIT_IMAGE = 'busybox:1.37'
+/** Einmal-Dienst, der die garage.toml schreibt */
+export const garageInitName = (service: string): string => `${service}-init`
+const GARAGE_TOML = [
+  `metadata_dir = "${GARAGE_DIR}/meta"`,
+  `data_dir = "${GARAGE_DIR}/data"`,
+  'db_engine = "sqlite"',
+  'replication_factor = 1',
+  'rpc_bind_addr = "[::]:3901"',
+  'rpc_public_addr = "127.0.0.1:3901"',
+  '',
+  '[s3_api]',
+  's3_region = "garage"',
+  'api_bind_addr = "[::]:3900"',
+  '',
+  '[admin]',
+  'api_bind_addr = "[::]:3903"',
+  '',
+].join('\n')
 
 /** Inhalt des neuen Dienstes je Vorlage */
 function build(t: ServiceTemplateId, i: AddServiceInput, o: { databases: string[] }): Built {
@@ -206,19 +231,41 @@ function build(t: ServiceTemplateId, i: AddServiceInput, o: { databases: string[
         passwords: [{ key: pwKey, purpose: `Passwort von ${n}` }],
         connection: (pw) => named([`mongodb://app:${pw[pwKey]}@${n}:27017/?authSource=admin`]),
       }
-    case 'minio':
+    case 'garage': {
+      // Das Image hat keine Shell und Garage startet nicht ohne garage.toml; configs: lässt Airlock
+      // nicht zu. Ein Einmal-Dienst (busybox) schreibt die Datei ins Volume – ohne Geheimnisse,
+      // die kommen über x-airlock-env (GARAGE_RPC_SECRET, GARAGE_ADMIN_TOKEN, Standard-Schlüssel).
+      const k = { rpc: `${P}_RPC_SECRET`, admin: `${P}_ADMIN_TOKEN`, access: `${P}_ACCESS_KEY`, secret: `${P}_SECRET_KEY` }
+      const init = garageInitName(n)
       return {
         service: {
           image,
-          command: ['server', '/data', '--console-address', ':9001'],
-          environment: { MINIO_ROOT_USER: 'app' },
-          [X_ENV]: { MINIO_ROOT_PASSWORD: pwKey },
-          [X_INTERNAL]: 9001,
+          command: ['/garage', 'server', '--single-node', '--default-bucket'],
+          environment: { GARAGE_CONFIG_FILE: `${GARAGE_DIR}/garage.toml`, GARAGE_DEFAULT_BUCKET: GARAGE_BUCKET },
+          [X_ENV]: { GARAGE_RPC_SECRET: k.rpc, GARAGE_ADMIN_TOKEN: k.admin, GARAGE_DEFAULT_ACCESS_KEY: k.access, GARAGE_DEFAULT_SECRET_KEY: k.secret },
+          depends_on: { [init]: { condition: 'service_completed_successfully' } },
+          [X_INTERNAL]: 3903,
         },
-        mountPath: '/data',
-        passwords: [{ key: pwKey, purpose: `Passwort von ${n}` }],
-        connection: (pw) => named([`http://${n}:9000`, 'app', pw[pwKey]!]),
+        helpers: {
+          [init]: {
+            image: GARAGE_INIT_IMAGE,
+            // "$" bleibt in Airlock wörtlich; die Shell im Container setzt die Datei aus der Variable ein
+            // Ohne \n im Befehl: das würde beim Normalisieren zu einem echten Umbruch (die TOML endet schon mit einem)
+            command: ['sh', '-c', `printf '%s' "$GARAGE_TOML" > ${GARAGE_DIR}/garage.toml`],
+            environment: { GARAGE_TOML: GARAGE_TOML },
+            restart: 'no',
+          },
+        },
+        mountPath: GARAGE_DIR,
+        passwords: [
+          { key: k.access, purpose: `Zugriffsschlüssel von ${n}`, gen: () => `GK${randomBytes(12).toString('hex')}` },
+          { key: k.secret, purpose: `Geheimer Schlüssel von ${n}`, gen: () => randomBytes(32).toString('hex') },
+          { key: k.rpc, purpose: `RPC-Geheimnis von ${n}`, gen: () => randomBytes(32).toString('hex') },
+          { key: k.admin, purpose: `Token der Admin-API von ${n}` },
+        ],
+        connection: (pw) => named([`http://${n}:3900`, pw[k.access]!, pw[k.secret]!, 'garage', GARAGE_BUCKET]),
       }
+    }
     case 'mailpit':
       return {
         service: {
@@ -280,7 +327,8 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
   if (connect.length && !tpl.connection.length) throw fieldError('connect', `${tpl.label} bietet keine Verbindung für andere Dienste`)
 
   const b = build(i.template, i, { databases: databaseServices(doc) })
-  const volume = i.volume && tpl.volume && b.mountPath ? `${i.name}-data` : null
+  for (const h of Object.keys(b.helpers ?? {})) if (existing.includes(h)) throw fieldError('name', `Einen Dienst «${h}» gibt es schon (${tpl.label} braucht ihn als Hilfs-Dienst)`)
+  const volume = (i.volume || tpl.volumeRequired) && tpl.volume && b.mountPath ? `${i.name}-data` : null
   if (volume && keysOf(doc.get('volumes')).includes(volume)) throw fieldError('volume', `Ein Volume «${volume}» gibt es schon`)
 
   // Passwörter: bestehende Variable weiterverwenden (z. B. nach Entfernen mit behaltenem Volume – sonst passte das Passwort nicht mehr zu den Daten)
@@ -289,7 +337,7 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
   const values: Record<string, string> = {}
   for (const p of b.passwords) {
     const old = ctx.env[p.key]
-    values[p.key] = old ?? pw()
+    values[p.key] = old ?? (p.gen ?? pw)()
     variables.push({ key: p.key, secret: true, value: values[p.key]!, state: old !== undefined ? 'reuse' : 'new', purpose: p.purpose })
   }
   // Verbindung: nur, wenn jemand sie bekommt; eine bestehende Variable mit anderem Wert nie überschreiben
@@ -303,7 +351,10 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
     variables.push({ key: c.key, secret: c.secret, value: c.value, state: old !== undefined ? 'reuse' : 'new', purpose: `Verbindung für ${receivers.join(', ')}` })
   }
 
-  // Dienst eintragen
+  // Dienst eintragen (Hilfs-Dienste davor: sie laufen zuerst)
+  for (const [h, content] of Object.entries(b.helpers ?? {})) {
+    svcs.set(h, doc.createNode(volume ? { ...content, volumes: [`${volume}:${b.mountPath}`] } : content))
+  }
   const svc: Record<string, unknown> = { ...b.service }
   if (volume) svc.volumes = [`${volume}:${b.mountPath}`]
   svcs.set(i.name, doc.createNode(svc))
@@ -325,11 +376,30 @@ export async function addService(text: string, i: AddServiceInput, ctx: EditCont
   if (volume) notes.push(`Die Daten liegen im Volume «${volume}»; es bleibt bei Deploys und Neustarts erhalten.`)
   if (b.passwords.length) notes.push('Passwörter stehen nicht in der Datei: Airlock erzeugt sie und speichert sie als geheime Variablen des Projekts.')
   if (receivers.includes(ctx.webService) && conn.length) notes.push(`Der Web-Dienst «${ctx.webService}» bekommt alle Variablen des Projekts, also auch ${conn.map((c) => c.key).join(', ')}.`)
-  if (b.service[X_INTERNAL]) notes.push(`Die Oberfläche bekommt eine eigene Adresse ${i.name}--${ctx.slug ?? '<projekt>'} – nur über die internen Wege des Projekts (LAN, Tailnet), nie öffentlich.`)
+  if (b.service[X_INTERNAL]) {
+    const what = i.template === 'garage' ? `Die Admin-API (Token in ${varPrefix(i.name)}_ADMIN_TOKEN)` : 'Die Oberfläche'
+    notes.push(`${what} bekommt eine eigene Adresse ${i.name}--${ctx.slug ?? '<projekt>'} – nur über die internen Wege des Projekts (LAN, Tailnet), nie öffentlich.`)
+  }
+  if (i.template === 'garage') {
+    notes.push(`Garage läuft als ein Knoten und legt beim ersten Start den Bucket «${GARAGE_BUCKET}» und den Schlüssel selbst an. Die Konfiguration schreibt der Einmal-Dienst «${garageInitName(i.name)}» ins Volume; er ist danach beendet, das ist normal.`)
+  }
   if (variables.some((v) => v.state === 'reuse' && v.secret && b.passwords.some((p) => p.key === v.key))) {
     notes.push('Ein Passwort gibt es schon im Projekt; es wird weiterverwendet (passt zu einem behaltenen Volume).')
   }
   return { text: out, variables, notes, volume, internal: Boolean(b.service[X_INTERNAL]) }
+}
+
+/**
+ * Hilfs-Dienst eines Dienstes: heisst <name>-init und der Dienst wartet auf
+ * dessen erfolgreiches Ende (wie die Vorlage Garage ihn anlegt).
+ */
+function helperOf(svcs: YAMLMap, name: string): string | null {
+  const init = garageInitName(name)
+  const svc = svcs.get(name)
+  if (!isMap(svc) || !svcs.has(init)) return null
+  const dep = svc.get('depends_on')
+  const cond = isMap(dep) ? (dep.get(init) as YAMLMap | undefined)?.get?.('condition') : null
+  return cond === 'service_completed_successfully' ? init : null
 }
 
 /**
@@ -344,8 +414,13 @@ export async function removeService(text: string, i: RemoveServiceInput, ctx: Pi
   if (!names.includes(i.name)) throw fieldError('name', `Einen Dienst «${i.name}» gibt es in der compose.yaml nicht`)
   if (i.name === ctx.webService) throw fieldError('name', `«${i.name}» ist der Web-Dienst des Projekts und lässt sich nicht entfernen`)
 
-  const own = volumesOfService(svcs.get(i.name))
+  // Hilfs-Dienst (Garage: <name>-init) geht mit; allein entfernen ginge nicht – ohne ihn startet der Dienst nicht
+  const owner = names.find((n) => n !== i.name && helperOf(svcs, n) === i.name)
+  if (owner) throw fieldError('name', `«${i.name}» gehört zu «${owner}» und geht nur mit ihm. Entferne «${owner}».`)
+  const helper = helperOf(svcs, i.name)
+  const own = [...volumesOfService(svcs.get(i.name)), ...(helper ? volumesOfService(svcs.get(helper)) : [])]
   svcs.delete(i.name)
+  if (helper) svcs.delete(helper)
   const dependents: string[] = []
   for (const n of keysOf(svcs)) {
     const svc = svcs.get(n)
@@ -375,6 +450,7 @@ export async function removeService(text: string, i: RemoveServiceInput, ctx: Pi
   const out = dump(doc)
   await validate(out, ctx.webService)
   const notes: string[] = []
+  if (helper) notes.push(`Der Einmal-Dienst «${helper}» gehört zu «${i.name}» und geht mit.`)
   if (dependents.length) notes.push(`depends_on von ${dependents.join(', ')} verweist nicht mehr auf «${i.name}».`)
   if (volumes.length && !i.dropVolume) notes.push(`Volume ${volumes.map((v) => `«${v}»`).join(', ')} bleibt mit allen Daten erhalten (im Aufbau als «nicht eingehängt»).`)
   if (dropped.length) notes.push(`Volume ${dropped.map((v) => `«${v}»`).join(', ')} wird nach dem Deploy gelöscht – die Daten sind dann weg.`)

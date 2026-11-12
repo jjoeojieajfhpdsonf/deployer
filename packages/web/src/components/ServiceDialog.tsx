@@ -63,7 +63,7 @@ function toInput(f: Form): ServiceChangeInput {
     template: f.template,
     name: f.name.trim(),
     ...(tpl.image && f.version.trim() ? { version: f.version.trim() } : {}),
-    volume: tpl.volume && f.volume,
+    volume: tpl.volume && (f.volume || Boolean(tpl.volumeRequired)),
     connect: tpl.connection.length ? f.connect : [],
     ...(tpl.connection.length && f.connectionVar.trim() ? { connectionVar: f.connectionVar.trim() } : {}),
     ...(f.template === 'custom' ? {
@@ -168,7 +168,10 @@ export function AddServiceDialog({ p, t, open, onClose, onDone }: {
             </Field>
           )}
 
-          {tpl.volume && (
+          {tpl.volume && tpl.volumeRequired && (
+            <p className="hint">Daten und Konfiguration liegen im Volume «{form.name.trim() || tpl.name}-data» – bleibt bei Deploys und Neustarts erhalten.</p>
+          )}
+          {tpl.volume && !tpl.volumeRequired && (
             <label className="choice">
               <input type="checkbox" checked={form.volume} onChange={(e) => set({ volume: e.target.checked })} />
               <span>Daten in einem Volume behalten <small>Volume «{form.name.trim() || tpl.name}-data» – bleibt bei Deploys und Neustarts erhalten.</small></span>

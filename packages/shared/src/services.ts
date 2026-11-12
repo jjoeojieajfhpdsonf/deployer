@@ -10,7 +10,9 @@ import { z } from 'zod'
  * (Vorschläge), eine andere Version tippt man selbst ein.
  */
 
-export const SERVICE_TEMPLATE_IDS = ['postgres', 'mariadb', 'redis', 'mongo', 'minio', 'mailpit', 'adminer', 'custom'] as const
+// MinIO ist seit der Korrektur nach Nacht 2 keine Vorlage mehr (Community-Images kommen nicht mehr); Garage ersetzt sie.
+// Bestehende compose.yaml mit MinIO bleiben, wie sie sind – Vorlagen wirken nur beim Hinzufügen.
+export const SERVICE_TEMPLATE_IDS = ['postgres', 'mariadb', 'redis', 'mongo', 'garage', 'mailpit', 'adminer', 'custom'] as const
 export type ServiceTemplateId = (typeof SERVICE_TEMPLATE_IDS)[number]
 
 export interface ServiceTemplate {
@@ -28,6 +30,8 @@ export interface ServiceTemplate {
   volume: boolean
   /** Volume standardmässig an */
   volumeDefault: boolean
+  /** Ohne Volume geht es nicht (Garage: dort liegt auch die Konfiguration) – kein Häkchen, immer an */
+  volumeRequired?: boolean
   /** Eigene interne Adresse (Port der Oberfläche) – nur LAN und Tailnet */
   internalUi: number | null
   /** Variablen, die die gewählten Dienste bekommen (der erste lässt sich umbenennen) */
@@ -37,6 +41,9 @@ export interface ServiceTemplate {
   /** Erscheint im Aufbau unter «Daten» */
   database: boolean
 }
+
+/** Bucket, den die Vorlage Garage beim ersten Start anlegt */
+export const GARAGE_BUCKET = 'app'
 
 export const SERVICE_TEMPLATES: ServiceTemplate[] = [
   {
@@ -56,9 +63,14 @@ export const SERVICE_TEMPLATES: ServiceTemplate[] = [
     name: 'mongo', volume: true, volumeDefault: true, internalUi: null, connection: [{ key: 'MONGODB_URI', secret: true }], password: true, database: true,
   },
   {
-    id: 'minio', label: 'MinIO', about: 'S3-kompatibler Dateispeicher; Konsole unter eigener interner Adresse.', image: 'minio/minio', versions: ['latest'],
-    name: 'minio', volume: true, volumeDefault: true, internalUi: 9001,
-    connection: [{ key: 'S3_ENDPOINT', secret: false }, { key: 'S3_ACCESS_KEY', secret: false }, { key: 'S3_SECRET_KEY', secret: true }], password: true, database: false,
+    // Ein Knoten (--single-node), Schlüssel und Bucket legt Garage beim Start selbst an (--default-bucket, ab v2.3)
+    id: 'garage', label: 'Garage', about: `S3-kompatibler Dateispeicher mit Bucket «${GARAGE_BUCKET}»; Admin-API unter eigener interner Adresse.`, image: 'dxflrs/garage', versions: ['v2.5.0'],
+    name: 'garage', volume: true, volumeDefault: true, volumeRequired: true, internalUi: 3903,
+    connection: [
+      { key: 'S3_ENDPOINT', secret: false }, { key: 'S3_ACCESS_KEY', secret: false }, { key: 'S3_SECRET_KEY', secret: true },
+      { key: 'S3_REGION', secret: false }, { key: 'S3_BUCKET', secret: false },
+    ],
+    password: true, database: false,
   },
   {
     id: 'mailpit', label: 'Mailpit', about: 'Fängt E-Mails ab (SMTP) und zeigt sie unter eigener interner Adresse.', image: 'axllent/mailpit', versions: ['latest'],

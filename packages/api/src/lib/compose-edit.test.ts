@@ -79,12 +79,61 @@ describe('Dienst hinzufügen: Vorlagen', () => {
     assert.deepEqual(parse(r.text).services.worker['x-airlock-env'], { DOCS_URI: 'DOCS_URI' })
   })
 
-  test('MinIO: drei Variablen, Konsole intern', async () => {
-    const r = await addService(BASE, add({ template: 'minio', name: 'files', volume: true, connect: ['web'] }), ctx())
-    assert.deepEqual(r.variables.map((v) => [v.key, v.secret]), [['FILES_PASSWORD', true], ['S3_ENDPOINT', false], ['S3_ACCESS_KEY', false], ['S3_SECRET_KEY', true]])
-    assert.equal(r.variables[1]!.value, 'http://files:9000')
-    assert.equal(parse(r.text).services.files['x-airlock-internal'], 9001)
+  test('Garage: Schlüssel im Format von Garage, S3-Variablen, Admin-API intern, Einmal-Dienst schreibt die Konfiguration', async () => {
+    const r = await addService(BASE, add({ template: 'garage', name: 'files', volume: false, connect: ['web'] }), ctx())
+    const v = Object.fromEntries(r.variables.map((x) => [x.key, x]))
+    assert.deepEqual(r.variables.map((x) => [x.key, x.secret]), [
+      ['FILES_ACCESS_KEY', true], ['FILES_SECRET_KEY', true], ['FILES_RPC_SECRET', true], ['FILES_ADMIN_TOKEN', true],
+      ['S3_ENDPOINT', false], ['S3_ACCESS_KEY', false], ['S3_SECRET_KEY', true], ['S3_REGION', false], ['S3_BUCKET', false],
+    ])
+    // Garage prüft die Formate beim Anlegen: GK + 24 Hex, 64 Hex
+    assert.match(v.FILES_ACCESS_KEY!.value, /^GK[0-9a-f]{24}$/)
+    assert.match(v.FILES_SECRET_KEY!.value, /^[0-9a-f]{64}$/)
+    assert.match(v.FILES_RPC_SECRET!.value, /^[0-9a-f]{64}$/)
+    assert.equal(v.S3_ACCESS_KEY!.value, v.FILES_ACCESS_KEY!.value)
+    assert.equal(v.S3_SECRET_KEY!.value, v.FILES_SECRET_KEY!.value)
+    assert.equal(v.S3_ENDPOINT!.value, 'http://files:3900')
+    assert.equal(v.S3_REGION!.value, 'garage')
+    assert.equal(v.S3_BUCKET!.value, 'app')
+    const doc = parse(r.text)
+    const svc = doc.services.files
+    assert.equal(svc.image, 'dxflrs/garage:v2.5.0')
+    assert.deepEqual(svc.command, ['/garage', 'server', '--single-node', '--default-bucket'])
+    assert.equal(svc['x-airlock-internal'], 3903)
+    // Geheimnisse nie in der Datei, nur Namen der Variablen
+    assert.deepEqual(svc['x-airlock-env'], { GARAGE_RPC_SECRET: 'FILES_RPC_SECRET', GARAGE_ADMIN_TOKEN: 'FILES_ADMIN_TOKEN', GARAGE_DEFAULT_ACCESS_KEY: 'FILES_ACCESS_KEY', GARAGE_DEFAULT_SECRET_KEY: 'FILES_SECRET_KEY' })
+    assert.ok(!r.text.includes(v.FILES_SECRET_KEY!.value) && !r.text.includes(v.FILES_ACCESS_KEY!.value))
+    assert.deepEqual(svc.depends_on, { 'files-init': { condition: 'service_completed_successfully' } })
+    // Volume ist Pflicht (dort liegt auch die garage.toml), auch ohne Häkchen
+    assert.equal(r.volume, 'files-data')
+    assert.deepEqual(svc.volumes, ['files-data:/var/lib/garage'])
+    const init = doc.services['files-init']
+    assert.equal(init.image, 'busybox:1.37')
+    assert.equal(init.restart, 'no')
+    assert.deepEqual(init.volumes, ['files-data:/var/lib/garage'])
+    assert.match(init.environment.GARAGE_TOML, /replication_factor = 1/)
+    assert.match(init.environment.GARAGE_TOML, /s3_region = "garage"/)
+    assert.ok(!/secret|token/i.test(init.environment.GARAGE_TOML))
     assert.ok(r.internal)
+  })
+
+  test('Garage entfernen: der Einmal-Dienst geht mit, allein lässt er sich nicht entfernen', async () => {
+    const withGarage = (await addService(BASE, add({ template: 'garage', name: 'files', connect: ['web'] }), ctx())).text
+    await assert.rejects(removeService(withGarage, { action: 'remove', name: 'files-init', dropVolume: false }, { webService: 'web' }), /gehört zu «files»/)
+    const r = await removeService(withGarage, { action: 'remove', name: 'files', dropVolume: true }, { webService: 'web' })
+    const doc = parse(r.text)
+    assert.equal(doc.services.files, undefined)
+    assert.equal(doc.services['files-init'], undefined)
+    assert.deepEqual(r.dropped, ['files-data'])
+    assert.ok(r.notes.some((n) => n.includes('files-init')))
+  })
+
+  test('MinIO gibt es als Vorlage nicht mehr; eine bestehende compose.yaml mit MinIO bleibt gültig', async () => {
+    assert.equal(addServiceSchema.safeParse({ action: 'add', template: 'minio', name: 'files' }).success, false)
+    const minio = `${BASE}  files:\n    image: minio/minio:latest\n    command: ["server", "/data"]\n`
+    assert.deepEqual(readCompose(minio).services.includes('files'), true)
+    const r = await removeService(minio, { action: 'remove', name: 'files', dropVolume: false }, { webService: 'web' })
+    assert.equal(parse(r.text).services.files, undefined)
   })
 
   test('Mailpit: SMTP-URL ohne Passwort, Oberfläche intern', async () => {

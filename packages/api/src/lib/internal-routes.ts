@@ -1,6 +1,6 @@
 /**
  * Etappe 4: eigene interne Adressen für Dienste mit Oberfläche
- * (x-airlock-internal in compose.yaml, z. B. Adminer, Mailpit, MinIO-Konsole).
+ * (x-airlock-internal in compose.yaml, z. B. Adminer, Mailpit, Admin-API von Garage).
  *
  * Regeln:
  *   - Name <dienst>--<projekt> unter der internen Basis der Umgebung (das
