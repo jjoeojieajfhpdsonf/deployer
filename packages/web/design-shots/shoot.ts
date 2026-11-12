@@ -1216,7 +1216,11 @@ const shots: Shot[] = [
       await pg.waitForTimeout(250)
     },
   },
-  { group: 'statusseite', name: 'statusseite-aus', path: '/u/labor/einstellungen/statusseite', full: false },
+  {
+    group: 'statusseite', name: 'statusseite-aus', path: '/u/labor/einstellungen/statusseite', full: false,
+    // Unter Last war die Seite nach networkidle noch leer (axe: kein main, kein h1) – auf die Überschrift warten
+    prepare: async (pg) => { await pg.locator('main h1').first().waitFor({ timeout: 8000 }) },
+  },
   {
     group: 'statusseite', name: 'statusseite-projekt', path: `/u/example/projekte/${P}?tab=einstellungen`, full: false, patch: { showOnStatus: true },
     prepare: async (pg) => {
