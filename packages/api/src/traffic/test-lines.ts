@@ -21,6 +21,12 @@ export interface LineInput {
   logger?: string
   /** Weitere Kopfzeilen der Anfrage (kanonische Schreibweise, wie Caddy sie loggt) */
   headers?: Record<string, string>
+  /** Weitere Kopfzeilen der Antwort */
+  respHeaders?: Record<string, string>
+  /** TLS-Version (772 = TLS 1.3); ohne: keine TLS-Angabe */
+  tls?: number
+  /** Dauer in Sekunden */
+  duration?: number
 }
 
 export function caddyLine(o: LineInput = {}): string {
@@ -33,6 +39,7 @@ export function caddyLine(o: LineInput = {}): string {
   const resp: Record<string, string[]> = { Server: ['Caddy'] }
   if (o.contentType !== null) resp['Content-Type'] = [o.contentType ?? 'text/html; charset=utf-8']
   if (o.blocked) resp['X-Airlock-Block'] = ['ip-filter']
+  for (const [k, v] of Object.entries(o.respHeaders ?? {})) resp[k] = [v]
   const ip = o.ip ?? '192.168.1.20'
   return JSON.stringify({
     level: 'info',
@@ -48,10 +55,11 @@ export function caddyLine(o: LineInput = {}): string {
       host: o.host ?? 'foto.int.example.ch',
       uri: o.uri ?? '/',
       headers,
+      ...(o.tls ? { tls: { resumed: false, version: o.tls, cipher_suite: 4865, proto: 'h2', server_name: o.host ?? 'foto.int.example.ch' } } : {}),
     },
     bytes_read: 0,
     user_id: '',
-    duration: 0.0005,
+    duration: o.duration ?? 0.0005,
     size: 1234,
     status: o.status ?? 200,
     resp_headers: resp,

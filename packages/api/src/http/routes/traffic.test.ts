@@ -1,7 +1,7 @@
 import { test, describe, after } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify, { type FastifyInstance } from 'fastify'
-import type { TrafficLiveEventDto, TrafficSummaryDto } from '@airlock/shared'
+import type { AccessEntryDto, TrafficLiveEventDto, TrafficSummaryDto } from '@airlock/shared'
 import type { TrafficRouteDeps } from './traffic.js'
 
 // traffic.ts zieht über die Service-Schicht config.ts nach; für den Import genügt eine Dummy-Umgebung.
@@ -20,6 +20,8 @@ const { AppError } = await import('../../lib/errors.js')
 const listeners = new Map<string, Set<(e: TrafficLiveEventDto) => void>>()
 const emit = (id: string, e: TrafficLiveEventDto) => { for (const f of listeners.get(id) ?? []) f(e) }
 const asked: unknown[][] = []
+const accessAsked: [string, number][] = []
+const accessListeners = new Map<string, Set<(e: AccessEntryDto) => void>>()
 
 const apps: FastifyInstance[] = []
 after(async () => { for (const a of apps) await a.close() })
@@ -48,6 +50,17 @@ async function start(): Promise<string> {
         return () => set.delete(fn)
       },
       recent: (id) => (id === 'p1' ? [{ at: '2026-11-11T14:29:00.000Z', access: 'public', host: 'foto.example.ch', service: 'web', status: 200, blocked: false, bot: false, page: true, path: '/', country: 'CH', city: 'Zürich' }] : []),
+      access: async (id, sinceMs) => {
+        accessAsked.push([id, sinceMs])
+        return { entries: [], since: new Date(sinceMs).toISOString(), ingest: 'ok', capped: false, error: null }
+      },
+      onAccess: (id, fn) => {
+        const set = accessListeners.get(id) ?? new Set()
+        set.add(fn)
+        accessListeners.set(id, set)
+        return () => set.delete(fn)
+      },
+      accessSince: (id, since) => (id === 'p1' && since < '2026-11-12T09:00:00.000Z' ? [{ id: 'alt', at: '2026-11-12T09:00:00.000Z' } as AccessEntryDto] : []),
       visibleProjects: async () => new Set(['p1', 'p2']),
       today: async () => ({ p1: 214, p2: 0, fremd: 99 }),
       ingestState: () => 'ok',
@@ -112,6 +125,34 @@ describe('Routen /projects/:id/traffic', () => {
     assert.equal(r.events.length, 1)
     assert.deepEqual(Object.keys(r.events[0]!).sort(), ['access', 'at', 'blocked', 'bot', 'city', 'country', 'host', 'page', 'path', 'service', 'status'])
     assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/traffic/recent`)).status, 404)
+  })
+
+  test('Zugriffe: Zeitraum 15m, 1h, 24h (Standard 24h), Unsinn → 400', async () => {
+    const base = await start()
+    const before = Date.now()
+    assert.equal((await fetch(`${base}/api/v1/projects/foto/access`)).status, 200)
+    const [id, since] = accessAsked.at(-1)!
+    assert.equal(id, 'p1')
+    assert.ok(Math.abs(before - 24 * 60 * 60_000 - since) < 5_000)
+    assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=15m`)).status, 200)
+    assert.ok(Math.abs(Date.now() - 15 * 60_000 - accessAsked.at(-1)![1]) < 5_000)
+    assert.equal((await fetch(`${base}/api/v1/projects/foto/access?range=7d`)).status, 400)
+    assert.equal((await fetch(`${base}/api/v1/projects/gibtsnicht/access`)).status, 404)
+  })
+
+  test('Zugriffe live: Anschluss aus dem Speicher (since), dann neue Anfragen; Abmelden beim Schliessen', async () => {
+    const base = await start()
+    const ctrl = new AbortController()
+    const res = await fetch(`${base}/api/v1/projects/foto/access/stream?since=2026-11-12T08:59:00.000Z`, { signal: ctrl.signal })
+    assert.match(res.headers.get('content-type') ?? '', /text\/event-stream/)
+    const first = await readUntil(res.body!, (t) => t.includes(': verbunden'))
+    for (const f of accessListeners.get('p1') ?? []) f({ id: 'neu', at: '2026-11-12T09:01:00.000Z' } as AccessEntryDto)
+    const text = first + (first.includes('"neu"') ? '' : await readUntil(res.body!, (t) => t.includes('"neu"')))
+    const ids = text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => (JSON.parse(l.slice(6)) as AccessEntryDto).id)
+    assert.deepEqual(ids, ['alt', 'neu'])
+    ctrl.abort()
+    for (let i = 0; i < 50 && (accessListeners.get('p1')?.size ?? 0) > 0; i++) await new Promise((r) => setTimeout(r, 10))
+    assert.equal(accessListeners.get('p1')?.size ?? 0, 0)
   })
 
   test('Aufrufe heute: nur Projekte, die die Anfrage sehen darf', async () => {

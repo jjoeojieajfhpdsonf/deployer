@@ -1,7 +1,10 @@
 import { EventEmitter } from 'node:events'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { and, eq, isNotNull } from 'drizzle-orm'
 import {
+  ACCESS_MAX, DOCKER_BLOCK_WINDOW_MS, dockerBlockWarning, isDatacenterAsn, isDockerNet,
+  type AccessEntryDto, type AccessListDto, type DockerBlockWarningDto,
   UI_HOST_LABEL, trafficRange, daysBefore, rangeStart, startOfToday, summarize,
   type TrafficGeoSourcesDto, type TrafficLiveEventDto, type TrafficRange, type TrafficSourceDto, type TrafficSummaryDto, type TrafficWay,
 } from '@airlock/shared'
@@ -14,6 +17,8 @@ import { publish, subscribe } from '../lib/events.js'
 import { log } from '../lib/log.js'
 import { VISITS_LOG_FILE } from '../drivers/caddy-config.js'
 import { TrafficAggregator, TrafficDimAggregator } from './aggregate.js'
+import { blockOf, readAccessLog, toAccessEntry, type AccessLookups } from './access.js'
+import type { AccessLine } from './parse.js'
 import { AsnDb, CityDb, dbipDue, type DbipDb } from './geo.js'
 import { TrafficProcessor, type HostInfo } from './ingest.js'
 import { startTrafficRetentionJob } from './retention.js'
@@ -76,7 +81,72 @@ export function trafficRecent(projectId: string, limit = RECENT_MAX): TrafficLiv
   return (recent.get(projectId) ?? []).slice(0, limit)
 }
 
+/* --- Zugriffe neu: einzelne Anfragen live, Docker-Netz-Warnung ---------------- */
+
+const accessBus = new EventEmitter()
+accessBus.setMaxListeners(0)
+/** Letzte Anfragen je Projekt (für den Anschluss des Live-Stroms an den geladenen Stand) */
+const ACCESS_RECENT_MAX = 200
+const accessRecent = new Map<string, AccessEntryDto[]>()
+/** Abweisungen aus dem Docker-Netz (Zeit, Name) der letzten Stunde, seit dem Start */
+let dockerBlocks: { at: number; host: string }[] = []
+
+const accessLookups: AccessLookups = { asn: (ip) => asnDb.lookup(ip), city: (ip) => cityDb.lookup(ip), isDatacenter: isDatacenterAsn }
+
+function tapAccess(a: AccessLine, host: HostInfo): void {
+  const block = blockOf(a)
+  if (!host.public && block && block !== 'pause' && isDockerNet(a.remoteIp)) {
+    const cutoff = a.at - DOCKER_BLOCK_WINDOW_MS
+    dockerBlocks = [...dockerBlocks.filter((e) => e.at > cutoff), { at: a.at, host: a.host }].slice(-1000)
+  }
+  const entry = toAccessEntry(a, host.public, accessLookups)
+  const list = accessRecent.get(host.projectId) ?? []
+  list.unshift(entry)
+  if (list.length > ACCESS_RECENT_MAX) list.length = ACCESS_RECENT_MAX
+  accessRecent.set(host.projectId, list)
+  accessBus.emit(host.projectId, entry)
+}
+
+/** Neue Anfragen eines Projekts abonnieren (Reiter «Zugriffe», Live); gibt die Abmeldung zurück */
+export function onAccessLive(projectId: string, fn: (e: AccessEntryDto) => void): () => void {
+  accessBus.on(projectId, fn)
+  return () => accessBus.off(projectId, fn)
+}
+
+/** Anfragen aus dem Speicher nach einem Zeitpunkt (ISO), älteste zuerst – Anschluss ohne Lücke */
+export function accessSince(projectId: string, sinceIso: string): AccessEntryDto[] {
+  return (accessRecent.get(projectId) ?? []).filter((e) => e.at > sinceIso).reverse()
+}
+
+/** Warnung für Server › Übersicht: mehr als 3 Abweisungen aus dem Docker-Netz in der letzten Stunde */
+export const dockerBlockState = (now = Date.now()): DockerBlockWarningDto | null => dockerBlockWarning(dockerBlocks, now)
+
+/** Namen eines Projekts (für das Lesen des Logs); ohne laufenden Ingest frisch aus der Datenbank */
+async function projectHosts(projectId: string): Promise<Map<string, { public: boolean }>> {
+  const all = hosts.size ? hosts : await loadHosts()
+  const out = new Map<string, { public: boolean }>()
+  for (const [name, h] of all) if (h.projectId === projectId) out.set(name, { public: h.public })
+  return out
+}
+
+/** Reiter «Zugriffe»: Anfragen eines Projekts seit sinceMs aus visits.log (und rotierten Dateien) */
+export async function projectAccess(projectId: string, sinceMs: number): Promise<AccessListDto> {
+  const since = new Date(sinceMs).toISOString()
+  if (!config.ACCESS_LOG_DIR) return { entries: [], since, ingest: 'off', capped: false, error: null }
+  try {
+    const h = await projectHosts(projectId)
+    const { entries, capped } = h.size
+      ? await readAccessLog(config.ACCESS_LOG_DIR, { hosts: h, sinceMs, limit: ACCESS_MAX, lookups: accessLookups })
+      : { entries: [], capped: false }
+    const exists = await stat(join(config.ACCESS_LOG_DIR, VISITS_LOG_FILE)).then((s) => s.isFile()).catch(() => false)
+    return { entries, since, ingest: exists ? 'ok' : 'waiting', capped, error: null }
+  } catch (err) {
+    return { entries: [], since, ingest: state, capped: false, error: `Zugriffs-Log nicht lesbar: ${(err as Error).message.slice(0, 160)}` }
+  }
+}
+
 const processor = new TrafficProcessor({
+  tap: tapAccess,
   aggregator,
   dims: dimAggregator,
   visitors,

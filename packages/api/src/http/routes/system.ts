@@ -17,6 +17,7 @@ import { actorFor } from '../auth.js'
 import { badRequest, AppError } from '../../lib/errors.js'
 import { redactDeep } from '../../lib/redact.js'
 import { assessClientIps, parseAccessLog } from '../../lib/client-ips.js'
+import { dockerBlockState } from '../../traffic/service.js'
 import * as docker from '../../drivers/docker.js'
 import * as caddy from '../../drivers/caddy.js'
 import { listAudit } from '../../domain/audit.js'
@@ -147,6 +148,8 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     // Prüfungen und Zertifikatsfehler stammen aus fremden Meldungen (Caddy, Cloudflare)
     return redactDeep<SystemStatusDto>({
       clientIps,
+      // Zugriffe neu: Abweisungen aus dem Docker-Netz auf Projekt-Routen (letzte Stunde, > 3)
+      dockerBlocks: dockerBlockState(),
       version: config.version,
       checks,
       diskFreeBytes,
